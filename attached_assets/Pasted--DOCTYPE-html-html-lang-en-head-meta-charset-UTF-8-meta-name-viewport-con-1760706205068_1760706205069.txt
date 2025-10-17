@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShuttleIQ - Badminton Queue Management</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .animate-pulse-fast { animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { Users, Clock, Activity, UserPlus, Trophy, AlertCircle, CheckCircle, X, Plus, Minus, Trash2, RotateCcw, RefreshCw } = lucide;
+
+        const ShuttleIQ = () => {
+            // Brand colors
+            const brandColors = {
+                primary: '#003d6b',
+                secondary: '#00a19c',
+                accent: '#38BDF8',
+                success: '#10B981',
+                warning: '#F59E0B',
+                danger: '#EF4444'
+            };
+
+            const [courts, setCourts] = useState([
+                { id: 1, name: 'Court 1', status: 'available', players: [], waitingQueue: [], timeRemaining: 0, winningTeam: null },
+                { id: 2, name: 'Court 2', status: 'available', players: [], waitingQueue: [], timeRemaining: 0, winningTeam: null },
+                { id: 3, name: 'Court 3', status: 'available', players: [], waitingQueue: [], timeRemaining: 0, winningTeam: null },
+                { id: 4, name: 'Court 4', status: 'available', players: [], waitingQueue: [], timeRemaining: 0, winningTeam: null }
+            ]);
+            const [nextCourtId, setNextCourtId] = useState(5);
+
+            const [players, setPlayers] = useState([
+                { id: 1, name: 'Hari', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 2, name: 'Aditya', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 3, name: 'Jino', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 4, name: 'Arjun', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 5, name: 'Sourabh', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 6, name: 'Marium', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 7, name: 'Kush', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 8, name: 'AJ', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 9, name: 'Cinto John', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 10, name: 'Mohini', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 11, name: 'Akhila', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 12, name: 'Archie', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 13, name: 'Amal Raj', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
+                { id: 14, name: 'Sandeep', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' }
+            ]);
+
+            const [globalQueue, setGlobalQueue] = useState([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+            const [selectedPlayersForCourt, setSelectedPlayersForCourt] = useState([]);
+            const [newPlayerName, setNewPlayerName] = useState('');
+            const [newPlayerLevel, setNewPlayerLevel] = useState('Intermediate');
+            const [showAddPlayer, setShowAddPlayer] = useState(false);
+            const [activeTab, setActiveTab] = useState('courts');
+            const [notifications, setNotifications] = useState([]);
+            const [showClearConfirm, setShowClearConfirm] = useState(false);
+            const [clearAction, setClearAction] = useState(null);
+
+            const GAME_DURATION = 15;
+
+            const addCourt = () => {
+                const newCourt = {
+                    id: nextCourtId,
+                    name: `Court ${courts.length + 1}`,
+                    status: 'available',
+                    players: [],
+                    waitingQueue: [],
+                    timeRemaining: 0,
+                    winningTeam: null
+                };
+                setCourts(prev => [...prev, newCourt]);
+                setNextCourtId(prev => prev + 1);
+                addNotification(`Court ${courts.length + 1} added`, 'success');
+            };
+
+            const removeCourt = (courtId) => {
+                const courtToRemove = courts.find(c => c.id === courtId);
+                
+                if (courtToRemove && courtToRemove.status === 'occupied') {
+                    addNotification('Cannot remove an occupied court', 'danger');
+                    return;
+                }
+                
+                if (courts.length <= 1) {
+                    addNotification('Must have at least one court', 'warning');
+                    return;
+                }
+                
+                setCourts(prev => {
+                    const filtered = prev.filter(c => c.id !== courtId);
+                    return filtered.map((court, index) => ({
+                        ...court,
+                        name: `Court ${index + 1}`
+                    }));
+                });
+                
+                addNotification(`Court removed`, 'info');
+            };
+
+            useEffect(() => {
+                const timer = setInterval(() => {
+                    setCourts(prevCourts => 
+                        prevCourts.map(court => {
+                            if (court.status === 'occupied' && court.timeRemaining > 0) {
+                                const newTime = court.timeRemaining - 1;
+                                if (newTime === 0) {
+                                    addNotification(`Time's up for ${court.name}!`, 'warning');
+                                }
+                                return { ...court, timeRemaining: newTime };
+                            }
+                            return court;
+                        })
+                    );
+                }, 60000);
+
+                return () => clearInterval(timer);
+            }, []);
+
+            const addNotification = (message, type = 'info') => {
+                const id = Date.now();
+                setNotifications(prev => [...prev, { id, message, type }]);
+                setTimeout(() => {
+                    setNotifications(prev => prev.filter(n => n.id !== id));
+                }, 5000);
+            };
+
+            const addPlayer = () => {
+                if (!newPlayerName.trim()) return;
+                
+                const newPlayer = {
+                    id: Date.now(),
+                    name: newPlayerName,
+                    level: newPlayerLevel,
+                    gamesPlayed: 0,
+                    wins: 0,
+                    status: 'waiting'
+                };
+                
+                setPlayers(prev => [...prev, newPlayer]);
+                setGlobalQueue(prev => [...prev, newPlayer.id]);
+                setNewPlayerName('');
+                setShowAddPlayer(false);
+                addNotification(`${newPlayer.name} added to queue`, 'success');
+            };
+
+            const togglePlayerSelection = (playerId) => {
+                setSelectedPlayersForCourt(prev => {
+                    if (prev.includes(playerId)) {
+                        return prev.filter(id => id !== playerId);
+                    } else {
+                        if (prev.length >= 4) {
+                            addNotification('Maximum 4 players can be selected', 'warning');
+                            return prev;
+                        }
+                        return [...prev, playerId];
+                    }
+                });
+            };
+
+            const assignPlayersToCourt = (courtId) => {
+                const court = courts.find(c => c.id === courtId);
+                
+                if (!court || court.status === 'occupied') {
+                    addNotification('Court is not available', 'warning');
+                    return;
+                }
+                
+                if (selectedPlayersForCourt.length < 2) {
+                    addNotification('Select at least 2 players', 'warning');
+                    return;
+                }
+                
+                const playersToAssign = players.filter(p => selectedPlayersForCourt.includes(p.id));
+                
+                setCourts(prev => prev.map(c => {
+                    if (c.id === courtId) {
+                        return {
+                            ...c,
+                            status: 'occupied',
+                            players: playersToAssign,
+                            timeRemaining: GAME_DURATION,
+                            winningTeam: null
+                        };
+                    }
+                    return c;
+                }));
+                
+                setGlobalQueue(prev => prev.filter(id => !selectedPlayersForCourt.includes(id)));
+                
+                setPlayers(prev => prev.map(player => {
+                    if (selectedPlayersForCourt.includes(player.id)) {
+                        return { ...player, status: 'playing' };
+                    }
+                    return player;
+                }));
+                
+                setSelectedPlayersForCourt([]);
+                
+                addNotification(`${playersToAssign.length} players assigned to ${court.name}`, 'success');
+            };
+
+            const assignToCourtAuto = () => {
+                const availableCourt = courts.find(c => c.status === 'available');
+                const waitingPlayers = globalQueue.slice(0, 4);
+                
+                if (!availableCourt || waitingPlayers.length < 2) {
+                    addNotification('Need at least 2 players and an available court', 'warning');
+                    return;
+                }
+
+                const playersToAssign = players.filter(p => waitingPlayers.includes(p.id));
+                
+                setCourts(prev => prev.map(court => {
+                    if (court.id === availableCourt.id) {
+                        return {
+                            ...court,
+                            status: 'occupied',
+                            players: playersToAssign.slice(0, 4),
+                            timeRemaining: GAME_DURATION,
+                            winningTeam: null
+                        };
+                    }
+                    return court;
+                }));
+
+                setGlobalQueue(prev => prev.filter(id => !waitingPlayers.slice(0, 4).includes(id)));
+                setPlayers(prev => prev.map(player => {
+                    if (waitingPlayers.slice(0, 4).includes(player.id)) {
+                        return { ...player, status: 'playing' };
+                    }
+                    return player;
+                }));
+
+                addNotification(`Players assigned to ${availableCourt.name}`, 'success');
+            };
+
+            const removeFromQueue = (playerId) => {
+                setGlobalQueue(prev => prev.filter(id => id !== playerId));
+                setSelectedPlayersForCourt(prev => prev.filter(id => id !== playerId));
+                addNotification(`Player removed from queue`, 'info');
+            };
+
+            const selectWinningTeam = (courtId, teamNumber) => {
+                setCourts(prev => prev.map(court => {
+                    if (court.id === courtId) {
+                        return {
+                            ...court,
+                            winningTeam: court.winningTeam === teamNumber ? null : teamNumber
+                        };
+                    }
+                    return court;
+                }));
+            };
+
+            const endGame = (courtId) => {
+                const court = courts.find(c => c.id === courtId);
+                if (!court || court.status !== 'occupied') return;
+
+                if (court.winningTeam === null) {
+                    addNotification('Please select a winning team', 'warning');
+                    return;
+                }
+
+                const team1 = court.players.slice(0, Math.ceil(court.players.length / 2));
+                const team2 = court.players.slice(Math.ceil(court.players.length / 2));
+                
+                const winners = court.winningTeam === 1 ? team1 : team2;
+                const losers = court.winningTeam === 1 ? team2 : team1;
+
+                setPlayers(prev => prev.map(player => {
+                    if (court.players.some(p => p.id === player.id)) {
+                        const isWinner = winners.some(w => w.id === player.id);
+                        return {
+                            ...player,
+                            gamesPlayed: player.gamesPlayed + 1,
+                            wins: isWinner ? player.wins + 1 : player.wins,
+                            status: 'waiting'
+                        };
+                    }
+                    return player;
+                }));
+
+                setGlobalQueue(prev => [...prev, ...losers.map(p => p.id), ...winners.map(p => p.id)]);
+
+                setCourts(prev => prev.map(c => {
+                    if (c.id === courtId) {
+                        return {
+                            ...c,
+                            status: 'available',
+                            players: [],
+                            timeRemaining: 0,
+                            winningTeam: null
+                        };
+                    }
+                    return c;
+                }));
+
+                addNotification(`Game ended on ${court.name}. Team ${court.winningTeam} wins!`, 'success');
+            };
+
+            const clearAllPlayers = () => {
+                const playingPlayers = players.filter(p => p.status === 'playing');
+                if (playingPlayers.length > 0) {
+                    addNotification('Cannot clear while games in progress', 'danger');
+                    return;
+                }
+                
+                setPlayers([]);
+                setGlobalQueue([]);
+                setSelectedPlayersForCourt([]);
+                setCourts(prev => prev.map(court => ({
+                    ...court,
+                    winningTeam: null
+                })));
+                addNotification('All players cleared', 'success');
+                setShowClearConfirm(false);
+            };
+
+            const resetLeaderboardStats = () => {
+                setPlayers(prev => prev.map(player => ({
+                    ...player,
+                    gamesPlayed: 0,
+                    wins: 0
+                })));
+                addNotification('Stats reset', 'success');
+                setShowClearConfirm(false);
+            };
+
+            const clearQueue = () => {
+                setGlobalQueue([]);
+                setSelectedPlayersForCourt([]);
+                setPlayers(prev => prev.map(player => ({
+                    ...player,
+                    status: player.status === 'playing' ? 'playing' : 'waiting'
+                })));
+                addNotification('Queue cleared', 'success');
+            };
+
+            const handleClearAction = () => {
+                switch(clearAction) {
+                    case 'players': clearAllPlayers(); break;
+                    case 'stats': resetLeaderboardStats(); break;
+                    case 'queue': clearQueue(); setShowClearConfirm(false); break;
+                }
+            };
+
+            const formatTime = (minutes) => {
+                if (minutes === 0) return "Time's up!";
+                return `${minutes} min${minutes !== 1 ? 's' : ''} remaining`;
+            };
+
+            const getLevelColor = (level) => {
+                switch(level) {
+                    case 'Beginner': return 'text-green-600';
+                    case 'Intermediate': return 'text-yellow-600';
+                    case 'Advanced': return 'text-red-600';
+                    default: return 'text-gray-600';
+                }
+            };
+
+            const Icon = ({ icon: IconComponent, ...props }) => {
+                React.useEffect(() => {
+                    lucide.createIcons();
+                }, []);
+                return React.createElement(IconComponent, props);
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4">
+                    {/* Notifications */}
+                    <div className="fixed top-4 right-4 z-50 space-y-2">
+                        {notifications.map(notif => (
+                            <div key={notif.id} className={`flex items-center gap-2 px-4 py-2 rounded-lg shadow-lg text-white animate-pulse-fast ${notif.type === 'success' ? 'bg-green-500' : notif.type === 'warning' ? 'bg-yellow-500' : notif.type === 'danger' ? 'bg-red-500' : 'bg-blue-500'}`}>
+                                <Icon icon={notif.type === 'success' ? CheckCircle : AlertCircle} size={20} />
+                                <span>{notif.message}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Header */}
+                    <div className="max-w-7xl mx-auto">
+                        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <div className="flex items-center gap-6">
+                                    <h1 className="text-4xl font-bold">
+                                        <span style={{color: '#003d6b'}}>Shuttle</span>
+                                        <span style={{color: '#00a19c'}}>IQ</span>
+                                    </h1>
+                                    <div className="border-l-2 border-gray-200 pl-6">
+                                        <p className="text-gray-600 text-sm font-medium">Smart Badminton</p>
+                                        <p className="text-gray-600 text-sm font-medium">Queue Management</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setShowAddPlayer(true)} className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2 hover:shadow-lg transition" style={{backgroundColor: '#003d6b'}}>
+                                        <Icon icon={UserPlus} size={20} />
+                                        Add Player
+                                    </button>
+                                    <button onClick={assignToCourtAuto} className="px-4 py-2 rounded-lg text-white font-semibold flex items-center gap-2 hover:shadow-lg transition" style={{backgroundColor: '#00a19c'}}>
+                                        <Icon icon={Activity} size={20} />
+                                        Auto Assign
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Stats Bar */}
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-sm text-gray-600">Active Players</p>
+                                    <p className="text-2xl font-bold" style={{color: brandColors.primary}}>
+                                        {players.filter(p => p.status === 'playing').length}
+                                    </p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-sm text-gray-600">In Queue</p>
+                                    <p className="text-2xl font-bold" style={{color: brandColors.secondary}}>
+                                        {globalQueue.length}
+                                    </p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-sm text-gray-600">Available</p>
+                                    <p className="text-2xl font-bold text-green-600">
+                                        {courts.filter(c => c.status === 'available').length}/{courts.length}
+                                    </p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-sm text-gray-600">In Progress</p>
+                                    <p className="text-2xl font-bold text-orange-600">
+                                        {courts.filter(c => c.status === 'occupied').length}
+                                    </p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-sm text-gray-600">Total Players</p>
+                                    <p className="text-2xl font-bold text-gray-700">{players.length}</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Tab Navigation */}
+                        <div className="bg-white rounded-2xl shadow-xl p-2 mb-6">
+                            <div className="flex gap-2">
+                                {['courts', 'queue', 'leaderboard'].map(tab => (
+                                    <button key={tab} onClick={() => { setActiveTab(tab); setSelectedPlayersForCourt([]); }} className={`flex-1 px-4 py-2 rounded-lg font-semibold transition ${activeTab === tab ? 'text-white' : 'text-gray-600 hover:bg-gray-100'}`} style={activeTab === tab ? {backgroundColor: brandColors.primary} : {}}>
+                                        {tab === 'courts' ? 'Courts Management' : tab === 'queue' ? 'Player Queue' : 'Leaderboard'}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Courts View */}
+                        {activeTab === 'courts' && (
+                            <div>
+                                <div className="bg-gradient-to-r from-teal-50 to-blue-50 border-2 border-teal-200 rounded-2xl shadow-xl p-6 mb-6">
+                                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                                        <div>
+                                            <h3 className="text-xl font-bold" style={{color: '#003d6b'}}>Court Management Controls</h3>
+                                            <p className="text-sm text-gray-600 mt-1">Currently managing <span className="font-bold text-lg">{courts.length}</span> court{courts.length !== 1 ? 's' : ''}</p>
+                                        </div>
+                                        <div className="flex gap-3 w-full md:w-auto">
+                                            <button onClick={() => { const lastCourt = courts[courts.length - 1]; if (lastCourt) removeCourt(lastCourt.id); }} disabled={courts.length <= 1 || courts[courts.length - 1]?.status === 'occupied'} className={`flex-1 md:flex-initial px-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition ${courts.length <= 1 || courts[courts.length - 1]?.status === 'occupied' ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-red-500 text-white hover:bg-red-600 hover:scale-105'}`}>
+                                                <Icon icon={Minus} size={20} />
+                                                Remove Court
+                                            </button>
+                                            <button onClick={addCourt} className="flex-1 md:flex-initial px-6 py-3 rounded-lg text-white font-bold flex items-center justify-center gap-2 hover:shadow-lg transition hover:scale-105" style={{backgroundColor: '#00a19c'}}>
+                                                <Icon icon={Plus} size={24} />
+                                                Add New Court
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {courts.map(court => (
+                                        <div key={court.id} className="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition relative">
+                                            {courts.length > 1 && court.status === 'available' && (
+                                                <button onClick={() => removeCourt(court.id)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition">
+                                                    <Icon icon={X} size={20} />
+                                                </button>
+                                            )}
+                                            
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div>
+                                                    <h3 className="text-2xl font-bold text-gray-800">{court.name}</h3>
+                                                    <span className={`inline-block px-3 py-1 rounded-full text-sm font-semibold mt-2 ${court.status === 'available' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                        {court.status === 'available' ? 'AVAILABLE' : 'OCCUPIED'}
+                                                    </span>
+                                                </div>
+                                                {court.status === 'occupied' && (
+                                                    <div className="text-right">
+                                                        <Icon icon={Clock} className="inline mr-2" size={16} />
+                                                        <span className={`font-semibold ${court.timeRemaining <= 5 ? 'text-red-600' : 'text-gray-600'}`}>
+                                                            {formatTime(court.timeRemaining)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {court.status === 'occupied' ? (
+                                                <div>
+                                                    <h4 className="font-semibold text-gray-700 mb-3 text-center">Current Match</h4>
+                                                    <div className="relative">
+                                                        <div className="grid grid-cols-2 gap-2 mb-4">
+                                                            <div className={`p-3 rounded-lg border-2 transition-all ${court.winningTeam === 1 ? 'bg-green-50 border-green-400' : 'bg-blue-50 border-blue-200'}`}>
+                                                                <h5 className="text-center font-bold mb-2" style={{color: '#003d6b'}}>TEAM 1</h5>
+                                                                {court.players.slice(0, Math.ceil(court.players.length / 2)).map(player => (
+                                                                    <div key={player.id} className="text-center mb-1">
+                                                                        <p className="font-medium text-sm">{player.name}</p>
+                                                                        <p className={`text-xs ${getLevelColor(player.level)}`}>{player.level}</p>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
+                                                                <div className="bg-white rounded-full w-12 h-12 flex items-center justify-center shadow-lg border-2 border-gray-300">
+                                                                    <span className="font-bold text-gray-600">VS</span>
+                                                                </div>
+                                                            </div>
+                                                            <div className={`p-3 rounded-lg border-2 transition-all ${court.winningTeam === 2 ? 'bg-green-50 border-green-400' : 'bg-teal-50 border-teal-200'}`}>
+                                                                <h5 className="text-center font-bold mb-2" style={{color: '#00a19c'}}>TEAM 2</h5>
+                                                                {court.players.slice(Math.ceil(court.players.length / 2)).map(player => (
+                                                                    <div key={player.id} className="text-center mb-1">
+                                                                        <p className="font-medium text-sm">{player.name}</p>
+                                                                        <p className={`text-xs ${getLevelColor(player.level)}`}>{player.level}</p>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mb-4">
+                                                        <p className="text-sm text-gray-600 text-center mb-2">Select Winner:</p>
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            {[1, 2].map(team => (
+                                                                <button key={team} onClick={() => selectWinningTeam(court.id, team)} className={`py-2 px-4 rounded-lg font-semibold transition-all ${court.winningTeam === team ? 'bg-green-500 text-white shadow-lg scale-105' : 'text-white hover:opacity-90'}`} style={court.winningTeam !== team ? {backgroundColor: team === 1 ? '#003d6b' : '#00a19c'} : {}}>
+                                                                    {court.winningTeam === team ? `🏆 Team ${team} Wins` : `Team ${team}`}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                    {court.winningTeam && (
+                                                        <button onClick={() => endGame(court.id)} className="w-full py-3 rounded-lg bg-red-500 text-white font-bold hover:bg-red-600 transition flex items-center justify-center gap-2">
+                                                            <Icon icon={Trophy} size={20} />
+                                                            End Game & Record Result
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <h4 className="font-semibold text-gray-700 mb-3">Assign Players from Queue</h4>
+                                                    {globalQueue.length > 0 ? (
+                                                        <div>
+                                                            <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-2 mb-4">
+                                                                {globalQueue.map(playerId => {
+                                                                    const player = players.find(p => p.id === playerId);
+                                                                    if (!player) return null;
+                                                                    const isSelected = selectedPlayersForCourt.includes(playerId);
+                                                                    return (
+                                                                        <div key={playerId} onClick={() => togglePlayerSelection(playerId)} className={`p-2 rounded-lg border-2 cursor-pointer transition ${isSelected ? 'bg-blue-100 border-blue-400' : 'bg-gray-50 hover:bg-gray-100'}`}>
+                                                                            <p className="font-semibold text-sm">{player.name}</p>
+                                                                            <p className={`text-xs ${getLevelColor(player.level)}`}>{player.level}</p>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                            <button onClick={() => assignPlayersToCourt(court.id)} disabled={selectedPlayersForCourt.length < 2} className="w-full py-3 rounded-lg text-white font-bold flex items-center justify-center gap-2 transition" style={{backgroundColor: selectedPlayersForCourt.length < 2 ? '#9ca3af' : '#003d6b', cursor: selectedPlayersForCourt.length < 2 ? 'not-allowed' : 'pointer'}}>
+                                                                Assign {selectedPlayersForCourt.length > 0 && `(${selectedPlayersForCourt.length})`} Player{selectedPlayersForCourt.length !== 1 ? 's' : ''}
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-center py-8 bg-gray-50 rounded-lg">
+                                                            <p className="text-gray-500">No players in the queue.</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Queue View */}
+                        {activeTab === 'queue' && (
+                           <div className="bg-white rounded-2xl shadow-xl p-6">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-2xl font-bold" style={{color: brandColors.primary}}>Player Queue</h2>
+                                    <button onClick={() => { setClearAction('queue'); setShowClearConfirm(true); }} className="px-4 py-2 rounded-lg bg-red-500 text-white font-semibold flex items-center gap-2 hover:bg-red-600 transition">
+                                        <Icon icon={Trash2} size={18} />
+                                        Clear Queue
+                                    </button>
+                                </div>
+                                {globalQueue.length > 0 ? (
+                                    <ul className="space-y-3">
+                                        {globalQueue.map((playerId, index) => {
+                                            const player = players.find(p => p.id === playerId);
+                                            if (!player) return null;
+                                            return (
+                                                <li key={playerId} className="flex items-center justify-between p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition">
+                                                    <div className="flex items-center gap-4">
+                                                        <span className="text-lg font-bold text-gray-400 w-8 text-center">{index + 1}</span>
+                                                        <div>
+                                                            <p className="font-semibold text-gray-800">{player.name}</p>
+                                                            <p className={`text-sm font-medium ${getLevelColor(player.level)}`}>{player.level}</p>
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => removeFromQueue(playerId)} className="text-gray-400 hover:text-red-500 transition">
+                                                        <Icon icon={Trash2} size={20} />
+                                                    </button>
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                ) : (
+                                    <div className="text-center py-12 bg-gray-50 rounded-lg">
+                                        <Icon icon={Users} size={48} className="mx-auto text-gray-400 mb-4" />
+                                        <h3 className="text-xl font-semibold text-gray-700">The Queue is Empty</h3>
+                                        <p className="text-gray-500 mt-2">Add players to get started!</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Leaderboard View */}
+                        {activeTab === 'leaderboard' && (
+                            <div className="bg-white rounded-2xl shadow-xl p-6">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h2 className="text-2xl font-bold" style={{color: brandColors.primary}}>Leaderboard</h2>
+                                    <div className="flex gap-3">
+                                        <button onClick={() => { setClearAction('stats'); setShowClearConfirm(true); }} className="px-4 py-2 rounded-lg bg-yellow-500 text-white font-semibold flex items-center gap-2 hover:bg-yellow-600 transition">
+                                            <Icon icon={RotateCcw} size={18} />
+                                            Reset Stats
+                                        </button>
+                                        <button onClick={() => { setClearAction('players'); setShowClearConfirm(true); }} className="px-4 py-2 rounded-lg bg-red-500 text-white font-semibold flex items-center gap-2 hover:bg-red-600 transition">
+                                            <Icon icon={Trash2} size={18} />
+                                            Clear All Players
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="border-b-2 border-gray-200">
+                                                <th className="p-3 text-sm font-semibold text-gray-600">Rank</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600">Player</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600 text-center">Games</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600 text-center">Wins</th>
+                                                <th className="p-3 text-sm font-semibold text-gray-600 text-center">Win Rate</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {players
+                                                .sort((a, b) => {
+                                                    const winRateA = a.gamesPlayed > 0 ? a.wins / a.gamesPlayed : 0;
+                                                    const winRateB = b.gamesPlayed > 0 ? b.wins / b.gamesPlayed : 0;
+                                                    if (winRateB !== winRateA) return winRateB - winRateA;
+                                                    return b.wins - a.wins;
+                                                })
+                                                .map((player, index) => {
+                                                    const winRate = player.gamesPlayed > 0 ? (player.wins / player.gamesPlayed * 100).toFixed(0) : 0;
+                                                    return (
+                                                        <tr key={player.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                                            <td className="p-3 font-bold text-gray-700">{index + 1}</td>
+                                                            <td className="p-3">
+                                                                <p className="font-semibold">{player.name}</p>
+                                                                <p className={`text-xs ${getLevelColor(player.level)}`}>{player.level}</p>
+                                                            </td>
+                                                            <td className="p-3 text-center font-medium text-gray-600">{player.gamesPlayed}</td>
+                                                            <td className="p-3 text-center font-medium text-green-600">{player.wins}</td>
+                                                            <td className="p-3 text-center font-bold" style={{color: brandColors.secondary}}>{winRate}%</td>
+                                                        </tr>
+                                                    )
+                                                })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Add Player Modal */}
+                    {showAddPlayer && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
+                            <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md m-4">
+                                <h3 className="text-2xl font-bold mb-6" style={{color: brandColors.primary}}>Add New Player</h3>
+                                <div className="space-y-4">
+                                    <input
+                                        type="text"
+                                        value={newPlayerName}
+                                        onChange={(e) => setNewPlayerName(e.target.value)}
+                                        placeholder="Player Name"
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                    />
+                                    <select
+                                        value={newPlayerLevel}
+                                        onChange={(e) => setNewPlayerLevel(e.target.value)}
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                    >
+                                        <option>Beginner</option>
+                                        <option>Intermediate</option>
+                                        <option>Advanced</option>
+                                    </select>
+                                </div>
+                                <div className="flex gap-4 mt-8">
+                                    <button onClick={() => setShowAddPlayer(false)} className="flex-1 py-3 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition">Cancel</button>
+                                    <button onClick={addPlayer} className="flex-1 py-3 rounded-lg text-white font-semibold transition" style={{backgroundColor: brandColors.primary}}>Add Player</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Clear Confirmation Modal */}
+                    {showClearConfirm && (
+                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
+                            <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md m-4 text-center">
+                                <Icon icon={AlertCircle} size={48} className="mx-auto text-red-500 mb-4" />
+                                <h3 className="text-2xl font-bold mb-2">Are you sure?</h3>
+                                <p className="text-gray-600 mb-6">
+                                    {clearAction === 'players' && 'This will remove all players and reset the session. This action cannot be undone.'}
+                                    {clearAction === 'stats' && 'This will reset all win/loss statistics for every player. This action cannot be undone.'}
+                                    {clearAction === 'queue' && 'This will clear the current waiting queue.'}
+                                </p>
+                                <div className="flex gap-4">
+                                    <button onClick={() => setShowClearConfirm(false)} className="flex-1 py-3 rounded-lg bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition">Cancel</button>
+                                    <button onClick={handleClearAction} className="flex-1 py-3 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition">Confirm</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<ShuttleIQ />, document.getElementById('root'));
+    </script>
+</body>
+</html>
