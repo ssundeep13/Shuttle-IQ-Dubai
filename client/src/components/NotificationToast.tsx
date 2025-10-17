@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { CheckCircle, AlertCircle, Info, AlertTriangle } from "lucide-react";
 import { Notification } from "@shared/schema";
 import { cn } from "@/lib/utils";
@@ -9,13 +9,34 @@ interface NotificationToastProps {
 }
 
 export function NotificationToast({ notifications, onDismiss }: NotificationToastProps) {
+  const timersRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+
   useEffect(() => {
+    // Set up timers for new notifications
     notifications.forEach((notification) => {
-      const timer = setTimeout(() => {
-        onDismiss(notification.id);
-      }, 5000);
-      return () => clearTimeout(timer);
+      if (!timersRef.current.has(notification.id)) {
+        const timer = setTimeout(() => {
+          onDismiss(notification.id);
+          timersRef.current.delete(notification.id);
+        }, 5000);
+        timersRef.current.set(notification.id, timer);
+      }
     });
+
+    // Clean up timers for dismissed notifications
+    const currentIds = new Set(notifications.map(n => n.id));
+    timersRef.current.forEach((timer, id) => {
+      if (!currentIds.has(id)) {
+        clearTimeout(timer);
+        timersRef.current.delete(id);
+      }
+    });
+
+    // Cleanup on unmount
+    return () => {
+      timersRef.current.forEach(timer => clearTimeout(timer));
+      timersRef.current.clear();
+    };
   }, [notifications, onDismiss]);
 
   const getIcon = (type: Notification['type']) => {

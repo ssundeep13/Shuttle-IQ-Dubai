@@ -100,7 +100,13 @@ export class MemStorage implements IStorage {
 
   async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
     const id = randomUUID();
-    const player: Player = { ...insertPlayer, id };
+    const player: Player = { 
+      ...insertPlayer, 
+      id,
+      status: insertPlayer.status || 'waiting',
+      gamesPlayed: insertPlayer.gamesPlayed || 0,
+      wins: insertPlayer.wins || 0
+    };
     this.players.set(id, player);
     return player;
   }
@@ -129,7 +135,13 @@ export class MemStorage implements IStorage {
 
   async createCourt(insertCourt: InsertCourt): Promise<Court> {
     const id = randomUUID();
-    const court: Court = { ...insertCourt, id };
+    const court: Court = { 
+      ...insertCourt, 
+      id,
+      status: insertCourt.status || 'available',
+      timeRemaining: insertCourt.timeRemaining || 0,
+      winningTeam: insertCourt.winningTeam || null
+    };
     this.courts.set(id, court);
     this.courtPlayers.set(id, []);
     return court;

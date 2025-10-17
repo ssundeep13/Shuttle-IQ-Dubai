@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { CourtWithPlayers, Player, Notification, AppStats } from "@shared/schema";
 import { Header } from "@/components/Header";
 import { TabNavigation } from "@/components/TabNavigation";
@@ -7,65 +8,56 @@ import { PlayerQueue } from "@/components/PlayerQueue";
 import { Leaderboard } from "@/components/Leaderboard";
 import { AddPlayerModal } from "@/components/AddPlayerModal";
 import { NotificationToast } from "@/components/NotificationToast";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 
 type TabType = 'courts' | 'queue' | 'leaderboard';
 
-const GAME_DURATION = 15; // minutes
-
-// Initial data
-const initialPlayers: Player[] = [
-  { id: '1', name: 'Hari', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '2', name: 'Aditya', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '3', name: 'Jino', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '4', name: 'Arjun', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '5', name: 'Sourabh', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '6', name: 'Marium', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '7', name: 'Kush', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '8', name: 'AJ', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '9', name: 'Cinto John', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '10', name: 'Mohini', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '11', name: 'Akhila', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '12', name: 'Archie', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '13', name: 'Amal Raj', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
-  { id: '14', name: 'Sandeep', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-];
-
-const initialCourts: CourtWithPlayers[] = [
-  { id: '1', name: 'Court 1', status: 'available', timeRemaining: 0, winningTeam: null, players: [] },
-  { id: '2', name: 'Court 2', status: 'available', timeRemaining: 0, winningTeam: null, players: [] },
-  { id: '3', name: 'Court 3', status: 'available', timeRemaining: 0, winningTeam: null, players: [] },
-  { id: '4', name: 'Court 4', status: 'available', timeRemaining: 0, winningTeam: null, players: [] },
-];
-
 export default function Home() {
-  const [courts, setCourts] = useState<CourtWithPlayers[]>(initialCourts);
-  const [players, setPlayers] = useState<Player[]>(initialPlayers);
-  const [globalQueue, setGlobalQueue] = useState<string[]>(initialPlayers.map(p => p.id));
   const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<TabType>('courts');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [nextCourtId, setNextCourtId] = useState(5);
 
-  // Timer countdown
+  // Fetch courts with players
+  const { data: courts = [], isLoading: courtsLoading } = useQuery<CourtWithPlayers[]>({
+    queryKey: ['/api/courts'],
+  });
+
+  // Fetch players
+  const { data: players = [], isLoading: playersLoading } = useQuery<Player[]>({
+    queryKey: ['/api/players'],
+  });
+
+  // Fetch queue
+  const { data: queue = [], isLoading: queueLoading } = useQuery<string[]>({
+    queryKey: ['/api/queue'],
+  });
+
+  // Fetch stats
+  const { data: stats } = useQuery<AppStats>({
+    queryKey: ['/api/stats'],
+  });
+
+  // Timer countdown (update court time remaining every minute)
   useEffect(() => {
     const timer = setInterval(() => {
-      setCourts((prevCourts) =>
-        prevCourts.map((court) => {
-          if (court.status === 'occupied' && court.timeRemaining > 0) {
-            const newTime = court.timeRemaining - 1;
-            if (newTime === 0) {
-              addNotification(`Time's up for ${court.name}!`, 'warning');
-            }
-            return { ...court, timeRemaining: newTime };
+      courts.forEach((court) => {
+        if (court.status === 'occupied' && court.timeRemaining > 0) {
+          const newTime = court.timeRemaining - 1;
+          if (newTime === 0) {
+            addNotification(`Time's up for ${court.name}!`, 'warning');
           }
-          return court;
-        })
-      );
+          // Update court time remaining
+          updateCourtMutation.mutate({ 
+            courtId: court.id, 
+            updates: { timeRemaining: newTime } 
+          });
+        }
+      });
     }, 60000); // 1 minute
 
     return () => clearInterval(timer);
-  }, []);
+  }, [courts]);
 
   const addNotification = (message: string, type: Notification['type'] = 'info') => {
     const id = Date.now();
@@ -76,55 +68,170 @@ export default function Home() {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 
-  const addCourt = () => {
-    const newCourt: CourtWithPlayers = {
-      id: String(nextCourtId),
-      name: `Court ${courts.length + 1}`,
-      status: 'available',
-      timeRemaining: 0,
-      winningTeam: null,
-      players: [],
-    };
-    setCourts((prev) => [...prev, newCourt]);
-    setNextCourtId((prev) => prev + 1);
-    addNotification(`Court ${courts.length + 1} added`, 'success');
+  // Mutations
+  const addCourtMutation = useMutation({
+    mutationFn: async (name: string) => {
+      return await apiRequest('POST', '/api/courts', { name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      addNotification(`Court added`, 'success');
+    },
+    onError: () => {
+      addNotification('Failed to add court', 'danger');
+    },
+  });
+
+  const removeCourtMutation = useMutation({
+    mutationFn: async (courtId: string) => {
+      return await apiRequest('DELETE', `/api/courts/${courtId}`, null);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      addNotification('Court removed', 'info');
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to remove court';
+      addNotification(message, 'danger');
+    },
+  });
+
+  const addPlayerMutation = useMutation({
+    mutationFn: async ({ name, level }: { name: string; level: string }) => {
+      return await apiRequest('POST', '/api/players', { name, level, gamesPlayed: 0, wins: 0, status: 'waiting' });
+    },
+    onSuccess: (data: Player) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      addNotification(`${data.name} added to queue`, 'success');
+    },
+    onError: () => {
+      addNotification('Failed to add player', 'danger');
+    },
+  });
+
+  const updateCourtMutation = useMutation({
+    mutationFn: async ({ courtId, updates }: { courtId: string; updates: Partial<CourtWithPlayers> }) => {
+      return await apiRequest('PATCH', `/api/courts/${courtId}`, updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to update court';
+      addNotification(message, 'danger');
+    },
+  });
+
+  const updatePlayerMutation = useMutation({
+    mutationFn: async ({ playerId, updates }: { playerId: string; updates: Partial<Player> }) => {
+      return await apiRequest('PATCH', `/api/players/${playerId}`, updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to update player';
+      addNotification(message, 'danger');
+    },
+  });
+
+  const assignPlayersMutation = useMutation({
+    mutationFn: async ({ courtId, playerIds }: { courtId: string; playerIds: string[] }) => {
+      return await apiRequest('POST', `/api/courts/${courtId}/assign`, { playerIds });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      setSelectedPlayers([]);
+      addNotification(`Players assigned to court`, 'success');
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to assign players';
+      addNotification(message, 'danger');
+    },
+  });
+
+  const endGameMutation = useMutation({
+    mutationFn: async ({ courtId, winningTeam }: { courtId: string; winningTeam: number }) => {
+      return await apiRequest('POST', `/api/courts/${courtId}/end-game`, { winningTeam });
+    },
+    onSuccess: (data: any, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      addNotification(`Game ended. Team ${variables.winningTeam} wins!`, 'success');
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to end game';
+      addNotification(message, 'danger');
+    },
+  });
+
+  const updateQueueMutation = useMutation({
+    mutationFn: async (playerIds: string[]) => {
+      return await apiRequest('PUT', '/api/queue', { playerIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to update queue';
+      addNotification(message, 'danger');
+    },
+  });
+
+  const removeFromQueueMutation = useMutation({
+    mutationFn: async (playerId: string) => {
+      return await apiRequest('DELETE', `/api/queue/${playerId}`, null);
+    },
+    onSuccess: (_, playerId) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      setSelectedPlayers((prev) => prev.filter((id) => id !== playerId));
+      addNotification('Player removed from queue', 'info');
+    },
+    onError: () => {
+      addNotification('Failed to remove player from queue', 'danger');
+    },
+  });
+
+  const deletePlayerMutation = useMutation({
+    mutationFn: async (playerId: string) => {
+      return await apiRequest('DELETE', `/api/players/${playerId}`, null);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to delete player';
+      addNotification(message, 'danger');
+    },
+  });
+
+  // Handlers
+  const handleAddCourt = () => {
+    addCourtMutation.mutate(`Court ${courts.length + 1}`);
   };
 
-  const removeCourt = (courtId: string) => {
-    const court = courts.find((c) => c.id === courtId);
-    if (court && court.status === 'occupied') {
-      addNotification('Cannot remove an occupied court', 'danger');
-      return;
-    }
-    if (courts.length <= 1) {
-      addNotification('Must have at least one court', 'warning');
-      return;
-    }
-    setCourts((prev) => {
-      const filtered = prev.filter((c) => c.id !== courtId);
-      return filtered.map((court, index) => ({
-        ...court,
-        name: `Court ${index + 1}`,
-      }));
-    });
-    addNotification('Court removed', 'info');
+  const handleRemoveCourt = (courtId: string) => {
+    removeCourtMutation.mutate(courtId);
   };
 
-  const addPlayer = (name: string, level: string) => {
-    const newPlayer: Player = {
-      id: String(Date.now()),
-      name,
-      level,
-      gamesPlayed: 0,
-      wins: 0,
-      status: 'waiting',
-    };
-    setPlayers((prev) => [...prev, newPlayer]);
-    setGlobalQueue((prev) => [...prev, newPlayer.id]);
-    addNotification(`${name} added to queue`, 'success');
+  const handleAddPlayer = (name: string, level: string) => {
+    addPlayerMutation.mutate({ name, level });
   };
 
-  const togglePlayerSelection = (playerId: string) => {
+  const handleTogglePlayerSelection = (playerId: string) => {
     setSelectedPlayers((prev) => {
       if (prev.includes(playerId)) {
         return prev.filter((id) => id !== playerId);
@@ -138,195 +245,111 @@ export default function Home() {
     });
   };
 
-  const assignPlayersToCourt = (courtId: string) => {
-    const court = courts.find((c) => c.id === courtId);
-    if (!court || court.status === 'occupied') {
-      addNotification('Court is not available', 'warning');
-      return;
-    }
+  const handleAssignPlayers = (courtId: string) => {
     if (selectedPlayers.length < 2) {
       addNotification('Select at least 2 players', 'warning');
       return;
     }
-
-    const playersToAssign = players.filter((p) => selectedPlayers.includes(p.id));
-
-    setCourts((prev) =>
-      prev.map((c) =>
-        c.id === courtId
-          ? {
-              ...c,
-              status: 'occupied',
-              players: playersToAssign,
-              timeRemaining: GAME_DURATION,
-              winningTeam: null,
-            }
-          : c
-      )
-    );
-
-    setGlobalQueue((prev) => prev.filter((id) => !selectedPlayers.includes(id)));
-    setPlayers((prev) =>
-      prev.map((player) =>
-        selectedPlayers.includes(player.id) ? { ...player, status: 'playing' } : player
-      )
-    );
-    setSelectedPlayers([]);
-    addNotification(`${playersToAssign.length} players assigned to ${court.name}`, 'success');
+    assignPlayersMutation.mutate({ courtId, playerIds: selectedPlayers });
   };
 
-  const autoAssign = () => {
+  const handleAutoAssign = () => {
     const availableCourt = courts.find((c) => c.status === 'available');
-    const waitingPlayers = globalQueue.slice(0, 4);
+    const waitingPlayers = queue.slice(0, 4);
 
     if (!availableCourt || waitingPlayers.length < 2) {
       addNotification('Need at least 2 players and an available court', 'warning');
       return;
     }
 
-    const playersToAssign = players.filter((p) => waitingPlayers.includes(p.id));
-
-    setCourts((prev) =>
-      prev.map((court) =>
-        court.id === availableCourt.id
-          ? {
-              ...court,
-              status: 'occupied',
-              players: playersToAssign.slice(0, 4),
-              timeRemaining: GAME_DURATION,
-              winningTeam: null,
-            }
-          : court
-      )
-    );
-
-    setGlobalQueue((prev) => prev.filter((id) => !waitingPlayers.slice(0, 4).includes(id)));
-    setPlayers((prev) =>
-      prev.map((player) =>
-        waitingPlayers.slice(0, 4).includes(player.id) ? { ...player, status: 'playing' } : player
-      )
-    );
-
-    addNotification(`Players assigned to ${availableCourt.name}`, 'success');
+    assignPlayersMutation.mutate({ courtId: availableCourt.id, playerIds: waitingPlayers });
   };
 
-  const removeFromQueue = (playerId: string) => {
-    setGlobalQueue((prev) => prev.filter((id) => id !== playerId));
-    setSelectedPlayers((prev) => prev.filter((id) => id !== playerId));
-    addNotification('Player removed from queue', 'info');
-  };
-
-  const selectWinningTeam = (courtId: string, teamNumber: number) => {
-    setCourts((prev) =>
-      prev.map((court) =>
-        court.id === courtId
-          ? {
-              ...court,
-              winningTeam: court.winningTeam === teamNumber ? null : teamNumber,
-            }
-          : court
-      )
-    );
-  };
-
-  const endGame = (courtId: string) => {
+  const handleSelectWinningTeam = (courtId: string, teamNumber: number) => {
     const court = courts.find((c) => c.id === courtId);
-    if (!court || court.status !== 'occupied') return;
+    if (!court) return;
 
-    if (court.winningTeam === null) {
+    const newWinningTeam = court.winningTeam === teamNumber ? null : teamNumber;
+    updateCourtMutation.mutate({ courtId, updates: { winningTeam: newWinningTeam } });
+  };
+
+  const handleEndGame = (courtId: string) => {
+    const court = courts.find((c) => c.id === courtId);
+    if (!court || court.winningTeam === null) {
       addNotification('Please select a winning team', 'warning');
       return;
     }
-
-    const team1 = court.players.slice(0, Math.ceil(court.players.length / 2));
-    const team2 = court.players.slice(Math.ceil(court.players.length / 2));
-    const winners = court.winningTeam === 1 ? team1 : team2;
-    const losers = court.winningTeam === 1 ? team2 : team1;
-
-    setPlayers((prev) =>
-      prev.map((player) => {
-        if (court.players.some((p) => p.id === player.id)) {
-          const isWinner = winners.some((w) => w.id === player.id);
-          return {
-            ...player,
-            gamesPlayed: player.gamesPlayed + 1,
-            wins: isWinner ? player.wins + 1 : player.wins,
-            status: 'waiting',
-          };
-        }
-        return player;
-      })
-    );
-
-    setGlobalQueue((prev) => [
-      ...prev,
-      ...losers.map((p) => p.id),
-      ...winners.map((p) => p.id),
-    ]);
-
-    setCourts((prev) =>
-      prev.map((c) =>
-        c.id === courtId
-          ? {
-              ...c,
-              status: 'available',
-              players: [],
-              timeRemaining: 0,
-              winningTeam: null,
-            }
-          : c
-      )
-    );
-
-    addNotification(`Game ended on ${court.name}. Team ${court.winningTeam} wins!`, 'success');
+    endGameMutation.mutate({ courtId, winningTeam: court.winningTeam });
   };
 
-  const clearQueue = () => {
-    setGlobalQueue([]);
+  const handleRemoveFromQueue = (playerId: string) => {
+    removeFromQueueMutation.mutate(playerId);
+  };
+
+  const handleClearQueue = () => {
+    updateQueueMutation.mutate([]);
     setSelectedPlayers([]);
     addNotification('Queue cleared', 'success');
   };
 
-  const resetStats = () => {
-    setPlayers((prev) =>
-      prev.map((player) => ({
-        ...player,
-        gamesPlayed: 0,
-        wins: 0,
-      }))
-    );
+  const handleResetStats = () => {
+    // Reset stats for all players
+    players.forEach((player) => {
+      updatePlayerMutation.mutate({
+        playerId: player.id,
+        updates: { gamesPlayed: 0, wins: 0 },
+      });
+    });
     addNotification('Stats reset', 'success');
   };
 
-  const clearAllPlayers = () => {
+  const handleClearAllPlayers = () => {
     const playingPlayers = players.filter((p) => p.status === 'playing');
     if (playingPlayers.length > 0) {
       addNotification('Cannot clear while games in progress', 'danger');
       return;
     }
-    setPlayers([]);
-    setGlobalQueue([]);
+    players.forEach((player) => {
+      deletePlayerMutation.mutate(player.id);
+    });
     setSelectedPlayers([]);
     addNotification('All players cleared', 'success');
   };
 
-  const queuePlayers = globalQueue
+  const queuePlayers = queue
     .map((id) => players.find((p) => p.id === id))
     .filter((p): p is Player => p !== undefined);
 
-  const stats: AppStats = {
-    activePlayers: players.filter((p) => p.status === 'playing').length,
-    inQueue: globalQueue.length,
-    availableCourts: courts.filter((c) => c.status === 'available').length,
-    occupiedCourts: courts.filter((c) => c.status === 'occupied').length,
-    totalPlayers: players.length,
-    totalCourts: courts.length,
+  const defaultStats: AppStats = {
+    activePlayers: 0,
+    inQueue: 0,
+    availableCourts: 0,
+    occupiedCourts: 0,
+    totalPlayers: 0,
+    totalCourts: 0,
   };
+
+  const isLoading = courtsLoading || playersLoading || queueLoading;
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading ShuttleIQ...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-7xl mx-auto">
-        <Header stats={stats} onAddPlayer={() => setShowAddPlayer(true)} onAutoAssign={autoAssign} />
+        <Header 
+          stats={stats || defaultStats} 
+          onAddPlayer={() => setShowAddPlayer(true)} 
+          onAutoAssign={handleAutoAssign} 
+        />
         <TabNavigation
           activeTab={activeTab}
           onTabChange={(tab) => {
@@ -340,30 +363,30 @@ export default function Home() {
             courts={courts}
             queuePlayers={queuePlayers}
             selectedPlayers={selectedPlayers}
-            onAddCourt={addCourt}
-            onRemoveCourt={removeCourt}
-            onTogglePlayerSelection={togglePlayerSelection}
-            onAssignPlayers={assignPlayersToCourt}
-            onSelectWinningTeam={selectWinningTeam}
-            onEndGame={endGame}
+            onAddCourt={handleAddCourt}
+            onRemoveCourt={handleRemoveCourt}
+            onTogglePlayerSelection={handleTogglePlayerSelection}
+            onAssignPlayers={handleAssignPlayers}
+            onSelectWinningTeam={handleSelectWinningTeam}
+            onEndGame={handleEndGame}
           />
         )}
 
         {activeTab === 'queue' && (
           <PlayerQueue
             players={players}
-            queuePlayerIds={globalQueue}
+            queuePlayerIds={queue}
             onAddPlayer={() => setShowAddPlayer(true)}
-            onRemoveFromQueue={removeFromQueue}
-            onClearQueue={clearQueue}
+            onRemoveFromQueue={handleRemoveFromQueue}
+            onClearQueue={handleClearQueue}
           />
         )}
 
         {activeTab === 'leaderboard' && (
           <Leaderboard
             players={players}
-            onResetStats={resetStats}
-            onClearAllPlayers={clearAllPlayers}
+            onResetStats={handleResetStats}
+            onClearAllPlayers={handleClearAllPlayers}
           />
         )}
       </div>
@@ -371,7 +394,7 @@ export default function Home() {
       <AddPlayerModal
         open={showAddPlayer}
         onClose={() => setShowAddPlayer(false)}
-        onAddPlayer={addPlayer}
+        onAddPlayer={handleAddPlayer}
       />
 
       <NotificationToast notifications={notifications} onDismiss={dismissNotification} />

@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { insertPlayerSchema } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -8,8 +11,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -24,23 +34,33 @@ interface AddPlayerModalProps {
   onAddPlayer: (name: string, level: string) => void;
 }
 
-export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalProps) {
-  const [name, setName] = useState("");
-  const [level, setLevel] = useState("Intermediate");
+const formSchema = insertPlayerSchema.extend({
+  name: z.string().min(1, "Player name is required"),
+  level: z.enum(['Beginner', 'Intermediate', 'Advanced']),
+});
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (name.trim()) {
-      onAddPlayer(name.trim(), level);
-      setName("");
-      setLevel("Intermediate");
-      onClose();
-    }
+type FormValues = z.infer<typeof formSchema>;
+
+export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalProps) {
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      level: "Intermediate",
+      gamesPlayed: 0,
+      wins: 0,
+      status: "waiting",
+    },
+  });
+
+  const handleSubmit = (values: FormValues) => {
+    onAddPlayer(values.name, values.level);
+    form.reset();
+    onClose();
   };
 
   const handleClose = () => {
-    setName("");
-    setLevel("Intermediate");
+    form.reset();
     onClose();
   };
 
@@ -53,42 +73,58 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
             Enter the player's name and skill level to add them to the queue.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit}>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="name">Player Name</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Enter player name"
-                autoFocus
-                data-testid="input-player-name"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="level">Skill Level</Label>
-              <Select value={level} onValueChange={setLevel}>
-                <SelectTrigger id="level" data-testid="select-player-level">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Beginner">Beginner</SelectItem>
-                  <SelectItem value="Intermediate">Intermediate</SelectItem>
-                  <SelectItem value="Advanced">Advanced</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={handleClose} data-testid="button-cancel-add-player">
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!name.trim()} data-testid="button-submit-add-player">
-              Add Player
-            </Button>
-          </DialogFooter>
-        </form>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Player Name</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="Enter player name"
+                      autoFocus
+                      data-testid="input-player-name"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="level"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Skill Level</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-player-level">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="Beginner">Beginner</SelectItem>
+                      <SelectItem value="Intermediate">Intermediate</SelectItem>
+                      <SelectItem value="Advanced">Advanced</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={handleClose} data-testid="button-cancel-add-player">
+                Cancel
+              </Button>
+              <Button type="submit" data-testid="button-submit-add-player">
+                Add Player
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
