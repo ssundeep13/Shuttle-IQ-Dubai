@@ -13,7 +13,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 type TabType = 'courts' | 'queue' | 'leaderboard';
 
 export default function Home() {
-  const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]);
+  const [teamAssignments, setTeamAssignments] = useState<Record<string, { team1: string[]; team2: string[] }>>({});
   const [activeTab, setActiveTab] = useState<TabType>('courts');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -140,15 +140,19 @@ export default function Home() {
   });
 
   const assignPlayersMutation = useMutation({
-    mutationFn: async ({ courtId, playerIds }: { courtId: string; playerIds: string[] }) => {
-      return await apiRequest('POST', `/api/courts/${courtId}/assign`, { playerIds });
+    mutationFn: async ({ courtId, teamAssignments }: { courtId: string; teamAssignments: { playerId: string; team: number }[] }) => {
+      return await apiRequest('POST', `/api/courts/${courtId}/assign`, { teamAssignments });
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data: any, variables) => {
       queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
-      setSelectedPlayers([]);
+      setTeamAssignments((prev) => {
+        const newState = { ...prev };
+        delete newState[variables.courtId];
+        return newState;
+      });
       addNotification(`Players assigned to court`, 'success');
     },
     onError: (error: any) => {
@@ -195,7 +199,14 @@ export default function Home() {
     onSuccess: (_, playerId) => {
       queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
-      setSelectedPlayers((prev) => prev.filter((id) => id !== playerId));
+      setTeamAssignments((prev) => {
+        const newState = { ...prev };
+        Object.keys(newState).forEach(courtId => {
+          newState[courtId].team1 = newState[courtId].team1.filter(id => id !== playerId);
+          newState[courtId].team2 = newState[courtId].team2.filter(id => id !== playerId);
+        });
+        return newState;
+      });
       addNotification('Player removed from queue', 'info');
     },
     onError: () => {
@@ -231,26 +242,46 @@ export default function Home() {
     addPlayerMutation.mutate({ name, level });
   };
 
-  const handleTogglePlayerSelection = (playerId: string) => {
-    setSelectedPlayers((prev) => {
-      if (prev.includes(playerId)) {
-        return prev.filter((id) => id !== playerId);
+  const handleTogglePlayerSelection = (courtId: string, playerId: string, team: number) => {
+    setTeamAssignments((prev) => {
+      const courtTeams = prev[courtId] || { team1: [], team2: [] };
+      const currentTeam = team === 1 ? 'team1' : 'team2';
+      const otherTeam = team === 1 ? 'team2' : 'team1';
+      
+      // Remove from other team if present
+      const newOtherTeam = courtTeams[otherTeam].filter(id => id !== playerId);
+      
+      // Toggle in current team
+      let newCurrentTeam;
+      if (courtTeams[currentTeam].includes(playerId)) {
+        newCurrentTeam = courtTeams[currentTeam].filter(id => id !== playerId);
       } else {
-        if (prev.length >= 4) {
-          addNotification('Maximum 4 players can be selected', 'warning');
-          return prev;
-        }
-        return [...prev, playerId];
+        newCurrentTeam = [...courtTeams[currentTeam], playerId];
       }
+      
+      return {
+        ...prev,
+        [courtId]: {
+          team1: team === 1 ? newCurrentTeam : newOtherTeam,
+          team2: team === 2 ? newCurrentTeam : newOtherTeam,
+        }
+      };
     });
   };
 
   const handleAssignPlayers = (courtId: string) => {
-    if (selectedPlayers.length < 2) {
-      addNotification('Select at least 2 players', 'warning');
+    const teams = teamAssignments[courtId];
+    if (!teams || teams.team1.length === 0 || teams.team2.length === 0) {
+      addNotification('Each team needs at least 1 player', 'warning');
       return;
     }
-    assignPlayersMutation.mutate({ courtId, playerIds: selectedPlayers });
+    
+    const assignments = [
+      ...teams.team1.map(playerId => ({ playerId, team: 1 })),
+      ...teams.team2.map(playerId => ({ playerId, team: 2 })),
+    ];
+    
+    assignPlayersMutation.mutate({ courtId, teamAssignments: assignments });
   };
 
   const handleAutoAssign = () => {
@@ -262,7 +293,13 @@ export default function Home() {
       return;
     }
 
-    assignPlayersMutation.mutate({ courtId: availableCourt.id, playerIds: waitingPlayers });
+    const midpoint = Math.ceil(waitingPlayers.length / 2);
+    const assignments = waitingPlayers.map((playerId, index) => ({
+      playerId,
+      team: index < midpoint ? 1 : 2
+    }));
+
+    assignPlayersMutation.mutate({ courtId: availableCourt.id, teamAssignments: assignments });
   };
 
   const handleSelectWinningTeam = (courtId: string, teamNumber: number) => {
@@ -288,7 +325,7 @@ export default function Home() {
 
   const handleClearQueue = () => {
     updateQueueMutation.mutate([]);
-    setSelectedPlayers([]);
+    setTeamAssignments({});
     addNotification('Queue cleared', 'success');
   };
 
@@ -312,7 +349,7 @@ export default function Home() {
     players.forEach((player) => {
       deletePlayerMutation.mutate(player.id);
     });
-    setSelectedPlayers([]);
+    setTeamAssignments({});
     addNotification('All players cleared', 'success');
   };
 
@@ -354,7 +391,7 @@ export default function Home() {
           activeTab={activeTab}
           onTabChange={(tab) => {
             setActiveTab(tab);
-            setSelectedPlayers([]);
+            setTeamAssignments({});
           }}
         />
 
@@ -362,7 +399,7 @@ export default function Home() {
           <CourtManagement
             courts={courts}
             queuePlayers={queuePlayers}
-            selectedPlayers={selectedPlayers}
+            teamAssignments={teamAssignments}
             onAddCourt={handleAddCourt}
             onRemoveCourt={handleRemoveCourt}
             onTogglePlayerSelection={handleTogglePlayerSelection}

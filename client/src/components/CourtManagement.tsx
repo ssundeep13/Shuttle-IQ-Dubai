@@ -6,10 +6,10 @@ import { CourtCard } from "./CourtCard";
 interface CourtManagementProps {
   courts: CourtWithPlayers[];
   queuePlayers: Player[];
-  selectedPlayers: string[];
+  teamAssignments: Record<string, { team1: string[]; team2: string[] }>;
   onAddCourt: () => void;
   onRemoveCourt: (courtId: string) => void;
-  onTogglePlayerSelection: (playerId: string) => void;
+  onTogglePlayerSelection: (courtId: string, playerId: string, team: number) => void;
   onAssignPlayers: (courtId: string) => void;
   onSelectWinningTeam: (courtId: string, teamNumber: number) => void;
   onEndGame: (courtId: string) => void;
@@ -18,7 +18,7 @@ interface CourtManagementProps {
 export function CourtManagement({
   courts,
   queuePlayers,
-  selectedPlayers,
+  teamAssignments,
   onAddCourt,
   onRemoveCourt,
   onTogglePlayerSelection,
@@ -65,20 +65,27 @@ export function CourtManagement({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {courts.map((court) => (
-          <CourtCard
-            key={court.id}
-            court={court}
-            queuePlayers={queuePlayers}
-            selectedPlayers={selectedPlayers}
-            canRemoveCourt={courts.length > 1 && court.status === 'available'}
-            onRemoveCourt={onRemoveCourt}
-            onTogglePlayerSelection={onTogglePlayerSelection}
-            onAssignPlayers={onAssignPlayers}
-            onSelectWinningTeam={onSelectWinningTeam}
-            onEndGame={onEndGame}
-          />
-        ))}
+        {courts.map((court) => {
+          const courtTeams = teamAssignments[court.id] || { team1: [], team2: [] };
+          const selectedPlayers = [...courtTeams.team1, ...courtTeams.team2];
+          
+          return (
+            <CourtCard
+              key={court.id}
+              court={court}
+              queuePlayers={queuePlayers}
+              selectedPlayers={selectedPlayers}
+              team1Players={courtTeams.team1}
+              team2Players={courtTeams.team2}
+              canRemoveCourt={courts.length > 1 && court.status === 'available'}
+              onRemoveCourt={onRemoveCourt}
+              onTogglePlayerSelection={(playerId, team) => onTogglePlayerSelection(court.id, playerId, team)}
+              onAssignPlayers={onAssignPlayers}
+              onSelectWinningTeam={onSelectWinningTeam}
+              onEndGame={onEndGame}
+            />
+          );
+        })}
       </div>
     </div>
   );

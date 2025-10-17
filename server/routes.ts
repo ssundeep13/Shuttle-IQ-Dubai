@@ -189,9 +189,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Game management routes
   app.post("/api/courts/:courtId/assign", async (req, res) => {
     try {
-      const { playerIds } = req.body;
-      if (!Array.isArray(playerIds) || playerIds.length < 2) {
-        return res.status(400).json({ error: "At least 2 players required" });
+      const { playerIds, teamAssignments } = req.body;
+      
+      // Support both legacy (playerIds only) and new (teamAssignments) formats
+      let assignments: { playerId: string; team: number }[];
+      
+      if (teamAssignments && Array.isArray(teamAssignments)) {
+        // New format: explicit team assignments
+        assignments = teamAssignments;
+        if (assignments.length < 2) {
+          return res.status(400).json({ error: "At least 2 players required" });
+        }
+      } else if (playerIds && Array.isArray(playerIds)) {
+        // Legacy format: auto-split into teams
+        if (playerIds.length < 2) {
+          return res.status(400).json({ error: "At least 2 players required" });
+        }
+        const midpoint = Math.ceil(playerIds.length / 2);
+        assignments = playerIds.map((playerId, index) => ({
+          playerId,
+          team: index < midpoint ? 1 : 2
+        }));
+      } else {
+        return res.status(400).json({ error: "playerIds or teamAssignments required" });
       }
 
       const court = await storage.getCourt(req.params.courtId);
@@ -209,23 +229,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         winningTeam: null,
       });
 
-      // Set court players
-      await storage.setCourtPlayers(court.id, playerIds);
+      // Set court players with team assignments
+      await storage.setCourtPlayersWithTeams(court.id, assignments);
 
       // Update player statuses
-      for (const playerId of playerIds) {
-        await storage.updatePlayer(playerId, { status: 'playing' });
+      for (const assignment of assignments) {
+        await storage.updatePlayer(assignment.playerId, { status: 'playing' });
       }
 
       // Remove from queue
       const currentQueue = await storage.getQueue();
-      const newQueue = currentQueue.filter(id => !playerIds.includes(id));
+      const assignedPlayerIds = assignments.map(a => a.playerId);
+      const newQueue = currentQueue.filter(id => !assignedPlayerIds.includes(id));
       await storage.setQueue(newQueue);
 
       const updatedCourt = await storage.getCourt(court.id);
+      const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
       const players = (await Promise.all(
-        playerIds.map(id => storage.getPlayer(id))
-      )).filter(p => p !== undefined);
+        courtPlayerData.map(async cp => {
+          const player = await storage.getPlayer(cp.playerId);
+          if (!player) return null;
+          return { ...player, team: cp.team };
+        })
+      )).filter(p => p !== null);
 
       res.json({ ...updatedCourt, players });
     } catch (error) {
@@ -248,15 +274,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Court is not occupied" });
       }
 
-      const playerIds = await storage.getCourtPlayers(court.id);
+      const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
       const players = (await Promise.all(
-        playerIds.map(id => storage.getPlayer(id))
-      )).filter(p => p !== undefined);
+        courtPlayerData.map(async cp => {
+          const player = await storage.getPlayer(cp.playerId);
+          if (!player) return null;
+          return { ...player, team: cp.team };
+        })
+      )).filter((p): p is typeof p & { team: number } => p !== null);
 
-      // Determine winners and losers
-      const midpoint = Math.ceil(players.length / 2);
-      const team1 = players.slice(0, midpoint);
-      const team2 = players.slice(midpoint);
+      // Determine winners and losers based on team assignments
+      const team1 = players.filter(p => p.team === 1);
+      const team2 = players.filter(p => p.team === 2);
       const winners = winningTeam === 1 ? team1 : team2;
       const losers = winningTeam === 1 ? team2 : team1;
 

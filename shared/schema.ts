@@ -29,10 +29,11 @@ export const insertCourtSchema = createInsertSchema(courts).omit({ id: true });
 export type InsertCourt = z.infer<typeof insertCourtSchema>;
 export type Court = typeof courts.$inferSelect;
 
-// Court Players (many-to-many relationship)
+// Court Players (many-to-many relationship with team assignment)
 export const courtPlayers = pgTable("court_players", {
   courtId: varchar("court_id").notNull(),
   playerId: varchar("player_id").notNull(),
+  team: integer("team").notNull(), // 1 or 2
 });
 
 export type CourtPlayer = typeof courtPlayers.$inferSelect;
@@ -57,8 +58,12 @@ export interface Notification {
 }
 
 // Frontend-only types for complex state
+export interface PlayerWithTeam extends Player {
+  team: number; // 1 or 2
+}
+
 export interface CourtWithPlayers extends Court {
-  players: Player[];
+  players: PlayerWithTeam[];
 }
 
 export interface AppStats {

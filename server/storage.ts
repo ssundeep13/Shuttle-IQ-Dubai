@@ -3,7 +3,8 @@ import {
   type InsertPlayer, 
   type Court, 
   type InsertCourt,
-  type CourtWithPlayers 
+  type CourtWithPlayers,
+  type CourtPlayer 
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -22,9 +23,11 @@ export interface IStorage {
   updateCourt(id: string, updates: Partial<Court>): Promise<Court | undefined>;
   deleteCourt(id: string): Promise<boolean>;
   
-  // Court players (many-to-many)
+  // Court players (many-to-many with team assignments)
   getCourtPlayers(courtId: string): Promise<string[]>;
+  getCourtPlayersWithTeams(courtId: string): Promise<CourtPlayer[]>;
   setCourtPlayers(courtId: string, playerIds: string[]): Promise<void>;
+  setCourtPlayersWithTeams(courtId: string, assignments: { playerId: string; team: number }[]): Promise<void>;
   
   // Queue operations
   getQueue(): Promise<string[]>;
@@ -39,7 +42,7 @@ export interface IStorage {
 export class MemStorage implements IStorage {
   private players: Map<string, Player>;
   private courts: Map<string, Court>;
-  private courtPlayers: Map<string, string[]>; // courtId -> playerIds
+  private courtPlayers: Map<string, CourtPlayer[]>; // courtId -> CourtPlayer[] with team info
   private queue: string[]; // ordered player IDs
 
   constructor() {
@@ -166,11 +169,31 @@ export class MemStorage implements IStorage {
 
   // Court players operations
   async getCourtPlayers(courtId: string): Promise<string[]> {
+    const courtPlayerData = this.courtPlayers.get(courtId) || [];
+    return courtPlayerData.map(cp => cp.playerId);
+  }
+
+  async getCourtPlayersWithTeams(courtId: string): Promise<CourtPlayer[]> {
     return this.courtPlayers.get(courtId) || [];
   }
 
   async setCourtPlayers(courtId: string, playerIds: string[]): Promise<void> {
-    this.courtPlayers.set(courtId, playerIds);
+    // Legacy method - auto-assign teams
+    const assignments = playerIds.map((playerId, index) => ({
+      courtId,
+      playerId,
+      team: index < Math.ceil(playerIds.length / 2) ? 1 : 2
+    }));
+    this.courtPlayers.set(courtId, assignments);
+  }
+
+  async setCourtPlayersWithTeams(courtId: string, assignments: { playerId: string; team: number }[]): Promise<void> {
+    const courtPlayerData = assignments.map(a => ({
+      courtId,
+      playerId: a.playerId,
+      team: a.team
+    }));
+    this.courtPlayers.set(courtId, courtPlayerData);
   }
 
   // Queue operations
@@ -198,14 +221,18 @@ export class MemStorage implements IStorage {
     const courtsWithPlayers: CourtWithPlayers[] = [];
 
     for (const court of courts) {
-      const playerIds = await this.getCourtPlayers(court.id);
-      const players = (await Promise.all(
-        playerIds.map(id => this.getPlayer(id))
-      )).filter((p): p is Player => p !== undefined);
+      const courtPlayerData = await this.getCourtPlayersWithTeams(court.id);
+      const playersWithTeams = (await Promise.all(
+        courtPlayerData.map(async cp => {
+          const player = await this.getPlayer(cp.playerId);
+          if (!player) return null;
+          return { ...player, team: cp.team };
+        })
+      )).filter((p): p is Player & { team: number } => p !== null);
 
       courtsWithPlayers.push({
         ...court,
-        players,
+        players: playersWithTeams,
       });
     }
 

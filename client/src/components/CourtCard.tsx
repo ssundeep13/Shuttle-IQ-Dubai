@@ -8,9 +8,11 @@ interface CourtCardProps {
   court: CourtWithPlayers;
   queuePlayers: Player[];
   selectedPlayers: string[];
+  team1Players: string[];
+  team2Players: string[];
   canRemoveCourt: boolean;
   onRemoveCourt: (courtId: string) => void;
-  onTogglePlayerSelection: (playerId: string) => void;
+  onTogglePlayerSelection: (playerId: string, team: number) => void;
   onAssignPlayers: (courtId: string) => void;
   onSelectWinningTeam: (courtId: string, teamNumber: number) => void;
   onEndGame: (courtId: string) => void;
@@ -38,6 +40,8 @@ export function CourtCard({
   court,
   queuePlayers,
   selectedPlayers,
+  team1Players,
+  team2Players,
   canRemoveCourt,
   onRemoveCourt,
   onTogglePlayerSelection,
@@ -46,8 +50,8 @@ export function CourtCard({
   onEndGame,
 }: CourtCardProps) {
   const isAvailable = court.status === 'available';
-  const team1 = court.players.slice(0, Math.ceil(court.players.length / 2));
-  const team2 = court.players.slice(Math.ceil(court.players.length / 2));
+  const team1 = court.players.filter(p => p.team === 1);
+  const team2 = court.players.filter(p => p.team === 2);
 
   return (
     <div className="bg-card rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative border border-card-border" data-testid={`card-court-${court.id}`}>
@@ -170,38 +174,74 @@ export function CourtCard({
         </div>
       ) : (
         <div>
-          <h4 className="font-semibold text-foreground mb-3">Assign Players from Queue</h4>
+          <h4 className="font-semibold text-foreground mb-3">Assign Players to Teams</h4>
           {queuePlayers.length > 0 ? (
             <div>
-              <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-2 mb-4">
-                {queuePlayers.map((player) => {
-                  const isSelected = selectedPlayers.includes(player.id);
-                  return (
-                    <div
-                      key={player.id}
-                      onClick={() => onTogglePlayerSelection(player.id)}
-                      className={cn(
-                        "p-2 rounded-md border-2 cursor-pointer transition-all hover-elevate",
-                        isSelected
-                          ? "bg-info/10 border-info"
-                          : "bg-muted border-transparent hover:border-border"
-                      )}
-                      data-testid={`player-select-${player.id}`}
-                    >
-                      <p className="font-semibold text-sm text-foreground">{player.name}</p>
-                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
-                    </div>
-                  );
-                })}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="border-2 border-primary/20 rounded-md p-3 bg-primary/5">
+                  <h5 className="text-sm font-bold text-primary mb-2 text-center">TEAM 1</h5>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {queuePlayers.map((player) => {
+                      const isInTeam1 = team1Players.includes(player.id);
+                      if (!isInTeam1 && selectedPlayers.includes(player.id)) return null;
+                      return (
+                        <div
+                          key={player.id}
+                          onClick={() => onTogglePlayerSelection(player.id, 1)}
+                          className={cn(
+                            "p-2 rounded-md border cursor-pointer transition-all hover-elevate",
+                            isInTeam1
+                              ? "bg-primary/20 border-primary"
+                              : "bg-background border-border hover:border-primary/50"
+                          )}
+                          data-testid={`player-team1-${player.id}`}
+                        >
+                          <p className="font-semibold text-xs text-foreground">{player.name}</p>
+                          <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                <div className="border-2 border-chart-2/20 rounded-md p-3 bg-chart-2/5">
+                  <h5 className="text-sm font-bold text-chart-2 mb-2 text-center">TEAM 2</h5>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {queuePlayers.map((player) => {
+                      const isInTeam2 = team2Players.includes(player.id);
+                      if (!isInTeam2 && selectedPlayers.includes(player.id)) return null;
+                      return (
+                        <div
+                          key={player.id}
+                          onClick={() => onTogglePlayerSelection(player.id, 2)}
+                          className={cn(
+                            "p-2 rounded-md border cursor-pointer transition-all hover-elevate",
+                            isInTeam2
+                              ? "bg-chart-2/30 border-chart-2"
+                              : "bg-background border-border hover:border-chart-2/50"
+                          )}
+                          data-testid={`player-team2-${player.id}`}
+                        >
+                          <p className="font-semibold text-xs text-foreground">{player.name}</p>
+                          <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
+              
+              <div className="text-center mb-2 text-sm text-muted-foreground">
+                Team 1: {team1Players.length} | Team 2: {team2Players.length}
+              </div>
+              
               <Button
                 onClick={() => onAssignPlayers(court.id)}
-                disabled={selectedPlayers.length < 2}
+                disabled={team1Players.length === 0 || team2Players.length === 0}
                 className="w-full"
                 data-testid={`button-assign-players-${court.id}`}
               >
-                Assign {selectedPlayers.length > 0 && `(${selectedPlayers.length})`} Player
-                {selectedPlayers.length !== 1 ? 's' : ''}
+                Start Game ({team1Players.length + team2Players.length} players)
               </Button>
             </div>
           ) : (
