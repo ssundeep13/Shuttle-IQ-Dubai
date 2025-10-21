@@ -66,6 +66,156 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/players/import", async (req, res) => {
+    try {
+      // Validate request body
+      const requestSchema = z.object({
+        url: z.string().url().optional()
+      });
+      
+      const validated = requestSchema.parse(req.body);
+      const externalUrl = validated.url || "https://shuttleiq.ssundeep13.repl.co/api/players";
+      
+      // Security: Validate URL is from allowed hosts only
+      const allowedHosts = [
+        'shuttleiq.ssundeep13.repl.co',
+        'shuttleiq.ssundeep13.replit.app',
+        'replit.com',
+        'replit.app',
+        'repl.co'
+      ];
+      
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(externalUrl);
+      } catch (error) {
+        return res.status(400).json({ 
+          error: "Invalid URL format",
+          details: "Please provide a valid HTTP/HTTPS URL"
+        });
+      }
+      
+      // Only allow HTTPS (or HTTP for repl.co domains)
+      if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+        return res.status(400).json({ 
+          error: "Invalid URL protocol",
+          details: "Only HTTP and HTTPS protocols are allowed"
+        });
+      }
+      
+      // Check if hostname is in allowed list
+      const hostname = parsedUrl.hostname;
+      const isAllowed = allowedHosts.some(allowed => 
+        hostname === allowed || hostname.endsWith(`.${allowed}`)
+      );
+      
+      if (!isAllowed) {
+        return res.status(403).json({ 
+          error: "URL not allowed",
+          details: `Only URLs from approved ShuttleIQ instances are allowed: ${allowedHosts.join(', ')}`
+        });
+      }
+      
+      // Prevent access to non-standard ports (except 80, 443)
+      if (parsedUrl.port && parsedUrl.port !== '80' && parsedUrl.port !== '443') {
+        return res.status(400).json({ 
+          error: "Invalid port",
+          details: "Only standard HTTP/HTTPS ports are allowed"
+        });
+      }
+      
+      // Fetch players from external app with timeout
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      let response;
+      try {
+        response = await fetch(externalUrl, { 
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'ShuttleIQ-Import/1.0'
+          }
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        if (error instanceof Error && error.name === 'AbortError') {
+          return res.status(504).json({ 
+            error: "Request timeout",
+            details: "External API did not respond within 10 seconds"
+          });
+        }
+        return res.status(502).json({ 
+          error: "Failed to connect to external app",
+          details: error instanceof Error ? error.message : "Network error"
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+      
+      if (!response.ok) {
+        return res.status(502).json({ 
+          error: "Failed to fetch players from external app",
+          details: `External API returned status ${response.status}`
+        });
+      }
+
+      const externalPlayers = await response.json();
+      
+      if (!Array.isArray(externalPlayers)) {
+        return res.status(502).json({ 
+          error: "Invalid response from external app",
+          details: "Expected an array of players"
+        });
+      }
+
+      // Import each player
+      const importedPlayers = [];
+      const skippedPlayers = [];
+      
+      for (const externalPlayer of externalPlayers) {
+        try {
+          // Validate and create player
+          const playerData = {
+            name: externalPlayer.name,
+            level: externalPlayer.level || 'Beginner',
+            gamesPlayed: externalPlayer.gamesPlayed || 0,
+            wins: externalPlayer.wins || 0,
+            status: 'waiting'
+          };
+          
+          const validated = insertPlayerSchema.parse(playerData);
+          const player = await storage.createPlayer(validated);
+          await storage.addToQueue(player.id);
+          importedPlayers.push(player);
+        } catch (error) {
+          skippedPlayers.push({
+            name: externalPlayer.name,
+            reason: error instanceof Error ? error.message : "Unknown error"
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        imported: importedPlayers.length,
+        skipped: skippedPlayers.length,
+        players: importedPlayers,
+        skippedDetails: skippedPlayers
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          error: "Invalid request", 
+          details: error.errors 
+        });
+      }
+      res.status(500).json({ 
+        error: "Failed to import players",
+        details: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   // Court routes
   app.get("/api/courts", async (req, res) => {
     try {

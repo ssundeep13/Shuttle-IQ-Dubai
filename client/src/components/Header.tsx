@@ -1,4 +1,4 @@
-import { UserPlus, Activity } from "lucide-react";
+import { UserPlus, Activity, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppStats } from "@shared/schema";
 
@@ -6,9 +6,10 @@ interface HeaderProps {
   stats: AppStats;
   onAddPlayer: () => void;
   onAutoAssign: () => void;
+  onImportPlayers: () => void;
 }
 
-export function Header({ stats, onAddPlayer, onAutoAssign }: HeaderProps) {
+export function Header({ stats, onAddPlayer, onAutoAssign, onImportPlayers }: HeaderProps) {
   return (
     <div className="bg-card rounded-lg shadow-md p-6 mb-6 border border-card-border">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
@@ -22,7 +23,7 @@ export function Header({ stats, onAddPlayer, onAutoAssign }: HeaderProps) {
             <p className="text-muted-foreground text-sm font-medium">Queue Management</p>
           </div>
         </div>
-        <div className="flex gap-3 w-full md:w-auto">
+        <div className="flex gap-3 w-full md:w-auto flex-wrap">
           <Button 
             onClick={onAddPlayer} 
             className="flex-1 md:flex-initial"
@@ -30,6 +31,15 @@ export function Header({ stats, onAddPlayer, onAutoAssign }: HeaderProps) {
           >
             <UserPlus className="w-4 h-4 mr-2" />
             Add Player
+          </Button>
+          <Button 
+            onClick={onImportPlayers} 
+            variant="outline"
+            className="flex-1 md:flex-initial"
+            data-testid="button-import-players"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Import Players
           </Button>
           <Button 
             onClick={onAutoAssign} 

@@ -7,6 +7,7 @@ import { CourtManagement } from "@/components/CourtManagement";
 import { PlayerQueue } from "@/components/PlayerQueue";
 import { Leaderboard } from "@/components/Leaderboard";
 import { AddPlayerModal } from "@/components/AddPlayerModal";
+import { ImportPlayersModal } from "@/components/ImportPlayersModal";
 import { NotificationToast } from "@/components/NotificationToast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -16,6 +17,7 @@ export default function Home() {
   const [teamAssignments, setTeamAssignments] = useState<Record<string, { team1: string[]; team2: string[] }>>({});
   const [activeTab, setActiveTab] = useState<TabType>('courts');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
+  const [showImportPlayers, setShowImportPlayers] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   // Fetch courts with players
@@ -353,6 +355,30 @@ export default function Home() {
     addNotification('All players cleared', 'success');
   };
 
+  const handleImportPlayers = async (url: string) => {
+    try {
+      const response = await apiRequest('POST', '/api/players/import', { url });
+      
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      
+      if (response.imported > 0) {
+        addNotification(`${response.imported} player${response.imported !== 1 ? 's' : ''} imported successfully`, 'success');
+      }
+      
+      if (response.skipped > 0) {
+        addNotification(`${response.skipped} player${response.skipped !== 1 ? 's' : ''} skipped`, 'warning');
+      }
+      
+      return response;
+    } catch (error: any) {
+      const message = error?.error || error?.message || 'Failed to import players';
+      addNotification(message, 'danger');
+      throw error;
+    }
+  };
+
   const queuePlayers = queue
     .map((id) => players.find((p) => p.id === id))
     .filter((p): p is Player => p !== undefined);
@@ -385,7 +411,8 @@ export default function Home() {
         <Header 
           stats={stats || defaultStats} 
           onAddPlayer={() => setShowAddPlayer(true)} 
-          onAutoAssign={handleAutoAssign} 
+          onAutoAssign={handleAutoAssign}
+          onImportPlayers={() => setShowImportPlayers(true)}
         />
         <TabNavigation
           activeTab={activeTab}
@@ -432,6 +459,12 @@ export default function Home() {
         open={showAddPlayer}
         onClose={() => setShowAddPlayer(false)}
         onAddPlayer={handleAddPlayer}
+      />
+
+      <ImportPlayersModal
+        open={showImportPlayers}
+        onClose={() => setShowImportPlayers(false)}
+        onImport={handleImportPlayers}
       />
 
       <NotificationToast notifications={notifications} onDismiss={dismissNotification} />
