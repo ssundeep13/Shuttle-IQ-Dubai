@@ -32,7 +32,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/players", async (req, res) => {
     try {
       const validated = insertPlayerSchema.parse(req.body);
-      const player = await storage.createPlayer(validated);
+      
+      // Set initial skill score based on level
+      let skillScore = 50; // Default to 5.0 (Intermediate)
+      if (validated.level === 'Beginner') skillScore = 30; // 3.0
+      if (validated.level === 'Intermediate') skillScore = 50; // 5.0
+      if (validated.level === 'Advanced') skillScore = 80; // 8.0
+      
+      const player = await storage.createPlayer({ ...validated, skillScore });
       await storage.addToQueue(player.id);
       res.status(201).json(player);
     } catch (error) {
@@ -186,7 +193,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
           
           const validated = insertPlayerSchema.parse(playerData);
-          const player = await storage.createPlayer(validated);
+          
+          // Set initial skill score based on level
+          let skillScore = 50; // Default to 5.0 (Intermediate)
+          if (validated.level === 'Beginner') skillScore = 30; // 3.0
+          if (validated.level === 'Intermediate') skillScore = 50; // 5.0
+          if (validated.level === 'Advanced') skillScore = 80; // 8.0
+          
+          const player = await storage.createPlayer({ ...validated, skillScore });
           await storage.addToQueue(player.id);
           importedPlayers.push(player);
         } catch (error) {
@@ -677,7 +691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let initialSkillScore = 50; // Default to 5.0
         if (player.level === 'Beginner') initialSkillScore = 30; // 3.0
         if (player.level === 'Intermediate') initialSkillScore = 50; // 5.0
-        if (player.level === 'Advanced') initialSkillScore = 70; // 7.0
+        if (player.level === 'Advanced') initialSkillScore = 80; // 8.0
         
         await storage.updatePlayer(player.id, {
           gamesPlayed: 0,
