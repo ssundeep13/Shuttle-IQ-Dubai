@@ -6,18 +6,22 @@ import { TabNavigation } from "@/components/TabNavigation";
 import { CourtManagement } from "@/components/CourtManagement";
 import { PlayerQueue } from "@/components/PlayerQueue";
 import { Leaderboard } from "@/components/Leaderboard";
+import { GameHistory } from "@/components/GameHistory";
 import { AddPlayerModal } from "@/components/AddPlayerModal";
 import { ImportPlayersModal } from "@/components/ImportPlayersModal";
+import { EndGameModal } from "@/components/EndGameModal";
 import { NotificationToast } from "@/components/NotificationToast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
-type TabType = 'courts' | 'queue' | 'leaderboard';
+type TabType = 'courts' | 'queue' | 'leaderboard' | 'history';
 
 export default function Home() {
   const [teamAssignments, setTeamAssignments] = useState<Record<string, { team1: string[]; team2: string[] }>>({});
   const [activeTab, setActiveTab] = useState<TabType>('courts');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [showImportPlayers, setShowImportPlayers] = useState(false);
+  const [showEndGameModal, setShowEndGameModal] = useState(false);
+  const [endingCourtId, setEndingCourtId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   // Fetch courts with players
@@ -38,6 +42,11 @@ export default function Home() {
   // Fetch stats
   const { data: stats } = useQuery<AppStats>({
     queryKey: ['/api/stats'],
+  });
+
+  // Fetch game history
+  const { data: gameHistory = [] } = useQuery<any[]>({
+    queryKey: ['/api/game-history'],
   });
 
   // Timer countdown (update court time remaining every minute)
@@ -164,15 +173,28 @@ export default function Home() {
   });
 
   const endGameMutation = useMutation({
-    mutationFn: async ({ courtId, winningTeam }: { courtId: string; winningTeam: number }) => {
-      return await apiRequest('POST', `/api/courts/${courtId}/end-game`, { winningTeam });
+    mutationFn: async ({ courtId, winningTeam, team1Score, team2Score }: { 
+      courtId: string; 
+      winningTeam: number;
+      team1Score: number;
+      team2Score: number;
+    }) => {
+      return await apiRequest('POST', `/api/courts/${courtId}/end-game`, { 
+        winningTeam, 
+        team1Score, 
+        team2Score 
+      });
     },
     onSuccess: (data: any, variables) => {
       queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
-      addNotification(`Game ended. Team ${variables.winningTeam} wins!`, 'success');
+      queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      addNotification(
+        `Game ended! Team ${variables.winningTeam} wins ${variables.team1Score}-${variables.team2Score}`, 
+        'success'
+      );
     },
     onError: (error: any) => {
       const message = error?.error || error?.message || 'Failed to end game';
@@ -318,7 +340,12 @@ export default function Home() {
       addNotification('Please select a winning team', 'warning');
       return;
     }
-    endGameMutation.mutate({ courtId, winningTeam: court.winningTeam });
+    setEndingCourtId(courtId);
+    setShowEndGameModal(true);
+  };
+
+  const handleEndGameSubmit = (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => {
+    endGameMutation.mutate({ courtId, winningTeam, team1Score, team2Score });
   };
 
   const handleRemoveFromQueue = (playerId: string) => {
@@ -453,6 +480,10 @@ export default function Home() {
             onClearAllPlayers={handleClearAllPlayers}
           />
         )}
+
+        {activeTab === 'history' && (
+          <GameHistory games={gameHistory} />
+        )}
       </div>
 
       <AddPlayerModal
@@ -465,6 +496,16 @@ export default function Home() {
         open={showImportPlayers}
         onClose={() => setShowImportPlayers(false)}
         onImport={handleImportPlayers}
+      />
+
+      <EndGameModal
+        court={endingCourtId ? courts.find(c => c.id === endingCourtId) || null : null}
+        isOpen={showEndGameModal}
+        onClose={() => {
+          setShowEndGameModal(false);
+          setEndingCourtId(null);
+        }}
+        onSubmit={handleEndGameSubmit}
       />
 
       <NotificationToast notifications={notifications} onDismiss={dismissNotification} />

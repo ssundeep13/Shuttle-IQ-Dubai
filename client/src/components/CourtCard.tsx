@@ -115,7 +115,11 @@ export function CourtCard({
                 {team1.map((player) => (
                   <div key={player.id} className="text-center mb-1">
                     <p className="font-medium text-sm text-foreground">{player.name}</p>
-                    <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                    <div className="flex items-center justify-center gap-1">
+                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                      <span className="text-xs text-muted-foreground">•</span>
+                      <span className="text-xs font-semibold text-accent">{((player.skillScore || 50) / 10).toFixed(1)}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -136,7 +140,11 @@ export function CourtCard({
                 {team2.map((player) => (
                   <div key={player.id} className="text-center mb-1">
                     <p className="font-medium text-sm text-foreground">{player.name}</p>
-                    <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                    <div className="flex items-center justify-center gap-1">
+                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                      <span className="text-xs text-muted-foreground">•</span>
+                      <span className="text-xs font-semibold text-accent">{((player.skillScore || 50) / 10).toFixed(1)}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -183,7 +191,12 @@ export function CourtCard({
                   <div className="space-y-2 max-h-32 overflow-y-auto">
                     {queuePlayers.map((player) => {
                       const isInTeam1 = team1Players.includes(player.id);
-                      if (!isInTeam1 && selectedPlayers.includes(player.id)) return null;
+                      const isInTeam2 = team2Players.includes(player.id);
+                      const isUnassigned = !isInTeam1 && !isInTeam2;
+                      
+                      // Only show if: assigned to THIS team OR unassigned
+                      if (!isInTeam1 && !isUnassigned) return null;
+                      
                       return (
                         <div
                           key={player.id}
@@ -197,7 +210,11 @@ export function CourtCard({
                           data-testid={`player-team1-${player.id}`}
                         >
                           <p className="font-semibold text-xs text-foreground">{player.name}</p>
-                          <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                          <div className="flex items-center gap-1">
+                            <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                            <span className="text-xs text-muted-foreground">•</span>
+                            <span className="text-xs font-semibold text-accent">{((player.skillScore || 50) / 10).toFixed(1)}</span>
+                          </div>
                         </div>
                       );
                     })}
@@ -208,8 +225,13 @@ export function CourtCard({
                   <h5 className="text-sm font-bold text-chart-2 mb-2 text-center">TEAM 2</h5>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
                     {queuePlayers.map((player) => {
+                      const isInTeam1 = team1Players.includes(player.id);
                       const isInTeam2 = team2Players.includes(player.id);
-                      if (!isInTeam2 && selectedPlayers.includes(player.id)) return null;
+                      const isUnassigned = !isInTeam1 && !isInTeam2;
+                      
+                      // Only show if: assigned to THIS team OR unassigned
+                      if (!isInTeam2 && !isUnassigned) return null;
+                      
                       return (
                         <div
                           key={player.id}
@@ -223,7 +245,11 @@ export function CourtCard({
                           data-testid={`player-team2-${player.id}`}
                         >
                           <p className="font-semibold text-xs text-foreground">{player.name}</p>
-                          <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                          <div className="flex items-center gap-1">
+                            <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                            <span className="text-xs text-muted-foreground">•</span>
+                            <span className="text-xs font-semibold text-accent">{((player.skillScore || 50) / 10).toFixed(1)}</span>
+                          </div>
                         </div>
                       );
                     })}

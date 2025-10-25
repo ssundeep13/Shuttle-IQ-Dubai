@@ -1,8 +1,10 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertPlayerSchema } from "@shared/schema";
+import { insertPlayerSchema, gameResults, gameParticipants } from "@shared/schema";
 import { z } from "zod";
+import { randomUUID } from "crypto";
+import { db } from "./db";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Player routes
@@ -411,9 +413,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/courts/:courtId/end-game", async (req, res) => {
     try {
-      const { winningTeam } = req.body;
+      const { winningTeam, team1Score, team2Score } = req.body;
+      
+      // Validate input
       if (winningTeam !== 1 && winningTeam !== 2) {
         return res.status(400).json({ error: "winningTeam must be 1 or 2" });
+      }
+      if (typeof team1Score !== 'number' || typeof team2Score !== 'number') {
+        return res.status(400).json({ error: "team1Score and team2Score are required" });
+      }
+      if (team1Score < 0 || team2Score < 0) {
+        return res.status(400).json({ error: "Scores must be non-negative" });
       }
 
       const court = await storage.getCourt(req.params.courtId);
@@ -439,13 +449,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const winners = winningTeam === 1 ? team1 : team2;
       const losers = winningTeam === 1 ? team2 : team1;
 
-      // Update player stats
+      // Calculate average skill scores for each team (stored as 0-100, so divide by 10 for calculations)
+      const team1AvgSkill = team1.reduce((sum, p) => sum + (p.skillScore || 50), 0) / team1.length / 10;
+      const team2AvgSkill = team2.reduce((sum, p) => sum + (p.skillScore || 50), 0) / team2.length / 10;
+      
+      // Calculate skill score adjustments
+      // Base adjustment on skill difference and score margin
+      const scoreDiff = Math.abs(team1Score - team2Score);
+      const scoreMarginFactor = Math.min(scoreDiff / 10, 1.5); // Cap at 1.5x multiplier
+      
+      // Track skill score changes for game history
+      const participantData: Array<{
+        playerId: string;
+        team: number;
+        skillBefore: number;
+        skillAfter: number;
+      }> = [];
+      
       for (const player of players) {
         const isWinner = winners.some(w => w.id === player.id);
+        const isTeam1 = player.team === 1;
+        
+        const teamSkill = isTeam1 ? team1AvgSkill : team2AvgSkill;
+        const opponentSkill = isTeam1 ? team2AvgSkill : team1AvgSkill;
+        
+        // Calculate skill change based on opponent strength
+        const skillDiff = opponentSkill - teamSkill;
+        let skillChange = 0;
+        
+        if (isWinner) {
+          // Winners gain more points if they beat stronger opponents
+          skillChange = 0.3 + (skillDiff * 0.1);
+          skillChange *= scoreMarginFactor;
+        } else {
+          // Losers lose fewer points if they lost to stronger opponents
+          skillChange = -0.2 - (skillDiff * 0.08);
+          skillChange *= scoreMarginFactor;
+        }
+        
+        // Clamp skill change to reasonable bounds
+        skillChange = Math.max(-1.5, Math.min(1.5, skillChange));
+        
+        // Calculate new skill score in 0-10 scale
+        const currentSkill = (player.skillScore || 50) / 10;
+        const newSkill = Math.max(0, Math.min(10, currentSkill + skillChange));
+        
+        // Store as integer 0-100 scale (multiply by 10)
+        const skillBefore = player.skillScore || 50;
+        const skillAfter = Math.round(newSkill * 10);
+        
+        // Track for game history
+        participantData.push({
+          playerId: player.id,
+          team: player.team,
+          skillBefore,
+          skillAfter,
+        });
+        
         await storage.updatePlayer(player.id, {
           gamesPlayed: player.gamesPlayed + 1,
           wins: isWinner ? player.wins + 1 : player.wins,
+          skillScore: skillAfter,
           status: 'waiting',
+        });
+      }
+
+      // Save game result
+      const gameId = randomUUID();
+      await db.insert(gameResults).values({
+        id: gameId,
+        courtId: court.id,
+        team1Score,
+        team2Score,
+        winningTeam,
+      });
+
+      // Save game participants
+      for (const participant of participantData) {
+        await db.insert(gameParticipants).values({
+          gameId,
+          playerId: participant.playerId,
+          team: participant.team,
+          skillScoreBefore: participant.skillBefore,
+          skillScoreAfter: participant.skillAfter,
         });
       }
 
@@ -492,6 +578,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  // Game History endpoint
+  app.get("/api/game-history", async (req, res) => {
+    try {
+      const { eq } = await import('drizzle-orm');
+      const { players } = await import('@shared/schema');
+      
+      // Fetch all game results ordered by most recent first
+      const games = await db.select().from(gameResults).orderBy(gameResults.createdAt);
+      
+      // For each game, fetch participants and player details
+      const gamesWithDetails = await Promise.all(
+        games.map(async (game) => {
+          const participants = await db.select().from(gameParticipants).where(eq(gameParticipants.gameId, game.id));
+          
+          // Fetch player details for each participant
+          const participantsWithDetails = await Promise.all(
+            participants.map(async (p) => {
+              const player = await db.select().from(players).where(eq(players.id, p.playerId)).limit(1);
+              return {
+                ...p,
+                playerName: player[0]?.name || 'Unknown',
+                playerLevel: player[0]?.level || 'Unknown',
+              };
+            })
+          );
+          
+          return {
+            ...game,
+            participants: participantsWithDetails,
+          };
+        })
+      );
+      
+      // Sort by most recent first
+      gamesWithDetails.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      
+      res.json(gamesWithDetails);
+    } catch (error) {
+      console.error('Game history error:', error);
+      res.status(500).json({ error: "Failed to fetch game history" });
     }
   });
 

@@ -25,7 +25,11 @@ const getLevelColor = (level: string) => {
 
 export function Leaderboard({ players, onResetStats, onClearAllPlayers }: LeaderboardProps) {
   const sortedPlayers = [...players].sort((a, b) => {
-    // First by wins
+    // First by skill score (highest first)
+    const skillA = a.skillScore || 50;
+    const skillB = b.skillScore || 50;
+    if (skillB !== skillA) return skillB - skillA;
+    // Then by wins
     if (b.wins !== a.wins) return b.wins - a.wins;
     // Then by games played
     if (a.gamesPlayed !== b.gamesPlayed) return a.gamesPlayed - b.gamesPlayed;
@@ -101,6 +105,7 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
                     )}
                   </div>
                   <div className="flex gap-4 text-sm text-muted-foreground">
+                    <span>Skill: <span className="font-bold text-accent text-base">{((player.skillScore || 50) / 10).toFixed(1)}/10</span></span>
                     <span>Games: <span className="font-semibold text-foreground">{player.gamesPlayed}</span></span>
                     <span>Wins: <span className="font-semibold text-success">{player.wins}</span></span>
                     <span>Win Rate: <span className="font-semibold text-foreground">{getWinRate(player)}%</span></span>
