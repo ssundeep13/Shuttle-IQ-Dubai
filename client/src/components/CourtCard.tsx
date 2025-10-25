@@ -56,7 +56,7 @@ export function CourtCard({
   const team2 = court.players.filter(p => p.team === 2);
 
   return (
-    <div className="bg-card rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative border border-card-border" data-testid={`card-court-${court.id}`}>
+    <div className="bg-card rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative border border-card-border min-h-[500px] flex flex-col" data-testid={`card-court-${court.id}`}>
       {canRemoveCourt && isAvailable && (
         <button
           onClick={() => onRemoveCourt(court.id)}
