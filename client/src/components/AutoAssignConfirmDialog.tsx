@@ -16,6 +16,7 @@ interface AutoAssignConfirmDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
+  onReassign: () => void;
   courtName: string;
   team1: Player[];
   team2: Player[];
@@ -38,6 +39,7 @@ export function AutoAssignConfirmDialog({
   isOpen,
   onClose,
   onConfirm,
+  onReassign,
   courtName,
   team1,
   team2,
@@ -130,18 +132,29 @@ export function AutoAssignConfirmDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button
             type="button"
             variant="outline"
             onClick={onClose}
+            className="sm:flex-1"
             data-testid="button-cancel-auto-assign"
           >
             Cancel
           </Button>
           <Button
             type="button"
+            variant="secondary"
+            onClick={onReassign}
+            className="sm:flex-1"
+            data-testid="button-reassign-teams"
+          >
+            🔄 Shuffle Teams
+          </Button>
+          <Button
+            type="button"
             onClick={onConfirm}
+            className="sm:flex-1"
             data-testid="button-confirm-auto-assign"
           >
             Start Game

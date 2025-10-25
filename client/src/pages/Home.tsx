@@ -414,6 +414,64 @@ export default function Home() {
     setAutoAssignData(null);
   };
 
+  const handleReassignTeams = () => {
+    if (!autoAssignData) return;
+
+    // Get all 4 players from current teams
+    const allPlayers = [...autoAssignData.team1, ...autoAssignData.team2];
+    
+    // Sort by skill score
+    const sortedPlayers = [...allPlayers].sort((a, b) => 
+      (b.skillScore || 50) - (a.skillScore || 50)
+    );
+
+    // Try different balanced configurations
+    // Current assignment is: [0,3] vs [1,2] (highest+lowest vs middle two)
+    // We can shuffle to other balanced configs:
+    // Option 1: [0,2] vs [1,3] (highest+3rd vs 2nd+lowest)
+    // Option 2: [0,1] vs [2,3] (top two vs bottom two)
+    
+    // Use a simple shuffle counter to cycle through options
+    const currentConfig = JSON.stringify([
+      autoAssignData.team1.map(p => p.id).sort(),
+      autoAssignData.team2.map(p => p.id).sort()
+    ]);
+    
+    // Try configuration: [0,2] vs [1,3]
+    let team1Players = [sortedPlayers[0], sortedPlayers[2]];
+    let team2Players = [sortedPlayers[1], sortedPlayers[3]];
+    
+    const config1 = JSON.stringify([
+      [sortedPlayers[0].id, sortedPlayers[2].id].sort(),
+      [sortedPlayers[1].id, sortedPlayers[3].id].sort()
+    ]);
+    
+    // If already using config1, try config2: [0,1] vs [2,3]
+    if (currentConfig === config1) {
+      team1Players = [sortedPlayers[0], sortedPlayers[1]];
+      team2Players = [sortedPlayers[2], sortedPlayers[3]];
+      
+      const config2 = JSON.stringify([
+        [sortedPlayers[0].id, sortedPlayers[1].id].sort(),
+        [sortedPlayers[2].id, sortedPlayers[3].id].sort()
+      ]);
+      
+      // If already using config2, go back to default: [0,3] vs [1,2]
+      if (currentConfig === config2) {
+        team1Players = [sortedPlayers[0], sortedPlayers[3]];
+        team2Players = [sortedPlayers[1], sortedPlayers[2]];
+      }
+    }
+
+    // Update the dialog with new team assignments
+    setAutoAssignData({
+      courtId: autoAssignData.courtId,
+      courtName: autoAssignData.courtName,
+      team1: team1Players,
+      team2: team2Players,
+    });
+  };
+
   const handleSelectWinningTeam = (courtId: string, teamNumber: number) => {
     const court = courts.find((c) => c.id === courtId);
     if (!court) return;
@@ -615,6 +673,7 @@ export default function Home() {
           setAutoAssignData(null);
         }}
         onConfirm={handleConfirmAutoAssign}
+        onReassign={handleReassignTeams}
         courtName={autoAssignData?.courtName || ''}
         team1={autoAssignData?.team1 || []}
         team2={autoAssignData?.team2 || []}
