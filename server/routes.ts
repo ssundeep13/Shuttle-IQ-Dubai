@@ -422,14 +422,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { winningTeam, team1Score, team2Score } = req.body;
       
+      console.log(`[END-GAME] Court ${req.params.courtId}: Team ${winningTeam} wins ${team1Score}-${team2Score}`);
+      
       // Validate input
       if (winningTeam !== 1 && winningTeam !== 2) {
+        console.error(`[END-GAME] Invalid winning team: ${winningTeam}`);
         return res.status(400).json({ error: "winningTeam must be 1 or 2" });
       }
       if (typeof team1Score !== 'number' || typeof team2Score !== 'number') {
+        console.error(`[END-GAME] Invalid scores: team1=${team1Score}, team2=${team2Score}`);
         return res.status(400).json({ error: "team1Score and team2Score are required" });
       }
       if (team1Score < 0 || team2Score < 0) {
+        console.error(`[END-GAME] Negative scores: team1=${team1Score}, team2=${team2Score}`);
         return res.status(400).json({ error: "Scores must be non-negative" });
       }
 
@@ -456,10 +461,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Defensive check: ensure exactly 2 players per team
       if (team1.length !== 2 || team2.length !== 2) {
+        console.error(`[END-GAME] Invalid team sizes: Team 1 has ${team1.length} players, Team 2 has ${team2.length} players`);
+        console.error(`[END-GAME] Court players:`, courtPlayerData);
         return res.status(400).json({ 
           error: `Invalid team configuration. Each team must have exactly 2 players. Team 1: ${team1.length}, Team 2: ${team2.length}` 
         });
       }
+      
+      console.log(`[END-GAME] Team sizes validated: Team 1=${team1.length}, Team 2=${team2.length}`);
       
       const winners = winningTeam === 1 ? team1 : team2;
       const losers = winningTeam === 1 ? team2 : team1;
@@ -568,8 +577,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.setCourtPlayers(court.id, []);
 
       const updatedCourt = await storage.getCourt(court.id);
+      console.log(`[END-GAME] Game ended successfully. Court ${court.id} now ${updatedCourt?.status}. Players returned to queue.`);
       res.json({ ...updatedCourt, players: [] });
     } catch (error) {
+      console.error(`[END-GAME] Error ending game:`, error);
       res.status(500).json({ error: "Failed to end game" });
     }
   });

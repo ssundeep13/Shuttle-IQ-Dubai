@@ -4,7 +4,7 @@
 
 ShuttleIQ is a real-time badminton court and player queue management dashboard designed for sports facilities. The application enables operators to efficiently manage multiple badminton courts, track player queues, monitor game progress, and maintain player statistics. Built with a focus on information clarity and quick decision-making, it provides a professional, utility-focused interface for managing active sports sessions.
 
-The system handles court assignments, player rotations, game timing, winner selection, and maintains comprehensive statistics including games played and win rates. It uses a modern tech stack with React for the frontend, Express for the backend, and supports both in-memory and database storage strategies.
+The system handles court assignments, player rotations, game timing, winner selection, and maintains comprehensive statistics including games played, wins, win rates, and dynamic skill scores (0-10 scale). Each court accommodates exactly 4 players in a 2v2 format. The system uses a modern tech stack with React for the frontend, Express for the backend, and PostgreSQL database for persistent storage.
 
 ## User Preferences
 
@@ -61,18 +61,22 @@ Preferred communication style: Simple, everyday language.
 - Database schema defined using Drizzle's schema builder
 
 **Data Models:**
-- **Players**: id, name, level (Beginner/Intermediate/Advanced), gamesPlayed, wins, status (waiting/playing)
+- **Players**: id, name, level (Beginner/Intermediate/Advanced), gamesPlayed, wins, skillScore (0-100 internally, 0.0-10.0 displayed), status (waiting/playing)
 - **Courts**: id, name, status (available/occupied), timeRemaining, winningTeam
-- **Court-Players** relationship: Many-to-many mapping between courts and players
+- **Court-Players** relationship: Each court MUST have exactly 4 players (2 per team)
+- **Game Results**: id, courtId, team1Score, team2Score, winningTeam, createdAt
+- **Game Participants**: gameId, playerId, team, skillScoreBefore, skillScoreAfter
 - **Queue**: Ordered list of player IDs with position tracking
 - **Notifications**: Type-based messaging system (success/warning/danger/info)
 
 ### Database Schema
 
 **PostgreSQL with Drizzle ORM:**
-- `players` table: Player profiles with skill levels and statistics
+- `players` table: Player profiles with skill levels (Beginner/Intermediate/Advanced), statistics (games played, wins), and dynamic skill scores (0-100 integer scale)
 - `courts` table: Court state including availability and game timing
-- `court_players` junction table: Manages which players are assigned to which courts
+- `court_players` junction table: Manages which players are assigned to which courts (exactly 2 players per team required)
+- `gameResults` table: Records completed games with scores, winning team, and timestamps
+- `gameParticipants` table: Tracks which players participated in each game, their team assignments, and skill score changes
 - `queue_entries` table: Maintains ordered waiting queue with timestamps
 
 **Schema Design Principles:**
