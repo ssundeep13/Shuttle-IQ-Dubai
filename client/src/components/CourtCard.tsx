@@ -16,6 +16,7 @@ interface CourtCardProps {
   onAssignPlayers: (courtId: string) => void;
   onSelectWinningTeam: (courtId: string, teamNumber: number) => void;
   onEndGame: (courtId: string) => void;
+  onCancelGame: (courtId: string) => void;
 }
 
 const getLevelColor = (level: string) => {
@@ -48,6 +49,7 @@ export function CourtCard({
   onAssignPlayers,
   onSelectWinningTeam,
   onEndGame,
+  onCancelGame,
 }: CourtCardProps) {
   const isAvailable = court.status === 'available';
   const team1 = court.players.filter(p => p.team === 1);
@@ -149,6 +151,17 @@ export function CourtCard({
                 ))}
               </div>
             </div>
+          </div>
+          <div className="mb-3">
+            <Button
+              onClick={() => onCancelGame(court.id)}
+              variant="outline"
+              className="w-full border-warning/30 text-warning hover:bg-warning/10"
+              data-testid={`button-cancel-game-${court.id}`}
+            >
+              <X className="w-4 h-4 mr-2" />
+              Cancel Game (No Record)
+            </Button>
           </div>
           <div className="mb-4">
             <p className="text-sm text-muted-foreground text-center mb-2">Select Winner:</p>

@@ -418,6 +418,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/courts/:courtId/cancel-game", async (req, res) => {
+    try {
+      console.log(`[CANCEL-GAME] Canceling game on court ${req.params.courtId}`);
+      
+      const court = await storage.getCourt(req.params.courtId);
+      if (!court) {
+        return res.status(404).json({ error: "Court not found" });
+      }
+      if (court.status !== 'occupied') {
+        return res.status(400).json({ error: "Court is not occupied" });
+      }
+
+      const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
+      const players = (await Promise.all(
+        courtPlayerData.map(async cp => {
+          const player = await storage.getPlayer(cp.playerId);
+          if (!player) return null;
+          return { ...player, team: cp.team };
+        })
+      )).filter((p): p is typeof p & { team: number } => p !== null);
+
+      // Return all players to waiting status
+      for (const player of players) {
+        await storage.updatePlayer(player.id, { status: 'waiting' });
+      }
+
+      // Add players back to queue (maintain their original order)
+      const currentQueue = await storage.getQueue();
+      const newQueue = [
+        ...currentQueue,
+        ...players.map(p => p.id),
+      ];
+      await storage.setQueue(newQueue);
+
+      // Reset court
+      await storage.updateCourt(court.id, {
+        status: 'available',
+        timeRemaining: 0,
+        winningTeam: null,
+      });
+      await storage.setCourtPlayers(court.id, []);
+
+      console.log(`[CANCEL-GAME] Game canceled successfully. Players returned to queue.`);
+      res.json({ message: 'Game canceled successfully' });
+    } catch (error) {
+      console.error(`[CANCEL-GAME] Error canceling game:`, error);
+      res.status(500).json({ error: "Failed to cancel game" });
+    }
+  });
+
   app.post("/api/courts/:courtId/end-game", async (req, res) => {
     try {
       const { winningTeam, team1Score, team2Score } = req.body;

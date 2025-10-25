@@ -10,6 +10,7 @@ import { GameHistory } from "@/components/GameHistory";
 import { AddPlayerModal } from "@/components/AddPlayerModal";
 import { ImportPlayersModal } from "@/components/ImportPlayersModal";
 import { EndGameModal } from "@/components/EndGameModal";
+import { AutoAssignConfirmDialog } from "@/components/AutoAssignConfirmDialog";
 import { NotificationToast } from "@/components/NotificationToast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 
@@ -23,6 +24,13 @@ export default function Home() {
   const [showEndGameModal, setShowEndGameModal] = useState(false);
   const [endingCourtId, setEndingCourtId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showAutoAssignConfirm, setShowAutoAssignConfirm] = useState(false);
+  const [autoAssignData, setAutoAssignData] = useState<{
+    courtId: string;
+    courtName: string;
+    team1: Player[];
+    team2: Player[];
+  } | null>(null);
 
   // Fetch courts with players
   const { data: courts = [], isLoading: courtsLoading } = useQuery<CourtWithPlayers[]>({
@@ -202,6 +210,23 @@ export default function Home() {
     },
   });
 
+  const cancelGameMutation = useMutation({
+    mutationFn: async (courtId: string) => {
+      return await apiRequest('POST', `/api/courts/${courtId}/cancel-game`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      addNotification('Game canceled and players returned to queue', 'info');
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to cancel game';
+      addNotification(message, 'danger');
+    },
+  });
+
   const updateQueueMutation = useMutation({
     mutationFn: async (playerIds: string[]) => {
       return await apiRequest('PUT', '/api/queue', { playerIds });
@@ -328,20 +353,65 @@ export default function Home() {
 
   const handleAutoAssign = () => {
     const availableCourt = courts.find((c) => c.status === 'available');
-    const waitingPlayers = queue.slice(0, 4);
-
-    if (!availableCourt || waitingPlayers.length < 2) {
-      addNotification('Need at least 2 players and an available court', 'warning');
+    if (!availableCourt) {
+      addNotification('No available courts', 'warning');
       return;
     }
 
-    const midpoint = Math.ceil(waitingPlayers.length / 2);
-    const assignments = waitingPlayers.map((playerId, index) => ({
-      playerId,
-      team: index < midpoint ? 1 : 2
-    }));
+    // Get first 4 players from queue
+    const queuePlayerIds = queue.slice(0, 4);
+    if (queuePlayerIds.length < 4) {
+      addNotification('Need at least 4 players in queue for balanced teams', 'warning');
+      return;
+    }
 
-    assignPlayersMutation.mutate({ courtId: availableCourt.id, teamAssignments: assignments });
+    // Map player IDs to player objects
+    const queuePlayersData = queuePlayerIds
+      .map((id) => players.find((p) => p.id === id))
+      .filter((p): p is Player => p !== undefined);
+
+    // Guard: Ensure all 4 player records are fully loaded
+    if (queuePlayersData.length < 4) {
+      addNotification('Player data is still loading. Please try again.', 'warning');
+      return;
+    }
+
+    // Sort players by skill score for balanced distribution
+    const sortedPlayers = [...queuePlayersData].sort((a, b) => 
+      (b.skillScore || 50) - (a.skillScore || 50)
+    );
+
+    // Distribute using "snake draft" method for balance
+    // Highest skill goes to Team 1, 2nd highest to Team 2, 
+    // 3rd highest to Team 2, 4th highest to Team 1
+    const team1Players: Player[] = [sortedPlayers[0], sortedPlayers[3]];
+    const team2Players: Player[] = [sortedPlayers[1], sortedPlayers[2]];
+
+    // Show confirmation dialog
+    setAutoAssignData({
+      courtId: availableCourt.id,
+      courtName: availableCourt.name,
+      team1: team1Players,
+      team2: team2Players,
+    });
+    setShowAutoAssignConfirm(true);
+  };
+
+  const handleConfirmAutoAssign = () => {
+    if (!autoAssignData) return;
+
+    const assignments = [
+      ...autoAssignData.team1.map(p => ({ playerId: p.id, team: 1 })),
+      ...autoAssignData.team2.map(p => ({ playerId: p.id, team: 2 })),
+    ];
+
+    assignPlayersMutation.mutate({ 
+      courtId: autoAssignData.courtId, 
+      teamAssignments: assignments 
+    });
+
+    setShowAutoAssignConfirm(false);
+    setAutoAssignData(null);
   };
 
   const handleSelectWinningTeam = (courtId: string, teamNumber: number) => {
@@ -364,6 +434,10 @@ export default function Home() {
 
   const handleEndGameSubmit = (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => {
     endGameMutation.mutate({ courtId, winningTeam, team1Score, team2Score });
+  };
+
+  const handleCancelGame = (courtId: string) => {
+    cancelGameMutation.mutate(courtId);
   };
 
   const handleRemoveFromQueue = (playerId: string) => {
@@ -482,6 +556,7 @@ export default function Home() {
             onAssignPlayers={handleAssignPlayers}
             onSelectWinningTeam={handleSelectWinningTeam}
             onEndGame={handleEndGame}
+            onCancelGame={handleCancelGame}
           />
         )}
 
@@ -531,6 +606,18 @@ export default function Home() {
           setEndingCourtId(null);
         }}
         onSubmit={handleEndGameSubmit}
+      />
+
+      <AutoAssignConfirmDialog
+        isOpen={showAutoAssignConfirm}
+        onClose={() => {
+          setShowAutoAssignConfirm(false);
+          setAutoAssignData(null);
+        }}
+        onConfirm={handleConfirmAutoAssign}
+        courtName={autoAssignData?.courtName || ''}
+        team1={autoAssignData?.team1 || []}
+        team2={autoAssignData?.team2 || []}
       />
 
       <NotificationToast notifications={notifications} onDismiss={dismissNotification} />

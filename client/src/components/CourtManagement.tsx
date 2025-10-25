@@ -13,6 +13,7 @@ interface CourtManagementProps {
   onAssignPlayers: (courtId: string) => void;
   onSelectWinningTeam: (courtId: string, teamNumber: number) => void;
   onEndGame: (courtId: string) => void;
+  onCancelGame: (courtId: string) => void;
 }
 
 export function CourtManagement({
@@ -25,6 +26,7 @@ export function CourtManagement({
   onAssignPlayers,
   onSelectWinningTeam,
   onEndGame,
+  onCancelGame,
 }: CourtManagementProps) {
   const lastCourt = courts[courts.length - 1];
   const canRemoveLastCourt = courts.length > 1 && lastCourt?.status === 'available';
@@ -83,6 +85,7 @@ export function CourtManagement({
               onAssignPlayers={onAssignPlayers}
               onSelectWinningTeam={onSelectWinningTeam}
               onEndGame={onEndGame}
+              onCancelGame={onCancelGame}
             />
           );
         })}
