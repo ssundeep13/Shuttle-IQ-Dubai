@@ -4,8 +4,14 @@ import {
   type Court, 
   type InsertCourt,
   type CourtWithPlayers,
-  type CourtPlayer 
+  type CourtPlayer,
+  players,
+  courts,
+  courtPlayers as courtPlayersTable,
+  queueEntries
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -39,198 +45,194 @@ export interface IStorage {
   getCourtsWithPlayers(): Promise<CourtWithPlayers[]>;
 }
 
-export class MemStorage implements IStorage {
-  private players: Map<string, Player>;
-  private courts: Map<string, Court>;
-  private courtPlayers: Map<string, CourtPlayer[]>; // courtId -> CourtPlayer[] with team info
-  private queue: string[]; // ordered player IDs
-
-  constructor() {
-    this.players = new Map();
-    this.courts = new Map();
-    this.courtPlayers = new Map();
-    this.queue = [];
-    
-    // Initialize with sample data
-    this.initializeSampleData();
-  }
-
-  private async initializeSampleData() {
-    // Add initial players
-    const initialPlayers: InsertPlayer[] = [
-      { name: 'Stesha', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Lenin', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Anuja', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Archie', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Unni', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Ojus', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Kushal', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Huria', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Sujaii', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Harshit', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Mohini', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Vimal', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Suchita', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Arun K', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Marium', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Vinay', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Arjun MM', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Shaju', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Amal', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Sourabh', level: 'Advanced', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Maryam', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Suraj', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'Shreeja', level: 'Beginner', gamesPlayed: 0, wins: 0, status: 'waiting' },
-      { name: 'AJ', level: 'Intermediate', gamesPlayed: 0, wins: 0, status: 'waiting' },
-    ];
-
-    for (const player of initialPlayers) {
-      const created = await this.createPlayer(player);
-      this.queue.push(created.id);
-    }
-
-    // Add initial courts
-    const initialCourts: InsertCourt[] = [
-      { name: 'Court 1', status: 'available', timeRemaining: 0, winningTeam: null },
-      { name: 'Court 2', status: 'available', timeRemaining: 0, winningTeam: null },
-      { name: 'Court 3', status: 'available', timeRemaining: 0, winningTeam: null },
-      { name: 'Court 4', status: 'available', timeRemaining: 0, winningTeam: null },
-    ];
-
-    for (const court of initialCourts) {
-      await this.createCourt(court);
-    }
-  }
-
+export class DatabaseStorage implements IStorage {
   // Player operations
   async getPlayer(id: string): Promise<Player | undefined> {
-    return this.players.get(id);
+    const [player] = await db.select().from(players).where(eq(players.id, id));
+    return player || undefined;
   }
 
   async getAllPlayers(): Promise<Player[]> {
-    return Array.from(this.players.values());
+    return await db.select().from(players);
   }
 
   async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
     const id = randomUUID();
-    const player: Player = { 
-      ...insertPlayer, 
-      id,
-      status: insertPlayer.status || 'waiting',
-      gamesPlayed: insertPlayer.gamesPlayed || 0,
-      wins: insertPlayer.wins || 0
-    };
-    this.players.set(id, player);
+    const [player] = await db
+      .insert(players)
+      .values({ 
+        ...insertPlayer, 
+        id,
+        status: insertPlayer.status || 'waiting',
+        gamesPlayed: insertPlayer.gamesPlayed || 0,
+        wins: insertPlayer.wins || 0
+      })
+      .returning();
     return player;
   }
 
   async updatePlayer(id: string, updates: Partial<Player>): Promise<Player | undefined> {
-    const player = this.players.get(id);
-    if (!player) return undefined;
-    
-    const updated: Player = { ...player, ...updates, id };
-    this.players.set(id, updated);
-    return updated;
+    const [updated] = await db
+      .update(players)
+      .set(updates)
+      .where(eq(players.id, id))
+      .returning();
+    return updated || undefined;
   }
 
   async deletePlayer(id: string): Promise<boolean> {
-    return this.players.delete(id);
+    // Delete related court players
+    await db.delete(courtPlayersTable).where(eq(courtPlayersTable.playerId, id));
+    
+    // Delete related queue entries
+    await db.delete(queueEntries).where(eq(queueEntries.playerId, id));
+    
+    // Delete the player
+    const result = await db.delete(players).where(eq(players.id, id)).returning();
+    return result.length > 0;
   }
 
   // Court operations
   async getCourt(id: string): Promise<Court | undefined> {
-    return this.courts.get(id);
+    const [court] = await db.select().from(courts).where(eq(courts.id, id));
+    return court || undefined;
   }
 
   async getAllCourts(): Promise<Court[]> {
-    return Array.from(this.courts.values());
+    return await db.select().from(courts);
   }
 
   async createCourt(insertCourt: InsertCourt): Promise<Court> {
     const id = randomUUID();
-    const court: Court = { 
-      ...insertCourt, 
-      id,
-      status: insertCourt.status || 'available',
-      timeRemaining: insertCourt.timeRemaining || 0,
-      winningTeam: insertCourt.winningTeam || null
-    };
-    this.courts.set(id, court);
-    this.courtPlayers.set(id, []);
+    const [court] = await db
+      .insert(courts)
+      .values({ 
+        ...insertCourt, 
+        id,
+        status: insertCourt.status || 'available',
+        timeRemaining: insertCourt.timeRemaining || 0,
+        winningTeam: insertCourt.winningTeam || null
+      })
+      .returning();
     return court;
   }
 
   async updateCourt(id: string, updates: Partial<Court>): Promise<Court | undefined> {
-    const court = this.courts.get(id);
-    if (!court) return undefined;
-    
-    const updated: Court = { ...court, ...updates, id };
-    this.courts.set(id, updated);
-    return updated;
+    const [updated] = await db
+      .update(courts)
+      .set(updates)
+      .where(eq(courts.id, id))
+      .returning();
+    return updated || undefined;
   }
 
   async deleteCourt(id: string): Promise<boolean> {
-    const deleted = this.courts.delete(id);
-    if (deleted) {
-      this.courtPlayers.delete(id);
-    }
-    return deleted;
+    // Delete related court players
+    await db.delete(courtPlayersTable).where(eq(courtPlayersTable.courtId, id));
+    
+    // Delete the court
+    const result = await db.delete(courts).where(eq(courts.id, id)).returning();
+    return result.length > 0;
   }
 
   // Court players operations
   async getCourtPlayers(courtId: string): Promise<string[]> {
-    const courtPlayerData = this.courtPlayers.get(courtId) || [];
-    return courtPlayerData.map(cp => cp.playerId);
+    const playerData = await db
+      .select()
+      .from(courtPlayersTable)
+      .where(eq(courtPlayersTable.courtId, courtId));
+    return playerData.map(cp => cp.playerId);
   }
 
   async getCourtPlayersWithTeams(courtId: string): Promise<CourtPlayer[]> {
-    return this.courtPlayers.get(courtId) || [];
+    return await db
+      .select()
+      .from(courtPlayersTable)
+      .where(eq(courtPlayersTable.courtId, courtId));
   }
 
   async setCourtPlayers(courtId: string, playerIds: string[]): Promise<void> {
     // Legacy method - auto-assign teams
     const assignments = playerIds.map((playerId, index) => ({
-      courtId,
       playerId,
       team: index < Math.ceil(playerIds.length / 2) ? 1 : 2
     }));
-    this.courtPlayers.set(courtId, assignments);
+    await this.setCourtPlayersWithTeams(courtId, assignments);
   }
 
   async setCourtPlayersWithTeams(courtId: string, assignments: { playerId: string; team: number }[]): Promise<void> {
-    const courtPlayerData = assignments.map(a => ({
-      courtId,
-      playerId: a.playerId,
-      team: a.team
-    }));
-    this.courtPlayers.set(courtId, courtPlayerData);
+    // Clear existing court players
+    await db.delete(courtPlayersTable).where(eq(courtPlayersTable.courtId, courtId));
+    
+    // Insert new assignments
+    if (assignments.length > 0) {
+      await db.insert(courtPlayersTable).values(
+        assignments.map(a => ({
+          courtId,
+          playerId: a.playerId,
+          team: a.team
+        }))
+      );
+    }
   }
 
   // Queue operations
   async getQueue(): Promise<string[]> {
-    return [...this.queue];
+    const entries = await db
+      .select()
+      .from(queueEntries)
+      .orderBy(desc(queueEntries.position));
+    return entries.map(e => e.playerId);
   }
 
   async setQueue(playerIds: string[]): Promise<void> {
-    this.queue = [...playerIds];
+    // Clear existing queue
+    await db.delete(queueEntries);
+    
+    // Insert new queue
+    if (playerIds.length > 0) {
+      await db.insert(queueEntries).values(
+        playerIds.map((playerId, index) => ({
+          id: randomUUID(),
+          playerId,
+          position: index
+        }))
+      );
+    }
   }
 
   async addToQueue(playerId: string): Promise<void> {
-    if (!this.queue.includes(playerId)) {
-      this.queue.push(playerId);
+    // Check if player already in queue
+    const existing = await db
+      .select()
+      .from(queueEntries)
+      .where(eq(queueEntries.playerId, playerId));
+    
+    if (existing.length === 0) {
+      // Get max position
+      const allEntries = await db.select().from(queueEntries);
+      const maxPosition = allEntries.length > 0 
+        ? Math.max(...allEntries.map(e => e.position)) 
+        : -1;
+      
+      await db.insert(queueEntries).values({
+        id: randomUUID(),
+        playerId,
+        position: maxPosition + 1
+      });
     }
   }
 
   async removeFromQueue(playerId: string): Promise<void> {
-    this.queue = this.queue.filter(id => id !== playerId);
+    await db.delete(queueEntries).where(eq(queueEntries.playerId, playerId));
   }
 
   // Complex queries
   async getCourtsWithPlayers(): Promise<CourtWithPlayers[]> {
-    const courts = await this.getAllCourts();
+    const allCourts = await this.getAllCourts();
     const courtsWithPlayers: CourtWithPlayers[] = [];
 
-    for (const court of courts) {
+    for (const court of allCourts) {
       const courtPlayerData = await this.getCourtPlayersWithTeams(court.id);
       const playersWithTeams = (await Promise.all(
         courtPlayerData.map(async cp => {
@@ -250,4 +252,4 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
