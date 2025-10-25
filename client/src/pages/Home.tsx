@@ -253,6 +253,22 @@ export default function Home() {
     },
   });
 
+  const resetGamesMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest('DELETE', '/api/game-history', null);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      addNotification('All game history and stats have been reset', 'success');
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to reset games';
+      addNotification(message, 'danger');
+    },
+  });
+
   // Handlers
   const handleAddCourt = () => {
     addCourtMutation.mutate(`Court ${courts.length + 1}`);
@@ -382,6 +398,10 @@ export default function Home() {
     addNotification('All players cleared', 'success');
   };
 
+  const handleResetGames = () => {
+    resetGamesMutation.mutate();
+  };
+
   const handleImportPlayers = async (url: string) => {
     try {
       const response = await apiRequest('POST', '/api/players/import', { url });
@@ -482,7 +502,10 @@ export default function Home() {
         )}
 
         {activeTab === 'history' && (
-          <GameHistory games={gameHistory} />
+          <GameHistory 
+            games={gameHistory} 
+            onResetGames={handleResetGames}
+          />
         )}
       </div>
 

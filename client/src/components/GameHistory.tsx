@@ -1,5 +1,6 @@
-import { History, Trophy } from "lucide-react";
+import { History, Trophy, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
@@ -25,6 +26,7 @@ interface GameHistoryItem {
 
 interface GameHistoryProps {
   games: GameHistoryItem[];
+  onResetGames: () => void;
 }
 
 const getLevelColor = (level: string) => {
@@ -40,14 +42,16 @@ const getLevelColor = (level: string) => {
   }
 };
 
-export function GameHistory({ games }: GameHistoryProps) {
+export function GameHistory({ games, onResetGames }: GameHistoryProps) {
   if (games.length === 0) {
     return (
       <div className="bg-card rounded-lg shadow-md p-6 border border-card-border">
-        <h2 className="text-2xl font-bold text-primary flex items-center gap-2 mb-6">
-          <History className="w-6 h-6" />
-          Game History
-        </h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-primary flex items-center gap-2">
+            <History className="w-6 h-6" />
+            Game History
+          </h2>
+        </div>
         <div className="text-center py-12 bg-muted rounded-md">
           <p className="text-muted-foreground">No games have been played yet. Start a game to see history here.</p>
         </div>
@@ -57,10 +61,22 @@ export function GameHistory({ games }: GameHistoryProps) {
 
   return (
     <div className="bg-card rounded-lg shadow-md p-6 border border-card-border">
-      <h2 className="text-2xl font-bold text-primary flex items-center gap-2 mb-6">
-        <History className="w-6 h-6" />
-        Game History
-      </h2>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-primary flex items-center gap-2">
+          <History className="w-6 h-6" />
+          Game History
+        </h2>
+        <Button
+          onClick={onResetGames}
+          variant="outline"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          data-testid="button-reset-games"
+        >
+          <RotateCcw className="w-4 h-4 mr-1" />
+          Reset All Games
+        </Button>
+      </div>
 
       <div className="space-y-4">
         {games.map((game, index) => {

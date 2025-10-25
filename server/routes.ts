@@ -607,6 +607,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reset all games endpoint
+  app.delete("/api/game-history", async (req, res) => {
+    try {
+      console.log('[RESET-GAMES] Deleting all game history...');
+      
+      // Delete all game participants first (foreign key constraint)
+      await db.delete(gameParticipants);
+      
+      // Delete all game results
+      await db.delete(gameResults);
+      
+      // Reset all player statistics
+      const allPlayers = await storage.getAllPlayers();
+      for (const player of allPlayers) {
+        // Reset stats based on initial skill levels
+        let initialSkillScore = 50; // Default to 5.0
+        if (player.level === 'Beginner') initialSkillScore = 30; // 3.0
+        if (player.level === 'Intermediate') initialSkillScore = 50; // 5.0
+        if (player.level === 'Advanced') initialSkillScore = 70; // 7.0
+        
+        await storage.updatePlayer(player.id, {
+          gamesPlayed: 0,
+          wins: 0,
+          skillScore: initialSkillScore,
+        });
+      }
+      
+      console.log('[RESET-GAMES] All games and stats reset successfully');
+      res.json({ message: 'All game history and player stats have been reset' });
+    } catch (error) {
+      console.error('[RESET-GAMES] Error:', error);
+      res.status(500).json({ error: "Failed to reset game history" });
+    }
+  });
+
   // Game History endpoint
   app.get("/api/game-history", async (req, res) => {
     try {
