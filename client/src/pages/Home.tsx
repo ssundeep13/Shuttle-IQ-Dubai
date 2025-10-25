@@ -417,53 +417,58 @@ export default function Home() {
   const handleReassignTeams = () => {
     if (!autoAssignData) return;
 
-    // Get all 4 players from current teams
-    const allPlayers = [...autoAssignData.team1, ...autoAssignData.team2];
+    // Get current player IDs that are assigned
+    const currentPlayerIds = [
+      ...autoAssignData.team1.map(p => p.id),
+      ...autoAssignData.team2.map(p => p.id)
+    ];
+
+    // Find the position of the first current player in the queue
+    const currentStartIndex = queue.findIndex(id => currentPlayerIds.includes(id));
     
-    // Sort by skill score
-    const sortedPlayers = [...allPlayers].sort((a, b) => 
+    // Calculate next starting position (move forward by 4 to get next batch)
+    let nextStartIndex = currentStartIndex + 4;
+    
+    // If we've gone past the available players, wrap around to start
+    if (nextStartIndex + 4 > queue.length) {
+      nextStartIndex = 0;
+    }
+    
+    // Get next 4 players from queue starting at new position
+    const nextQueuePlayerIds = queue.slice(nextStartIndex, nextStartIndex + 4);
+    
+    // If we don't have enough players at this position, try from the beginning
+    if (nextQueuePlayerIds.length < 4) {
+      const fromStart = queue.slice(0, 4);
+      if (fromStart.length < 4) {
+        addNotification('Need at least 4 players in queue', 'warning');
+        return;
+      }
+      nextQueuePlayerIds.length = 0;
+      nextQueuePlayerIds.push(...fromStart);
+    }
+
+    // Map to player objects
+    const nextQueuePlayersData = nextQueuePlayerIds
+      .map((id) => players.find((p) => p.id === id))
+      .filter((p): p is Player => p !== undefined);
+
+    // Guard: Ensure all 4 player records are fully loaded
+    if (nextQueuePlayersData.length < 4) {
+      addNotification('Player data is still loading. Please try again.', 'warning');
+      return;
+    }
+
+    // Sort players by skill score for balanced distribution
+    const sortedPlayers = [...nextQueuePlayersData].sort((a, b) => 
       (b.skillScore || 50) - (a.skillScore || 50)
     );
 
-    // Try different balanced configurations
-    // Current assignment is: [0,3] vs [1,2] (highest+lowest vs middle two)
-    // We can shuffle to other balanced configs:
-    // Option 1: [0,2] vs [1,3] (highest+3rd vs 2nd+lowest)
-    // Option 2: [0,1] vs [2,3] (top two vs bottom two)
-    
-    // Use a simple shuffle counter to cycle through options
-    const currentConfig = JSON.stringify([
-      autoAssignData.team1.map(p => p.id).sort(),
-      autoAssignData.team2.map(p => p.id).sort()
-    ]);
-    
-    // Try configuration: [0,2] vs [1,3]
-    let team1Players = [sortedPlayers[0], sortedPlayers[2]];
-    let team2Players = [sortedPlayers[1], sortedPlayers[3]];
-    
-    const config1 = JSON.stringify([
-      [sortedPlayers[0].id, sortedPlayers[2].id].sort(),
-      [sortedPlayers[1].id, sortedPlayers[3].id].sort()
-    ]);
-    
-    // If already using config1, try config2: [0,1] vs [2,3]
-    if (currentConfig === config1) {
-      team1Players = [sortedPlayers[0], sortedPlayers[1]];
-      team2Players = [sortedPlayers[2], sortedPlayers[3]];
-      
-      const config2 = JSON.stringify([
-        [sortedPlayers[0].id, sortedPlayers[1].id].sort(),
-        [sortedPlayers[2].id, sortedPlayers[3].id].sort()
-      ]);
-      
-      // If already using config2, go back to default: [0,3] vs [1,2]
-      if (currentConfig === config2) {
-        team1Players = [sortedPlayers[0], sortedPlayers[3]];
-        team2Players = [sortedPlayers[1], sortedPlayers[2]];
-      }
-    }
+    // Apply balanced team assignment (snake draft)
+    const team1Players: Player[] = [sortedPlayers[0], sortedPlayers[3]];
+    const team2Players: Player[] = [sortedPlayers[1], sortedPlayers[2]];
 
-    // Update the dialog with new team assignments
+    // Update the dialog with new player assignments
     setAutoAssignData({
       courtId: autoAssignData.courtId,
       courtName: autoAssignData.courtName,
