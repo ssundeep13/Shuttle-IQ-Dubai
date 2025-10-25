@@ -1,8 +1,16 @@
-import { Plus, Minus, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Minus, Trash2, RefreshCw, ArrowUpDown } from "lucide-react";
 import { Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface PlayerQueueProps {
   players: Player[];
@@ -32,9 +40,38 @@ export function PlayerQueue({
   onRemoveFromQueue,
   onClearQueue,
 }: PlayerQueueProps) {
+  const [sortBy, setSortBy] = useState<'skill' | 'games'>('skill');
+
   const queuePlayers = queuePlayerIds
     .map((id) => players.find((p) => p.id === id))
     .filter((p): p is Player => p !== undefined);
+
+  // Sort players based on selected criteria
+  const sortedQueuePlayers = [...queuePlayers].sort((a, b) => {
+    if (sortBy === 'skill') {
+      // Sort by skill level first: Advanced → Intermediate → Beginner
+      // Then by skillScore within same level
+      const levelPriority: Record<string, number> = {
+        'Advanced': 3,
+        'Intermediate': 2,
+        'Beginner': 1,
+      };
+      
+      const aLevel = levelPriority[a.level] || 0;
+      const bLevel = levelPriority[b.level] || 0;
+      
+      // Compare level first
+      if (bLevel !== aLevel) {
+        return bLevel - aLevel;
+      }
+      
+      // If same level, compare by skillScore
+      return (b.skillScore || 0) - (a.skillScore || 0);
+    } else {
+      // Sort by games played: highest to lowest
+      return (b.gamesPlayed || 0) - (a.gamesPlayed || 0);
+    }
+  });
 
   return (
     <div className="bg-card rounded-lg shadow-md p-6 border border-card-border">
@@ -54,16 +91,31 @@ export function PlayerQueue({
         </div>
       </div>
 
-      <div className="mb-4">
+      <div className="flex justify-between items-center mb-4 gap-3">
         <p className="text-sm text-muted-foreground">
           <span className="font-semibold text-foreground" data-testid="text-queue-player-count">{queuePlayers.length}</span> player
           {queuePlayers.length !== 1 ? 's' : ''} waiting
         </p>
+        
+        {queuePlayers.length > 0 && (
+          <div className="flex items-center gap-2">
+            <ArrowUpDown className="w-4 h-4 text-muted-foreground" />
+            <Select value={sortBy} onValueChange={(value: 'skill' | 'games') => setSortBy(value)}>
+              <SelectTrigger className="w-[180px] h-8" data-testid="select-queue-sort">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="skill" data-testid="option-sort-skill">Sort by Skill Level</SelectItem>
+                <SelectItem value="games" data-testid="option-sort-games">Sort by Games Played</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {queuePlayers.length > 0 ? (
         <div className="space-y-2 max-h-[600px] overflow-y-auto">
-          {queuePlayers.map((player, index) => (
+          {sortedQueuePlayers.map((player, index) => (
             <div
               key={player.id}
               className="flex items-center justify-between p-3 bg-muted rounded-md border border-transparent hover:border-border transition-all hover-elevate"

@@ -66,7 +66,10 @@ Preferred communication style: Simple, everyday language.
 - **Court-Players** relationship: Each court MUST have exactly 4 players (2 per team)
 - **Game Results**: id, courtId, team1Score, team2Score, winningTeam, createdAt
 - **Game Participants**: gameId, playerId, team, skillScoreBefore, skillScoreAfter
-- **Queue**: Ordered list of player IDs with position tracking
+- **Queue**: Ordered list of player IDs with position tracking and dynamic sorting capabilities
+  - **Default Sort**: By skill level (Advanced → Intermediate → Beginner)
+  - **Alternative Sort**: By games played (most games first)
+  - **UI Control**: Dropdown selector for switching between sort methods
 - **Notifications**: Type-based messaging system (success/warning/danger/info)
 
 ### Database Schema
