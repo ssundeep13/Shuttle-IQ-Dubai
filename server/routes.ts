@@ -610,13 +610,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Reset all games endpoint
   app.delete("/api/game-history", async (req, res) => {
     try {
-      console.log('[RESET-GAMES] Deleting all game history...');
+      console.log('[RESET-GAMES] Starting full reset (games, stats, and courts)...');
       
       // Delete all game participants first (foreign key constraint)
       await db.delete(gameParticipants);
+      console.log('[RESET-GAMES] Game participants deleted');
       
       // Delete all game results
       await db.delete(gameResults);
+      console.log('[RESET-GAMES] Game results deleted');
       
       // Reset all player statistics
       const allPlayers = await storage.getAllPlayers();
@@ -631,11 +633,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           gamesPlayed: 0,
           wins: 0,
           skillScore: initialSkillScore,
+          status: 'waiting', // Set all players back to waiting
         });
       }
+      console.log('[RESET-GAMES] Player statistics reset');
       
-      console.log('[RESET-GAMES] All games and stats reset successfully');
-      res.json({ message: 'All game history and player stats have been reset' });
+      // Clear all court assignments and reset court states
+      const allCourts = await storage.getAllCourts();
+      for (const court of allCourts) {
+        // Clear all players from this court
+        await storage.setCourtPlayers(court.id, []);
+        
+        // Reset court to available state
+        await storage.updateCourt(court.id, {
+          status: 'available',
+          timeRemaining: 0,
+          winningTeam: null,
+        });
+      }
+      console.log('[RESET-GAMES] Courts cleared and reset to available');
+      
+      console.log('[RESET-GAMES] Full reset completed successfully');
+      res.json({ message: 'All games, stats, and courts have been reset' });
     } catch (error) {
       console.error('[RESET-GAMES] Error:', error);
       res.status(500).json({ error: "Failed to reset game history" });

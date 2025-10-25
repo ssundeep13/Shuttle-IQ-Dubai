@@ -260,8 +260,10 @@ export default function Home() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
-      addNotification('All game history and stats have been reset', 'success');
+      setTeamAssignments({}); // Clear any pending team assignments
+      addNotification('All games, stats, and courts have been reset', 'success');
     },
     onError: (error: any) => {
       const message = error?.error || error?.message || 'Failed to reset games';
