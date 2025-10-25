@@ -349,9 +349,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (teamAssignments && Array.isArray(teamAssignments)) {
         // New format: explicit team assignments
         assignments = teamAssignments;
-        if (assignments.length < 2) {
-          return res.status(400).json({ error: "At least 2 players required" });
-        }
       } else if (playerIds && Array.isArray(playerIds)) {
         // Legacy format: auto-split into teams
         if (playerIds.length < 2) {
@@ -364,6 +361,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }));
       } else {
         return res.status(400).json({ error: "playerIds or teamAssignments required" });
+      }
+
+      // Validate exactly 2 players per team (4 total)
+      const team1Count = assignments.filter(a => a.team === 1).length;
+      const team2Count = assignments.filter(a => a.team === 2).length;
+      
+      if (team1Count !== 2 || team2Count !== 2) {
+        return res.status(400).json({ 
+          error: `Each team must have exactly 2 players. Team 1: ${team1Count}, Team 2: ${team2Count}` 
+        });
       }
 
       const court = await storage.getCourt(req.params.courtId);
@@ -446,6 +453,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Determine winners and losers based on team assignments
       const team1 = players.filter(p => p.team === 1);
       const team2 = players.filter(p => p.team === 2);
+      
+      // Defensive check: ensure exactly 2 players per team
+      if (team1.length !== 2 || team2.length !== 2) {
+        return res.status(400).json({ 
+          error: `Invalid team configuration. Each team must have exactly 2 players. Team 1: ${team1.length}, Team 2: ${team2.length}` 
+        });
+      }
+      
       const winners = winningTeam === 1 ? team1 : team2;
       const losers = winningTeam === 1 ? team2 : team1;
 

@@ -182,30 +182,37 @@ export function CourtCard({
         </div>
       ) : (
         <div>
-          <h4 className="font-semibold text-foreground mb-3">Assign Players to Teams</h4>
+          <h4 className="font-semibold text-foreground mb-2">Assign Players to Teams</h4>
+          <p className="text-sm text-muted-foreground mb-3 text-center">Select exactly 2 players per team (4 total)</p>
           {queuePlayers.length > 0 ? (
             <div>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="border-2 border-primary/20 rounded-md p-3 bg-primary/5">
-                  <h5 className="text-sm font-bold text-primary mb-2 text-center">TEAM 1</h5>
+                  <h5 className="text-sm font-bold text-primary mb-2 text-center">TEAM 1 ({team1Players.length}/2)</h5>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
                     {queuePlayers.map((player) => {
                       const isInTeam1 = team1Players.includes(player.id);
                       const isInTeam2 = team2Players.includes(player.id);
                       const isUnassigned = !isInTeam1 && !isInTeam2;
+                      const team1Full = team1Players.length >= 2;
                       
                       // Only show if: assigned to THIS team OR unassigned
                       if (!isInTeam1 && !isUnassigned) return null;
                       
+                      // Disable selection if team is full and player is not already in this team
+                      const isDisabled = team1Full && !isInTeam1;
+                      
                       return (
                         <div
                           key={player.id}
-                          onClick={() => onTogglePlayerSelection(player.id, 1)}
+                          onClick={() => !isDisabled && onTogglePlayerSelection(player.id, 1)}
                           className={cn(
-                            "p-2 rounded-md border cursor-pointer transition-all hover-elevate",
+                            "p-2 rounded-md border transition-all",
                             isInTeam1
-                              ? "bg-primary/20 border-primary"
-                              : "bg-background border-border hover:border-primary/50"
+                              ? "bg-primary/20 border-primary cursor-pointer hover-elevate"
+                              : isDisabled
+                              ? "bg-muted/50 border-muted cursor-not-allowed opacity-50"
+                              : "bg-background border-border cursor-pointer hover-elevate hover:border-primary/50"
                           )}
                           data-testid={`player-team1-${player.id}`}
                         >
@@ -222,25 +229,31 @@ export function CourtCard({
                 </div>
                 
                 <div className="border-2 border-chart-2/20 rounded-md p-3 bg-chart-2/5">
-                  <h5 className="text-sm font-bold text-chart-2 mb-2 text-center">TEAM 2</h5>
+                  <h5 className="text-sm font-bold text-chart-2 mb-2 text-center">TEAM 2 ({team2Players.length}/2)</h5>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
                     {queuePlayers.map((player) => {
                       const isInTeam1 = team1Players.includes(player.id);
                       const isInTeam2 = team2Players.includes(player.id);
                       const isUnassigned = !isInTeam1 && !isInTeam2;
+                      const team2Full = team2Players.length >= 2;
                       
                       // Only show if: assigned to THIS team OR unassigned
                       if (!isInTeam2 && !isUnassigned) return null;
                       
+                      // Disable selection if team is full and player is not already in this team
+                      const isDisabled = team2Full && !isInTeam2;
+                      
                       return (
                         <div
                           key={player.id}
-                          onClick={() => onTogglePlayerSelection(player.id, 2)}
+                          onClick={() => !isDisabled && onTogglePlayerSelection(player.id, 2)}
                           className={cn(
-                            "p-2 rounded-md border cursor-pointer transition-all hover-elevate",
+                            "p-2 rounded-md border transition-all",
                             isInTeam2
-                              ? "bg-chart-2/30 border-chart-2"
-                              : "bg-background border-border hover:border-chart-2/50"
+                              ? "bg-chart-2/30 border-chart-2 cursor-pointer hover-elevate"
+                              : isDisabled
+                              ? "bg-muted/50 border-muted cursor-not-allowed opacity-50"
+                              : "bg-background border-border cursor-pointer hover-elevate hover:border-chart-2/50"
                           )}
                           data-testid={`player-team2-${player.id}`}
                         >
@@ -257,17 +270,27 @@ export function CourtCard({
                 </div>
               </div>
               
-              <div className="text-center mb-2 text-sm text-muted-foreground">
-                Team 1: {team1Players.length} | Team 2: {team2Players.length}
+              <div className="text-center mb-2">
+                <span className={cn(
+                  "text-sm font-semibold",
+                  team1Players.length === 2 && team2Players.length === 2
+                    ? "text-success"
+                    : "text-muted-foreground"
+                )}>
+                  {team1Players.length === 2 && team2Players.length === 2 
+                    ? "✓ Ready to start! (4 players assigned)"
+                    : `${team1Players.length + team2Players.length}/4 players assigned`
+                  }
+                </span>
               </div>
               
               <Button
                 onClick={() => onAssignPlayers(court.id)}
-                disabled={team1Players.length === 0 || team2Players.length === 0}
+                disabled={team1Players.length !== 2 || team2Players.length !== 2}
                 className="w-full"
                 data-testid={`button-assign-players-${court.id}`}
               >
-                Start Game ({team1Players.length + team2Players.length} players)
+                Start Game
               </Button>
             </div>
           ) : (
