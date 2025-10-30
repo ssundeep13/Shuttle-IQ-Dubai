@@ -5,6 +5,7 @@ import { insertPlayerSchema, gameResults, gameParticipants } from "@shared/schem
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Player routes
@@ -671,6 +672,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  // Today's stats endpoint for leaderboard
+  app.get("/api/stats/today", async (req, res) => {
+    try {
+      const players = await storage.getAllPlayers();
+      
+      // Get start of today (midnight)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // Get all games from today
+      const todaysGames = await db
+        .select()
+        .from(gameResults)
+        .where(sql`${gameResults.createdAt} >= ${today}`);
+      
+      const gameIds = todaysGames.map(g => g.id);
+      
+      if (gameIds.length === 0) {
+        // No games today, return all players with 0 stats
+        const playersWithStats = players.map(p => ({
+          ...p,
+          gamesPlayedToday: 0,
+          winsToday: 0,
+        }));
+        return res.json(playersWithStats);
+      }
+      
+      // Get all participants from today's games
+      const participants = await db
+        .select()
+        .from(gameParticipants)
+        .where(sql`${gameParticipants.gameId} IN (${sql.join(gameIds.map(id => sql`${id}`), sql`, `)})`);
+      
+      // Calculate stats for each player
+      const playersWithStats = players.map(player => {
+        const playerParticipations = participants.filter(p => p.playerId === player.id);
+        const gamesPlayedToday = playerParticipations.length;
+        
+        // Count wins: player must be on winning team
+        let winsToday = 0;
+        for (const participation of playerParticipations) {
+          const game = todaysGames.find(g => g.id === participation.gameId);
+          if (game && game.winningTeam === participation.team) {
+            winsToday++;
+          }
+        }
+        
+        return {
+          ...player,
+          gamesPlayedToday,
+          winsToday,
+        };
+      });
+      
+      res.json(playersWithStats);
+    } catch (error) {
+      console.error('[STATS-TODAY] Error:', error);
+      res.status(500).json({ error: "Failed to fetch today's stats" });
     }
   });
 
