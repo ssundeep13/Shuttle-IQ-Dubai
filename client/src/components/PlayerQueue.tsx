@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Select,
   SelectContent,
@@ -11,6 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+interface TodayPlayer extends Player {
+  gamesPlayedToday?: number;
+  winsToday?: number;
+}
 
 interface PlayerQueueProps {
   players: Player[];
@@ -42,9 +48,35 @@ export function PlayerQueue({
 }: PlayerQueueProps) {
   const [sortBy, setSortBy] = useState<'skill' | 'games'>('skill');
 
+  // Fetch today's stats for all players
+  const { data: todayPlayers = [] } = useQuery<TodayPlayer[]>({
+    queryKey: ['/api/stats/today'],
+  });
+
+  // Map queue player IDs to players with today's stats
   const queuePlayers = queuePlayerIds
-    .map((id) => players.find((p) => p.id === id))
-    .filter((p): p is Player => p !== undefined);
+    .map((id) => {
+      const player = players.find((p) => p.id === id);
+      if (!player) return undefined;
+      
+      // Find today's stats for this player
+      const todayStats = todayPlayers.find((tp) => tp.id === id);
+      if (todayStats) {
+        return {
+          ...player,
+          gamesPlayedToday: todayStats.gamesPlayedToday || 0,
+          winsToday: todayStats.winsToday || 0,
+        } as TodayPlayer;
+      }
+      
+      // If no stats found, return player with 0 today stats
+      return {
+        ...player,
+        gamesPlayedToday: 0,
+        winsToday: 0,
+      } as TodayPlayer;
+    })
+    .filter((p): p is TodayPlayer => p !== undefined);
 
   // Sort players based on selected criteria
   const sortedQueuePlayers = [...queuePlayers].sort((a, b) => {
@@ -68,8 +100,8 @@ export function PlayerQueue({
       // If same level, compare by skillScore
       return (b.skillScore || 0) - (a.skillScore || 0);
     } else {
-      // Sort by games played: highest to lowest
-      return (b.gamesPlayed || 0) - (a.gamesPlayed || 0);
+      // Sort by games played TODAY: highest to lowest
+      return (b.gamesPlayedToday || 0) - (a.gamesPlayedToday || 0);
     }
   });
 
@@ -132,7 +164,7 @@ export function PlayerQueue({
                       {player.level}
                     </Badge>
                     <span className="text-xs text-muted-foreground">
-                      {player.gamesPlayed} games · {player.wins} wins
+                      {player.gamesPlayedToday || 0} games · {player.winsToday || 0} wins
                     </span>
                   </div>
                 </div>
