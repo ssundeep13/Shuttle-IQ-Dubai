@@ -1,8 +1,9 @@
-import { Clock, X, Trophy } from "lucide-react";
+import { Clock, X, Trophy, Calendar } from "lucide-react";
 import { CourtWithPlayers, Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 
 interface CourtCardProps {
   court: CourtWithPlayers;
@@ -84,17 +85,27 @@ export function CourtCard({
         </div>
         {!isAvailable && (
           <div className="text-right">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              <span
-                className={cn(
-                  "font-semibold",
-                  court.timeRemaining <= 5 ? "text-destructive" : "text-muted-foreground"
-                )}
-                data-testid={`text-court-timer-${court.id}`}
-              >
-                {formatTime(court.timeRemaining)}
-              </span>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2 justify-end">
+                <Clock className="w-4 h-4" />
+                <span
+                  className={cn(
+                    "font-semibold text-sm",
+                    court.timeRemaining <= 5 ? "text-destructive" : "text-muted-foreground"
+                  )}
+                  data-testid={`text-court-timer-${court.id}`}
+                >
+                  {formatTime(court.timeRemaining)}
+                </span>
+              </div>
+              {court.startedAt && (
+                <div className="flex items-center gap-2 justify-end">
+                  <Calendar className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground" data-testid={`text-court-start-time-${court.id}`}>
+                    {format(new Date(court.startedAt), 'h:mm a')}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}

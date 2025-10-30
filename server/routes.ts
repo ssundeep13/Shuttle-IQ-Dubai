@@ -400,6 +400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'occupied',
         timeRemaining: 15, // 15 minutes
         winningTeam: null,
+        startedAt: new Date(),
       });
 
       // Set court players with team assignments
@@ -471,6 +472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'available',
         timeRemaining: 0,
         winningTeam: null,
+        startedAt: null,
       });
       await storage.setCourtPlayers(court.id, []);
 
@@ -637,6 +639,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'available',
         timeRemaining: 0,
         winningTeam: null,
+        startedAt: null,
       });
       await storage.setCourtPlayers(court.id, []);
 

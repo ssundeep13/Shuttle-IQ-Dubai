@@ -24,6 +24,7 @@ export const courts = pgTable("courts", {
   status: text("status").notNull().default('available'), // 'available', 'occupied'
   timeRemaining: integer("time_remaining").notNull().default(0), // in minutes
   winningTeam: integer("winning_team"), // 1 or 2, null if not selected
+  startedAt: timestamp("started_at"), // When the game started
 });
 
 export const insertCourtSchema = createInsertSchema(courts).omit({ id: true });
