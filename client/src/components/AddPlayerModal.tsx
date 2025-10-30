@@ -31,12 +31,13 @@ import {
 interface AddPlayerModalProps {
   open: boolean;
   onClose: () => void;
-  onAddPlayer: (name: string, level: string) => void;
+  onAddPlayer: (name: string, gender: string, level: string) => void;
 }
 
 const formSchema = insertPlayerSchema.extend({
   name: z.string().min(1, "Player name is required"),
-  level: z.enum(['Beginner', 'Intermediate', 'Advanced']),
+  gender: z.enum(['Male', 'Female']),
+  level: z.enum(['Novice', 'Beginner-', 'Beginner', 'Beginner+', 'Intermediate-', 'Intermediate', 'Intermediate+', 'Advanced', 'Advanced+', 'Professional']),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -46,6 +47,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
+      gender: "Male",
       level: "Intermediate",
       gamesPlayed: 0,
       wins: 0,
@@ -54,7 +56,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
   });
 
   const handleSubmit = (values: FormValues) => {
-    onAddPlayer(values.name, values.level);
+    onAddPlayer(values.name, values.gender, values.level);
     form.reset();
     onClose();
   };
@@ -70,7 +72,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
         <DialogHeader>
           <DialogTitle>Add New Player</DialogTitle>
           <DialogDescription>
-            Enter the player's name and skill level to add them to the queue.
+            Enter the player details to add them to the queue.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -93,6 +95,29 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
                 </FormItem>
               )}
             />
+            
+            <FormField
+              control={form.control}
+              name="gender"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Gender</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-player-gender">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="Male">Male</SelectItem>
+                      <SelectItem value="Female">Female</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
             <FormField
               control={form.control}
               name="level"
@@ -106,15 +131,23 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
+                      <SelectItem value="Novice">Novice</SelectItem>
+                      <SelectItem value="Beginner-">Beginner -</SelectItem>
                       <SelectItem value="Beginner">Beginner</SelectItem>
+                      <SelectItem value="Beginner+">Beginner +</SelectItem>
+                      <SelectItem value="Intermediate-">Intermediate -</SelectItem>
                       <SelectItem value="Intermediate">Intermediate</SelectItem>
+                      <SelectItem value="Intermediate+">Intermediate +</SelectItem>
                       <SelectItem value="Advanced">Advanced</SelectItem>
+                      <SelectItem value="Advanced+">Advanced +</SelectItem>
+                      <SelectItem value="Professional">Professional</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
                 </FormItem>
               )}
             />
+            
             <DialogFooter>
               <Button type="button" variant="outline" onClick={handleClose} data-testid="button-cancel-add-player">
                 Cancel

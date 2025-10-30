@@ -6,8 +6,9 @@ import { z } from "zod";
 export const players = pgTable("players", {
   id: varchar("id").primaryKey(),
   name: text("name").notNull(),
-  level: text("level").notNull(), // 'Beginner', 'Intermediate', 'Advanced'
-  skillScore: integer("skill_score").notNull().default(50), // 0-100 internal scale (displayed as 0.0-10.0)
+  gender: text("gender").notNull(), // 'Male', 'Female'
+  level: text("level").notNull(), // 'Novice', 'Beginner-', 'Beginner', 'Beginner+', 'Intermediate-', 'Intermediate', 'Intermediate+', 'Advanced', 'Advanced+', 'Professional'
+  skillScore: integer("skill_score").notNull().default(100), // 10-200 point scale
   gamesPlayed: integer("games_played").notNull().default(0),
   wins: integer("wins").notNull().default(0),
   status: text("status").notNull().default('waiting'), // 'waiting', 'playing'
@@ -15,7 +16,9 @@ export const players = pgTable("players", {
 
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true });
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
-export type Player = typeof players.$inferSelect;
+export type Player = typeof players.$inferSelect & {
+  skid?: number; // Computed SKID (1-20), derived from skillScore / 10
+};
 
 // Court schema
 export const courts = pgTable("courts", {

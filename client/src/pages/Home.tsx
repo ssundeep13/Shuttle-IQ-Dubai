@@ -305,8 +305,8 @@ export default function Home() {
     removeCourtMutation.mutate(courtId);
   };
 
-  const handleAddPlayer = (name: string, level: string) => {
-    addPlayerMutation.mutate({ name, level });
+  const handleAddPlayer = (name: string, gender: string, level: string) => {
+    addPlayerMutation.mutate({ name, gender, level });
   };
 
   const handleTogglePlayerSelection = (courtId: string, playerId: string, team: number) => {

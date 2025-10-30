@@ -34,11 +34,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validated = insertPlayerSchema.parse(req.body);
       
-      // Set initial skill score based on level
-      let skillScore = 50; // Default to 5.0 (Intermediate)
-      if (validated.level === 'Beginner') skillScore = 30; // 3.0
-      if (validated.level === 'Intermediate') skillScore = 50; // 5.0
-      if (validated.level === 'Advanced') skillScore = 80; // 8.0
+      // Set initial skill score based on gender + level (10-200 scale)
+      const skillScoreMap: Record<string, number> = {
+        'Novice': validated.gender === 'Female' ? 10 : 20,
+        'Beginner-': validated.gender === 'Female' ? 30 : 40,
+        'Beginner': validated.gender === 'Female' ? 50 : 60,
+        'Beginner+': validated.gender === 'Female' ? 70 : 80,
+        'Intermediate-': validated.gender === 'Female' ? 90 : 100,
+        'Intermediate': validated.gender === 'Female' ? 110 : 120,
+        'Intermediate+': validated.gender === 'Female' ? 130 : 140,
+        'Advanced': validated.gender === 'Female' ? 150 : 160,
+        'Advanced+': validated.gender === 'Female' ? 170 : 180,
+        'Professional': validated.gender === 'Female' ? 190 : 200,
+      };
+      
+      const skillScore = skillScoreMap[validated.level] || 100;
       
       const player = await storage.createPlayer({ ...validated, skillScore });
       await storage.addToQueue(player.id);

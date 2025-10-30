@@ -21,16 +21,14 @@ interface CourtCardProps {
 }
 
 const getLevelColor = (level: string) => {
-  switch (level) {
-    case 'Beginner':
-      return 'text-success';
-    case 'Intermediate':
-      return 'text-warning';
-    case 'Advanced':
-      return 'text-destructive';
-    default:
-      return 'text-muted-foreground';
+  if (level.includes('Novice') || level.includes('Beginner')) {
+    return 'text-success';
+  } else if (level.includes('Intermediate')) {
+    return 'text-warning';
+  } else if (level.includes('Advanced') || level.includes('Professional')) {
+    return 'text-destructive';
   }
+  return 'text-muted-foreground';
 };
 
 const formatTime = (minutes: number) => {
@@ -129,9 +127,9 @@ export function CourtCard({
                   <div key={player.id} className="text-center mb-1">
                     <p className="font-medium text-sm text-foreground">{player.name}</p>
                     <div className="flex items-center justify-center gap-1">
-                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
                       <span className="text-xs text-muted-foreground">•</span>
-                      <span className="text-xs font-semibold text-accent">{((player.skillScore || 50) / 10).toFixed(1)}</span>
+                      <span className="text-xs font-semibold text-accent">{player.skillScore || 100}</span>
                     </div>
                   </div>
                 ))}
@@ -154,9 +152,9 @@ export function CourtCard({
                   <div key={player.id} className="text-center mb-1">
                     <p className="font-medium text-sm text-foreground">{player.name}</p>
                     <div className="flex items-center justify-center gap-1">
-                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
                       <span className="text-xs text-muted-foreground">•</span>
-                      <span className="text-xs font-semibold text-accent">{((player.skillScore || 50) / 10).toFixed(1)}</span>
+                      <span className="text-xs font-semibold text-accent">{player.skillScore || 100}</span>
                     </div>
                   </div>
                 ))}
@@ -242,9 +240,9 @@ export function CourtCard({
                         >
                           <p className="font-semibold text-xs text-foreground">{player.name}</p>
                           <div className="flex items-center gap-1">
-                            <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                            <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
                             <span className="text-xs text-muted-foreground">•</span>
-                            <span className="text-xs font-semibold text-accent">{((player.skillScore || 50) / 10).toFixed(1)}</span>
+                            <span className="text-xs font-semibold text-accent">{player.skillScore || 100}</span>
                           </div>
                         </div>
                       );
@@ -283,9 +281,9 @@ export function CourtCard({
                         >
                           <p className="font-semibold text-xs text-foreground">{player.name}</p>
                           <div className="flex items-center gap-1">
-                            <p className={cn("text-xs", getLevelColor(player.level))}>{player.level}</p>
+                            <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
                             <span className="text-xs text-muted-foreground">•</span>
-                            <span className="text-xs font-semibold text-accent">{((player.skillScore || 50) / 10).toFixed(1)}</span>
+                            <span className="text-xs font-semibold text-accent">{player.skillScore || 100}</span>
                           </div>
                         </div>
                       );

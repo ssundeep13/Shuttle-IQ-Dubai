@@ -19,16 +19,14 @@ interface TodayPlayer extends Player {
 }
 
 const getLevelColor = (level: string) => {
-  switch (level) {
-    case 'Beginner':
-      return 'border-success/20 bg-success/10 text-success';
-    case 'Intermediate':
-      return 'border-warning/20 bg-warning/10 text-warning';
-    case 'Advanced':
-      return 'border-destructive/20 bg-destructive/10 text-destructive';
-    default:
-      return 'border-muted bg-muted text-muted-foreground';
+  if (level.includes('Novice') || level.includes('Beginner')) {
+    return 'border-success/20 bg-success/10 text-success';
+  } else if (level.includes('Intermediate')) {
+    return 'border-warning/20 bg-warning/10 text-warning';
+  } else if (level.includes('Advanced') || level.includes('Professional')) {
+    return 'border-destructive/20 bg-destructive/10 text-destructive';
   }
+  return 'border-muted bg-muted text-muted-foreground';
 };
 
 export function Leaderboard({ players, onResetStats, onClearAllPlayers }: LeaderboardProps) {
@@ -126,14 +124,14 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
                   <div className="flex items-center gap-2 mb-1">
                     <p className="font-semibold text-foreground text-lg">{player.name}</p>
                     <Badge className={cn("text-xs", getLevelColor(player.level))}>
-                      {player.level}
+                      {player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}
                     </Badge>
                     {player.status === 'playing' && (
                       <Badge className="bg-info/10 text-info border-info/20">Playing</Badge>
                     )}
                   </div>
                   <div className="flex gap-4 text-sm text-muted-foreground">
-                    <span>Skill: <span className="font-bold text-accent text-base">{((player.skillScore || 50) / 10).toFixed(1)}/10</span></span>
+                    <span>Skill: <span className="font-bold text-accent text-base">{player.skillScore || 100}</span></span>
                     <span>Games: <span className="font-semibold text-foreground">{gamesCount}</span></span>
                     <span>Wins: <span className="font-semibold text-success">{winsCount}</span></span>
                     <span>Win Rate: <span className="font-semibold text-foreground">{getWinRate(player, isToday)}%</span></span>

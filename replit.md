@@ -61,26 +61,32 @@ Preferred communication style: Simple, everyday language.
 - Database schema defined using Drizzle's schema builder
 
 **Data Models:**
-- **Players**: id, name, level (Beginner/Intermediate/Advanced), gamesPlayed, wins, skillScore (0-100 internally, 0.0-10.0 displayed), status (waiting/playing)
-- **Courts**: id, name, status (available/occupied), timeRemaining, winningTeam
+- **Players**: id, name, gender (Male/Female), level, gamesPlayed, wins, skillScore (10-200 point scale), status (waiting/playing)
+  - **Skill Levels**: Novice, Beginner-, Beginner, Beginner+, Intermediate-, Intermediate, Intermediate+, Advanced, Advanced+, Professional
+  - **Skill ID (SKID)**: Each gender/level combination has a unique SKID (1-20) with corresponding skill points:
+    - Female levels: 10, 30, 50, 70, 90, 110, 130, 150, 170, 190
+    - Male levels: 20, 40, 60, 80, 100, 120, 140, 160, 180, 200
+  - **Display Format**: Gender prefix + level (e.g., "M Beginner+", "F Advanced")
+- **Courts**: id, name, status (available/occupied), timeRemaining, winningTeam, startedAt (timestamp when game started)
 - **Court-Players** relationship: Each court MUST have exactly 4 players (2 per team)
-- **Game Results**: id, courtId, team1Score, team2Score, winningTeam, createdAt
+- **Game Results**: id, courtId, team1Score, team2Score, winningTeam, createdAt (completion timestamp)
 - **Game Participants**: gameId, playerId, team, skillScoreBefore, skillScoreAfter
 - **Queue**: Ordered list of player IDs with position tracking and dynamic sorting capabilities
-  - **Default Sort**: By skill level (Advanced → Intermediate → Beginner)
-  - **Alternative Sort**: By games played (most games first)
+  - **Default Sort**: By skill level (Advanced/Professional → Intermediate → Beginner/Novice)
+  - **Alternative Sort**: By games played TODAY (most games first for daily sessions)
   - **UI Control**: Dropdown selector for switching between sort methods
+- **Today's Stats**: Separate endpoint (`/api/stats/today`) filters games by date (today's midnight onwards) and calculates daily metrics (gamesPlayedToday, winsToday)
 - **Notifications**: Type-based messaging system (success/warning/danger/info)
 
 ### Database Schema
 
 **PostgreSQL with Drizzle ORM:**
-- `players` table: Player profiles with skill levels (Beginner/Intermediate/Advanced), statistics (games played, wins), and dynamic skill scores (0-100 integer scale)
-- `courts` table: Court state including availability and game timing
+- `players` table: Player profiles with gender (Male/Female), granular skill levels (Novice through Professional with +/- variants), statistics (games played, wins), and skill scores (10-200 point scale based on gender + level combination)
+- `courts` table: Court state including availability, game timing, and startedAt timestamp for active games
 - `court_players` junction table: Manages which players are assigned to which courts (exactly 2 players per team required)
-- `gameResults` table: Records completed games with scores, winning team, and timestamps
-- `gameParticipants` table: Tracks which players participated in each game, their team assignments, and skill score changes
-- `queue_entries` table: Maintains ordered waiting queue with timestamps
+- `game_results` table: Records completed games with scores, winning team, and createdAt timestamps
+- `game_participants` table: Tracks which players participated in each game, their team assignments, and skill score changes before/after games
+- `queue_entries` table: Maintains ordered waiting queue with position tracking and timestamps
 
 **Schema Design Principles:**
 - UUID-based primary keys via varchar fields

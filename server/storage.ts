@@ -14,6 +14,14 @@ import { db } from "./db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
+// Helper function to add computed SKID to player object
+function addSkidToPlayer(player: typeof players.$inferSelect): Player {
+  return {
+    ...player,
+    skid: Math.floor(player.skillScore / 10)
+  };
+}
+
 export interface IStorage {
   // Player operations
   getPlayer(id: string): Promise<Player | undefined>;
@@ -49,11 +57,12 @@ export class DatabaseStorage implements IStorage {
   // Player operations
   async getPlayer(id: string): Promise<Player | undefined> {
     const [player] = await db.select().from(players).where(eq(players.id, id));
-    return player || undefined;
+    return player ? addSkidToPlayer(player) : undefined;
   }
 
   async getAllPlayers(): Promise<Player[]> {
-    return await db.select().from(players);
+    const playerList = await db.select().from(players);
+    return playerList.map(addSkidToPlayer);
   }
 
   async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
@@ -68,7 +77,7 @@ export class DatabaseStorage implements IStorage {
         wins: insertPlayer.wins || 0
       })
       .returning();
-    return player;
+    return addSkidToPlayer(player);
   }
 
   async updatePlayer(id: string, updates: Partial<Player>): Promise<Player | undefined> {
@@ -77,7 +86,7 @@ export class DatabaseStorage implements IStorage {
       .set(updates)
       .where(eq(players.id, id))
       .returning();
-    return updated || undefined;
+    return updated ? addSkidToPlayer(updated) : undefined;
   }
 
   async deletePlayer(id: string): Promise<boolean> {
