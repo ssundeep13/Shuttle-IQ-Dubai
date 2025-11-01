@@ -118,8 +118,8 @@ export default function Home() {
   });
 
   const addPlayerMutation = useMutation({
-    mutationFn: async ({ name, level }: { name: string; level: string }) => {
-      return await apiRequest('POST', '/api/players', { name, level, gamesPlayed: 0, wins: 0, status: 'waiting' });
+    mutationFn: async ({ name, gender, level }: { name: string; gender: string; level: string }) => {
+      return await apiRequest('POST', '/api/players', { name, gender, level, gamesPlayed: 0, wins: 0, status: 'waiting' });
     },
     onSuccess: (data: Player) => {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
