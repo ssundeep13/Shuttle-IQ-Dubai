@@ -63,6 +63,7 @@ export function ImportPlayersModal({ open, onClose, onImport }: ImportPlayersMod
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               disabled={isImporting}
+              className="min-h-12 sm:min-h-10"
               data-testid="input-import-url"
             />
             <p className="text-xs text-muted-foreground">
@@ -107,6 +108,7 @@ export function ImportPlayersModal({ open, onClose, onImport }: ImportPlayersMod
             variant="outline"
             onClick={handleClose}
             disabled={isImporting}
+            className="min-h-12 sm:min-h-10"
             data-testid="button-cancel-import"
           >
             {result ? 'Close' : 'Cancel'}
@@ -115,6 +117,7 @@ export function ImportPlayersModal({ open, onClose, onImport }: ImportPlayersMod
             <Button
               onClick={handleImport}
               disabled={isImporting || !url}
+              className="min-h-12 sm:min-h-10"
               data-testid="button-confirm-import"
             >
               {isImporting ? (

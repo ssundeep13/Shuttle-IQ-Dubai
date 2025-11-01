@@ -11,44 +11,47 @@ interface HeaderProps {
 
 export function Header({ stats, onAddPlayer, onAutoAssign, onImportPlayers }: HeaderProps) {
   return (
-    <div className="bg-card rounded-lg shadow-md p-6 mb-6 border border-card-border">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-        <div className="flex items-center gap-6">
-          <h1 className="text-4xl font-bold">
+    <div className="bg-card rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6 border border-card-border">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
+        <div className="flex items-center gap-4 sm:gap-6">
+          <h1 className="text-3xl sm:text-4xl font-bold">
             <span className="text-primary">Shuttle</span>
             <span className="text-chart-2">IQ</span>
           </h1>
-          <div className="border-l-2 border-border pl-6 hidden sm:block">
+          <div className="border-l-2 border-border pl-4 sm:pl-6 hidden sm:block">
             <p className="text-muted-foreground text-sm font-medium">Smart Badminton</p>
             <p className="text-muted-foreground text-sm font-medium">Queue Management</p>
           </div>
         </div>
-        <div className="flex gap-3 w-full md:w-auto flex-wrap">
+        <div className="flex gap-2 sm:gap-3 w-full md:w-auto flex-wrap">
           <Button 
             onClick={onAddPlayer} 
-            className="flex-1 md:flex-initial"
+            className="flex-1 md:flex-initial min-h-12 sm:min-h-10"
             data-testid="button-add-player"
           >
             <UserPlus className="w-4 h-4 mr-2" />
-            Add Player
+            <span className="hidden sm:inline">Add Player</span>
+            <span className="sm:hidden">Add</span>
           </Button>
           <Button 
             onClick={onImportPlayers} 
             variant="outline"
-            className="flex-1 md:flex-initial"
+            className="flex-1 md:flex-initial min-h-12 sm:min-h-10"
             data-testid="button-import-players"
           >
             <Download className="w-4 h-4 mr-2" />
-            Import Players
+            <span className="hidden sm:inline">Import Players</span>
+            <span className="sm:hidden">Import</span>
           </Button>
           <Button 
             onClick={onAutoAssign} 
             variant="secondary"
-            className="flex-1 md:flex-initial bg-chart-2 hover:bg-chart-2/90 text-white border-none"
+            className="flex-1 md:flex-initial bg-chart-2 hover:bg-chart-2/90 text-white border-none min-h-12 sm:min-h-10"
             data-testid="button-auto-assign"
           >
             <Activity className="w-4 h-4 mr-2" />
-            Auto Assign
+            <span className="hidden sm:inline">Auto Assign</span>
+            <span className="sm:hidden">Auto</span>
           </Button>
         </div>
       </div>

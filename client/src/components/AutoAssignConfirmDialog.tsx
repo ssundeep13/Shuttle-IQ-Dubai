@@ -137,7 +137,7 @@ export function AutoAssignConfirmDialog({
             type="button"
             variant="outline"
             onClick={onClose}
-            className="sm:flex-1"
+            className="sm:flex-1 min-h-12 sm:min-h-10"
             data-testid="button-cancel-auto-assign"
           >
             Cancel
@@ -146,7 +146,7 @@ export function AutoAssignConfirmDialog({
             type="button"
             variant="secondary"
             onClick={onReassign}
-            className="sm:flex-1"
+            className="sm:flex-1 min-h-12 sm:min-h-10"
             data-testid="button-reassign-teams"
           >
             🔄 Shuffle Teams
@@ -154,7 +154,7 @@ export function AutoAssignConfirmDialog({
           <Button
             type="button"
             onClick={onConfirm}
-            className="sm:flex-1"
+            className="sm:flex-1 min-h-12 sm:min-h-10"
             data-testid="button-confirm-auto-assign"
           >
             Start Game

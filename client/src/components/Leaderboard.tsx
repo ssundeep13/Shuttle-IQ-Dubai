@@ -103,15 +103,15 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
             <div
               key={player.id}
               className={cn(
-                "flex items-center justify-between p-4 rounded-md border transition-all hover-elevate",
+                "flex items-center justify-between p-3 sm:p-4 rounded-md border transition-all hover-elevate min-h-[5rem]",
                 index < 3 ? "bg-muted border-border" : "bg-card border-card-border"
               )}
               data-testid={`leaderboard-player-${player.id}`}
             >
-              <div className="flex items-center gap-4 flex-1">
+              <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
                 <div
                   className={cn(
-                    "flex items-center justify-center w-10 h-10 rounded-full font-bold",
+                    "flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full font-bold flex-shrink-0",
                     index === 0 && "bg-warning/20 text-warning",
                     index === 1 && "bg-muted-foreground/20 text-muted-foreground",
                     index === 2 && "bg-destructive/20 text-destructive",
@@ -120,9 +120,9 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
                 >
                   {index < 3 ? "🏆" : index + 1}
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="font-semibold text-foreground text-lg">{player.name}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <p className="font-semibold text-foreground text-base sm:text-lg truncate">{player.name}</p>
                     <Badge className={cn("text-xs", getLevelColor(player.level))}>
                       {player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}
                     </Badge>
@@ -157,6 +157,7 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
             onClick={onResetStats}
             variant="outline"
             size="sm"
+            className="min-h-12 sm:min-h-9"
             data-testid="button-reset-stats"
           >
             Reset Stats
@@ -165,7 +166,7 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
             onClick={onClearAllPlayers}
             variant="outline"
             size="sm"
-            className="text-destructive hover:text-destructive"
+            className="text-destructive hover:text-destructive min-h-12 sm:min-h-9"
             data-testid="button-clear-all-players"
           >
             <Trash2 className="w-4 h-4 mr-1" />
@@ -175,12 +176,12 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
       </div>
 
       <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'all-time' | 'today')} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-6">
-          <TabsTrigger value="all-time" className="flex items-center gap-2" data-testid="tab-all-time">
+        <TabsList className="grid w-full grid-cols-2 mb-6 min-h-12 sm:min-h-10">
+          <TabsTrigger value="all-time" className="flex items-center gap-2 min-h-12 sm:min-h-9" data-testid="tab-all-time">
             <TrendingUp className="w-4 h-4" />
             All Time
           </TabsTrigger>
-          <TabsTrigger value="today" className="flex items-center gap-2" data-testid="tab-today">
+          <TabsTrigger value="today" className="flex items-center gap-2 min-h-12 sm:min-h-9" data-testid="tab-today">
             <Calendar className="w-4 h-4" />
             Today
           </TabsTrigger>

@@ -55,11 +55,11 @@ export function CourtCard({
   const team2 = court.players.filter(p => p.team === 2);
 
   return (
-    <div className="bg-card rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow relative border border-card-border min-h-[500px] flex flex-col" data-testid={`card-court-${court.id}`}>
+    <div className="bg-card rounded-lg shadow-md p-4 sm:p-6 hover:shadow-lg transition-shadow relative border border-card-border min-h-[400px] sm:min-h-[500px] flex flex-col" data-testid={`card-court-${court.id}`}>
       {canRemoveCourt && isAvailable && (
         <button
           onClick={() => onRemoveCourt(court.id)}
-          className="absolute top-4 right-4 text-muted-foreground hover:text-destructive transition-colors p-1 rounded hover-elevate"
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 text-muted-foreground hover:text-destructive transition-colors p-2 rounded hover-elevate min-h-12 min-w-12"
           data-testid={`button-remove-court-${court.id}`}
         >
           <X className="w-5 h-5" />
@@ -165,7 +165,7 @@ export function CourtCard({
             <Button
               onClick={() => onCancelGame(court.id)}
               variant="outline"
-              className="w-full border-warning/30 text-warning hover:bg-warning/10"
+              className="w-full border-warning/30 text-warning hover:bg-warning/10 min-h-12 sm:min-h-10"
               data-testid={`button-cancel-game-${court.id}`}
             >
               <X className="w-4 h-4 mr-2" />
@@ -181,6 +181,7 @@ export function CourtCard({
                   onClick={() => onSelectWinningTeam(court.id, team)}
                   variant={court.winningTeam === team ? "default" : "outline"}
                   className={cn(
+                    "min-h-12 sm:min-h-10",
                     court.winningTeam === team && "bg-success hover:bg-success/90 border-success"
                   )}
                   data-testid={`button-select-team-${team}-${court.id}`}
@@ -194,7 +195,7 @@ export function CourtCard({
             <Button
               onClick={() => onEndGame(court.id)}
               variant="destructive"
-              className="w-full"
+              className="w-full min-h-12 sm:min-h-10"
               data-testid={`button-end-game-${court.id}`}
             >
               <Trophy className="w-4 h-4 mr-2" />
@@ -229,7 +230,7 @@ export function CourtCard({
                           key={player.id}
                           onClick={() => !isDisabled && onTogglePlayerSelection(player.id, 1)}
                           className={cn(
-                            "p-2 rounded-md border transition-all",
+                            "p-3 sm:p-2 rounded-md border transition-all min-h-12 flex flex-col justify-center",
                             isInTeam1
                               ? "bg-primary/20 border-primary cursor-pointer hover-elevate"
                               : isDisabled
@@ -238,7 +239,7 @@ export function CourtCard({
                           )}
                           data-testid={`player-team1-${player.id}`}
                         >
-                          <p className="font-semibold text-xs text-foreground">{player.name}</p>
+                          <p className="font-semibold text-xs sm:text-xs text-foreground">{player.name}</p>
                           <div className="flex items-center gap-1">
                             <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
                             <span className="text-xs text-muted-foreground">•</span>
@@ -270,7 +271,7 @@ export function CourtCard({
                           key={player.id}
                           onClick={() => !isDisabled && onTogglePlayerSelection(player.id, 2)}
                           className={cn(
-                            "p-2 rounded-md border transition-all",
+                            "p-3 sm:p-2 rounded-md border transition-all min-h-12 flex flex-col justify-center",
                             isInTeam2
                               ? "bg-chart-2/30 border-chart-2 cursor-pointer hover-elevate"
                               : isDisabled
@@ -279,7 +280,7 @@ export function CourtCard({
                           )}
                           data-testid={`player-team2-${player.id}`}
                         >
-                          <p className="font-semibold text-xs text-foreground">{player.name}</p>
+                          <p className="font-semibold text-xs sm:text-xs text-foreground">{player.name}</p>
                           <div className="flex items-center gap-1">
                             <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
                             <span className="text-xs text-muted-foreground">•</span>
@@ -309,7 +310,7 @@ export function CourtCard({
               <Button
                 onClick={() => onAssignPlayers(court.id)}
                 disabled={team1Players.length !== 2 || team2Players.length !== 2}
-                className="w-full"
+                className="w-full min-h-12 sm:min-h-10"
                 data-testid={`button-assign-players-${court.id}`}
               >
                 Start Game

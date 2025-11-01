@@ -89,7 +89,7 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
                 min="0"
                 value={team1Score}
                 onChange={(e) => setTeam1Score(e.target.value)}
-                className="text-center text-lg font-bold"
+                className="text-center text-lg font-bold min-h-12 sm:min-h-10"
                 data-testid="input-team1-score"
               />
             </div>
@@ -111,7 +111,7 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
                 min="0"
                 value={team2Score}
                 onChange={(e) => setTeam2Score(e.target.value)}
-                className="text-center text-lg font-bold"
+                className="text-center text-lg font-bold min-h-12 sm:min-h-10"
                 data-testid="input-team2-score"
               />
             </div>
@@ -128,14 +128,14 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
               type="button"
               variant="outline"
               onClick={onClose}
-              className="flex-1"
+              className="flex-1 min-h-12 sm:min-h-10"
               data-testid="button-cancel-end-game"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              className="flex-1"
+              className="flex-1 min-h-12 sm:min-h-10"
               data-testid="button-confirm-end-game"
             >
               <Trophy className="w-4 h-4 mr-2" />

@@ -88,6 +88,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
                       {...field}
                       placeholder="Enter player name"
                       autoFocus
+                      className="min-h-12 sm:min-h-10"
                       data-testid="input-player-name"
                     />
                   </FormControl>
@@ -104,7 +105,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
                   <FormLabel>Gender</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <SelectTrigger data-testid="select-player-gender">
+                      <SelectTrigger className="min-h-12 sm:min-h-10" data-testid="select-player-gender">
                         <SelectValue />
                       </SelectTrigger>
                     </FormControl>
@@ -126,7 +127,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
                   <FormLabel>Skill Level</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <SelectTrigger data-testid="select-player-level">
+                      <SelectTrigger className="min-h-12 sm:min-h-10" data-testid="select-player-level">
                         <SelectValue />
                       </SelectTrigger>
                     </FormControl>
@@ -149,10 +150,10 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
             />
             
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={handleClose} data-testid="button-cancel-add-player">
+              <Button type="button" variant="outline" onClick={handleClose} className="min-h-12 sm:min-h-10" data-testid="button-cancel-add-player">
                 Cancel
               </Button>
-              <Button type="submit" data-testid="button-submit-add-player">
+              <Button type="submit" className="min-h-12 sm:min-h-10" data-testid="button-submit-add-player">
                 Add Player
               </Button>
             </DialogFooter>
