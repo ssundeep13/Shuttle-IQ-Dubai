@@ -32,6 +32,16 @@ Preferred communication style: Simple, everyday language.
 - Status-based color coding for courts and players (success/green, warning/amber, danger/red, info/blue)
 - Responsive design with mobile-first breakpoints
 
+**Mobile Optimization:**
+- **Touch-Friendly Targets**: All interactive elements (buttons, inputs, selects, tiles) use min-h-12 (48px) on mobile, exceeding WCAG 44px minimum
+- **Responsive Scaling**: Mobile-first approach with sm: breakpoint reducing sizes on larger screens (e.g., min-h-12 sm:min-h-10)
+- **Optimized Layouts**: Components stack vertically on mobile, expand horizontally on larger screens
+- **Compact Spacing**: Reduced padding on mobile (p-3 sm:p-4, p-4 sm:p-6) for efficient space usage
+- **Shortened Labels**: Button labels adapt to screen size ("Add" on mobile, "Add Player" on desktop)
+- **CourtCard**: min-h-[400px] on mobile, min-h-[500px] on larger screens for better information density
+- **Text Handling**: Proper truncation and wrapping to prevent overflow on narrow screens
+- **Modal Dialogs**: All dialog buttons, inputs, and selects meet 48px touch target requirement
+
 **State Management:**
 - Local component state for UI interactions (selected players, active tabs, modal visibility)
 - TanStack Query for server-state caching and automatic refetching
