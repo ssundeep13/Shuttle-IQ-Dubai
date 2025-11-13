@@ -748,7 +748,7 @@ export default function Home() {
     );
   }
 
-  // Show setup wizard if no active session
+  // Show setup wizard if no active session (requires auth)
   if (!hasSession) {
     const handleSessionCreated = async () => {
       // Invalidate all session-scoped queries
@@ -760,7 +760,37 @@ export default function Home() {
       await queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
     };
 
-    return <SessionSetupWizard onSessionCreated={handleSessionCreated} />;
+    // Show wizard if authenticated, otherwise prompt to login
+    if (isAuthenticated) {
+      return <SessionSetupWizard onSessionCreated={handleSessionCreated} />;
+    } else {
+      // Show message prompting login
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+          <div className="max-w-md w-full text-center space-y-6">
+            <div>
+              <h1 className="text-4xl font-bold text-primary mb-2">ShuttleIQ</h1>
+              <p className="text-lg text-muted-foreground">Badminton Queue Management</p>
+            </div>
+            <div className="p-6 bg-card rounded-lg border shadow-sm space-y-4">
+              <div className="space-y-2">
+                <h2 className="text-2xl font-semibold">No Active Session</h2>
+                <p className="text-muted-foreground">
+                  To start managing your badminton session, please log in as an administrator.
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/login')}
+                className="w-full inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+                data-testid="button-login-prompt"
+              >
+                Login to Create Session
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
   }
 
   // Show loading if data is being fetched

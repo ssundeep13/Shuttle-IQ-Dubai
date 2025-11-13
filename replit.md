@@ -29,6 +29,7 @@ Preferred communication style: Simple, everyday language.
 - **Token Management**: Automatic refresh every 14 minutes (before 15min expiry)
 - **Protected Routes**: `/admin` requires authentication, redirects to `/login` if not authenticated
 - **Public Dashboard**: `/` remains accessible without authentication for operator viewing
+- **Session Creation**: Requires admin authentication - public dashboard shows login prompt when no session exists and user is not authenticated
 
 ### Production Improvements Needed
 ⚠️ **Security Notes for Production Deployment**:

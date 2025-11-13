@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { insertSessionSchema } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 
 interface SessionSetupWizardProps {
   onSessionCreated: () => void;
@@ -140,24 +141,16 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
       // Read CSV content directly instead of parsing it
       const csvContent = await selectedFile.text();
 
-      const response = await fetch('/api/players/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csvContent }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to import players');
-      }
-
-      const result = await response.json();
+      // Use apiRequest which includes auth headers
+      const result = await apiRequest('POST', '/api/players/import', { csvContent });
+      
       setImportResult({
         imported: result.added || 0,
         duplicates: result.duplicates || 0
       });
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : "Failed to import players from CSV");
+    } catch (err: any) {
+      const message = err?.error || err?.message || "Failed to import players from CSV";
+      setImportError(message);
     } finally {
       setIsCreating(false);
     }
@@ -177,20 +170,13 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
         venueLocation: sessionData.venueLocation || null, // Convert empty string to null
       };
 
-      const response = await fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create session');
-      }
+      // Use apiRequest which includes auth headers
+      await apiRequest('POST', '/api/sessions', payload);
 
       onSessionCreated();
-    } catch (err) {
-      setImportError(err instanceof Error ? err.message : "Failed to create session");
+    } catch (err: any) {
+      const message = err?.error || err?.message || "Failed to create session";
+      setImportError(message);
       setIsCreating(false);
     }
   };

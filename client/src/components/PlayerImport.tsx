@@ -20,7 +20,10 @@ export function PlayerImport() {
       return apiRequest('POST', '/api/players/import', { csvContent });
     },
     onSuccess: (data) => {
+      // Invalidate both players and queue since import adds players to queue automatically
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
       toast({
         title: 'Import Successful',
         description: `Imported ${data.added} players. ${data.duplicates} duplicates skipped.`,
