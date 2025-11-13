@@ -73,18 +73,30 @@ export async function seedAdminUser(): Promise<AdminUser | null> {
     return null;
   }
 
-  const existingAdmin = await findAdminByEmail('admin@shuttleiq.com');
-  if (existingAdmin) {
-    return null;
+  // Create default admin user
+  const existingDefaultAdmin = await findAdminByEmail('admin@shuttleiq.com');
+  if (!existingDefaultAdmin) {
+    const defaultPasswordHash = await hashPassword('admin123');
+    await createAdminUser({
+      email: 'admin@shuttleiq.com',
+      passwordHash: defaultPasswordHash,
+      role: 'admin',
+    });
+    console.log('[SEED] Created default admin user (development only)');
   }
 
-  const passwordHash = await hashPassword('admin123');
-  const admin = await createAdminUser({
-    email: 'admin@shuttleiq.com',
-    passwordHash,
-    role: 'admin',
-  });
+  // Create user's personal admin account
+  const existingUserAdmin = await findAdminByEmail('ssundeep13@gmail.com');
+  if (!existingUserAdmin) {
+    const userPasswordHash = await hashPassword('shuttleiqdubai');
+    const userAdmin = await createAdminUser({
+      email: 'ssundeep13@gmail.com',
+      passwordHash: userPasswordHash,
+      role: 'super_admin',
+    });
+    console.log('[SEED] Created user admin account (development only)');
+    return userAdmin;
+  }
 
-  console.log('[SEED] Created default admin user (development only)');
-  return admin;
+  return null;
 }
