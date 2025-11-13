@@ -62,11 +62,14 @@ Preferred communication style: Simple, everyday language.
     - **Session Lifecycle**: Supports creating, managing, and ending sessions. Only one active session is enforced at a time, with automatic court creation upon session start. Session data is scoped to the active session.
 
 ### Feature Specifications
-- **Player Management**: Tracks player profiles including gender, skill levels (Novice to Professional with +/- variants), and statistics. Skill scores (10-200 points) are dynamic based on gender and level.
+- **Player Management**: Tracks player profiles including gender, skill levels (Novice to Professional with +/- variants), and statistics. Skill scores (10-200 points) are dynamic based on gender and level. **Players can be imported before session creation** - they will be automatically added to the queue when a session is created.
 - **Court Management**: Manages court status, game timing, and records game outcomes. Each court accommodates exactly 4 players (2v2).
-- **Queue Management**: An ordered player queue with dynamic sorting capabilities (by skill level or games played today).
-- **Session Management**: Comprehensive session lifecycle from creation to termination, including automatic court provisioning and a mechanism for exporting game history as CSV.
+- **Queue Management**: An ordered player queue with dynamic sorting capabilities (by skill level or games played today). Players are automatically added to the queue either during import (if session exists) or during session creation (if imported before session).
+- **Session Management**: Comprehensive session lifecycle from creation to termination, including automatic court provisioning and a mechanism for exporting game history as CSV. When a session is created, all existing players in the database are automatically added to the session's queue.
 - **Data Import/Export**: 
+  - **Flexible Import Workflow**: Players can be imported BEFORE or AFTER session creation
+    - If imported before session: Players are stored and automatically added to queue when session is created
+    - If imported after session: Players are immediately added to the active session's queue
   - **CSV Import**: Supports CSV import of players with ShuttleIQ Unique ID tracking (format: ShuttleIQ Unique ID, Name, Gender, Level)
   - **Copy-Paste Import**: Quick player import via textarea supporting both tab-separated (Excel) and comma-separated (CSV) formats
     - Smart header detection (auto-adds headers if missing, preserves user headers if provided)
@@ -75,7 +78,7 @@ Preferred communication style: Simple, everyday language.
     - Automatic data validation and duplicate detection
     - Mobile-optimized responsive design
   - **CSV Export**: Export game history and player data as CSV files
-  - **Duplicate Detection**: ShuttleIQ Unique ID prevents duplicate player entries across sessions
+  - **Duplicate Detection**: ShuttleIQ Unique ID prevents duplicate player entries across sessions; idempotent queue operations prevent duplicate queue entries
 
 ### System Design Choices
 - **Storage Strategy**: Drizzle ORM for type-safe PostgreSQL interactions and an `IStorage` interface for interchangeable storage implementations (in-memory or database).
