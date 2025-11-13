@@ -43,10 +43,19 @@ const getLevelColor = (level: string) => {
 };
 
 export function GameHistory({ games, onResetGames }: GameHistoryProps) {
+  const escapeCSVField = (field: string | number): string => {
+    // Convert to string
+    const str = String(field);
+    // Escape quotes by doubling them
+    const escaped = str.replace(/"/g, '""');
+    // Always quote fields to handle commas and special characters
+    return `"${escaped}"`;
+  };
+
   const downloadCSV = () => {
     // Create CSV data
     const headers = ['Game #', 'Date', 'Team 1 Players', 'Team 2 Players', 'Score', 'Winning Team'];
-    const csvRows = [headers.join(',')];
+    const csvRows = [headers.map(h => escapeCSVField(h)).join(',')];
 
     games.forEach((game, index) => {
       const gameNumber = games.length - index;
@@ -62,14 +71,13 @@ export function GameHistory({ games, onResetGames }: GameHistoryProps) {
       const score = `${game.team1Score}-${game.team2Score}`;
       const winningTeam = `Team ${game.winningTeam}`;
 
-      // Escape values that might contain commas
       const row = [
-        gameNumber,
-        date,
-        `"${team1Players}"`,
-        `"${team2Players}"`,
-        score,
-        winningTeam
+        escapeCSVField(gameNumber),
+        escapeCSVField(date),
+        escapeCSVField(team1Players),
+        escapeCSVField(team2Players),
+        escapeCSVField(score),
+        escapeCSVField(winningTeam)
       ].join(',');
       
       csvRows.push(row);

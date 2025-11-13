@@ -565,6 +565,61 @@ export default function Home() {
     }
   };
 
+  const handleImportCSV = async (csvPlayers: Array<{ name: string; gender: string; level: string }>) => {
+    try {
+      let imported = 0;
+      let skipped = 0;
+      const skippedDetails: any[] = [];
+
+      // Check for duplicate names in existing players
+      const existingNames = new Set(players.map(p => p.name.toLowerCase()));
+
+      for (const player of csvPlayers) {
+        // Skip if player already exists
+        if (existingNames.has(player.name.toLowerCase())) {
+          skipped++;
+          skippedDetails.push({ name: player.name, reason: 'Already exists' });
+          continue;
+        }
+
+        try {
+          // Create player using the existing API endpoint
+          await apiRequest('POST', '/api/players', {
+            name: player.name,
+            gender: player.gender,
+            level: player.level,
+            gamesPlayed: 0,
+            wins: 0,
+            status: 'waiting'
+          });
+          imported++;
+          existingNames.add(player.name.toLowerCase());
+        } catch (err) {
+          skipped++;
+          skippedDetails.push({ name: player.name, reason: 'Failed to create' });
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+
+      if (imported > 0) {
+        addNotification(`${imported} player${imported !== 1 ? 's' : ''} imported successfully`, 'success');
+      }
+
+      if (skipped > 0) {
+        addNotification(`${skipped} player${skipped !== 1 ? 's' : ''} skipped`, 'warning');
+      }
+
+      return { imported, skipped, skippedDetails };
+    } catch (error: any) {
+      const message = error?.error || error?.message || 'Failed to import CSV';
+      addNotification(message, 'danger');
+      throw error;
+    }
+  };
+
   const queuePlayers = queue
     .map((id) => players.find((p) => p.id === id))
     .filter((p): p is Player => p !== undefined);
@@ -659,6 +714,7 @@ export default function Home() {
         open={showImportPlayers}
         onClose={() => setShowImportPlayers(false)}
         onImport={handleImportPlayers}
+        onImportCSV={handleImportCSV}
       />
 
       <EndGameModal
