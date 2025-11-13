@@ -65,6 +65,12 @@ Preferred communication style: Simple, everyday language.
 - **Player Management**: Tracks player profiles including gender, skill levels (Novice to Professional with +/- variants), and statistics. Skill scores (10-200 points) are dynamic based on gender and level. **Players can be imported before session creation** - they will be automatically added to the queue when a session is created.
 - **Court Management**: Manages court status, game timing, and records game outcomes. Each court accommodates exactly 4 players (2v2).
 - **Queue Management**: An ordered player queue with dynamic sorting capabilities (by skill level or games played today). Players are automatically added to the queue either during import (if session exists) or during session creation (if imported before session).
+- **Intelligent Matchmaking**: AI-powered team assignment system with four key improvements:
+  - **Equal Team Skill Balance**: Evaluates all three possible 2v2 team permutations to minimize skill gaps between teams
+  - **Multiple Shuffle Options**: Provides 3 pre-computed balanced team combinations for operators to choose from
+  - **Player Rest Tracking**: Prevents player fatigue by tracking consecutive games (2+ games triggers rest warnings)
+  - **Closely Matched Games**: Optimizes for competitive balance through skill-gap minimization scoring algorithm
+  - **Implementation**: Backend matchmaking service (`server/matchmaking.ts`) maintains per-session rest states, frontend displays skill averages, team balance indicators, rest warnings, and allows cycling through combinations
 - **Session Management**: Comprehensive session lifecycle from creation to termination, including automatic court provisioning and a mechanism for exporting game history as CSV. When a session is created, all existing players in the database are automatically added to the session's queue.
 - **Data Import/Export**: 
   - **Flexible Import Workflow**: Players can be imported BEFORE or AFTER session creation
