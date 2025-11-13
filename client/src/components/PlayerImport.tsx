@@ -4,14 +4,16 @@ import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Upload, CheckCircle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertCircle, Upload, CheckCircle, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useActiveSession } from '@/hooks/use-active-session';
 
 export function PlayerImport() {
   const [file, setFile] = useState<File | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { hasSession } = useActiveSession();
 
   const importMutation = useMutation({
     mutationFn: async (csvContent: string) => {
@@ -60,6 +62,16 @@ export function PlayerImport() {
 
   return (
     <div className="space-y-4">
+      {!hasSession && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertTitle>No Active Session</AlertTitle>
+          <AlertDescription>
+            You must create a session first before importing players. Go to the "Session" tab to create a new session.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
@@ -94,7 +106,7 @@ export function PlayerImport() {
 
       <Button
         onClick={handleImport}
-        disabled={!file || importMutation.isPending}
+        disabled={!file || importMutation.isPending || !hasSession}
         className="w-full"
         data-testid="button-import-players"
       >

@@ -328,13 +328,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/players/import", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      // Validate request body
-      const requestSchema = z.object({
-        url: z.string().url().optional()
-      });
+      // Validate request body - support both URL and CSV content
+      const requestSchema = z.union([
+        z.object({ url: z.string().url() }),
+        z.object({ csvContent: z.string() })
+      ]);
       
       const validated = requestSchema.parse(req.body);
-      const externalUrl = validated.url || "https://shuttleiq.ssundeep13.repl.co/api/players";
+      
+      // Get active session first
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session. Please create a session first." });
+      }
+
+      let playersToImport: any[] = [];
+
+      // Handle CSV content
+      if ('csvContent' in validated) {
+        const csvContent = validated.csvContent;
+        
+        // Limit CSV size to 1MB
+        if (csvContent.length > 1024 * 1024) {
+          return res.status(400).json({ 
+            error: "CSV file too large",
+            details: "Maximum file size is 1MB"
+          });
+        }
+
+        // Parse CSV
+        const lines = csvContent.split('\n').map(line => line.trim()).filter(line => line);
+        if (lines.length === 0) {
+          return res.status(400).json({ error: "Empty CSV file" });
+        }
+
+        // Check for header row (skip if present)
+        const firstLine = lines[0].toLowerCase();
+        const hasHeader = firstLine.includes('name') || firstLine.includes('gender') || firstLine.includes('level');
+        const dataLines = hasHeader ? lines.slice(1) : lines;
+
+        // Parse CSV rows (format: externalId, name, gender, level)
+        playersToImport = dataLines.map((line, index) => {
+          const fields = line.split(',').map(f => f.trim());
+          if (fields.length < 2) {
+            throw new Error(`Invalid CSV format on line ${index + (hasHeader ? 2 : 1)}: expected at least name`);
+          }
+          
+          // Support both formats:
+          // 1. externalId, name, gender, level
+          // 2. name, gender, level
+          const hasExternalId = fields.length >= 4;
+          return {
+            externalId: hasExternalId ? fields[0] : undefined,
+            name: hasExternalId ? fields[1] : fields[0],
+            gender: hasExternalId ? fields[2] : (fields[1] || 'Male'),
+            level: hasExternalId ? fields[3] : (fields[2] || 'Beginner')
+          };
+        });
+      } 
+      // Handle URL import
+      else {
+        const externalUrl = validated.url;
       
       // Security: Validate URL is from allowed hosts only
       const allowedHosts = [
@@ -428,17 +482,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Get active session
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.status(400).json({ error: "No active session. Please create a session first." });
+      playersToImport = externalPlayers;
       }
 
-      // Import each player
+      // Shared import logic for both CSV and URL sources
       const importedPlayers = [];
       const skippedPlayers = [];
       
-      for (const externalPlayer of externalPlayers) {
+      for (const externalPlayer of playersToImport) {
         try {
           // Validate and create player
           const playerData = {
@@ -481,8 +532,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         success: true,
-        imported: importedPlayers.length,
-        skipped: skippedPlayers.length,
+        added: importedPlayers.length,
+        duplicates: skippedPlayers.length,
         players: importedPlayers,
         skippedDetails: skippedPlayers
       });

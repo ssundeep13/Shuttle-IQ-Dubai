@@ -137,22 +137,25 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
     setImportError(null);
 
     try {
-      const text = await selectedFile.text();
-      const players = parseCSV(text);
+      // Read CSV content directly instead of parsing it
+      const csvContent = await selectedFile.text();
 
-      const response = await fetch('/api/players/bulk', {
+      const response = await fetch('/api/players/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ players }),
+        body: JSON.stringify({ csvContent }),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || 'Failed to import players');
+        throw new Error(error.error || 'Failed to import players');
       }
 
       const result = await response.json();
-      setImportResult(result);
+      setImportResult({
+        imported: result.added || 0,
+        duplicates: result.duplicates || 0
+      });
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Failed to import players from CSV");
     } finally {
