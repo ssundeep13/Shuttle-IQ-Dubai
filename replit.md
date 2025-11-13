@@ -143,3 +143,25 @@ Preferred communication style: Simple, everyday language.
 - **shadcn/ui**: Provides copy-paste component flexibility rather than package dependency, full customization control
 - **In-memory storage fallback**: Enables rapid development without database setup, easy testing
 - **Storage interface pattern**: Allows switching between in-memory and database implementations without changing business logic
+
+### Data Import/Export Features
+
+**CSV Download (Game History):**
+- Export complete game history to CSV file for record-keeping and analysis
+- Format: Game #, Date, Team 1 Players, Team 2 Players, Score, Winning Team
+- RFC 4180 compliant CSV generation with proper quote escaping (" → "")
+- All fields quoted to handle special characters (commas, quotes) in player names
+- UTF-8 with BOM for Excel compatibility
+- Filename format: `game-history-YYYY-MM-DD.csv`
+
+**CSV Upload (Player Import):**
+- Import players from CSV file via Import Players modal
+- Required columns: Name, Gender, Level (case-insensitive header matching)
+- Supports special characters in names:
+  - Commas: `"Lee, Jr.",Male,Intermediate`
+  - Quotes: `"Test ""Quote"" Player",Female,Beginner`
+- UTF-8 BOM automatically stripped for Excel/Google Sheets compatibility
+- Robust CSV parser handles quoted fields with embedded commas and escaped quotes
+- Empty rows and invalid data automatically skipped with detailed feedback
+- Tab-specific state management prevents feedback confusion between import methods
+- Duplicate player detection (name-based) with skip reporting
