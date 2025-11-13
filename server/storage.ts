@@ -69,6 +69,12 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   // Session operations
   async createSession(insertSession: InsertSession): Promise<Session> {
+    // End any existing active sessions first (enforce single active session)
+    await db
+      .update(sessions)
+      .set({ status: 'ended', endedAt: new Date() })
+      .where(eq(sessions.status, 'active'));
+
     const id = randomUUID();
     const [session] = await db
       .insert(sessions)
@@ -78,6 +84,20 @@ export class DatabaseStorage implements IStorage {
         status: 'active'
       })
       .returning();
+    
+    // Create courts for the new session
+    const courtsToCreate = insertSession.courtCount || 2;
+    for (let i = 1; i <= courtsToCreate; i++) {
+      await this.createCourt({
+        name: `Court ${i}`,
+        sessionId: session.id,
+        status: 'available',
+        timeRemaining: 0,
+        winningTeam: null,
+        startedAt: null
+      });
+    }
+
     return session;
   }
 
@@ -254,7 +274,7 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(queueEntries)
       .where(eq(queueEntries.sessionId, sessionId))
-      .orderBy(desc(queueEntries.position));
+      .orderBy(queueEntries.position); // Ascending order - first in queue has lowest position
     return entries.map(e => e.playerId);
   }
 

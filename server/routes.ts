@@ -1,13 +1,97 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertPlayerSchema, gameResults, gameParticipants } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants } from "@shared/schema";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Session routes
+  app.post("/api/sessions", async (req, res) => {
+    try {
+      const validated = insertSessionSchema.parse(req.body);
+      const session = await storage.createSession(validated);
+      res.status(201).json(session);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid session data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create session" });
+    }
+  });
+
+  app.get("/api/sessions/active", async (req, res) => {
+    try {
+      const session = await storage.getActiveSession();
+      if (!session) {
+        return res.status(404).json({ error: "No active session" });
+      }
+      res.json(session);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get active session" });
+    }
+  });
+
+  app.get("/api/sessions", async (req, res) => {
+    try {
+      const sessions = await storage.getAllSessions();
+      res.json(sessions);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch sessions" });
+    }
+  });
+
+  app.post("/api/sessions/:id/end", async (req, res) => {
+    try {
+      const session = await storage.endSession(req.params.id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json(session);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to end session" });
+    }
+  });
+
+  app.get("/api/sessions/:id/game-history", async (req, res) => {
+    try {
+      const { eq } = await import('drizzle-orm');
+      const { players } = await import('@shared/schema');
+      
+      const games = await storage.getSessionGameHistory(req.params.id);
+      
+      // For each game, fetch participants and player details
+      const gamesWithDetails = await Promise.all(
+        games.map(async (game) => {
+          const participants = await db.select().from(gameParticipants).where(eq(gameParticipants.gameId, game.id));
+          
+          const participantsWithDetails = await Promise.all(
+            participants.map(async (p) => {
+              const player = await db.select().from(players).where(eq(players.id, p.playerId)).limit(1);
+              return {
+                ...p,
+                playerName: player[0]?.name || 'Unknown',
+                playerLevel: player[0]?.level || 'Unknown',
+              };
+            })
+          );
+          
+          return {
+            ...game,
+            participants: participantsWithDetails,
+          };
+        })
+      );
+      
+      res.json(gamesWithDetails);
+    } catch (error) {
+      console.error('Session game history error:', error);
+      res.status(500).json({ error: "Failed to fetch session game history" });
+    }
+  });
+
   // Player routes
   app.get("/api/players", async (req, res) => {
     try {
@@ -32,6 +116,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/players", async (req, res) => {
     try {
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session. Please create a session first." });
+      }
+
       const validated = insertPlayerSchema.parse(req.body);
       
       // Set initial skill score based on gender + level (10-200 scale)
@@ -51,7 +140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const skillScore = skillScoreMap[validated.level] || 100;
       
       const player = await storage.createPlayer({ ...validated, skillScore });
-      await storage.addToQueue(player.id);
+      await storage.addToQueue(activeSession.id, player.id);
       res.status(201).json(player);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -75,11 +164,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/players/:id", async (req, res) => {
     try {
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+
       const deleted = await storage.deletePlayer(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Player not found" });
       }
-      await storage.removeFromQueue(req.params.id);
+      await storage.removeFromQueue(activeSession.id, req.params.id);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete player" });
@@ -188,6 +282,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Get active session
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session. Please create a session first." });
+      }
+
       // Import each player
       const importedPlayers = [];
       const skippedPlayers = [];
@@ -197,6 +297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Validate and create player
           const playerData = {
             name: externalPlayer.name,
+            gender: externalPlayer.gender || 'Male',
             level: externalPlayer.level || 'Beginner',
             gamesPlayed: externalPlayer.gamesPlayed || 0,
             wins: externalPlayer.wins || 0,
@@ -205,14 +306,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           const validated = insertPlayerSchema.parse(playerData);
           
-          // Set initial skill score based on level
-          let skillScore = 50; // Default to 5.0 (Intermediate)
-          if (validated.level === 'Beginner') skillScore = 30; // 3.0
-          if (validated.level === 'Intermediate') skillScore = 50; // 5.0
-          if (validated.level === 'Advanced') skillScore = 80; // 8.0
+          // Set initial skill score based on gender + level (10-200 scale)
+          const skillScoreMap: Record<string, number> = {
+            'Novice': validated.gender === 'Female' ? 10 : 20,
+            'Beginner-': validated.gender === 'Female' ? 30 : 40,
+            'Beginner': validated.gender === 'Female' ? 50 : 60,
+            'Beginner+': validated.gender === 'Female' ? 70 : 80,
+            'Intermediate-': validated.gender === 'Female' ? 90 : 100,
+            'Intermediate': validated.gender === 'Female' ? 110 : 120,
+            'Intermediate+': validated.gender === 'Female' ? 130 : 140,
+            'Advanced': validated.gender === 'Female' ? 150 : 160,
+            'Advanced+': validated.gender === 'Female' ? 170 : 180,
+            'Professional': validated.gender === 'Female' ? 190 : 200,
+          };
+          
+          const skillScore = skillScoreMap[validated.level] || 100;
           
           const player = await storage.createPlayer({ ...validated, skillScore });
-          await storage.addToQueue(player.id);
+          await storage.addToQueue(activeSession.id, player.id);
           importedPlayers.push(player);
         } catch (error) {
           skippedPlayers.push({
@@ -246,7 +357,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Court routes
   app.get("/api/courts", async (req, res) => {
     try {
-      const courts = await storage.getCourtsWithPlayers();
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.json([]); // Return empty array if no active session
+      }
+      const courts = await storage.getCourtsWithPlayers(activeSession.id);
       res.json(courts);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch courts" });
@@ -272,8 +387,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/courts", async (req, res) => {
     try {
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session. Please create a session first." });
+      }
+
       const courtData = {
         name: req.body.name,
+        sessionId: activeSession.id,
         status: 'available',
         timeRemaining: 0,
         winningTeam: null,
@@ -325,7 +446,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Queue routes
   app.get("/api/queue", async (req, res) => {
     try {
-      const queue = await storage.getQueue();
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.json([]); // Return empty array if no active session
+      }
+      const queue = await storage.getQueue(activeSession.id);
       res.json(queue);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch queue" });
@@ -334,11 +459,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/queue", async (req, res) => {
     try {
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+
       const { playerIds } = req.body;
       if (!Array.isArray(playerIds)) {
         return res.status(400).json({ error: "playerIds must be an array" });
       }
-      await storage.setQueue(playerIds);
+      await storage.setQueue(activeSession.id, playerIds);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update queue" });
@@ -347,7 +477,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/queue/:playerId", async (req, res) => {
     try {
-      await storage.addToQueue(req.params.playerId);
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+
+      await storage.addToQueue(activeSession.id, req.params.playerId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to add to queue" });
@@ -356,7 +491,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/queue/:playerId", async (req, res) => {
     try {
-      await storage.removeFromQueue(req.params.playerId);
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+
+      await storage.removeFromQueue(activeSession.id, req.params.playerId);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to remove from queue" });
@@ -423,10 +563,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Remove from queue
-      const currentQueue = await storage.getQueue();
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+
+      const currentQueue = await storage.getQueue(activeSession.id);
       const assignedPlayerIds = assignments.map(a => a.playerId);
       const newQueue = currentQueue.filter(id => !assignedPlayerIds.includes(id));
-      await storage.setQueue(newQueue);
+      await storage.setQueue(activeSession.id, newQueue);
 
       const updatedCourt = await storage.getCourt(court.id);
       const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
@@ -471,12 +616,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Add players back to queue (maintain their original order)
-      const currentQueue = await storage.getQueue();
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+
+      const currentQueue = await storage.getQueue(activeSession.id);
       const newQueue = [
         ...currentQueue,
         ...players.map(p => p.id),
       ];
-      await storage.setQueue(newQueue);
+      await storage.setQueue(activeSession.id, newQueue);
 
       // Reset court
       await storage.updateCourt(court.id, {
@@ -615,11 +765,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Get active session
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+
       // Save game result
       const gameId = randomUUID();
       await db.insert(gameResults).values({
         id: gameId,
         courtId: court.id,
+        sessionId: activeSession.id,
         team1Score,
         team2Score,
         winningTeam,
@@ -637,13 +794,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Add players back to queue (losers first, then winners)
-      const currentQueue = await storage.getQueue();
+      const currentQueue = await storage.getQueue(activeSession.id);
       const newQueue = [
         ...currentQueue,
         ...losers.map(p => p.id),
         ...winners.map(p => p.id),
       ];
-      await storage.setQueue(newQueue);
+      await storage.setQueue(activeSession.id, newQueue);
 
       // Reset court
       await storage.updateCourt(court.id, {
@@ -666,15 +823,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Stats endpoint
   app.get("/api/stats", async (req, res) => {
     try {
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.json({
+          activePlayers: 0,
+          inQueue: 0,
+          availableCourts: 0,
+          occupiedCourts: 0,
+          totalPlayers: 0,
+          totalCourts: 0,
+        });
+      }
+
       const players = await storage.getAllPlayers();
-      const courts = await storage.getAllCourts();
-      const queue = await storage.getQueue();
+      const courts = await storage.getCourtsBySession(activeSession.id);
+      const queue = await storage.getQueue(activeSession.id);
 
       const stats = {
-        activePlayers: players.filter(p => p.status === 'playing').length,
+        activePlayers: players.filter((p: any) => p.status === 'playing').length,
         inQueue: queue.length,
-        availableCourts: courts.filter(c => c.status === 'available').length,
-        occupiedCourts: courts.filter(c => c.status === 'occupied').length,
+        availableCourts: courts.filter((c: any) => c.status === 'available').length,
+        occupiedCourts: courts.filter((c: any) => c.status === 'occupied').length,
         totalPlayers: players.length,
         totalCourts: courts.length,
       };
@@ -778,19 +947,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('[RESET-GAMES] Player statistics reset');
       
       // Clear all court assignments and reset court states
-      const allCourts = await storage.getAllCourts();
-      for (const court of allCourts) {
-        // Clear all players from this court
-        await storage.setCourtPlayers(court.id, []);
-        
-        // Reset court to available state
-        await storage.updateCourt(court.id, {
-          status: 'available',
-          timeRemaining: 0,
-          winningTeam: null,
-        });
+      const activeSession = await storage.getActiveSession();
+      if (activeSession) {
+        const allCourts = await storage.getCourtsBySession(activeSession.id);
+        for (const court of allCourts) {
+          // Clear all players from this court
+          await storage.setCourtPlayers(court.id, []);
+          
+          // Reset court to available state
+          await storage.updateCourt(court.id, {
+            status: 'available',
+            timeRemaining: 0,
+            winningTeam: null,
+          });
+        }
+        console.log('[RESET-GAMES] Courts cleared and reset to available');
       }
-      console.log('[RESET-GAMES] Courts cleared and reset to available');
       
       console.log('[RESET-GAMES] Full reset completed successfully');
       res.json({ message: 'All games, stats, and courts have been reset' });
