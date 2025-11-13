@@ -1,15 +1,18 @@
-import { UserPlus, Activity, Download } from "lucide-react";
+import { UserPlus, Activity, Download, Calendar, MapPin, Building2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AppStats } from "@shared/schema";
+import { AppStats, Session } from "@shared/schema";
+import { format } from "date-fns";
 
 interface HeaderProps {
   stats: AppStats;
+  session: Session | null;
   onAddPlayer: () => void;
   onAutoAssign: () => void;
   onImportPlayers: () => void;
+  onEndSession: () => void;
 }
 
-export function Header({ stats, onAddPlayer, onAutoAssign, onImportPlayers }: HeaderProps) {
+export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlayers, onEndSession }: HeaderProps) {
   return (
     <div className="bg-card rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6 border border-card-border">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
@@ -55,6 +58,46 @@ export function Header({ stats, onAddPlayer, onAutoAssign, onImportPlayers }: He
           </Button>
         </div>
       </div>
+
+      {/* Session Info */}
+      {session && (
+        <div className="bg-muted/50 rounded-md p-3 mb-4 border border-border/50">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row gap-4 text-sm flex-1">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium text-foreground">
+                  {format(new Date(session.date), 'MMM dd, yyyy')}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">{session.venueName}</span>
+              </div>
+              {session.venueLocation && (
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">{session.venueLocation}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">{session.courtCount} Courts</span>
+              </div>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={onEndSession}
+              className="min-h-12 sm:min-h-10"
+              data-testid="button-end-session"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">End Session</span>
+              <span className="sm:hidden">End</span>
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Stats Bar */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

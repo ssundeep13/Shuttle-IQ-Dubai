@@ -12,11 +12,26 @@ import { ImportPlayersModal } from "@/components/ImportPlayersModal";
 import { EndGameModal } from "@/components/EndGameModal";
 import { AutoAssignConfirmDialog } from "@/components/AutoAssignConfirmDialog";
 import { NotificationToast } from "@/components/NotificationToast";
+import { SessionSetupWizard } from "@/components/SessionSetupWizard";
+import { useActiveSession } from "@/hooks/use-active-session";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type TabType = 'courts' | 'queue' | 'leaderboard' | 'history';
 
 export default function Home() {
+  // Check for active session
+  const { session, hasSession, isLoading: sessionLoading } = useActiveSession();
+
   const [teamAssignments, setTeamAssignments] = useState<Record<string, { team1: string[]; team2: string[] }>>({});
   const [activeTab, setActiveTab] = useState<TabType>('courts');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
@@ -31,34 +46,42 @@ export default function Home() {
     team1: Player[];
     team2: Player[];
   } | null>(null);
+  const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
 
-  // Fetch courts with players
+  // Fetch courts with players (only when session exists)
   const { data: courts = [], isLoading: courtsLoading } = useQuery<CourtWithPlayers[]>({
     queryKey: ['/api/courts'],
+    enabled: hasSession,
   });
 
-  // Fetch players
+  // Fetch players (only when session exists)
   const { data: players = [], isLoading: playersLoading } = useQuery<Player[]>({
     queryKey: ['/api/players'],
+    enabled: hasSession,
   });
 
-  // Fetch queue
+  // Fetch queue (only when session exists)
   const { data: queue = [], isLoading: queueLoading } = useQuery<string[]>({
     queryKey: ['/api/queue'],
+    enabled: hasSession,
   });
 
-  // Fetch stats
+  // Fetch stats (only when session exists)
   const { data: stats } = useQuery<AppStats>({
     queryKey: ['/api/stats'],
+    enabled: hasSession,
   });
 
-  // Fetch game history
+  // Fetch game history (only when session exists)
   const { data: gameHistory = [] } = useQuery<any[]>({
     queryKey: ['/api/game-history'],
+    enabled: hasSession,
   });
 
-  // Timer countdown (update court time remaining every minute)
+  // Timer countdown (update court time remaining every minute) - only when session exists
   useEffect(() => {
+    if (!hasSession) return;
+    
     const timer = setInterval(() => {
       courts.forEach((court) => {
         if (court.status === 'occupied' && court.timeRemaining > 0) {
@@ -76,7 +99,7 @@ export default function Home() {
     }, 60000); // 1 minute
 
     return () => clearInterval(timer);
-  }, [courts]);
+  }, [courts, hasSession]);
 
   const addNotification = (message: string, type: Notification['type'] = 'info') => {
     const id = Date.now();
@@ -293,6 +316,69 @@ export default function Home() {
     onError: (error: any) => {
       const message = error?.error || error?.message || 'Failed to reset games';
       addNotification(message, 'danger');
+    },
+  });
+
+  const endSessionMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      return await apiRequest('POST', `/api/sessions/${sessionId}/end`, null);
+    },
+    onSuccess: async (_, sessionId) => {
+      // Download CSV export before invalidating
+      try {
+        const response = await fetch(`/api/sessions/${sessionId}/game-history`);
+        if (response.ok) {
+          const games = await response.json();
+          if (games.length > 0) {
+            // Generate CSV
+            const header = 'Game #,Date,Team 1 Players,Team 2 Players,Score,Winning Team\n';
+            const rows = games.map((game: any, index: number) => {
+              const team1Players = game.team1_players.map((p: any) => p.name).join(' & ');
+              const team2Players = game.team2_players.map((p: any) => p.name).join(' & ');
+              const score = `${game.team1_score}-${game.team2_score}`;
+              const winner = game.winning_team === 1 ? 'Team 1' : 'Team 2';
+              const date = new Date(game.created_at).toLocaleString();
+              
+              // Escape quotes and wrap in quotes if contains comma or quote
+              const escape = (str: string) => {
+                if (str.includes(',') || str.includes('"')) {
+                  return `"${str.replace(/"/g, '""')}"`;
+                }
+                return `"${str}"`;
+              };
+              
+              return `${index + 1},${escape(date)},${escape(team1Players)},${escape(team2Players)},${escape(score)},${escape(winner)}`;
+            }).join('\n');
+            
+            const csv = '\uFEFF' + header + rows; // Add BOM for Excel compatibility
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `game-history-${new Date().toISOString().split('T')[0]}.csv`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to download CSV:', error);
+      }
+
+      // Invalidate all session-scoped queries
+      await queryClient.invalidateQueries({ queryKey: ['/api/sessions/active'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      
+      setTeamAssignments({});
+      setShowEndSessionConfirm(false);
+      addNotification('Session ended successfully', 'success');
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to end session';
+      addNotification(message, 'danger');
+      setShowEndSessionConfirm(false);
     },
   });
 
@@ -541,6 +627,16 @@ export default function Home() {
     resetGamesMutation.mutate();
   };
 
+  const handleEndSession = () => {
+    setShowEndSessionConfirm(true);
+  };
+
+  const handleConfirmEndSession = () => {
+    if (session) {
+      endSessionMutation.mutate(session.id);
+    }
+  };
+
   const handleImportPlayers = async (url: string) => {
     try {
       const response = await apiRequest('POST', '/api/players/import', { url });
@@ -635,7 +731,8 @@ export default function Home() {
 
   const isLoading = courtsLoading || playersLoading || queueLoading;
 
-  if (isLoading) {
+  // Handle session loading
+  if (sessionLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -646,14 +743,43 @@ export default function Home() {
     );
   }
 
+  // Show setup wizard if no active session
+  if (!hasSession) {
+    const handleSessionCreated = async () => {
+      // Invalidate all session-scoped queries
+      await queryClient.invalidateQueries({ queryKey: ['/api/sessions/active'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+    };
+
+    return <SessionSetupWizard onSessionCreated={handleSessionCreated} />;
+  }
+
+  // Show loading if data is being fetched
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="max-w-7xl mx-auto">
         <Header 
-          stats={stats || defaultStats} 
+          stats={stats || defaultStats}
+          session={session}
           onAddPlayer={() => setShowAddPlayer(true)} 
           onAutoAssign={handleAutoAssign}
           onImportPlayers={() => setShowImportPlayers(true)}
+          onEndSession={handleEndSession}
         />
         <TabNavigation
           activeTab={activeTab}
@@ -739,6 +865,29 @@ export default function Home() {
         team1={autoAssignData?.team1 || []}
         team2={autoAssignData?.team2 || []}
       />
+
+      <AlertDialog open={showEndSessionConfirm} onOpenChange={setShowEndSessionConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End Session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will end the current session and close all active games. Players will be returned to the queue.
+              Game history will be downloaded as a CSV file before the session ends.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-end-session">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmEndSession}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-end-session"
+            >
+              End Session
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <NotificationToast notifications={notifications} onDismiss={dismissNotification} />
     </div>
