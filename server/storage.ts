@@ -5,10 +5,14 @@ import {
   type InsertCourt,
   type CourtWithPlayers,
   type CourtPlayer,
+  type Session,
+  type InsertSession,
   players,
   courts,
   courtPlayers as courtPlayersTable,
-  queueEntries
+  queueEntries,
+  sessions,
+  gameResults
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc } from "drizzle-orm";
@@ -23,16 +27,24 @@ function addSkidToPlayer(player: typeof players.$inferSelect): Player {
 }
 
 export interface IStorage {
-  // Player operations
+  // Session operations
+  createSession(session: InsertSession): Promise<Session>;
+  getSession(id: string): Promise<Session | undefined>;
+  getActiveSession(): Promise<Session | undefined>;
+  getAllSessions(): Promise<Session[]>;
+  endSession(id: string): Promise<Session | undefined>;
+  
+  // Player operations (global)
   getPlayer(id: string): Promise<Player | undefined>;
+  getPlayerByExternalId(externalId: string): Promise<Player | undefined>;
   getAllPlayers(): Promise<Player[]>;
   createPlayer(player: InsertPlayer): Promise<Player>;
   updatePlayer(id: string, updates: Partial<Player>): Promise<Player | undefined>;
   deletePlayer(id: string): Promise<boolean>;
   
-  // Court operations
+  // Court operations (session-specific)
   getCourt(id: string): Promise<Court | undefined>;
-  getAllCourts(): Promise<Court[]>;
+  getCourtsBySession(sessionId: string): Promise<Court[]>;
   createCourt(court: InsertCourt): Promise<Court>;
   updateCourt(id: string, updates: Partial<Court>): Promise<Court | undefined>;
   deleteCourt(id: string): Promise<boolean>;
@@ -43,20 +55,71 @@ export interface IStorage {
   setCourtPlayers(courtId: string, playerIds: string[]): Promise<void>;
   setCourtPlayersWithTeams(courtId: string, assignments: { playerId: string; team: number }[]): Promise<void>;
   
-  // Queue operations
-  getQueue(): Promise<string[]>;
-  setQueue(playerIds: string[]): Promise<void>;
-  addToQueue(playerId: string): Promise<void>;
-  removeFromQueue(playerId: string): Promise<void>;
+  // Queue operations (session-specific)
+  getQueue(sessionId: string): Promise<string[]>;
+  setQueue(sessionId: string, playerIds: string[]): Promise<void>;
+  addToQueue(sessionId: string, playerId: string): Promise<void>;
+  removeFromQueue(sessionId: string, playerId: string): Promise<void>;
   
   // Complex queries
-  getCourtsWithPlayers(): Promise<CourtWithPlayers[]>;
+  getCourtsWithPlayers(sessionId: string): Promise<CourtWithPlayers[]>;
+  getSessionGameHistory(sessionId: string): Promise<any[]>;
 }
 
 export class DatabaseStorage implements IStorage {
+  // Session operations
+  async createSession(insertSession: InsertSession): Promise<Session> {
+    const id = randomUUID();
+    const [session] = await db
+      .insert(sessions)
+      .values({ 
+        ...insertSession, 
+        id,
+        status: 'active'
+      })
+      .returning();
+    return session;
+  }
+
+  async getSession(id: string): Promise<Session | undefined> {
+    const [session] = await db.select().from(sessions).where(eq(sessions.id, id));
+    return session || undefined;
+  }
+
+  async getActiveSession(): Promise<Session | undefined> {
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.status, 'active'))
+      .orderBy(desc(sessions.createdAt))
+      .limit(1);
+    return session || undefined;
+  }
+
+  async getAllSessions(): Promise<Session[]> {
+    return await db.select().from(sessions).orderBy(desc(sessions.createdAt));
+  }
+
+  async endSession(id: string): Promise<Session | undefined> {
+    const [session] = await db
+      .update(sessions)
+      .set({ status: 'ended', endedAt: new Date() })
+      .where(eq(sessions.id, id))
+      .returning();
+    return session || undefined;
+  }
+
   // Player operations
   async getPlayer(id: string): Promise<Player | undefined> {
     const [player] = await db.select().from(players).where(eq(players.id, id));
+    return player ? addSkidToPlayer(player) : undefined;
+  }
+
+  async getPlayerByExternalId(externalId: string): Promise<Player | undefined> {
+    const [player] = await db
+      .select()
+      .from(players)
+      .where(eq(players.externalId, externalId));
     return player ? addSkidToPlayer(player) : undefined;
   }
 
@@ -107,8 +170,8 @@ export class DatabaseStorage implements IStorage {
     return court || undefined;
   }
 
-  async getAllCourts(): Promise<Court[]> {
-    return await db.select().from(courts);
+  async getCourtsBySession(sessionId: string): Promise<Court[]> {
+    return await db.select().from(courts).where(eq(courts.sessionId, sessionId));
   }
 
   async createCourt(insertCourt: InsertCourt): Promise<Court> {
@@ -185,24 +248,26 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  // Queue operations
-  async getQueue(): Promise<string[]> {
+  // Queue operations (session-specific)
+  async getQueue(sessionId: string): Promise<string[]> {
     const entries = await db
       .select()
       .from(queueEntries)
+      .where(eq(queueEntries.sessionId, sessionId))
       .orderBy(desc(queueEntries.position));
     return entries.map(e => e.playerId);
   }
 
-  async setQueue(playerIds: string[]): Promise<void> {
-    // Clear existing queue
-    await db.delete(queueEntries);
+  async setQueue(sessionId: string, playerIds: string[]): Promise<void> {
+    // Clear existing queue for this session
+    await db.delete(queueEntries).where(eq(queueEntries.sessionId, sessionId));
     
     // Insert new queue
     if (playerIds.length > 0) {
       await db.insert(queueEntries).values(
         playerIds.map((playerId, index) => ({
           id: randomUUID(),
+          sessionId,
           playerId,
           position: index
         }))
@@ -210,35 +275,47 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async addToQueue(playerId: string): Promise<void> {
-    // Check if player already in queue
+  async addToQueue(sessionId: string, playerId: string): Promise<void> {
+    // Check if player already in queue for this session
     const existing = await db
       .select()
       .from(queueEntries)
-      .where(eq(queueEntries.playerId, playerId));
+      .where(and(
+        eq(queueEntries.sessionId, sessionId),
+        eq(queueEntries.playerId, playerId)
+      ));
     
     if (existing.length === 0) {
-      // Get max position
-      const allEntries = await db.select().from(queueEntries);
+      // Get max position for this session
+      const allEntries = await db
+        .select()
+        .from(queueEntries)
+        .where(eq(queueEntries.sessionId, sessionId));
       const maxPosition = allEntries.length > 0 
         ? Math.max(...allEntries.map(e => e.position)) 
         : -1;
       
       await db.insert(queueEntries).values({
         id: randomUUID(),
+        sessionId,
         playerId,
         position: maxPosition + 1
       });
     }
   }
 
-  async removeFromQueue(playerId: string): Promise<void> {
-    await db.delete(queueEntries).where(eq(queueEntries.playerId, playerId));
+  async removeFromQueue(sessionId: string, playerId: string): Promise<void> {
+    await db.delete(queueEntries).where(
+      and(
+        eq(queueEntries.sessionId, sessionId),
+        eq(queueEntries.playerId, playerId)
+      )
+    );
   }
 
   // Complex queries
-  async getCourtsWithPlayers(): Promise<CourtWithPlayers[]> {
-    const allCourts = await this.getAllCourts();
+  async getCourtsWithPlayers(sessionId: string): Promise<CourtWithPlayers[]> {
+    const allCourts = await this.getCourtsBySession(sessionId);
     const courtsWithPlayers: CourtWithPlayers[] = [];
 
     for (const court of allCourts) {
@@ -258,6 +335,16 @@ export class DatabaseStorage implements IStorage {
     }
 
     return courtsWithPlayers;
+  }
+
+  async getSessionGameHistory(sessionId: string): Promise<any[]> {
+    const games = await db
+      .select()
+      .from(gameResults)
+      .where(eq(gameResults.sessionId, sessionId))
+      .orderBy(desc(gameResults.createdAt));
+    
+    return games;
   }
 }
 
