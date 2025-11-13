@@ -1,4 +1,4 @@
-import { History, Trophy, RotateCcw } from "lucide-react";
+import { History, Trophy, RotateCcw, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -43,6 +43,52 @@ const getLevelColor = (level: string) => {
 };
 
 export function GameHistory({ games, onResetGames }: GameHistoryProps) {
+  const downloadCSV = () => {
+    // Create CSV data
+    const headers = ['Game #', 'Date', 'Team 1 Players', 'Team 2 Players', 'Score', 'Winning Team'];
+    const csvRows = [headers.join(',')];
+
+    games.forEach((game, index) => {
+      const gameNumber = games.length - index;
+      const date = format(new Date(game.createdAt), 'yyyy-MM-dd HH:mm');
+      const team1Players = game.participants
+        .filter(p => p.team === 1)
+        .map(p => `${p.playerName} (${p.playerLevel})`)
+        .join('; ');
+      const team2Players = game.participants
+        .filter(p => p.team === 2)
+        .map(p => `${p.playerName} (${p.playerLevel})`)
+        .join('; ');
+      const score = `${game.team1Score}-${game.team2Score}`;
+      const winningTeam = `Team ${game.winningTeam}`;
+
+      // Escape values that might contain commas
+      const row = [
+        gameNumber,
+        date,
+        `"${team1Players}"`,
+        `"${team2Players}"`,
+        score,
+        winningTeam
+      ].join(',');
+      
+      csvRows.push(row);
+    });
+
+    const csvContent = csvRows.join('\n');
+    
+    // Create blob and download
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `game-history-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   if (games.length === 0) {
     return (
       <div className="bg-card rounded-lg shadow-md p-6 border border-card-border">
@@ -61,21 +107,33 @@ export function GameHistory({ games, onResetGames }: GameHistoryProps) {
 
   return (
     <div className="bg-card rounded-lg shadow-md p-6 border border-card-border">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-primary flex items-center gap-2">
-          <History className="w-6 h-6" />
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-6">
+        <h2 className="text-xl sm:text-2xl font-bold text-primary flex items-center gap-2">
+          <History className="w-5 h-5 sm:w-6 sm:h-6" />
           Game History
         </h2>
-        <Button
-          onClick={onResetGames}
-          variant="outline"
-          size="sm"
-          className="text-destructive hover:text-destructive"
-          data-testid="button-reset-games"
-        >
-          <RotateCcw className="w-4 h-4 mr-1" />
-          Reset All Games
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button
+            onClick={downloadCSV}
+            variant="outline"
+            size="sm"
+            className="flex-1 sm:flex-initial min-h-12 sm:min-h-9"
+            data-testid="button-download-csv"
+          >
+            <Download className="w-4 h-4 mr-1" />
+            <span className="sm:inline">Download CSV</span>
+          </Button>
+          <Button
+            onClick={onResetGames}
+            variant="outline"
+            size="sm"
+            className="flex-1 sm:flex-initial min-h-12 sm:min-h-9 text-destructive hover:text-destructive"
+            data-testid="button-reset-games"
+          >
+            <RotateCcw className="w-4 h-4 mr-1" />
+            <span className="sm:inline">Reset</span>
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-4">
