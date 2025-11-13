@@ -189,7 +189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/sessions/:id/end", async (req, res) => {
+  app.post("/api/sessions/:id/end", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const session = await storage.endSession(req.params.id);
       if (!session) {
@@ -260,7 +260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/players", async (req, res) => {
+  app.post("/api/players", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const activeSession = await storage.getActiveSession();
       if (!activeSession) {
@@ -296,7 +296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/players/:id", async (req, res) => {
+  app.patch("/api/players/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const player = await storage.updatePlayer(req.params.id, req.body);
       if (!player) {
@@ -308,7 +308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/players/:id", async (req, res) => {
+  app.delete("/api/players/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const activeSession = await storage.getActiveSession();
       if (!activeSession) {
@@ -326,7 +326,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/players/import", async (req, res) => {
+  app.post("/api/players/import", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       // Validate request body
       const requestSchema = z.object({
@@ -531,7 +531,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/courts", async (req, res) => {
+  app.post("/api/courts", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const activeSession = await storage.getActiveSession();
       if (!activeSession) {
@@ -552,7 +552,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/courts/:id", async (req, res) => {
+  app.patch("/api/courts/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const court = await storage.updateCourt(req.params.id, req.body);
       if (!court) {
@@ -569,7 +569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/courts/:id", async (req, res) => {
+  app.delete("/api/courts/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const court = await storage.getCourt(req.params.id);
       if (!court) {
@@ -603,7 +603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/queue", async (req, res) => {
+  app.put("/api/queue", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const activeSession = await storage.getActiveSession();
       if (!activeSession) {
@@ -621,7 +621,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/queue/:playerId", async (req, res) => {
+  app.post("/api/queue/:playerId", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const activeSession = await storage.getActiveSession();
       if (!activeSession) {
@@ -635,7 +635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/queue/:playerId", async (req, res) => {
+  app.delete("/api/queue/:playerId", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const activeSession = await storage.getActiveSession();
       if (!activeSession) {
@@ -650,7 +650,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Game management routes
-  app.post("/api/courts/:courtId/assign", async (req, res) => {
+  app.post("/api/courts/:courtId/assign", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { playerIds, teamAssignments } = req.body;
       
@@ -735,7 +735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/courts/:courtId/cancel-game", async (req, res) => {
+  app.post("/api/courts/:courtId/cancel-game", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       console.log(`[CANCEL-GAME] Canceling game on court ${req.params.courtId}`);
       
@@ -791,7 +791,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/courts/:courtId/end-game", async (req, res) => {
+  app.post("/api/courts/:courtId/end-game", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { winningTeam, team1Score, team2Score } = req.body;
       
@@ -1062,7 +1062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reset all games endpoint
-  app.delete("/api/game-history", async (req, res) => {
+  app.delete("/api/game-history", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       console.log('[RESET-GAMES] Starting full reset (games, stats, and courts)...');
       
