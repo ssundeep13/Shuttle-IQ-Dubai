@@ -20,6 +20,12 @@ interface AutoAssignConfirmDialogProps {
   courtName: string;
   team1: Player[];
   team2: Player[];
+  team1Avg?: number;
+  team2Avg?: number;
+  skillGap?: number;
+  restWarnings?: string[];
+  currentCombinationIndex?: number;
+  totalCombinations?: number;
 }
 
 const getLevelColor = (level: string) => {
@@ -43,10 +49,17 @@ export function AutoAssignConfirmDialog({
   courtName,
   team1,
   team2,
+  team1Avg,
+  team2Avg,
+  skillGap,
+  restWarnings = [],
+  currentCombinationIndex = 0,
+  totalCombinations = 1,
 }: AutoAssignConfirmDialogProps) {
-  const team1AvgSkill = team1.reduce((sum, p) => sum + (p.skillScore || 50), 0) / team1.length / 10;
-  const team2AvgSkill = team2.reduce((sum, p) => sum + (p.skillScore || 50), 0) / team2.length / 10;
-  const skillDifference = Math.abs(team1AvgSkill - team2AvgSkill);
+  // Use provided averages or calculate if not provided (backward compatibility)
+  const team1AvgSkill = team1Avg ?? (team1.reduce((sum, p) => sum + (p.skillScore || 50), 0) / team1.length / 10);
+  const team2AvgSkill = team2Avg ?? (team2.reduce((sum, p) => sum + (p.skillScore || 50), 0) / team2.length / 10);
+  const skillDifference = skillGap ?? Math.abs(team1AvgSkill - team2AvgSkill);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -130,6 +143,29 @@ export function AutoAssignConfirmDialog({
               {skillDifference >= 1.0 && `Difference: ${skillDifference.toFixed(1)}`}
             </div>
           </div>
+
+          {/* Combination indicator */}
+          {totalCombinations > 1 && (
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground">
+                Option {currentCombinationIndex + 1} of {totalCombinations}
+              </p>
+            </div>
+          )}
+
+          {/* Rest warnings */}
+          {restWarnings.length > 0 && (
+            <div className="bg-info/10 border border-info/20 rounded-md p-3">
+              <p className="text-xs font-semibold text-info mb-2">⚠️ Player Rest Alerts</p>
+              <ul className="space-y-1">
+                {restWarnings.map((warning, index) => (
+                  <li key={index} className="text-xs text-muted-foreground">
+                    • {warning}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2">

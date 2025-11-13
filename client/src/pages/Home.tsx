@@ -50,6 +50,19 @@ export default function Home() {
     courtName: string;
     team1: Player[];
     team2: Player[];
+    team1Avg: number;
+    team2Avg: number;
+    skillGap: number;
+    allCombinations: Array<{
+      team1: Player[];
+      team2: Player[];
+      team1Avg: number;
+      team2Avg: number;
+      skillGap: number;
+      rank: number;
+    }>;
+    restWarnings: string[];
+    currentCombinationIndex: number;
   } | null>(null);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
 
@@ -442,50 +455,59 @@ export default function Home() {
     assignPlayersMutation.mutate({ courtId, teamAssignments: assignments });
   };
 
-  const handleAutoAssign = () => {
+  const handleAutoAssign = async () => {
     const availableCourt = courts.find((c) => c.status === 'available');
     if (!availableCourt) {
       addNotification('No available courts', 'warning');
       return;
     }
 
-    // Get first 4 players from queue
-    const queuePlayerIds = queue.slice(0, 4);
-    if (queuePlayerIds.length < 4) {
-      addNotification('Need at least 4 players in queue for balanced teams', 'warning');
-      return;
+    try {
+      // Call matchmaking API to get optimal team combinations
+      const response = await fetch('/api/matchmaking/optimal-teams');
+      
+      if (!response.ok) {
+        const error = await response.json();
+        addNotification(error.error || 'Failed to generate teams', 'warning');
+        return;
+      }
+
+      const data = await response.json();
+      const { combinations, restWarnings } = data;
+
+      if (!combinations || combinations.length === 0) {
+        addNotification('Could not generate balanced teams', 'warning');
+        return;
+      }
+
+      // Use the best combination (rank 1)
+      const bestCombo = combinations[0];
+
+      // Show rest warnings if any
+      if (restWarnings && restWarnings.length > 0) {
+        restWarnings.forEach((warning: string) => {
+          addNotification(warning, 'info');
+        });
+      }
+
+      // Show confirmation dialog with all combinations
+      setAutoAssignData({
+        courtId: availableCourt.id,
+        courtName: availableCourt.name,
+        team1: bestCombo.team1,
+        team2: bestCombo.team2,
+        team1Avg: bestCombo.team1Avg,
+        team2Avg: bestCombo.team2Avg,
+        skillGap: bestCombo.skillGap,
+        allCombinations: combinations,
+        restWarnings: restWarnings || [],
+        currentCombinationIndex: 0,
+      });
+      setShowAutoAssignConfirm(true);
+    } catch (error) {
+      console.error('Auto-assign error:', error);
+      addNotification('Failed to generate optimal teams', 'danger');
     }
-
-    // Map player IDs to player objects
-    const queuePlayersData = queuePlayerIds
-      .map((id) => players.find((p) => p.id === id))
-      .filter((p): p is Player => p !== undefined);
-
-    // Guard: Ensure all 4 player records are fully loaded
-    if (queuePlayersData.length < 4) {
-      addNotification('Player data is still loading. Please try again.', 'warning');
-      return;
-    }
-
-    // Sort players by skill score for balanced distribution
-    const sortedPlayers = [...queuePlayersData].sort((a, b) => 
-      (b.skillScore || 50) - (a.skillScore || 50)
-    );
-
-    // Distribute using "snake draft" method for balance
-    // Highest skill goes to Team 1, 2nd highest to Team 2, 
-    // 3rd highest to Team 2, 4th highest to Team 1
-    const team1Players: Player[] = [sortedPlayers[0], sortedPlayers[3]];
-    const team2Players: Player[] = [sortedPlayers[1], sortedPlayers[2]];
-
-    // Show confirmation dialog
-    setAutoAssignData({
-      courtId: availableCourt.id,
-      courtName: availableCourt.name,
-      team1: team1Players,
-      team2: team2Players,
-    });
-    setShowAutoAssignConfirm(true);
   };
 
   const handleConfirmAutoAssign = () => {
@@ -508,63 +530,19 @@ export default function Home() {
   const handleReassignTeams = () => {
     if (!autoAssignData) return;
 
-    // Get current player IDs that are assigned
-    const currentPlayerIds = [
-      ...autoAssignData.team1.map(p => p.id),
-      ...autoAssignData.team2.map(p => p.id)
-    ];
+    // Cycle through pre-computed combinations
+    const nextIndex = (autoAssignData.currentCombinationIndex + 1) % autoAssignData.allCombinations.length;
+    const nextCombo = autoAssignData.allCombinations[nextIndex];
 
-    // Find the position of the first current player in the queue
-    const currentStartIndex = queue.findIndex(id => currentPlayerIds.includes(id));
-    
-    // Calculate next starting position (move forward by 4 to get next batch)
-    let nextStartIndex = currentStartIndex + 4;
-    
-    // If we've gone past the available players, wrap around to start
-    if (nextStartIndex + 4 > queue.length) {
-      nextStartIndex = 0;
-    }
-    
-    // Get next 4 players from queue starting at new position
-    const nextQueuePlayerIds = queue.slice(nextStartIndex, nextStartIndex + 4);
-    
-    // If we don't have enough players at this position, try from the beginning
-    if (nextQueuePlayerIds.length < 4) {
-      const fromStart = queue.slice(0, 4);
-      if (fromStart.length < 4) {
-        addNotification('Need at least 4 players in queue', 'warning');
-        return;
-      }
-      nextQueuePlayerIds.length = 0;
-      nextQueuePlayerIds.push(...fromStart);
-    }
-
-    // Map to player objects
-    const nextQueuePlayersData = nextQueuePlayerIds
-      .map((id) => players.find((p) => p.id === id))
-      .filter((p): p is Player => p !== undefined);
-
-    // Guard: Ensure all 4 player records are fully loaded
-    if (nextQueuePlayersData.length < 4) {
-      addNotification('Player data is still loading. Please try again.', 'warning');
-      return;
-    }
-
-    // Sort players by skill score for balanced distribution
-    const sortedPlayers = [...nextQueuePlayersData].sort((a, b) => 
-      (b.skillScore || 50) - (a.skillScore || 50)
-    );
-
-    // Apply balanced team assignment (snake draft)
-    const team1Players: Player[] = [sortedPlayers[0], sortedPlayers[3]];
-    const team2Players: Player[] = [sortedPlayers[1], sortedPlayers[2]];
-
-    // Update the dialog with new player assignments
+    // Update the dialog with new team assignments from next combination
     setAutoAssignData({
-      courtId: autoAssignData.courtId,
-      courtName: autoAssignData.courtName,
-      team1: team1Players,
-      team2: team2Players,
+      ...autoAssignData,
+      team1: nextCombo.team1,
+      team2: nextCombo.team2,
+      team1Avg: nextCombo.team1Avg,
+      team2Avg: nextCombo.team2Avg,
+      skillGap: nextCombo.skillGap,
+      currentCombinationIndex: nextIndex,
     });
   };
 
@@ -903,6 +881,12 @@ export default function Home() {
         courtName={autoAssignData?.courtName || ''}
         team1={autoAssignData?.team1 || []}
         team2={autoAssignData?.team2 || []}
+        team1Avg={autoAssignData?.team1Avg}
+        team2Avg={autoAssignData?.team2Avg}
+        skillGap={autoAssignData?.skillGap}
+        restWarnings={autoAssignData?.restWarnings}
+        currentCombinationIndex={autoAssignData?.currentCombinationIndex}
+        totalCombinations={autoAssignData?.allCombinations?.length}
       />
 
       <AlertDialog open={showEndSessionConfirm} onOpenChange={setShowEndSessionConfirm}>
