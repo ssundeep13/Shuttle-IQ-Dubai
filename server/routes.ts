@@ -159,6 +159,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validated = insertSessionSchema.parse(requestData);
       const session = await storage.createSession(validated);
+      
+      // Automatically add all existing players to the queue for the new session
+      const allPlayers = await storage.getAllPlayers();
+      for (const player of allPlayers) {
+        await storage.addToQueue(session.id, player.id);
+      }
+      
       res.status(201).json(session);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -263,9 +270,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/players", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.status(400).json({ error: "No active session. Please create a session first." });
-      }
 
       const validated = insertPlayerSchema.parse(req.body);
       
@@ -286,7 +290,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const skillScore = skillScoreMap[validated.level] || 100;
       
       const player = await storage.createPlayer({ ...validated, skillScore });
-      await storage.addToQueue(activeSession.id, player.id);
+      
+      // Only add to queue if there's an active session
+      if (activeSession) {
+        await storage.addToQueue(activeSession.id, player.id);
+      }
+      
       res.status(201).json(player);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -336,11 +345,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validated = requestSchema.parse(req.body);
       
-      // Get active session first
+      // Get active session (optional - players can be imported before session creation)
       const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.status(400).json({ error: "No active session. Please create a session first." });
-      }
 
       let playersToImport: any[] = [];
 
@@ -520,7 +526,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const skillScore = skillScoreMap[validated.level] || 100;
           
           const player = await storage.createPlayer({ ...validated, skillScore });
-          await storage.addToQueue(activeSession.id, player.id);
+          
+          // Only add to queue if there's an active session
+          if (activeSession) {
+            await storage.addToQueue(activeSession.id, player.id);
+          }
+          
           importedPlayers.push(player);
         } catch (error) {
           skippedPlayers.push({

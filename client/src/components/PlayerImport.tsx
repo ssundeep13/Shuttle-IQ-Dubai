@@ -123,22 +123,18 @@ export function PlayerImport() {
 
   return (
     <div className="space-y-4">
-      {!hasSession && (
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertTitle>No Active Session</AlertTitle>
-          <AlertDescription>
-            You must create a session first before importing players. Go to the "Session" tab to create a new session.
-          </AlertDescription>
-        </Alert>
-      )}
-
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
           CSV format: ShuttleIQ Unique ID, Name, Gender, Level
           <br />
           Example: M001, John Doe, Male, Intermediate
+          <br />
+          <span className="text-xs text-muted-foreground mt-1 block">
+            {hasSession 
+              ? "Players will be added to the current session's queue automatically" 
+              : "Import players now and they'll be added to the queue when you create a session"}
+          </span>
         </AlertDescription>
       </Alert>
 
@@ -174,7 +170,7 @@ export function PlayerImport() {
           <div className="flex gap-2">
             <Button
               onClick={handlePasteImport}
-              disabled={!pastedText.trim() || importMutation.isPending || !hasSession}
+              disabled={!pastedText.trim() || importMutation.isPending}
               className="flex-1"
               data-testid="button-import-paste"
             >
@@ -224,7 +220,7 @@ export function PlayerImport() {
 
           <Button
             onClick={handleImport}
-            disabled={!file || importMutation.isPending || !hasSession}
+            disabled={!file || importMutation.isPending}
             className="w-full"
             data-testid="button-import-players"
           >
