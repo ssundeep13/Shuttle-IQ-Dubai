@@ -2,9 +2,26 @@ import { pgTable, text, varchar, integer, timestamp } from "drizzle-orm/pg-core"
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Player schema
+// Sessions schema (for multi-venue queue sessions)
+export const sessions = pgTable("sessions", {
+  id: varchar("id").primaryKey(),
+  date: timestamp("date").notNull(),
+  venueName: text("venue_name").notNull(),
+  venueLocation: text("venue_location"),
+  courtCount: integer("court_count").notNull(),
+  status: text("status").notNull().default('active'), // 'active', 'ended'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  endedAt: timestamp("ended_at"),
+});
+
+export const insertSessionSchema = createInsertSchema(sessions).omit({ id: true, createdAt: true, endedAt: true });
+export type InsertSession = z.infer<typeof insertSessionSchema>;
+export type Session = typeof sessions.$inferSelect;
+
+// Player schema (global player registry)
 export const players = pgTable("players", {
   id: varchar("id").primaryKey(),
+  externalId: text("external_id"), // Optional unique identifier for cross-venue tracking (e.g., membership ID)
   name: text("name").notNull(),
   gender: text("gender").notNull(), // 'Male', 'Female'
   level: text("level").notNull(), // 'Novice', 'Beginner-', 'Beginner', 'Beginner+', 'Intermediate-', 'Intermediate', 'Intermediate+', 'Advanced', 'Advanced+', 'Professional'
@@ -20,9 +37,10 @@ export type Player = typeof players.$inferSelect & {
   skid?: number; // Computed SKID (1-20), derived from skillScore / 10
 };
 
-// Court schema
+// Court schema (session-specific courts)
 export const courts = pgTable("courts", {
   id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull(), // Links court to a specific session
   name: text("name").notNull(),
   status: text("status").notNull().default('available'), // 'available', 'occupied'
   timeRemaining: integer("time_remaining").notNull().default(0), // in minutes
@@ -43,9 +61,10 @@ export const courtPlayers = pgTable("court_players", {
 
 export type CourtPlayer = typeof courtPlayers.$inferSelect;
 
-// Global Queue (ordered list of player IDs waiting)
+// Session Queue (ordered list of player IDs waiting in a specific session)
 export const queueEntries = pgTable("queue_entries", {
   id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull(), // Links queue entry to a specific session
   playerId: varchar("player_id").notNull(),
   position: integer("position").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -53,9 +72,10 @@ export const queueEntries = pgTable("queue_entries", {
 
 export type QueueEntry = typeof queueEntries.$inferSelect;
 
-// Game Results (track individual game scores)
+// Game Results (track individual game scores per session)
 export const gameResults = pgTable("game_results", {
   id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull(), // Links game to a specific session
   courtId: varchar("court_id").notNull(),
   team1Score: integer("team1_score").notNull(),
   team2Score: integer("team2_score").notNull(),
