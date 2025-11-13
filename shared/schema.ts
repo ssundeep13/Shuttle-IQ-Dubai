@@ -124,3 +124,30 @@ export interface AppStats {
   totalPlayers: number;
   totalCourts: number;
 }
+
+// Admin Users schema (for authentication)
+export const adminUsers = pgTable("admin_users", {
+  id: varchar("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default('admin'), // 'admin', 'super_admin'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastLoginAt: timestamp("last_login_at"),
+});
+
+export const insertAdminUserSchema = createInsertSchema(adminUsers).omit({ id: true, createdAt: true, lastLoginAt: true });
+export type InsertAdminUser = z.infer<typeof insertAdminUserSchema>;
+export type AdminUser = typeof adminUsers.$inferSelect;
+
+// Auth Sessions schema (for JWT refresh tokens)
+export const authSessions = pgTable("auth_sessions", {
+  id: varchar("id").primaryKey(),
+  adminUserId: varchar("admin_user_id").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertAuthSessionSchema = createInsertSchema(authSessions).omit({ id: true, createdAt: true });
+export type InsertAuthSession = z.infer<typeof insertAuthSessionSchema>;
+export type AuthSession = typeof authSessions.$inferSelect;

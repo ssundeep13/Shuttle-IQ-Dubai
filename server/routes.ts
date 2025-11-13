@@ -6,10 +6,150 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { requireAuth, requireAdmin, type AuthRequest } from "./auth/middleware";
+import { 
+  generateAccessToken, 
+  generateRefreshToken, 
+  comparePassword, 
+  verifyRefreshToken,
+  generateSessionId
+} from "./auth/utils";
+import {
+  findAdminByEmail,
+  updateAdminLastLogin,
+  createAuthSession,
+  findAuthSession,
+  deleteAuthSession,
+  findAdminById,
+  seedAdminUser
+} from "./auth/storage";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Session routes
-  app.post("/api/sessions", async (req, res) => {
+  // Seed admin user on startup
+  await seedAdminUser();
+
+  // Auth routes
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password required" });
+      }
+
+      const admin = await findAdminByEmail(email);
+      if (!admin) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const isValidPassword = await comparePassword(password, admin.passwordHash);
+      if (!isValidPassword) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      await updateAdminLastLogin(admin.id);
+
+      const payload = {
+        userId: admin.id,
+        email: admin.email,
+        role: admin.role,
+      };
+
+      const accessToken = generateAccessToken(payload);
+      const refreshToken = generateRefreshToken(payload);
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+      await createAuthSession(admin.id, refreshToken, expiresAt);
+
+      res.json({
+        accessToken,
+        refreshToken,
+        user: {
+          id: admin.id,
+          email: admin.email,
+          role: admin.role,
+        },
+      });
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ error: "Failed to login" });
+    }
+  });
+
+  app.post("/api/auth/logout", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { refreshToken } = req.body;
+      if (refreshToken) {
+        await deleteAuthSession(refreshToken);
+      }
+      res.json({ message: "Logged out successfully" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to logout" });
+    }
+  });
+
+  app.post("/api/auth/refresh", async (req, res) => {
+    try {
+      const { refreshToken } = req.body;
+      
+      if (!refreshToken) {
+        return res.status(401).json({ error: "Refresh token required" });
+      }
+
+      const session = await findAuthSession(refreshToken);
+      if (!session) {
+        return res.status(401).json({ error: "Invalid refresh token" });
+      }
+
+      if (new Date() > new Date(session.expiresAt)) {
+        await deleteAuthSession(refreshToken);
+        return res.status(401).json({ error: "Refresh token expired" });
+      }
+
+      const payload = verifyRefreshToken(refreshToken);
+      if (!payload) {
+        return res.status(401).json({ error: "Invalid refresh token" });
+      }
+
+      const admin = await findAdminById(payload.userId);
+      if (!admin) {
+        return res.status(401).json({ error: "User not found" });
+      }
+
+      const newAccessToken = generateAccessToken({
+        userId: admin.id,
+        email: admin.email,
+        role: admin.role,
+      });
+
+      res.json({ accessToken: newAccessToken });
+    } catch (error) {
+      console.error('Refresh error:', error);
+      res.status(500).json({ error: "Failed to refresh token" });
+    }
+  });
+
+  app.get("/api/auth/me", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const admin = await findAdminById(req.user!.userId);
+      if (!admin) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get user" });
+    }
+  });
+
+  // Session routes - Protected with auth
+  app.post("/api/sessions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       // Transform date string to Date object before validation
       const requestData = {
