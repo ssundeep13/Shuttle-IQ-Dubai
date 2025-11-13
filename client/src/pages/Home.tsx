@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { CourtWithPlayers, Player, Notification, AppStats } from "@shared/schema";
 import { Header } from "@/components/Header";
 import { TabNavigation } from "@/components/TabNavigation";
@@ -14,6 +15,7 @@ import { AutoAssignConfirmDialog } from "@/components/AutoAssignConfirmDialog";
 import { NotificationToast } from "@/components/NotificationToast";
 import { SessionSetupWizard } from "@/components/SessionSetupWizard";
 import { useActiveSession } from "@/hooks/use-active-session";
+import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
   AlertDialog,
@@ -29,6 +31,9 @@ import {
 type TabType = 'courts' | 'queue' | 'leaderboard' | 'history';
 
 export default function Home() {
+  const [, navigate] = useLocation();
+  const { isAuthenticated, logout } = useAuth();
+  
   // Check for active session
   const { session, hasSession, isLoading: sessionLoading } = useActiveSession();
 
@@ -780,6 +785,10 @@ export default function Home() {
           onAutoAssign={handleAutoAssign}
           onImportPlayers={() => setShowImportPlayers(true)}
           onEndSession={handleEndSession}
+          authState={isAuthenticated ? "admin" : "guest"}
+          onLogin={() => navigate('/login')}
+          onAdmin={() => navigate('/admin')}
+          onLogout={logout}
         />
         <TabNavigation
           activeTab={activeTab}

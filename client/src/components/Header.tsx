@@ -1,4 +1,4 @@
-import { UserPlus, Activity, Download, Calendar, MapPin, Building2, LogOut } from "lucide-react";
+import { UserPlus, Activity, Download, Calendar, MapPin, Building2, LogOut, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppStats, Session } from "@shared/schema";
 import { format } from "date-fns";
@@ -10,9 +10,13 @@ interface HeaderProps {
   onAutoAssign: () => void;
   onImportPlayers: () => void;
   onEndSession: () => void;
+  authState: "guest" | "admin";
+  onLogin: () => void;
+  onAdmin: () => void;
+  onLogout: () => void;
 }
 
-export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlayers, onEndSession }: HeaderProps) {
+export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlayers, onEndSession, authState, onLogin, onAdmin, onLogout }: HeaderProps) {
   return (
     <div className="bg-card rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6 border border-card-border">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
@@ -26,7 +30,43 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
             <p className="text-muted-foreground text-sm font-medium">Queue Management</p>
           </div>
         </div>
-        <div className="flex gap-2 sm:gap-3 w-full md:w-auto flex-wrap">
+        <div className="flex gap-2 sm:gap-3 w-full md:w-auto flex-wrap items-center">
+          {/* Auth Navigation */}
+          {authState === "guest" ? (
+            <Button 
+              onClick={onLogin} 
+              variant="outline"
+              className="min-h-12 sm:min-h-10"
+              data-testid="button-login-nav"
+            >
+              <Shield className="w-4 h-4 mr-2" />
+              <span className="hidden sm:inline">Admin Login</span>
+              <span className="sm:hidden">Login</span>
+            </Button>
+          ) : (
+            <>
+              <Button 
+                onClick={onAdmin} 
+                variant="secondary"
+                className="min-h-12 sm:min-h-10"
+                data-testid="button-admin-nav"
+              >
+                <Shield className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">Admin Dashboard</span>
+                <span className="sm:hidden">Admin</span>
+              </Button>
+              <Button 
+                onClick={onLogout} 
+                variant="ghost"
+                className="min-h-12 sm:min-h-10"
+                data-testid="button-logout-nav"
+              >
+                <LogOut className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Logout</span>
+              </Button>
+            </>
+          )}
+          <div className="w-full md:hidden border-t border-border/50 my-2"></div>
           <Button 
             onClick={onAddPlayer} 
             className="flex-1 md:flex-initial min-h-12 sm:min-h-10"
