@@ -146,7 +146,7 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
       
       setImportResult({
         imported: result.added || 0,
-        duplicates: result.duplicates || 0
+        skipped: result.duplicates || 0
       });
     } catch (err: any) {
       const message = err?.error || err?.message || "Failed to import players from CSV";
@@ -335,7 +335,9 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
                         Upload Player Roster (CSV)
                       </Label>
                       <p className="text-sm text-muted-foreground mt-1">
-                        CSV must include: Name, Gender, Level. Optional: ExternalId
+                        CSV format: ShuttleIQ Unique ID, Name, Gender, Level
+                        <br />
+                        Example: M001, John Doe, Male, Intermediate
                       </p>
                     </div>
 

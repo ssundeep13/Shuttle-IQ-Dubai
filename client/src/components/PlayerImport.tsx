@@ -78,7 +78,7 @@ export function PlayerImport() {
       <Alert>
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          CSV format: externalId, name, gender, level
+          CSV format: ShuttleIQ Unique ID, Name, Gender, Level
           <br />
           Example: M001, John Doe, Male, Intermediate
         </AlertDescription>
