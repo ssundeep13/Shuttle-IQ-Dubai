@@ -6,6 +6,38 @@ ShuttleIQ is a session-based badminton court and player queue management dashboa
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
+## Authentication System
+
+### Admin Authentication
+- **Two-tier Roles**: `admin` and `super_admin` roles defined, both treated equivalently for now
+- **JWT-based Auth**: Access tokens (15min expiry), refresh tokens (7 days expiry)
+- **Route Protection Strategy**:
+  - **Public Routes**: All GET endpoints (dashboard viewing for operators)
+  - **Protected Routes**: All POST/PATCH/DELETE endpoints require admin authentication
+- **Default Credentials** (development only):
+  - Email: admin@shuttleiq.com
+  - Password: admin123
+
+### Security Implementation
+- **Password Hashing**: bcrypt with salt rounds = 10
+- **Refresh Token Storage**: Hashed using bcrypt before database storage
+- **Token Cleanup**: Automatic deletion of expired sessions using `lt()` comparison
+- **Seed Script**: Development-only, credentials not logged in production
+
+### Frontend Auth Flow
+- **AuthProvider**: React Context managing authentication state
+- **Token Management**: Automatic refresh every 14 minutes (before 15min expiry)
+- **Protected Routes**: `/admin` requires authentication, redirects to `/login` if not authenticated
+- **Public Dashboard**: `/` remains accessible without authentication for operator viewing
+
+### Production Improvements Needed
+⚠️ **Security Notes for Production Deployment**:
+1. **httpOnly Cookies**: Move refresh tokens from localStorage to httpOnly secure cookies to prevent XSS attacks
+2. **Dynamic Token Refresh**: Replace fixed 14-minute interval with JWT expiry-based scheduling
+3. **API Request Helper**: Replace global fetch interception with dedicated API helper or TanStack Query wrapper
+4. **Environment Variables**: Require `JWT_SECRET` and `JWT_REFRESH_SECRET` environment variables (fail startup if missing)
+5. **CORS Configuration**: Configure proper CORS headers for production domains
+
 ## System Architecture
 
 ### UI/UX Decisions
