@@ -23,6 +23,14 @@ import {
   findAdminById,
   seedAdminUser
 } from "./auth/storage";
+import {
+  buildRestStatesFromHistory,
+  selectOptimalPlayers,
+  findBalancedTeams,
+  updatePlayerRestState,
+  clearSessionRestStates,
+  type TeamCombination
+} from "./matchmaking";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Seed admin user on startup
@@ -202,6 +210,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
       }
+      
+      // Clear rest states for this session
+      clearSessionRestStates(req.params.id);
+      
       res.json(session);
     } catch (error) {
       res.status(500).json({ error: "Failed to end session" });
@@ -711,6 +723,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Matchmaking routes
+  app.get("/api/matchmaking/optimal-teams", async (req, res) => {
+    try {
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+
+      // Get queue and all players
+      const queue = await storage.getQueue(activeSession.id);
+      const allPlayers = await storage.getAllPlayers();
+
+      if (queue.length < 4) {
+        return res.status(400).json({ 
+          error: "Need at least 4 players in queue",
+          availablePlayers: queue.length
+        });
+      }
+
+      // Build rest states from game history
+      const gameParticipants = await storage.getSessionGameParticipants(activeSession.id);
+      buildRestStatesFromHistory(activeSession.id, gameParticipants, queue);
+
+      // Select optimal players considering rest requirements
+      const { selectedPlayers, restWarnings } = selectOptimalPlayers(
+        activeSession.id,
+        queue,
+        allPlayers,
+        8 // Consider first 8 players in queue
+      );
+
+      if (selectedPlayers.length < 4) {
+        return res.status(400).json({ 
+          error: "Not enough eligible players available",
+          selectedPlayers: selectedPlayers.length
+        });
+      }
+
+      // Find balanced team combinations
+      const teamCombinations = findBalancedTeams(selectedPlayers, 3);
+
+      res.json({
+        combinations: teamCombinations,
+        restWarnings,
+        selectedPlayerIds: selectedPlayers.map(p => p.id)
+      });
+    } catch (error) {
+      console.error("Matchmaking error:", error);
+      res.status(500).json({ error: "Failed to generate optimal teams" });
+    }
+  });
+
   // Game management routes
   app.post("/api/courts/:courtId/assign", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
@@ -1001,8 +1065,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Add players back to queue (losers first, then winners)
+      // Update rest states: players who just played have their consecutive count incremented
+      for (const participant of participantData) {
+        updatePlayerRestState(activeSession.id, participant.playerId, true);
+      }
+      
+      // Update rest states for players who were waiting (reset their consecutive count)
       const currentQueue = await storage.getQueue(activeSession.id);
+      const playedPlayerIds = new Set(participantData.map(p => p.playerId));
+      
+      for (const playerId of currentQueue) {
+        if (!playedPlayerIds.has(playerId)) {
+          updatePlayerRestState(activeSession.id, playerId, false);
+        }
+      }
+
+      // Add players back to queue (losers first, then winners)
       const newQueue = [
         ...currentQueue,
         ...losers.map(p => p.id),
