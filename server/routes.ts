@@ -11,7 +11,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Session routes
   app.post("/api/sessions", async (req, res) => {
     try {
-      const validated = insertSessionSchema.parse(req.body);
+      // Transform date string to Date object before validation
+      const requestData = {
+        ...req.body,
+        date: new Date(req.body.date),
+      };
+      
+      const validated = insertSessionSchema.parse(requestData);
       const session = await storage.createSession(validated);
       res.status(201).json(session);
     } catch (error) {

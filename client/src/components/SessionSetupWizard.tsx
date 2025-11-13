@@ -167,10 +167,17 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
     setImportError(null);
 
     try {
+      // Prepare payload with proper date and location handling
+      const payload = {
+        ...sessionData,
+        date: sessionData.date, // Send as string, backend will parse
+        venueLocation: sessionData.venueLocation || null, // Convert empty string to null
+      };
+
       const response = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sessionData),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
