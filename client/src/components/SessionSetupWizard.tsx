@@ -6,11 +6,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
-import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste } from "lucide-react";
 import { insertSessionSchema } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -32,6 +33,7 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pastedText, setPastedText] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const form = useForm<SessionFormData>({
@@ -150,6 +152,78 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
       });
     } catch (err: any) {
       const message = err?.error || err?.message || "Failed to import players from CSV";
+      setImportError(message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleImportPaste = async () => {
+    if (!pastedText.trim()) {
+      setImportError("Please paste player data");
+      return;
+    }
+
+    setIsCreating(true);
+    setImportError(null);
+
+    try {
+      // Helper function to escape CSV fields properly
+      const escapeCSVField = (field: string): string => {
+        field = field.trim();
+        // If field contains comma, newline, or quote, wrap in quotes and escape internal quotes
+        if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+          return `"${field.replace(/"/g, '""')}"`;
+        }
+        return field;
+      };
+
+      // Convert tab-separated (from Excel) or comma-separated to CSV format
+      const lines = pastedText.trim().split('\n').filter(line => line.trim());
+      
+      // Check if first line looks like a header
+      const firstLine = lines[0].toLowerCase();
+      const hasHeader = firstLine.includes('name') || firstLine.includes('gender') || firstLine.includes('level');
+      
+      // Build CSV with proper headers
+      const csvLines = [];
+      
+      // Add header row - either from user's data or standard format
+      if (hasHeader) {
+        // User provided headers - use them (normalized)
+        const headerFields = lines[0].includes('\t') 
+          ? lines[0].split('\t').map(f => f.trim())
+          : lines[0].split(',').map(f => f.trim());
+        csvLines.push(headerFields.join(','));
+      } else {
+        // No header provided - add standard format
+        csvLines.push('ShuttleIQ Unique ID,Name,Gender,Level');
+      }
+      
+      // Process data rows
+      const dataLines = hasHeader ? lines.slice(1) : lines;
+      for (const line of dataLines) {
+        const fields = line.includes('\t') 
+          ? line.split('\t').map(f => f.trim())
+          : line.split(',').map(f => f.trim());
+        
+        // Escape fields properly and join
+        const escapedFields = fields.map(escapeCSVField);
+        csvLines.push(escapedFields.join(','));
+      }
+      
+      const csvContent = csvLines.join('\n');
+
+      // Use apiRequest which includes auth headers
+      const result = await apiRequest('POST', '/api/players/import', { csvContent });
+      
+      setImportResult({
+        imported: result.added || 0,
+        skipped: result.duplicates || 0
+      });
+      setPastedText(""); // Clear the textarea on success
+    } catch (err: any) {
+      const message = err?.error || err?.message || "Failed to import players from pasted data";
       setImportError(message);
     } finally {
       setIsCreating(false);
@@ -318,15 +392,114 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
         ) : (
           <>
             <CardContent className="space-y-6">
-              <Tabs defaultValue="csv" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 min-h-12 sm:min-h-10">
+              <Tabs defaultValue="paste" className="w-full">
+                <TabsList className="grid w-full grid-cols-3 min-h-12 sm:min-h-10">
+                  <TabsTrigger value="paste" className="min-h-12 sm:min-h-10" data-testid="tab-paste-import">
+                    Copy & Paste
+                  </TabsTrigger>
                   <TabsTrigger value="csv" className="min-h-12 sm:min-h-10" data-testid="tab-csv-import">
                     CSV Upload
                   </TabsTrigger>
                   <TabsTrigger value="skip" className="min-h-12 sm:min-h-10" data-testid="tab-skip-import">
-                    Skip for Now
+                    Skip
                   </TabsTrigger>
                 </TabsList>
+
+                <TabsContent value="paste" className="space-y-4 mt-6">
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="paste-data" className="text-base font-medium">
+                        Paste Player Data from Excel or Google Sheets
+                      </Label>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Select cells from Excel/Sheets and paste here. Format:
+                        <br />
+                        <span className="font-mono text-xs">ShuttleIQ ID | Name | Gender | Level</span>
+                      </p>
+                    </div>
+
+                    <Textarea
+                      id="paste-data"
+                      placeholder="Paste your player data here...&#10;Example:&#10;M001    John Doe    Male    Intermediate&#10;F002    Jane Smith    Female    Advanced"
+                      value={pastedText}
+                      onChange={(e) => {
+                        setPastedText(e.target.value);
+                        setImportError(null);
+                        setImportResult(null);
+                      }}
+                      className="min-h-[200px] font-mono text-sm"
+                      data-testid="textarea-paste-players"
+                    />
+
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <Button
+                        type="button"
+                        onClick={handleImportPaste}
+                        disabled={!pastedText.trim() || isCreating}
+                        className="min-h-12 sm:min-h-10 flex-1"
+                        data-testid="button-import-paste"
+                      >
+                        {isCreating ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Importing...
+                          </>
+                        ) : (
+                          <>
+                            <ClipboardPaste className="mr-2 h-4 w-4" />
+                            Import Players
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setPastedText("")}
+                        disabled={!pastedText || isCreating}
+                        className="min-h-12 sm:min-h-10 sm:w-auto"
+                        data-testid="button-clear-paste"
+                      >
+                        Clear
+                      </Button>
+                    </div>
+
+                    {importError && (
+                      <Alert variant="destructive">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>{importError}</AlertDescription>
+                      </Alert>
+                    )}
+
+                    {importResult && (
+                      <Alert>
+                        <CheckCircle2 className="h-4 w-4" />
+                        <AlertDescription>
+                          Successfully imported {importResult.imported} player{importResult.imported !== 1 ? 's' : ''}.
+                          {importResult.skipped > 0 && ` ${importResult.skipped} player${importResult.skipped !== 1 ? 's' : ''} skipped.`}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    {importResult && (
+                      <Button
+                        type="button"
+                        onClick={handleCreateSession}
+                        disabled={isCreating}
+                        className="w-full min-h-12 sm:min-h-10"
+                        data-testid="button-start-session"
+                      >
+                        {isCreating ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Starting Session...
+                          </>
+                        ) : (
+                          'Start Session'
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </TabsContent>
 
                 <TabsContent value="csv" className="space-y-4 mt-6">
                   <div className="space-y-4">
