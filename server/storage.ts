@@ -7,12 +7,14 @@ import {
   type CourtPlayer,
   type Session,
   type InsertSession,
+  type GameParticipant,
   players,
   courts,
   courtPlayers as courtPlayersTable,
   queueEntries,
   sessions,
-  gameResults
+  gameResults,
+  gameParticipants
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc } from "drizzle-orm";
@@ -64,6 +66,7 @@ export interface IStorage {
   // Complex queries
   getCourtsWithPlayers(sessionId: string): Promise<CourtWithPlayers[]>;
   getSessionGameHistory(sessionId: string): Promise<any[]>;
+  getSessionGameParticipants(sessionId: string): Promise<(GameParticipant & { createdAt: Date })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -365,6 +368,25 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(gameResults.createdAt));
     
     return games;
+  }
+
+  async getSessionGameParticipants(sessionId: string): Promise<(GameParticipant & { createdAt: Date })[]> {
+    // Join game participants with game results to get session ID and createdAt
+    const participants = await db
+      .select({
+        gameId: gameParticipants.gameId,
+        playerId: gameParticipants.playerId,
+        team: gameParticipants.team,
+        skillScoreBefore: gameParticipants.skillScoreBefore,
+        skillScoreAfter: gameParticipants.skillScoreAfter,
+        createdAt: gameResults.createdAt,
+      })
+      .from(gameParticipants)
+      .innerJoin(gameResults, eq(gameParticipants.gameId, gameResults.id))
+      .where(eq(gameResults.sessionId, sessionId))
+      .orderBy(desc(gameResults.createdAt));
+    
+    return participants;
   }
 }
 
