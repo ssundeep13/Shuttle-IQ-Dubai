@@ -179,7 +179,8 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
       };
 
       // Convert tab-separated (from Excel) or comma-separated to CSV format
-      const lines = pastedText.trim().split('\n').filter(line => line.trim());
+      // Don't trim the entire blob to preserve trailing delimiters (empty columns)
+      const lines = pastedText.replace(/\r/g, "").split('\n').filter(line => line.trim());
       
       // Check if first line looks like a header
       const firstLine = lines[0].toLowerCase();

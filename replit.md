@@ -66,7 +66,16 @@ Preferred communication style: Simple, everyday language.
 - **Court Management**: Manages court status, game timing, and records game outcomes. Each court accommodates exactly 4 players (2v2).
 - **Queue Management**: An ordered player queue with dynamic sorting capabilities (by skill level or games played today).
 - **Session Management**: Comprehensive session lifecycle from creation to termination, including automatic court provisioning and a mechanism for exporting game history as CSV.
-- **Data Import/Export**: Supports CSV import of players with ShuttleIQ Unique ID tracking (format: ShuttleIQ Unique ID, Name, Gender, Level), includes duplicate detection and error handling, and CSV export of game history.
+- **Data Import/Export**: 
+  - **CSV Import**: Supports CSV import of players with ShuttleIQ Unique ID tracking (format: ShuttleIQ Unique ID, Name, Gender, Level)
+  - **Copy-Paste Import**: Quick player import via textarea supporting both tab-separated (Excel) and comma-separated (CSV) formats
+    - Smart header detection (auto-adds headers if missing, preserves user headers if provided)
+    - Proper CSV field escaping for commas, quotes, and newlines
+    - Available in both Session Setup Wizard and Admin Dashboard
+    - Automatic data validation and duplicate detection
+    - Mobile-optimized responsive design
+  - **CSV Export**: Export game history and player data as CSV files
+  - **Duplicate Detection**: ShuttleIQ Unique ID prevents duplicate player entries across sessions
 
 ### System Design Choices
 - **Storage Strategy**: Drizzle ORM for type-safe PostgreSQL interactions and an `IStorage` interface for interchangeable storage implementations (in-memory or database).
