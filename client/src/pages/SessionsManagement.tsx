@@ -32,10 +32,7 @@ export default function SessionsManagement() {
   });
 
   const createSessionMutation = useMutation({
-    mutationFn: async (data: any) => apiRequest('/api/sessions', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    mutationFn: async (data: any) => apiRequest('POST', '/api/sessions', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
       setShowCreateSession(false);
@@ -43,9 +40,7 @@ export default function SessionsManagement() {
   });
 
   const deleteSessionMutation = useMutation({
-    mutationFn: async (id: string) => apiRequest(`/api/sessions/${id}`, {
-      method: 'DELETE',
-    }),
+    mutationFn: async (id: string) => apiRequest('DELETE', `/api/sessions/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
       setSessionToDelete(null);
@@ -57,8 +52,9 @@ export default function SessionsManagement() {
     navigate('/login');
   };
 
-  const handleCreateSession = async (sessionData: any) => {
-    await createSessionMutation.mutateAsync(sessionData);
+  const handleSessionCreated = () => {
+    queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+    setShowCreateSession(false);
   };
 
   const handleDeleteSession = async () => {
@@ -209,10 +205,12 @@ export default function SessionsManagement() {
 
       {/* Create Session Dialog */}
       {showCreateSession && (
-        <SessionSetupWizard
-          onClose={() => setShowCreateSession(false)}
-          onSubmit={handleCreateSession}
-        />
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-background" onClick={() => setShowCreateSession(false)} />
+          <div className="relative flex items-center justify-center min-h-screen p-4">
+            <SessionSetupWizard onSessionCreated={handleSessionCreated} />
+          </div>
+        </div>
       )}
 
       {/* Delete Confirmation Dialog */}

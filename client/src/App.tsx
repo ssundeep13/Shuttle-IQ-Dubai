@@ -9,12 +9,18 @@ import Home from "@/pages/Home";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/Login";
 import Admin from "@/pages/Admin";
+import SessionsManagement from "@/pages/SessionsManagement";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home}/>
       <Route path="/login" component={Login} />
+      <Route path="/admin/sessions">
+        <ProtectedRoute>
+          <SessionsManagement />
+        </ProtectedRoute>
+      </Route>
       <Route path="/admin">
         <ProtectedRoute>
           <Admin />
