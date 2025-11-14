@@ -122,3 +122,101 @@ Preferred communication style: Simple, everyday language.
 - **cmdk**: Command palette component.
 - **embla-carousel-react**: Carousel/slider functionality.
 - **nanoid**: Unique ID generation.
+
+## Recent Changes
+
+### Multi-Session Player Isolation Implementation (November 14, 2025)
+**Status**: ✅ Complete and Production-Ready
+
+**Problem Solved**: 
+- Players were incorrectly auto-added to ALL sessions, violating session isolation
+- Wizard state persisted across multiple uses, causing stale sessionId bugs
+- Players imported to one session appeared in all other sessions
+
+**Solution Implemented**:
+
+**1. Removed Auto-Add-All Logic**
+- Sessions no longer automatically add all existing players on creation
+- Each session starts with an empty queue
+- Players are added ONLY when explicitly imported to that session
+
+**2. Session-Scoped Player Imports**
+- Player import API now accepts optional `sessionId` parameter
+- Validates session exists before adding players
+- Players added exclusively to target session's queue
+- Falls back to active session for backward compatibility
+
+**3. Draft Session Lifecycle**
+- Wizard creates session with `status='draft'` immediately after Step 1
+- Stores `createdSessionId` for subsequent import operations
+- Promotes session to `status='active'` on wizard completion
+- Abandoned drafts remain in database but hidden from UI
+
+**4. Robust State Management**
+- Wizard state resets via `useEffect` on component mount
+- React `key` prop incremented on every wizard close (completion OR cancellation)
+- Forces fresh component remount, preventing stale state reuse
+- Defensive checks ensure `createdSessionId` exists before imports
+
+**5. Draft Session Filtering**
+- Sessions Management page filters out `status='draft'` sessions
+- Only active, upcoming, and ended sessions displayed to users
+- Draft cleanup can be added later via background job
+
+### Technical Implementation Details
+
+**Backend Changes**:
+- `POST /api/players/import`: Accepts `sessionId` parameter, validates session, adds to queue
+- `PATCH /api/sessions/:id`: Updates session fields (requires admin auth)
+- `storage.updateSession(id, updates)`: Generic update method in IStorage interface
+- Removed automatic player addition from `createSession` method
+
+**Frontend Changes**:
+- **SessionSetupWizard.tsx**:
+  - Creates draft session after Step 1, stores `createdSessionId`
+  - CSV file import passes `sessionId` to API
+  - Copy-paste import passes `sessionId` to API
+  - Defensive checks before imports (error if sessionId missing)
+  - Promotes session via PATCH on "Finish Setup"
+  - `useEffect` resets all state on mount
+
+- **SessionsManagement.tsx**:
+  - Added `wizardKey` state, increments on every wizard close
+  - `useEffect` watches `showCreateSession`, increments key when false
+  - Filters draft sessions: `sessions.filter(s => s.status !== 'draft')`
+  - Passes `key={wizardKey}` to wizard, forcing remount
+
+### Complete User Workflow
+```
+1. Admin clicks "New Session" → Wizard opens (fresh state, key changes)
+2. Step 1: Fill session details → Creates draft session → Stores sessionId
+3. Step 2: (Optional) Import players → Pass sessionId → Add to THIS session only
+4. Click "Finish" → Promote to 'active' → Reset state → Close wizard
+5. Next "New Session" click → Key increments → Fresh wizard mount
+
+Cancel Flow:
+1. Admin clicks "New Session" → Wizard opens
+2. Fill details → Create draft session
+3. Click outside → Close wizard → Key increments
+4. Next "New Session" click → Fresh state (no stale sessionId)
+```
+
+### Testing & Validation
+**End-to-End Test Results**: ✅ PASSED
+- ✅ Multi-session player isolation (Session A players ≠ Session B players)
+- ✅ Wizard state reset on completion (fresh state on reopen)
+- ✅ Wizard state reset on cancellation (no stale data)
+- ✅ Draft session lifecycle (create → promote → filter)
+- ✅ Sequential session creation without state pollution
+- ✅ Defensive checks prevent import errors
+
+**Test Coverage**:
+- Login authentication ✅
+- Session A creation with 3 players ✅
+- Session B creation with 4 different players ✅
+- Wizard cancel/remount verification ✅
+- Draft filtering verification ✅
+
+**Remaining Work** (Next Feature):
+- Build per-session dashboard to visually display session-specific queues
+- Add court management, game controls, and queue operations per session
