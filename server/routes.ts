@@ -5,7 +5,7 @@ import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants 
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { sql } from "drizzle-orm";
+import { sql, eq, inArray } from "drizzle-orm";
 import { requireAuth, requireAdmin, type AuthRequest } from "./auth/middleware";
 import { 
   generateAccessToken, 
@@ -1252,6 +1252,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[STATS-TODAY] Error:', error);
       res.status(500).json({ error: "Failed to fetch today's stats" });
+    }
+  });
+
+  // Get session-specific player stats
+  app.get("/api/stats/session/:sessionId", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      
+      // Verify session exists
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      
+      // Get all players in the session's queue
+      const queue = await storage.getQueue(sessionId);
+      const queuePlayerIds = queue.map(q => q.playerId);
+      
+      // Get all games from this session
+      const sessionGames = await db
+        .select()
+        .from(gameResults)
+        .where(eq(gameResults.sessionId, sessionId));
+      
+      const gameIds = sessionGames.map(g => g.id);
+      
+      if (gameIds.length === 0) {
+        // No games in session, return queue players with 0 stats
+        const players = await storage.getAllPlayers();
+        const queuePlayers = players.filter(p => queuePlayerIds.includes(p.id));
+        const playersWithStats = queuePlayers.map(p => ({
+          ...p,
+          gamesPlayedInSession: 0,
+          winsInSession: 0,
+        }));
+        return res.json(playersWithStats);
+      }
+      
+      // Get all participants from session's games
+      const participants = await db
+        .select()
+        .from(gameParticipants)
+        .where(inArray(gameParticipants.gameId, gameIds));
+      
+      // Get all players
+      const allPlayers = await storage.getAllPlayers();
+      
+      // Filter to only players who have participated in this session or are in queue
+      const participantPlayerIds = [...new Set(participants.map(p => p.playerId))];
+      const relevantPlayerIds = [...new Set([...queuePlayerIds, ...participantPlayerIds])];
+      const relevantPlayers = allPlayers.filter(p => relevantPlayerIds.includes(p.id));
+      
+      // Calculate stats for each player in this session
+      const playersWithStats = relevantPlayers.map(player => {
+        const playerParticipations = participants.filter(p => p.playerId === player.id);
+        const gamesPlayedInSession = playerParticipations.length;
+        
+        // Count wins: player must be on winning team
+        let winsInSession = 0;
+        for (const participation of playerParticipations) {
+          const game = sessionGames.find(g => g.id === participation.gameId);
+          if (game && game.winningTeam === participation.team) {
+            winsInSession++;
+          }
+        }
+        
+        return {
+          ...player,
+          gamesPlayedInSession,
+          winsInSession,
+        };
+      });
+      
+      res.json(playersWithStats);
+    } catch (error) {
+      console.error('[STATS-SESSION] Error:', error);
+      res.status(500).json({ error: "Failed to fetch session stats" });
     }
   });
 

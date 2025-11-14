@@ -13,6 +13,7 @@ import { EndGameModal } from "@/components/EndGameModal";
 import { AutoAssignConfirmDialog } from "@/components/AutoAssignConfirmDialog";
 import { NotificationToast } from "@/components/NotificationToast";
 import { SessionSetupWizard } from "@/components/SessionSetupWizard";
+import { SessionLeaderboard } from "@/components/SessionLeaderboard";
 import { useActiveSession } from "@/hooks/use-active-session";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -27,7 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-type TabType = 'courts' | 'queue' | 'history';
+type TabType = 'courts' | 'queue' | 'history' | 'leaderboard';
 
 export default function Home() {
   const [, navigate] = useLocation();
@@ -812,6 +813,10 @@ export default function Home() {
             games={gameHistory} 
             onResetGames={handleResetGames}
           />
+        )}
+
+        {activeTab === 'leaderboard' && session && (
+          <SessionLeaderboard sessionId={session.id} />
         )}
       </div>
 

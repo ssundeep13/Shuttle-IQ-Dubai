@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-type TabType = 'courts' | 'queue' | 'history';
+type TabType = 'courts' | 'queue' | 'history' | 'leaderboard';
 
 interface TabNavigationProps {
   activeTab: TabType;
@@ -12,6 +12,7 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
     { id: 'courts', label: 'Courts Management' },
     { id: 'queue', label: 'Player Queue' },
     { id: 'history', label: 'Game History' },
+    { id: 'leaderboard', label: 'Leaderboard' },
   ];
 
   return (
