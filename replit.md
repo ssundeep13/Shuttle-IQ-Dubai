@@ -37,7 +37,9 @@ Preferred communication style: Simple, everyday language.
     - **Flexible Import Workflow**: Players can be imported BEFORE or AFTER session creation via CSV or copy-paste (tab-separated or comma-separated). Smart header detection and auto-validation are included.
     - **CSV Export**: Export game history and player data.
     - **Duplicate Detection**: ShuttleIQ Unique ID prevents duplicate player entries; idempotent queue operations.
-- **Leaderboard**: Moved to the admin dashboard for security and to centralize administrative functions. It is no longer publicly accessible.
+- **Leaderboards**: The system now features two separate leaderboards:
+    - **Admin Leaderboard**: All-time global statistics for all players. Located in admin dashboard (`/admin`) with Reset Stats and Clear All Players buttons. Requires authentication.
+    - **Session Leaderboard**: Session-specific statistics showing only players who participated in the current session. Located as a tab on the session dashboard (`/session/:id`). Read-only view for operators, publicly accessible. Displays games played and wins within the current session only.
 
 #### System Design Choices
 - **Storage Strategy**: Drizzle ORM for type-safe PostgreSQL interactions and an `IStorage` interface for interchangeable storage implementations.
