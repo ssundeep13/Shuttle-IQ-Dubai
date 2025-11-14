@@ -17,6 +17,7 @@ function Router() {
     <Switch>
       <Route path="/" component={RootRedirect}/>
       <Route path="/login" component={Login} />
+      <Route path="/session/:id" component={Home}/>
       <Route path="/admin/sessions">
         <ProtectedRoute>
           <SessionsManagement />
