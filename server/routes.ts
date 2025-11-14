@@ -1175,16 +1175,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const players = await storage.getAllPlayers();
       const courts = await storage.getCourtsBySession(activeSession.id);
       const queue = await storage.getQueue(activeSession.id);
+      
+      // Get session-specific players (those in the queue for this session)
+      const queuePlayerIds = queue.map(q => q.playerId);
+      const allPlayers = await storage.getAllPlayers();
+      const sessionPlayers = allPlayers.filter(p => queuePlayerIds.includes(p.id));
 
       const stats = {
-        activePlayers: players.filter((p: any) => p.status === 'playing').length,
+        activePlayers: sessionPlayers.filter((p: any) => p.status === 'playing').length,
         inQueue: queue.length,
         availableCourts: courts.filter((c: any) => c.status === 'available').length,
         occupiedCourts: courts.filter((c: any) => c.status === 'occupied').length,
-        totalPlayers: players.length,
+        totalPlayers: sessionPlayers.length, // Session-specific count
         totalCourts: courts.length,
       };
 
