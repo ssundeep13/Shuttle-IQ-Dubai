@@ -1179,9 +1179,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const queue = await storage.getQueue(activeSession.id);
       
       // Get session-specific players (those in the queue for this session)
-      const queuePlayerIds = queue.map(q => q.playerId);
+      // Note: queue is already an array of player IDs
       const allPlayers = await storage.getAllPlayers();
-      const sessionPlayers = allPlayers.filter(p => queuePlayerIds.includes(p.id));
+      const sessionPlayers = allPlayers.filter(p => queue.includes(p.id));
 
       const stats = {
         activePlayers: sessionPlayers.filter((p: any) => p.status === 'playing').length,
