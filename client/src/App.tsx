@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { RootRedirect } from "@/components/RootRedirect";
 import Home from "@/pages/Home";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/Login";
@@ -14,7 +15,7 @@ import SessionsManagement from "@/pages/SessionsManagement";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home}/>
+      <Route path="/" component={RootRedirect}/>
       <Route path="/login" component={Login} />
       <Route path="/admin/sessions">
         <ProtectedRoute>
