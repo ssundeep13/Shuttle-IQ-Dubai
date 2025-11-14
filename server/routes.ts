@@ -168,11 +168,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validated = insertSessionSchema.parse(requestData);
       const session = await storage.createSession(validated);
       
-      // Automatically add all existing players to the queue for the new session
-      const allPlayers = await storage.getAllPlayers();
-      for (const player of allPlayers) {
-        await storage.addToQueue(session.id, player.id);
-      }
+      // DO NOT auto-add all players to the queue
+      // Players should be explicitly added to specific sessions only
+      // Either via player import with sessionId, or manually added later
       
       res.status(201).json(session);
     } catch (error) {
@@ -374,16 +372,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/players/import", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      // Validate request body - support both URL and CSV content
+      // Validate request body - support both URL and CSV content, plus optional sessionId
       const requestSchema = z.union([
-        z.object({ url: z.string().url() }),
-        z.object({ csvContent: z.string() })
+        z.object({ 
+          url: z.string().url(),
+          sessionId: z.string().optional()
+        }),
+        z.object({ 
+          csvContent: z.string(),
+          sessionId: z.string().optional()
+        })
       ]);
       
       const validated = requestSchema.parse(req.body);
       
-      // Get active session (optional - players can be imported before session creation)
-      const activeSession = await storage.getActiveSession();
+      // Determine which session to add players to
+      let targetSession = null;
+      if (validated.sessionId) {
+        // Explicit sessionId provided - validate it exists
+        targetSession = await storage.getSession(validated.sessionId);
+        if (!targetSession) {
+          return res.status(404).json({ error: "Session not found" });
+        }
+      } else {
+        // Fall back to active session for backward compatibility
+        targetSession = await storage.getActiveSession();
+      }
 
       let playersToImport: any[] = [];
 
@@ -564,9 +578,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           const player = await storage.createPlayer({ ...validated, skillScore });
           
-          // Only add to queue if there's an active session
-          if (activeSession) {
-            await storage.addToQueue(activeSession.id, player.id);
+          // Only add to queue if there's a target session (explicit or active)
+          if (targetSession) {
+            await storage.addToQueue(targetSession.id, player.id);
           }
           
           importedPlayers.push(player);
