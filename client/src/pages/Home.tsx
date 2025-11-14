@@ -761,8 +761,8 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-background">
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
         <Header 
           stats={stats || defaultStats}
           session={session}
@@ -775,6 +775,7 @@ export default function Home() {
           onAdmin={() => navigate('/admin')}
           onLogout={logout}
         />
+        
         <TabNavigation
           activeTab={activeTab}
           onTabChange={(tab) => {
@@ -783,41 +784,43 @@ export default function Home() {
           }}
         />
 
-        {activeTab === 'courts' && (
-          <CourtManagement
-            courts={courts}
-            queuePlayers={queuePlayers}
-            teamAssignments={teamAssignments}
-            onAddCourt={handleAddCourt}
-            onRemoveCourt={handleRemoveCourt}
-            onTogglePlayerSelection={handleTogglePlayerSelection}
-            onAssignPlayers={handleAssignPlayers}
-            onSelectWinningTeam={handleSelectWinningTeam}
-            onEndGame={handleEndGame}
-            onCancelGame={handleCancelGame}
-          />
-        )}
+        <div className="space-y-6">
+          {activeTab === 'courts' && (
+            <CourtManagement
+              courts={courts}
+              queuePlayers={queuePlayers}
+              teamAssignments={teamAssignments}
+              onAddCourt={handleAddCourt}
+              onRemoveCourt={handleRemoveCourt}
+              onTogglePlayerSelection={handleTogglePlayerSelection}
+              onAssignPlayers={handleAssignPlayers}
+              onSelectWinningTeam={handleSelectWinningTeam}
+              onEndGame={handleEndGame}
+              onCancelGame={handleCancelGame}
+            />
+          )}
 
-        {activeTab === 'queue' && (
-          <PlayerQueue
-            players={players}
-            queuePlayerIds={queue}
-            onAddPlayer={() => setShowAddPlayer(true)}
-            onRemoveFromQueue={handleRemoveFromQueue}
-            onClearQueue={handleClearQueue}
-          />
-        )}
+          {activeTab === 'queue' && (
+            <PlayerQueue
+              players={players}
+              queuePlayerIds={queue}
+              onAddPlayer={() => setShowAddPlayer(true)}
+              onRemoveFromQueue={handleRemoveFromQueue}
+              onClearQueue={handleClearQueue}
+            />
+          )}
 
-        {activeTab === 'history' && (
-          <GameHistory 
-            games={gameHistory} 
-            onResetGames={handleResetGames}
-          />
-        )}
+          {activeTab === 'history' && (
+            <GameHistory 
+              games={gameHistory} 
+              onResetGames={handleResetGames}
+            />
+          )}
 
-        {activeTab === 'leaderboard' && session && (
-          <SessionLeaderboard sessionId={session.id} />
-        )}
+          {activeTab === 'leaderboard' && session && (
+            <SessionLeaderboard sessionId={session.id} />
+          )}
+        </div>
       </div>
 
       <AddPlayerModal
