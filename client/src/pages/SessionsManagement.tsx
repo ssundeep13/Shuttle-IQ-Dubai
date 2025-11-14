@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users } from 'lucide-react';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import type { Session } from '@shared/schema';
@@ -96,7 +96,8 @@ export default function SessionsManagement() {
               onClick={() => navigate('/admin')}
               data-testid="button-admin-dashboard"
             >
-              Admin Dashboard
+              <Users className="w-4 h-4 mr-2" />
+              Admin Tools
             </Button>
             <Button 
               variant="ghost" 

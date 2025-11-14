@@ -4,17 +4,14 @@ import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LogOut, Users, FileDown, Calendar } from 'lucide-react';
-import { SessionSetupWizard } from '@/components/SessionSetupWizard';
+import { LogOut, Users, FileDown, FolderKanban } from 'lucide-react';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
-import { useActiveSession } from '@/hooks/use-active-session';
 
 export default function Admin() {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
-  const { session, hasSession } = useActiveSession();
-  const [activeTab, setActiveTab] = useState('session');
+  const [activeTab, setActiveTab] = useState('players');
 
   const handleLogout = async () => {
     await logout();
@@ -34,10 +31,11 @@ export default function Admin() {
           <div className="flex items-center gap-2">
             <Button 
               variant="outline" 
-              onClick={() => navigate('/')}
-              data-testid="button-view-dashboard"
+              onClick={() => navigate('/admin/sessions')}
+              data-testid="button-sessions"
             >
-              View Dashboard
+              <FolderKanban className="w-4 h-4 mr-2" />
+              Sessions
             </Button>
             <Button 
               variant="ghost" 
@@ -52,12 +50,15 @@ export default function Admin() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        <div className="mb-8">
+          <h2 className="text-3xl font-bold">Admin Dashboard</h2>
+          <p className="text-muted-foreground mt-1">
+            Manage players and export game data
+          </p>
+        </div>
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 max-w-2xl mx-auto mb-8">
-            <TabsTrigger value="session" data-testid="tab-session">
-              <Calendar className="w-4 h-4 mr-2" />
-              Session
-            </TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 max-w-md mb-8">
             <TabsTrigger value="players" data-testid="tab-players">
               <Users className="w-4 h-4 mr-2" />
               Players
@@ -68,48 +69,13 @@ export default function Admin() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="session" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Session Management</CardTitle>
-                <CardDescription>
-                  Create and manage your badminton sessions
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {hasSession && session ? (
-                  <div className="space-y-4">
-                    <div className="p-4 bg-muted rounded-lg">
-                      <h3 className="font-semibold text-lg mb-2" data-testid="text-session-name">
-                        {session.venueName}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {session.venueLocation}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {session.courtCount} courts
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Started: {new Date(session.date).toLocaleString()}
-                      </p>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Session is currently active. Use the main dashboard to manage courts and players.
-                    </p>
-                  </div>
-                ) : (
-                  <SessionSetupWizard onSessionCreated={() => {}} />
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="players" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>Player Import</CardTitle>
                 <CardDescription>
-                  Import player data from CSV files
+                  Import player data from CSV files or copy-paste from Excel.
+                  Players can be imported before or after creating sessions.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -123,7 +89,7 @@ export default function Admin() {
               <CardHeader>
                 <CardTitle>Game History Export</CardTitle>
                 <CardDescription>
-                  Download game scores and statistics
+                  Download game scores and statistics from any session
                 </CardDescription>
               </CardHeader>
               <CardContent>

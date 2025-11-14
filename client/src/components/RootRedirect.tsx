@@ -9,8 +9,10 @@ export function RootRedirect() {
   useEffect(() => {
     if (!isLoading) {
       if (user) {
+        // Redirect authenticated users to Sessions Management (main hub)
         navigate('/admin/sessions', { replace: true });
       } else {
+        // Redirect unauthenticated users to Login
         navigate('/login', { replace: true });
       }
     }
