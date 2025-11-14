@@ -1,21 +1,86 @@
 import { useState } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { LogOut, Users, FileDown, FolderKanban } from 'lucide-react';
+import { LogOut, Users, FileDown, FolderKanban, Trophy } from 'lucide-react';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
+import { Leaderboard } from '@/components/Leaderboard';
+import { queryClient, apiRequest } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
+import type { Player } from '@shared/schema';
 
 export default function Admin() {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('players');
+
+  // Fetch all players for leaderboard
+  const { data: players = [] } = useQuery<Player[]>({
+    queryKey: ['/api/players'],
+  });
+
+  // Mutations for leaderboard actions
+  const updatePlayerMutation = useMutation({
+    mutationFn: async ({ playerId, updates }: { playerId: string; updates: Partial<Player> }) => {
+      return await apiRequest('PATCH', `/api/players/${playerId}`, updates);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+    },
+  });
+
+  const deletePlayerMutation = useMutation({
+    mutationFn: async (playerId: string) => {
+      return await apiRequest('DELETE', `/api/players/${playerId}`, null);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+    },
+  });
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
+  };
+
+  const handleResetStats = () => {
+    // Reset stats for all players
+    players.forEach((player) => {
+      updatePlayerMutation.mutate({
+        playerId: player.id,
+        updates: { gamesPlayed: 0, wins: 0 },
+      });
+    });
+    toast({
+      title: "Stats reset",
+      description: "All player statistics have been reset",
+    });
+  };
+
+  const handleClearAllPlayers = () => {
+    const playingPlayers = players.filter((p) => p.status === 'playing');
+    if (playingPlayers.length > 0) {
+      toast({
+        title: "Cannot clear players",
+        description: "Cannot clear while games are in progress",
+        variant: "destructive",
+      });
+      return;
+    }
+    players.forEach((player) => {
+      deletePlayerMutation.mutate(player.id);
+    });
+    toast({
+      title: "Players cleared",
+      description: "All players have been removed",
+    });
   };
 
   return (
@@ -58,10 +123,14 @@ export default function Admin() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 max-w-md mb-8">
+          <TabsList className="grid w-full grid-cols-3 max-w-2xl mb-8">
             <TabsTrigger value="players" data-testid="tab-players">
               <Users className="w-4 h-4 mr-2" />
               Players
+            </TabsTrigger>
+            <TabsTrigger value="leaderboard" data-testid="tab-leaderboard">
+              <Trophy className="w-4 h-4 mr-2" />
+              Leaderboard
             </TabsTrigger>
             <TabsTrigger value="export" data-testid="tab-export">
               <FileDown className="w-4 h-4 mr-2" />
@@ -82,6 +151,14 @@ export default function Admin() {
                 <PlayerImport />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="leaderboard" className="space-y-6">
+            <Leaderboard
+              players={players}
+              onResetStats={handleResetStats}
+              onClearAllPlayers={handleClearAllPlayers}
+            />
           </TabsContent>
 
           <TabsContent value="export" className="space-y-6">

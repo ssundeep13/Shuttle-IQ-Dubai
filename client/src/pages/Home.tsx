@@ -6,7 +6,6 @@ import { Header } from "@/components/Header";
 import { TabNavigation } from "@/components/TabNavigation";
 import { CourtManagement } from "@/components/CourtManagement";
 import { PlayerQueue } from "@/components/PlayerQueue";
-import { Leaderboard } from "@/components/Leaderboard";
 import { GameHistory } from "@/components/GameHistory";
 import { AddPlayerModal } from "@/components/AddPlayerModal";
 import { ImportPlayersModal } from "@/components/ImportPlayersModal";
@@ -28,7 +27,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-type TabType = 'courts' | 'queue' | 'leaderboard' | 'history';
+type TabType = 'courts' | 'queue' | 'history';
 
 export default function Home() {
   const [, navigate] = useLocation();
@@ -582,29 +581,6 @@ export default function Home() {
     addNotification('Queue cleared', 'success');
   };
 
-  const handleResetStats = () => {
-    // Reset stats for all players
-    players.forEach((player) => {
-      updatePlayerMutation.mutate({
-        playerId: player.id,
-        updates: { gamesPlayed: 0, wins: 0 },
-      });
-    });
-    addNotification('Stats reset', 'success');
-  };
-
-  const handleClearAllPlayers = () => {
-    const playingPlayers = players.filter((p) => p.status === 'playing');
-    if (playingPlayers.length > 0) {
-      addNotification('Cannot clear while games in progress', 'danger');
-      return;
-    }
-    players.forEach((player) => {
-      deletePlayerMutation.mutate(player.id);
-    });
-    setTeamAssignments({});
-    addNotification('All players cleared', 'success');
-  };
 
   const handleResetGames = () => {
     resetGamesMutation.mutate();
@@ -828,14 +804,6 @@ export default function Home() {
             onAddPlayer={() => setShowAddPlayer(true)}
             onRemoveFromQueue={handleRemoveFromQueue}
             onClearQueue={handleClearQueue}
-          />
-        )}
-
-        {activeTab === 'leaderboard' && (
-          <Leaderboard
-            players={players}
-            onResetStats={handleResetStats}
-            onClearAllPlayers={handleClearAllPlayers}
           />
         )}
 
