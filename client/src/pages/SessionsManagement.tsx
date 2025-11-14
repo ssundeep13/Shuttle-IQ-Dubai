@@ -277,11 +277,16 @@ export default function SessionsManagement() {
       {/* Create Session Dialog */}
       {showCreateSession && (
         <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-background" onClick={() => setShowCreateSession(false)} />
+          <div 
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm" 
+            onClick={() => setShowCreateSession(false)}
+            data-testid="modal-overlay" 
+          />
           <div className="relative flex items-center justify-center min-h-screen p-4">
             <SessionSetupWizard 
               key={wizardKey}
-              onSessionCreated={handleSessionCreated} 
+              onSessionCreated={handleSessionCreated}
+              onClose={() => setShowCreateSession(false)}
             />
           </div>
         </div>

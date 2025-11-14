@@ -11,12 +11,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
-import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste } from "lucide-react";
+import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X } from "lucide-react";
 import { insertSessionSchema } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 interface SessionSetupWizardProps {
   onSessionCreated: () => void;
+  onClose?: () => void;
 }
 
 const sessionFormSchema = insertSessionSchema.extend({
@@ -26,7 +27,7 @@ const sessionFormSchema = insertSessionSchema.extend({
 
 type SessionFormData = z.infer<typeof sessionFormSchema>;
 
-export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps) {
+export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWizardProps) {
   const [step, setStep] = useState<'session' | 'players'>('session');
   const [sessionData, setSessionData] = useState<SessionFormData | null>(null);
   const [createdSessionId, setCreatedSessionId] = useState<string | null>(null);
@@ -58,6 +59,17 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
     setStep('session');
     form.reset();
   }, []);
+
+  // Add escape key handler
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && onClose) {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
 
   const handleSessionSubmit = async (data: SessionFormData) => {
     setIsCreating(true);
@@ -320,14 +332,29 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl">
         <CardHeader className="space-y-2">
-          <CardTitle className="text-2xl sm:text-3xl font-bold text-center">
-            {step === 'session' ? 'Start New Session' : 'Add Players (Optional)'}
-          </CardTitle>
-          <CardDescription className="text-center">
-            {step === 'session' 
-              ? 'Set up your badminton session details' 
-              : 'Import your player roster or skip to add players later'}
-          </CardDescription>
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <CardTitle className="text-2xl sm:text-3xl font-bold text-center">
+                {step === 'session' ? 'Start New Session' : 'Add Players (Optional)'}
+              </CardTitle>
+              <CardDescription className="text-center mt-2">
+                {step === 'session' 
+                  ? 'Set up your badminton session details' 
+                  : 'Import your player roster or skip to add players later'}
+              </CardDescription>
+            </div>
+            {onClose && (
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={onClose}
+                className="shrink-0"
+                data-testid="button-close-wizard"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </CardHeader>
 
         {step === 'session' ? (
