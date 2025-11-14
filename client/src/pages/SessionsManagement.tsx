@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid } from 'lucide-react';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import type { Session } from '@shared/schema';
@@ -94,17 +94,19 @@ export default function SessionsManagement() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">ShuttleIQ - Sessions</h1>
-            <p className="text-sm text-muted-foreground">
-              Logged in as {user?.email}
-            </p>
+      {/* Slim Header */}
+      <header className="border-b bg-card">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold text-foreground">ShuttleIQ</h1>
+            <Badge variant="secondary" className="text-xs">
+              {user?.email}
+            </Badge>
           </div>
           <div className="flex items-center gap-2">
             <Button 
               variant="outline" 
+              size="sm"
               onClick={() => navigate('/admin')}
               data-testid="button-admin-dashboard"
             >
@@ -113,6 +115,7 @@ export default function SessionsManagement() {
             </Button>
             <Button 
               variant="ghost" 
+              size="sm"
               onClick={handleLogout}
               data-testid="button-logout"
             >
@@ -123,40 +126,89 @@ export default function SessionsManagement() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-8">
+      <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+        {/* Page Header with Action */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-bold">Manage Sessions</h2>
-            <p className="text-muted-foreground mt-1">
+            <h2 className="text-2xl font-bold">Manage Sessions</h2>
+            <p className="text-sm text-muted-foreground mt-1">
               Create, view, and manage badminton sessions across venues
             </p>
           </div>
           <Button 
             onClick={() => setShowCreateSession(true)}
             data-testid="button-create-session"
-            size="lg"
           >
-            <Plus className="w-5 h-5 mr-2" />
+            <Plus className="w-4 h-4 mr-2" />
             New Session
           </Button>
         </div>
+
+        {/* KPI Stats Ribbon */}
+        {!isLoading && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-total-sessions">
+              <div className="p-2 rounded-md bg-accent/10">
+                <LayoutGrid className="w-5 h-5 text-accent" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Total</p>
+                <p className="text-2xl font-bold" data-testid="count-total-sessions">{sessions.length}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-active-sessions">
+              <div className="p-2 rounded-md bg-primary/10">
+                <Activity className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Active</p>
+                <p className="text-2xl font-bold" data-testid="count-active-sessions">{activeSessions.length}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-upcoming-sessions">
+              <div className="p-2 rounded-md bg-chart-2/10">
+                <Clock className="w-5 h-5 text-chart-2" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Upcoming</p>
+                <p className="text-2xl font-bold" data-testid="count-upcoming-sessions">{upcomingSessions.length}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-ended-sessions">
+              <div className="p-2 rounded-md bg-muted">
+                <CheckCircle className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Ended</p>
+                <p className="text-2xl font-bold" data-testid="count-ended-sessions">{endedSessions.length}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="text-center py-12">
             <p className="text-muted-foreground">Loading sessions...</p>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-6">
             {/* Active Sessions */}
-            <div>
-              <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                Active Sessions
-                <Badge variant="default">{activeSessions.length}</Badge>
-              </h3>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-md bg-primary/10">
+                  <Activity className="w-5 h-5 text-primary" />
+                </div>
+                <h3 className="text-lg font-semibold">Active Sessions</h3>
+                <Badge variant="default" data-testid="badge-active-count">{activeSessions.length}</Badge>
+              </div>
               {activeSessions.length === 0 ? (
                 <Card>
-                  <CardContent className="py-8 text-center text-muted-foreground">
-                    No active sessions
+                  <CardContent className="py-12 text-center">
+                    <Activity className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
+                    <p className="text-muted-foreground">No active sessions</p>
+                    <p className="text-sm text-muted-foreground/60 mt-1">
+                      Create a new session to get started
+                    </p>
                   </CardContent>
                 </Card>
               ) : (
@@ -175,11 +227,14 @@ export default function SessionsManagement() {
 
             {/* Upcoming Sessions */}
             {upcomingSessions.length > 0 && (
-              <div>
-                <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                  Upcoming Sessions
-                  <Badge variant="secondary">{upcomingSessions.length}</Badge>
-                </h3>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-chart-2/10">
+                    <Clock className="w-5 h-5 text-chart-2" />
+                  </div>
+                  <h3 className="text-lg font-semibold">Upcoming Sessions</h3>
+                  <Badge variant="secondary" data-testid="badge-upcoming-count">{upcomingSessions.length}</Badge>
+                </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {upcomingSessions.map(session => (
                     <SessionCard
@@ -195,11 +250,14 @@ export default function SessionsManagement() {
 
             {/* Ended Sessions */}
             {endedSessions.length > 0 && (
-              <div>
-                <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                  Ended Sessions
-                  <Badge variant="outline">{endedSessions.length}</Badge>
-                </h3>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-md bg-muted">
+                    <CheckCircle className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-semibold">Ended Sessions</h3>
+                  <Badge variant="outline" data-testid="badge-ended-count">{endedSessions.length}</Badge>
+                </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {endedSessions.map(session => (
                     <SessionCard
@@ -278,54 +336,70 @@ function SessionCard({
     }
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active':
+        return 'text-primary';
+      case 'upcoming':
+        return 'text-chart-2';
+      case 'ended':
+        return 'text-muted-foreground';
+      default:
+        return 'text-muted-foreground';
+    }
+  };
+
   return (
     <Card className="hover-elevate" data-testid={`session-card-${session.id}`}>
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <CardTitle className="text-lg">{session.venueName}</CardTitle>
-            <CardDescription className="mt-1">
-              <div className="flex items-center gap-1 text-sm">
-                <Calendar className="w-3 h-3" />
-                {format(new Date(session.date), 'PPP')}
-              </div>
-              {session.venueLocation && (
-                <div className="flex items-center gap-1 text-sm mt-1">
-                  <MapPin className="w-3 h-3" />
-                  {session.venueLocation}
-                </div>
-              )}
-            </CardDescription>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <Badge variant={getStatusBadgeVariant(session.status)} className="capitalize">
+                {session.status}
+              </Badge>
+            </div>
+            <CardTitle className="text-lg truncate">{session.venueName}</CardTitle>
           </div>
-          <Badge variant={getStatusBadgeVariant(session.status)}>
-            {session.status}
-          </Badge>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">
-            {session.courtCount} courts
-          </span>
-          <div className="flex gap-2">
-            <Button 
-              size="sm" 
-              variant="outline"
-              onClick={onView}
-              data-testid={`button-view-${session.id}`}
-            >
-              <Eye className="w-4 h-4 mr-1" />
-              View
-            </Button>
-            <Button 
-              size="sm" 
-              variant="ghost"
-              onClick={onDelete}
-              data-testid={`button-delete-${session.id}`}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
+      <CardContent className="space-y-3">
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4" />
+            <span>{format(new Date(session.date), 'PPP')}</span>
           </div>
+          {session.venueLocation && (
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4" />
+              <span className="truncate">{session.venueLocation}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <LayoutGrid className="w-4 h-4" />
+            <span>{session.courtCount} courts</span>
+          </div>
+        </div>
+        
+        <div className="flex gap-2 pt-2 border-t">
+          <Button 
+            size="sm" 
+            variant="default"
+            className="flex-1"
+            onClick={onView}
+            data-testid={`button-view-${session.id}`}
+          >
+            <Eye className="w-4 h-4 mr-1" />
+            View
+          </Button>
+          <Button 
+            size="sm" 
+            variant="ghost"
+            onClick={onDelete}
+            data-testid={`button-delete-${session.id}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
         </div>
       </CardContent>
     </Card>
