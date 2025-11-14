@@ -214,6 +214,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/sessions/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const session = await storage.getSession(req.params.id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      // Update session (currently only supports status updates)
+      const updated = await storage.updateSession(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update session" });
+    }
+  });
+
   app.delete("/api/sessions/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       // deleteSession now handles rest state clearing internally

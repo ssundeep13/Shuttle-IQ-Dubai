@@ -36,6 +36,7 @@ export interface IStorage {
   getActiveSession(): Promise<Session | undefined>;
   getAllSessions(): Promise<Session[]>;
   endSession(id: string): Promise<Session | undefined>;
+  updateSession(id: string, updates: Partial<Session>): Promise<Session | undefined>;
   deleteSession(id: string): Promise<boolean>;
   
   // Player operations (global)
@@ -131,6 +132,15 @@ export class DatabaseStorage implements IStorage {
     const [session] = await db
       .update(sessions)
       .set({ status: 'ended', endedAt: new Date() })
+      .where(eq(sessions.id, id))
+      .returning();
+    return session || undefined;
+  }
+
+  async updateSession(id: string, updates: Partial<Session>): Promise<Session | undefined> {
+    const [session] = await db
+      .update(sessions)
+      .set(updates)
       .where(eq(sessions.id, id))
       .returning();
     return session || undefined;

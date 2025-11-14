@@ -9,7 +9,7 @@ export const sessions = pgTable("sessions", {
   venueName: text("venue_name").notNull(),
   venueLocation: text("venue_location"),
   courtCount: integer("court_count").notNull(),
-  status: text("status").notNull().default('active'), // 'active', 'ended'
+  status: text("status").notNull().default('active'), // 'draft', 'active', 'upcoming', 'ended'
   createdAt: timestamp("created_at").notNull().defaultNow(),
   endedAt: timestamp("ended_at"),
 });

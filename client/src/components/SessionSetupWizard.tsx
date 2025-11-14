@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -29,6 +29,7 @@ type SessionFormData = z.infer<typeof sessionFormSchema>;
 export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps) {
   const [step, setStep] = useState<'session' | 'players'>('session');
   const [sessionData, setSessionData] = useState<SessionFormData | null>(null);
+  const [createdSessionId, setCreatedSessionId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -46,9 +47,42 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
     } as SessionFormData,
   });
 
-  const handleSessionSubmit = (data: SessionFormData) => {
-    setSessionData(data);
-    setStep('players');
+  // Reset wizard state on mount to ensure fresh start for each session creation
+  useEffect(() => {
+    setCreatedSessionId(null);
+    setSessionData(null);
+    setImportResult(null);
+    setImportError(null);
+    setSelectedFile(null);
+    setPastedText("");
+    setStep('session');
+    form.reset();
+  }, []);
+
+  const handleSessionSubmit = async (data: SessionFormData) => {
+    setIsCreating(true);
+    setImportError(null);
+
+    try {
+      // Create session immediately with status='draft'
+      const payload = {
+        ...data,
+        date: data.date,
+        venueLocation: data.venueLocation || null,
+        status: 'draft', // Mark as draft until wizard completes
+      };
+
+      const session = await apiRequest('POST', '/api/sessions', payload);
+      
+      setSessionData(data);
+      setCreatedSessionId(session.id);
+      setStep('players');
+    } catch (err: any) {
+      const message = err?.error || err?.message || "Failed to create session";
+      setImportError(message);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -136,6 +170,11 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
       return;
     }
 
+    if (!createdSessionId) {
+      setImportError("Session not created. Please go back and try again.");
+      return;
+    }
+
     setIsCreating(true);
     setImportError(null);
 
@@ -143,8 +182,11 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
       // Read CSV content directly instead of parsing it
       const csvContent = await selectedFile.text();
 
-      // Use apiRequest which includes auth headers
-      const result = await apiRequest('POST', '/api/players/import', { csvContent });
+      // Use apiRequest which includes auth headers, pass sessionId
+      const result = await apiRequest('POST', '/api/players/import', { 
+        csvContent,
+        sessionId: createdSessionId 
+      });
       
       setImportResult({
         imported: result.added || 0,
@@ -161,6 +203,11 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
   const handleImportPaste = async () => {
     if (!pastedText.trim()) {
       setImportError("Please paste player data");
+      return;
+    }
+
+    if (!createdSessionId) {
+      setImportError("Session not created. Please go back and try again.");
       return;
     }
 
@@ -215,8 +262,11 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
       
       const csvContent = csvLines.join('\n');
 
-      // Use apiRequest which includes auth headers
-      const result = await apiRequest('POST', '/api/players/import', { csvContent });
+      // Use apiRequest which includes auth headers, pass sessionId
+      const result = await apiRequest('POST', '/api/players/import', { 
+        csvContent,
+        sessionId: createdSessionId 
+      });
       
       setImportResult({
         imported: result.added || 0,
@@ -231,33 +281,39 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
     }
   };
 
-  const handleCreateSession = async () => {
-    if (!sessionData) return;
+  const handleFinishWizard = async () => {
+    if (!createdSessionId) {
+      setImportError("Session not created. Please try again.");
+      return;
+    }
 
     setIsCreating(true);
     setImportError(null);
 
     try {
-      // Prepare payload with proper date and location handling
-      const payload = {
-        ...sessionData,
-        date: sessionData.date, // Send as string, backend will parse
-        venueLocation: sessionData.venueLocation || null, // Convert empty string to null
-      };
+      // Promote session from 'draft' to 'active'
+      await apiRequest('PATCH', `/api/sessions/${createdSessionId}`, { 
+        status: 'active' 
+      });
 
-      // Use apiRequest which includes auth headers
-      await apiRequest('POST', '/api/sessions', payload);
+      // Reset wizard state for next use
+      setCreatedSessionId(null);
+      setSessionData(null);
+      setImportResult(null);
+      setImportError(null);
+      setStep('session');
+      form.reset();
 
       onSessionCreated();
     } catch (err: any) {
-      const message = err?.error || err?.message || "Failed to create session";
+      const message = err?.error || err?.message || "Failed to activate session";
       setImportError(message);
       setIsCreating(false);
     }
   };
 
   const handleSkipImport = () => {
-    handleCreateSession();
+    handleFinishWizard();
   };
 
   return (
@@ -484,7 +540,7 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
                     {importResult && (
                       <Button
                         type="button"
-                        onClick={handleCreateSession}
+                        onClick={handleFinishWizard}
                         disabled={isCreating}
                         className="w-full min-h-12 sm:min-h-10"
                         data-testid="button-start-session"
@@ -566,7 +622,7 @@ export function SessionSetupWizard({ onSessionCreated }: SessionSetupWizardProps
                     {importResult && (
                       <Button
                         type="button"
-                        onClick={handleCreateSession}
+                        onClick={handleFinishWizard}
                         disabled={isCreating}
                         className="w-full min-h-12 sm:min-h-10"
                         data-testid="button-start-session"

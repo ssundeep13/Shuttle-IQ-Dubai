@@ -27,9 +27,12 @@ export default function SessionsManagement() {
   const [showCreateSession, setShowCreateSession] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
 
-  const { data: sessions = [], isLoading } = useQuery<Session[]>({
+  const { data: allSessions = [], isLoading } = useQuery<Session[]>({
     queryKey: ['/api/sessions'],
   });
+
+  // Filter out draft sessions (they're temporary wizard state)
+  const sessions = allSessions.filter(s => s.status !== 'draft');
 
   const createSessionMutation = useMutation({
     mutationFn: async (data: any) => apiRequest('POST', '/api/sessions', data),
