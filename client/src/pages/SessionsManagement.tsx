@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation } from 'wouter';
@@ -25,11 +25,19 @@ export default function SessionsManagement() {
   const { user, logout } = useAuth();
   const [, navigate] = useLocation();
   const [showCreateSession, setShowCreateSession] = useState(false);
+  const [wizardKey, setWizardKey] = useState(0);
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
 
   const { data: allSessions = [], isLoading } = useQuery<Session[]>({
     queryKey: ['/api/sessions'],
   });
+
+  // Increment wizard key whenever it closes to force fresh mount on next open
+  useEffect(() => {
+    if (!showCreateSession) {
+      setWizardKey(prev => prev + 1);
+    }
+  }, [showCreateSession]);
 
   // Filter out draft sessions (they're temporary wizard state)
   const sessions = allSessions.filter(s => s.status !== 'draft');
@@ -58,6 +66,7 @@ export default function SessionsManagement() {
   const handleSessionCreated = () => {
     queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
     setShowCreateSession(false);
+    // Key increment happens in useEffect when showCreateSession becomes false
   };
 
   const handleDeleteSession = async () => {
@@ -212,7 +221,10 @@ export default function SessionsManagement() {
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-background" onClick={() => setShowCreateSession(false)} />
           <div className="relative flex items-center justify-center min-h-screen p-4">
-            <SessionSetupWizard onSessionCreated={handleSessionCreated} />
+            <SessionSetupWizard 
+              key={wizardKey}
+              onSessionCreated={handleSessionCreated} 
+            />
           </div>
         </div>
       )}
