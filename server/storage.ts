@@ -19,6 +19,7 @@ import {
 import { db } from "./db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { clearSessionRestStates } from "./matchmaking";
 
 // Helper function to add computed SKID to player object
 function addSkidToPlayer(player: typeof players.$inferSelect): Player {
@@ -35,6 +36,7 @@ export interface IStorage {
   getActiveSession(): Promise<Session | undefined>;
   getAllSessions(): Promise<Session[]>;
   endSession(id: string): Promise<Session | undefined>;
+  deleteSession(id: string): Promise<boolean>;
   
   // Player operations (global)
   getPlayer(id: string): Promise<Player | undefined>;
@@ -72,19 +74,21 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   // Session operations
   async createSession(insertSession: InsertSession): Promise<Session> {
-    // End any existing active sessions first (enforce single active session)
-    await db
-      .update(sessions)
-      .set({ status: 'ended', endedAt: new Date() })
-      .where(eq(sessions.status, 'active'));
-
+    // Allow multiple concurrent sessions (removed auto-ending logic)
+    // Default to 'active' status to preserve existing workflow
     const id = randomUUID();
+    const status = insertSession.status || 'active';
+    
+    // Set endedAt timestamp if creating an ended session
+    const endedAt = status === 'ended' ? new Date() : undefined;
+    
     const [session] = await db
       .insert(sessions)
       .values({ 
-        ...insertSession, 
+        ...insertSession,
+        ...(endedAt && { endedAt }),
         id,
-        status: 'active'
+        status
       })
       .returning();
     
@@ -130,6 +134,50 @@ export class DatabaseStorage implements IStorage {
       .where(eq(sessions.id, id))
       .returning();
     return session || undefined;
+  }
+
+  async deleteSession(id: string): Promise<boolean> {
+    // Clear matchmaking rest states for this session
+    clearSessionRestStates(id);
+    
+    // Delete all related data first (cascade delete)
+    // Get all courts for this session FIRST before any deletions
+    const sessionCourts = await this.getCourtsBySession(id);
+    
+    // Collect all game IDs before deleting anything
+    const allGameIds: string[] = [];
+    for (const court of sessionCourts) {
+      const courtGames = await db
+        .select()
+        .from(gameResults)
+        .where(eq(gameResults.courtId, court.id));
+      allGameIds.push(...courtGames.map(g => g.id));
+    }
+    
+    // 1. Delete game participants for all collected games
+    if (allGameIds.length > 0) {
+      await db.delete(gameParticipants).where(inArray(gameParticipants.gameId, allGameIds));
+    }
+    
+    // 2. Delete game results for all courts in this session
+    for (const court of sessionCourts) {
+      await db.delete(gameResults).where(eq(gameResults.courtId, court.id));
+    }
+    
+    // 3. Delete court players for all courts in this session
+    for (const court of sessionCourts) {
+      await db.delete(courtPlayersTable).where(eq(courtPlayersTable.courtId, court.id));
+    }
+    
+    // 4. Delete courts
+    await db.delete(courts).where(eq(courts.sessionId, id));
+    
+    // 5. Delete queue entries
+    await db.delete(queueEntries).where(eq(queueEntries.sessionId, id));
+    
+    // 6. Finally delete the session
+    const result = await db.delete(sessions).where(eq(sessions.id, id));
+    return result.rowCount ? result.rowCount > 0 : false;
   }
 
   // Player operations
