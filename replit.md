@@ -37,6 +37,7 @@ Preferred communication style: Simple, everyday language.
     - **Flexible Import Workflow**: Players can be imported BEFORE or AFTER session creation via CSV or copy-paste (tab-separated or comma-separated). Smart header detection and auto-validation are included.
     - **CSV Export**: Export game history and player data.
     - **Duplicate Detection**: ShuttleIQ Unique ID prevents duplicate player entries; idempotent queue operations.
+- **Game History**: Session-specific game history with complete isolation between sessions. Each session maintains its own game records, displayed in the History tab. The system uses query key scoping (`['/api/game-history', sessionId]`) and backend filtering to ensure games are never mixed between sessions. Cache invalidation uses `exact: false` to properly refresh all session-specific queries.
 - **Leaderboards**: The system now features two separate leaderboards:
     - **Admin Leaderboard**: All-time global statistics for all players. Located in admin dashboard (`/admin`) with Reset Stats and Clear All Players buttons. Requires authentication.
     - **Session Leaderboard**: Session-specific statistics showing only players who participated in the current session. Located as a tab on the session dashboard (`/session/:id`). Read-only view for operators, publicly accessible. Displays games played and wins within the current session only.
