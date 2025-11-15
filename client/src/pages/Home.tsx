@@ -90,10 +90,10 @@ export default function Home() {
     enabled: hasSession,
   });
 
-  // Fetch game history (only when session exists)
+  // Fetch game history for current session only
   const { data: gameHistory = [] } = useQuery<any[]>({
-    queryKey: ['/api/game-history'],
-    enabled: hasSession,
+    queryKey: ['/api/game-history', session?.id],
+    enabled: hasSession && !!session?.id,
   });
 
   // Timer countdown (update court time remaining every minute) - only when session exists
@@ -239,7 +239,7 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
       addNotification(
         `Game ended! Team ${variables.winningTeam} wins ${variables.team1Score}-${variables.team2Score}`, 
         'success'
@@ -324,7 +324,7 @@ export default function Home() {
       return await apiRequest('DELETE', '/api/game-history', null);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
@@ -387,7 +387,7 @@ export default function Home() {
       await queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       await queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
       await queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
-      await queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
       
       setTeamAssignments({});
       setShowEndSessionConfirm(false);
@@ -712,7 +712,7 @@ export default function Home() {
       await queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       await queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
       await queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
-      await queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
     };
 
     // Show wizard if authenticated, otherwise prompt to login

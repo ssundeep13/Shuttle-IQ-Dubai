@@ -1395,13 +1395,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Game History endpoint
-  app.get("/api/game-history", async (req, res) => {
+  app.get("/api/game-history/:sessionId?", async (req, res) => {
     try {
-      const { eq } = await import('drizzle-orm');
+      const { eq, desc } = await import('drizzle-orm');
       const { players } = await import('@shared/schema');
+      const sessionId = req.params.sessionId;
       
-      // Fetch all game results ordered by most recent first
-      const games = await db.select().from(gameResults).orderBy(gameResults.createdAt);
+      // Fetch game results for the specific session (or all if no sessionId provided)
+      const gamesQuery = sessionId 
+        ? db.select().from(gameResults).where(eq(gameResults.sessionId, sessionId)).orderBy(desc(gameResults.createdAt))
+        : db.select().from(gameResults).orderBy(desc(gameResults.createdAt));
+      
+      const games = await gamesQuery;
       
       // For each game, fetch participants and player details
       const gamesWithDetails = await Promise.all(
@@ -1425,11 +1430,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             participants: participantsWithDetails,
           };
         })
-      );
-      
-      // Sort by most recent first
-      gamesWithDetails.sort((a, b) => 
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       
       res.json(gamesWithDetails);
