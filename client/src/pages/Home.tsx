@@ -773,7 +773,10 @@ export default function Home() {
           authState={isAuthenticated ? "admin" : "guest"}
           onLogin={() => navigate('/login')}
           onAdmin={() => navigate('/admin')}
-          onLogout={logout}
+          onLogout={async () => {
+            await logout();
+            navigate('/login');
+          }}
         />
         
         <TabNavigation

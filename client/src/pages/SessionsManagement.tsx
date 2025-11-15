@@ -59,8 +59,12 @@ export default function SessionsManagement() {
   });
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/login');
+    try {
+      await logout();
+    } finally {
+      // Always navigate to login, even if logout fails
+      navigate('/login');
+    }
   };
 
   const handleSessionCreated = () => {
