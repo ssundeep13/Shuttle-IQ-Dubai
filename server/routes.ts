@@ -29,6 +29,7 @@ import {
   findBalancedTeams,
   generateAllMatchupOptions,
   updatePlayerRestState,
+  clearPlayerRestState,
   clearSessionRestStates,
   type TeamCombination
 } from "./matchmaking";
@@ -380,6 +381,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Player not found" });
       }
       await storage.removeFromQueue(activeSession.id, req.params.id);
+      
+      // Clear rest state when player is removed
+      clearPlayerRestState(activeSession.id, req.params.id);
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete player" });
@@ -743,7 +748,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!Array.isArray(playerIds)) {
         return res.status(400).json({ error: "playerIds must be an array" });
       }
+      
+      // Get old queue and clone it to prevent mutation issues
+      const oldQueue = [...await storage.getQueue(activeSession.id)];
+      
       await storage.setQueue(activeSession.id, playerIds);
+      
+      // Clear rest states for players that were removed from queue
+      const removedPlayerIds = oldQueue.filter(id => !playerIds.includes(id));
+      for (const playerId of removedPlayerIds) {
+        clearPlayerRestState(activeSession.id, playerId);
+      }
+      
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update queue" });
@@ -772,6 +788,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.removeFromQueue(activeSession.id, req.params.playerId);
+      
+      // Clear rest state when player is removed from queue
+      clearPlayerRestState(activeSession.id, req.params.playerId);
+      
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to remove from queue" });

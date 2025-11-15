@@ -75,6 +75,21 @@ export function getPlayerRestState(sessionId: string, playerId: string): PlayerR
 }
 
 /**
+ * Clear rest state for a specific player (called when player leaves queue or session)
+ */
+export function clearPlayerRestState(sessionId: string, playerId: string): void {
+  const sessionMap = sessionRestStates.get(sessionId);
+  if (sessionMap) {
+    sessionMap.delete(playerId);
+    
+    // If session map is now empty, remove it entirely
+    if (sessionMap.size === 0) {
+      sessionRestStates.delete(sessionId);
+    }
+  }
+}
+
+/**
  * Clear all rest states for a session (called when session ends)
  */
 export function clearSessionRestStates(sessionId: string): void {
@@ -257,15 +272,21 @@ export function filterEligiblePlayers(
 /**
  * Calculate player priority score for assignment
  * Lower score = higher priority
- * Now includes gamesPlayed to prioritize players with fewer games
+ * 
+ * Priority factors (in order of importance):
+ * 1. Queue position (DOMINANT) - ensures FIFO behavior
+ * 2. Games played (tiebreaker) - prefer fewer games among similar positions
+ * 3. Rest requirement (penalty) - discourage consecutive games
+ * 
+ * Queue weight is set high enough to always dominate other factors.
  */
 function calculatePlayerPriority(
   player: Player,
   queuePosition: number,
   restState: PlayerRestState,
-  queueWeight: number = 1.0,
-  restWeight: number = 100.0,
-  gamesPlayedWeight: number = 0.5
+  queueWeight: number = 100.0,
+  restWeight: number = 10.0,
+  gamesPlayedWeight: number = 0.1
 ): number {
   const positionScore = queuePosition * queueWeight;
   const restPenalty = restState.needsRest ? restState.consecutiveGames * restWeight : 0;
