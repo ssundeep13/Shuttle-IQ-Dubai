@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { CourtWithPlayers, Player, Notification, AppStats } from "@shared/schema";
+import { CourtWithPlayers, Player, Notification, AppStats, Session } from "@shared/schema";
 import { Header } from "@/components/Header";
 import { TabNavigation } from "@/components/TabNavigation";
 import { CourtManagement } from "@/components/CourtManagement";
@@ -31,11 +31,26 @@ import {
 type TabType = 'courts' | 'queue' | 'history' | 'leaderboard';
 
 export default function Home() {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const { isAuthenticated, logout } = useAuth();
   
-  // Check for active session
-  const { session, hasSession, isLoading: sessionLoading } = useActiveSession();
+  // Extract session ID from URL if present
+  const urlSessionId = location.match(/^\/session\/(.+)$/)?.[1];
+  
+  // Fetch specific session if ID is in URL, otherwise use active session
+  const { data: urlSession, isLoading: urlSessionLoading } = useQuery<Session | null>({
+    queryKey: ['/api/sessions', urlSessionId],
+    enabled: !!urlSessionId,
+    retry: false,
+  });
+  
+  // Check for active session (when no URL session ID)
+  const { session: activeSession, hasSession: hasActiveSession, isLoading: activeSessionLoading } = useActiveSession();
+  
+  // Use URL session if available, otherwise fall back to active session
+  const session = urlSessionId ? (urlSession ?? null) : activeSession;
+  const hasSession = urlSessionId ? !!urlSession : hasActiveSession;
+  const sessionLoading = urlSessionId ? urlSessionLoading : activeSessionLoading;
 
   const [teamAssignments, setTeamAssignments] = useState<Record<string, { team1: string[]; team2: string[] }>>({});
   const [activeTab, setActiveTab] = useState<TabType>('courts');
