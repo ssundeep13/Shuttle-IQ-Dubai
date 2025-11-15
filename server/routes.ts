@@ -27,6 +27,7 @@ import {
   buildRestStatesFromHistory,
   selectOptimalPlayers,
   findBalancedTeams,
+  generateAllMatchupOptions,
   updatePlayerRestState,
   clearSessionRestStates,
   type TeamCombination
@@ -800,28 +801,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gameParticipants = await storage.getSessionGameParticipants(activeSession.id);
       buildRestStatesFromHistory(activeSession.id, gameParticipants, queue);
 
-      // Select optimal players considering rest requirements
-      const { selectedPlayers, restWarnings } = selectOptimalPlayers(
+      // Generate multiple matchup options with different player sets
+      const { allCombinations, restWarnings } = generateAllMatchupOptions(
         activeSession.id,
         queue,
         allPlayers,
-        8 // Consider first 8 players in queue
+        15 // Return top 15 balanced options
       );
 
-      if (selectedPlayers.length < 4) {
+      if (allCombinations.length === 0) {
         return res.status(400).json({ 
-          error: "Not enough eligible players available",
-          selectedPlayers: selectedPlayers.length
+          error: "Not enough eligible players available (need at least 4 players in queue)",
         });
       }
 
-      // Find balanced team combinations
-      const teamCombinations = findBalancedTeams(selectedPlayers, 3);
-
       res.json({
-        combinations: teamCombinations,
-        restWarnings,
-        selectedPlayerIds: selectedPlayers.map(p => p.id)
+        combinations: allCombinations,
+        restWarnings
       });
     } catch (error) {
       console.error("Matchmaking error:", error);

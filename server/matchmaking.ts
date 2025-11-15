@@ -257,17 +257,21 @@ export function filterEligiblePlayers(
 /**
  * Calculate player priority score for assignment
  * Lower score = higher priority
+ * Now includes gamesPlayed to prioritize players with fewer games
  */
 function calculatePlayerPriority(
+  player: Player,
   queuePosition: number,
   restState: PlayerRestState,
   queueWeight: number = 1.0,
-  restWeight: number = 100.0
+  restWeight: number = 100.0,
+  gamesPlayedWeight: number = 0.5
 ): number {
   const positionScore = queuePosition * queueWeight;
   const restPenalty = restState.needsRest ? restState.consecutiveGames * restWeight : 0;
+  const gamesPlayedPenalty = (player.gamesPlayed || 0) * gamesPlayedWeight;
   
-  return positionScore + restPenalty;
+  return positionScore + restPenalty + gamesPlayedPenalty;
 }
 
 /**
@@ -294,7 +298,7 @@ export function selectOptimalPlayers(
     if (!player) return null;
     
     const restState = getPlayerRestState(sessionId, playerId);
-    const priority = calculatePlayerPriority(index, restState);
+    const priority = calculatePlayerPriority(player, index, restState);
     
     return { player, priority, restState, queuePosition: index };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
@@ -315,4 +319,118 @@ export function selectOptimalPlayers(
   }
 
   return { selectedPlayers, restWarnings };
+}
+
+/**
+ * Generate multiple different sets of 4 players and their team combinations
+ * Returns many more balanced options by considering different player groups
+ */
+export function generateAllMatchupOptions(
+  sessionId: string,
+  queuePlayerIds: string[],
+  allPlayers: Player[],
+  maxOptions: number = 15
+): {
+  allCombinations: TeamCombination[];
+  restWarnings: string[];
+} {
+  const restWarnings: string[] = [];
+  const allCombinations: TeamCombination[] = [];
+  const processedPlayerSets = new Set<string>();
+  
+  // Consider a larger window for generating different player sets
+  const windowSize = Math.min(12, queuePlayerIds.length);
+  const candidateIds = queuePlayerIds.slice(0, windowSize);
+  
+  // Get player objects with their priority scores
+  const scoredCandidates = candidateIds.map((playerId, index) => {
+    const player = allPlayers.find(p => p.id === playerId);
+    if (!player) return null;
+    
+    const restState = getPlayerRestState(sessionId, playerId);
+    const priority = calculatePlayerPriority(player, index, restState);
+    
+    return { player, priority, restState, queuePosition: index };
+  }).filter((c): c is NonNullable<typeof c> => c !== null);
+  
+  // Sort by priority (lower = better) - prioritizes low gamesPlayed, queue position, and rest state
+  scoredCandidates.sort((a, b) => a.priority - b.priority);
+  
+  // Generate different combinations of 4 players
+  // Start with the best 4, then try different variations
+  const generatePlayerSets = (): Player[][] => {
+    const sets: Player[][] = [];
+    const minPlayers = Math.min(8, scoredCandidates.length);
+    
+    if (scoredCandidates.length < 4) return [];
+    
+    // Generate all possible combinations of 4 players from the candidate pool
+    for (let i = 0; i < Math.min(minPlayers, scoredCandidates.length); i++) {
+      for (let j = i + 1; j < Math.min(minPlayers + 1, scoredCandidates.length); j++) {
+        for (let k = j + 1; k < Math.min(minPlayers + 2, scoredCandidates.length); k++) {
+          for (let l = k + 1; l < Math.min(minPlayers + 3, scoredCandidates.length); l++) {
+            const playerSet = [
+              scoredCandidates[i].player,
+              scoredCandidates[j].player,
+              scoredCandidates[k].player,
+              scoredCandidates[l].player
+            ];
+            sets.push(playerSet);
+            
+            // Limit total sets to avoid excessive computation
+            if (sets.length >= 20) return sets;
+          }
+        }
+      }
+    }
+    
+    return sets;
+  };
+  
+  const playerSets = generatePlayerSets();
+  
+  // For each player set, generate team combinations
+  for (const playerSet of playerSets) {
+    // Create a unique key for this player set
+    const setKey = playerSet.map(p => p.id).sort().join('-');
+    
+    // Skip if we've already processed this exact set
+    if (processedPlayerSets.has(setKey)) continue;
+    processedPlayerSets.add(setKey);
+    
+    // Generate all 3 team combinations for this player set
+    const combinations = findBalancedTeams(playerSet, 3);
+    
+    // Check for rest warnings in this set
+    for (const player of playerSet) {
+      const restState = getPlayerRestState(sessionId, player.id);
+      if (restState.needsRest) {
+        const warningMsg = `${player.name} has played ${restState.consecutiveGames} consecutive games`;
+        if (!restWarnings.includes(warningMsg)) {
+          restWarnings.push(warningMsg);
+        }
+      }
+    }
+    
+    allCombinations.push(...combinations);
+  }
+  
+  // Sort all combinations by balance quality (skill gap, then variance)
+  allCombinations.sort((a, b) => {
+    if (Math.abs(a.skillGap - b.skillGap) < 0.01) {
+      return a.variance - b.variance;
+    }
+    return a.skillGap - b.skillGap;
+  });
+  
+  // Re-rank after sorting
+  allCombinations.forEach((combo, index) => {
+    combo.rank = index + 1;
+  });
+  
+  // Return top N options
+  return {
+    allCombinations: allCombinations.slice(0, maxOptions),
+    restWarnings
+  };
 }
