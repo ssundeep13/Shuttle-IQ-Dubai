@@ -28,7 +28,12 @@ Preferred communication style: Simple, everyday language.
     - **Session Lifecycle**: Supports creating, managing, and ending sessions. Only one active session is enforced at a time, with automatic court creation upon session start. Session data is scoped to the active session.
 
 #### Feature Specifications
-- **Player Management**: Tracks player profiles (gender, skill levels, statistics). Skill scores are dynamic. Players can be imported before or after session creation.
+- **Player Management**: Tracks player profiles (gender, skill levels, statistics). Uses a simplified 5-tier skill system (Novice, Beginner, Intermediate, Advanced, Professional) with a 10-200 point scale. Skill scores are dynamic and updated after each game using an ELO-style rating system. Players can be imported before or after session creation.
+  - **Skill Tier Ranges**: Novice (10-39), Beginner (40-69), Intermediate (70-109), Advanced (110-159), Professional (160-200)
+  - **Default Score**: 90 (mid-Intermediate)
+  - **Display Format**: All player displays show "Gender Tier (Score)" format (e.g., "M Intermediate (85)")
+  - **Rating Adjustments**: Skill scores adjust by +2 to +15 points for wins (more points for beating higher-skilled opponents), with inverse adjustments for losses
+  - **Import Flexibility**: Accepts numeric skill scores OR legacy text-based skill levels with automatic tier assignment
 - **Court Management**: Manages court status, game timing, and records game outcomes. Each court accommodates exactly 4 players (2v2).
 - **Queue Management**: An ordered player queue with dynamic sorting capabilities (by skill level or games played today). Players are automatically added to the queue during import or session creation.
 - **Intelligent Matchmaking**: AI-powered team assignment system with features for equal team skill balance, multiple shuffle options, player rest tracking, and optimization for competitive balance.
@@ -47,6 +52,23 @@ Preferred communication style: Simple, everyday language.
 - **Single Active Session Model**: Simplifies user experience and prevents data conflicts.
 - **Query Guards**: `enabled: hasSession` guards on all session-dependent queries prevent premature API calls.
 - **Modular Architecture**: Utilizes pattern-based development with clear separation of concerns.
+
+### Recent Changes (Nov 2025)
+
+#### Skill Management System Overhaul
+Implemented a comprehensive skill management system with the following improvements:
+1. **Simplified Tier System**: Reduced from 10 tiers to 5 clear tiers with well-defined numeric ranges on a 10-200 point scale
+2. **Auto-Tier Correlation**: Created `skillUtils.ts` with functions for automatic tier assignment based on numeric scores
+3. **ELO-Style Rating Adjustments**: Implemented dynamic skill score updates after each game based on opponent strength, win/loss, and point differential
+4. **Unified Display Format**: All components (Leaderboard, SessionLeaderboard, PlayerQueue, CourtCard) now display "Tier (Score)" format
+5. **Backward Compatibility**: Import logic handles both numeric scores and legacy text-based skill levels
+6. **Query Cache Fix**: Fixed SessionSetupWizard query invalidation to ensure player queue displays correctly after import
+
+**Technical Details**:
+- Added `shared/utils/skillUtils.ts` with helper functions: `getSkillTier()`, `formatSkillLevel()`, `calculateSkillAdjustment()`, etc.
+- Updated all default fallback values to 90 (mid-Intermediate) for consistency
+- Modified import validation to accept 5-tier system while maintaining legacy data support
+- Ensured all skill scores display on 10-200 scale (not SKID 0-10 values)
 
 ### External Dependencies
 
