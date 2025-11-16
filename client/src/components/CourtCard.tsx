@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import { formatSkillLevel, getSkillTierColor } from "@shared/utils/skillUtils";
 
 interface CourtCardProps {
   court: CourtWithPlayers;
@@ -20,7 +21,8 @@ interface CourtCardProps {
   onCancelGame: (courtId: string) => void;
 }
 
-const getLevelColor = (level: string) => {
+// Using getSkillTierColor from skillUtils instead of local function
+const getLevelTextColor = (level: string) => {
   if (level.includes('Novice') || level.includes('Beginner')) {
     return 'text-success';
   } else if (level.includes('Intermediate')) {
@@ -127,9 +129,7 @@ export function CourtCard({
                   <div key={player.id} className="text-center mb-1">
                     <p className="font-medium text-sm text-foreground">{player.name}</p>
                     <div className="flex items-center justify-center gap-1">
-                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
-                      <span className="text-xs text-muted-foreground">•</span>
-                      <span className="text-xs font-semibold text-accent">{player.skillScore || 100}</span>
+                      <p className={cn("text-xs", getLevelTextColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}</p>
                     </div>
                   </div>
                 ))}
@@ -152,9 +152,7 @@ export function CourtCard({
                   <div key={player.id} className="text-center mb-1">
                     <p className="font-medium text-sm text-foreground">{player.name}</p>
                     <div className="flex items-center justify-center gap-1">
-                      <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
-                      <span className="text-xs text-muted-foreground">•</span>
-                      <span className="text-xs font-semibold text-accent">{player.skillScore || 100}</span>
+                      <p className={cn("text-xs", getLevelTextColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}</p>
                     </div>
                   </div>
                 ))}
@@ -241,9 +239,7 @@ export function CourtCard({
                         >
                           <p className="font-semibold text-xs sm:text-xs text-foreground">{player.name}</p>
                           <div className="flex items-center gap-1">
-                            <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
-                            <span className="text-xs text-muted-foreground">•</span>
-                            <span className="text-xs font-semibold text-accent">{player.skillScore || 100}</span>
+                            <p className={cn("text-xs", getLevelTextColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}</p>
                           </div>
                         </div>
                       );
@@ -282,9 +278,7 @@ export function CourtCard({
                         >
                           <p className="font-semibold text-xs sm:text-xs text-foreground">{player.name}</p>
                           <div className="flex items-center gap-1">
-                            <p className={cn("text-xs", getLevelColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}</p>
-                            <span className="text-xs text-muted-foreground">•</span>
-                            <span className="text-xs font-semibold text-accent">{player.skillScore || 100}</span>
+                            <p className={cn("text-xs", getLevelTextColor(player.level))}>{player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}</p>
                           </div>
                         </div>
                       );

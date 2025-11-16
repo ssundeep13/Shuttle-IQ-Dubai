@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatSkillLevel, getSkillTierColor } from "@shared/utils/skillUtils";
 
 interface LeaderboardProps {
   players: Player[];
@@ -25,16 +26,7 @@ interface TodayPlayer extends Player {
   winsToday?: number;
 }
 
-const getLevelColor = (level: string) => {
-  if (level.includes('Novice') || level.includes('Beginner')) {
-    return 'border-success/20 bg-success/10 text-success';
-  } else if (level.includes('Intermediate')) {
-    return 'border-warning/20 bg-warning/10 text-warning';
-  } else if (level.includes('Advanced') || level.includes('Professional')) {
-    return 'border-destructive/20 bg-destructive/10 text-destructive';
-  }
-  return 'border-muted bg-muted text-muted-foreground';
-};
+// Using getSkillTierColor from skillUtils instead of local function
 
 type SortBy = 'skill' | 'wins' | 'games' | 'winRate' | 'name';
 type SortOrder = 'asc' | 'desc';
@@ -63,8 +55,8 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
       const gamesB = isToday ? (playerB as TodayPlayer).gamesPlayedToday || 0 : b.gamesPlayed;
       const winsA = isToday ? (playerA as TodayPlayer).winsToday || 0 : a.wins;
       const winsB = isToday ? (playerB as TodayPlayer).winsToday || 0 : b.wins;
-      const skillA = a.skillScore || 100;
-      const skillB = b.skillScore || 100;
+      const skillA = a.skillScore || 90;
+      const skillB = b.skillScore || 90;
       const winRateA = gamesA === 0 ? 0 : (winsA / gamesA) * 100;
       const winRateB = gamesB === 0 ? 0 : (winsB / gamesB) * 100;
       
@@ -154,15 +146,14 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <p className="font-semibold text-foreground text-base sm:text-lg truncate">{player.name}</p>
-                    <Badge className={cn("text-xs", getLevelColor(player.level))}>
-                      {player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}
+                    <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
+                      {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
                     </Badge>
                     {player.status === 'playing' && (
                       <Badge className="bg-info/10 text-info border-info/20">Playing</Badge>
                     )}
                   </div>
                   <div className="flex gap-4 text-sm text-muted-foreground">
-                    <span>Skill: <span className="font-bold text-accent text-base">{player.skillScore || 100}</span></span>
                     <span>Games: <span className="font-semibold text-foreground">{gamesCount}</span></span>
                     <span>Wins: <span className="font-semibold text-success">{winsCount}</span></span>
                     <span>Win Rate: <span className="font-semibold text-foreground">{getWinRate(player, isToday)}%</span></span>

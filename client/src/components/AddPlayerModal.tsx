@@ -37,7 +37,8 @@ interface AddPlayerModalProps {
 const formSchema = insertPlayerSchema.extend({
   name: z.string().min(1, "Player name is required"),
   gender: z.enum(['Male', 'Female']),
-  level: z.enum(['Novice', 'Beginner-', 'Beginner', 'Beginner+', 'Intermediate-', 'Intermediate', 'Intermediate+', 'Advanced', 'Advanced+', 'Professional']),
+  level: z.enum(['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Professional']),
+  skillScore: z.number().min(10).max(200).optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -49,6 +50,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
       name: "",
       gender: "Male",
       level: "Intermediate",
+      skillScore: 90, // mid-Intermediate
       gamesPlayed: 0,
       wins: 0,
       status: "waiting",
@@ -132,16 +134,11 @@ export function AddPlayerModal({ open, onClose, onAddPlayer }: AddPlayerModalPro
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="Novice">Novice</SelectItem>
-                      <SelectItem value="Beginner-">Beginner -</SelectItem>
-                      <SelectItem value="Beginner">Beginner</SelectItem>
-                      <SelectItem value="Beginner+">Beginner +</SelectItem>
-                      <SelectItem value="Intermediate-">Intermediate -</SelectItem>
-                      <SelectItem value="Intermediate">Intermediate</SelectItem>
-                      <SelectItem value="Intermediate+">Intermediate +</SelectItem>
-                      <SelectItem value="Advanced">Advanced</SelectItem>
-                      <SelectItem value="Advanced+">Advanced +</SelectItem>
-                      <SelectItem value="Professional">Professional</SelectItem>
+                      <SelectItem value="Novice">Novice (1.0-3.9)</SelectItem>
+                      <SelectItem value="Beginner">Beginner (4.0-6.9)</SelectItem>
+                      <SelectItem value="Intermediate">Intermediate (7.0-10.9)</SelectItem>
+                      <SelectItem value="Advanced">Advanced (11.0-15.9)</SelectItem>
+                      <SelectItem value="Professional">Professional (16.0-20.0)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />

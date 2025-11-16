@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatSkillLevel, getSkillTierColor } from "@shared/utils/skillUtils";
 
 interface TodayPlayer extends Player {
   gamesPlayedToday?: number;
@@ -26,16 +27,7 @@ interface PlayerQueueProps {
   onClearQueue: () => void;
 }
 
-const getLevelColor = (level: string) => {
-  if (level.includes('Novice') || level.includes('Beginner')) {
-    return 'border-success/20 bg-success/10 text-success';
-  } else if (level.includes('Intermediate')) {
-    return 'border-warning/20 bg-warning/10 text-warning';
-  } else if (level.includes('Advanced') || level.includes('Professional')) {
-    return 'border-destructive/20 bg-destructive/10 text-destructive';
-  }
-  return 'border-muted bg-muted text-muted-foreground';
-};
+// Using getSkillTierColor from skillUtils instead of local function
 
 export function PlayerQueue({
   players,
@@ -81,7 +73,7 @@ export function PlayerQueue({
     if (sortBy === 'skill') {
       // Sort by skill score directly (10-200 scale already represents the hierarchy)
       // Professional (190/200) → Advanced+ (170/180) → ... → Novice (10/20)
-      return (b.skillScore || 100) - (a.skillScore || 100);
+      return (b.skillScore || 90) - (a.skillScore || 90);
     } else {
       // Sort by games played TODAY: highest to lowest
       return (b.gamesPlayedToday || 0) - (a.gamesPlayedToday || 0);
@@ -143,8 +135,8 @@ export function PlayerQueue({
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-foreground truncate">{player.name}</p>
                   <div className="flex flex-wrap gap-2 mt-1">
-                    <Badge className={cn("text-xs", getLevelColor(player.level))}>
-                      {player.gender && player.gender === 'Male' ? 'M' : 'F'} {player.level}
+                    <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
+                      {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
                     </Badge>
                     <span className="text-xs text-muted-foreground">
                       {player.gamesPlayedToday || 0} games · {player.winsToday || 0} wins

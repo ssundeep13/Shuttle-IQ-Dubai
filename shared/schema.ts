@@ -24,8 +24,8 @@ export const players = pgTable("players", {
   externalId: text("external_id"), // Optional unique identifier for cross-venue tracking (e.g., membership ID)
   name: text("name").notNull(),
   gender: text("gender").notNull(), // 'Male', 'Female'
-  level: text("level").notNull(), // 'Novice', 'Beginner-', 'Beginner', 'Beginner+', 'Intermediate-', 'Intermediate', 'Intermediate+', 'Advanced', 'Advanced+', 'Professional'
-  skillScore: integer("skill_score").notNull().default(100), // 10-200 point scale
+  level: text("level").notNull(), // 'Novice' (10-39), 'Beginner' (40-69), 'Intermediate' (70-109), 'Advanced' (110-159), 'Professional' (160-200)
+  skillScore: integer("skill_score").notNull().default(90), // 10-200 point scale (default: mid-Intermediate)
   gamesPlayed: integer("games_played").notNull().default(0),
   wins: integer("wins").notNull().default(0),
   status: text("status").notNull().default('waiting'), // 'waiting', 'playing'

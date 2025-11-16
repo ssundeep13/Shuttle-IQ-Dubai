@@ -445,22 +445,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const hasHeader = firstLine.includes('name') || firstLine.includes('gender') || firstLine.includes('level');
         const dataLines = hasHeader ? lines.slice(1) : lines;
 
-        // Parse CSV rows (format: externalId, name, gender, level)
+        // Parse CSV rows
+        // Supports multiple formats:
+        // 1. externalId, name, gender, skillScore (numeric)
+        // 2. externalId, name, gender, level (text - legacy)
+        // 3. name, gender, skillScore/level
         playersToImport = dataLines.map((line, index) => {
           const fields = line.split(',').map(f => f.trim());
           if (fields.length < 2) {
             throw new Error(`Invalid CSV format on line ${index + (hasHeader ? 2 : 1)}: expected at least name`);
           }
           
-          // Support both formats:
-          // 1. externalId, name, gender, level
-          // 2. name, gender, level
           const hasExternalId = fields.length >= 4;
+          const skillOrLevel = hasExternalId ? fields[3] : (fields[2] || '50');
+          
+          // Check if last field is numeric (skillScore) or text (level)
+          const isNumeric = !isNaN(Number(skillOrLevel));
+          
           return {
             externalId: hasExternalId ? fields[0] : undefined,
             name: hasExternalId ? fields[1] : fields[0],
             gender: hasExternalId ? fields[2] : (fields[1] || 'Male'),
-            level: hasExternalId ? fields[3] : (fields[2] || 'Beginner')
+            skillScore: isNumeric ? Number(skillOrLevel) : undefined,
+            level: !isNumeric ? skillOrLevel : undefined
           };
         });
       } 
@@ -564,16 +571,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Shared import logic for both CSV and URL sources
+      const { getSkillTier, estimateScoreFromLegacyLevel, MIN_SKILL_SCORE, MAX_SKILL_SCORE } = await import('@shared/utils/skillUtils');
+      
       const importedPlayers = [];
       const skippedPlayers = [];
       
       for (const externalPlayer of playersToImport) {
         try {
+          // Determine skill score and tier
+          let skillScore: number;
+          let level: string;
+          
+          if (externalPlayer.skillScore !== undefined) {
+            // Skill score provided - validate and use it
+            skillScore = Math.max(MIN_SKILL_SCORE, Math.min(MAX_SKILL_SCORE, externalPlayer.skillScore));
+            level = getSkillTier(skillScore);
+          } else if (externalPlayer.level) {
+            // Legacy level text provided - estimate score and normalize tier
+            skillScore = estimateScoreFromLegacyLevel(externalPlayer.level);
+            level = getSkillTier(skillScore);
+          } else {
+            // No skill info - use defaults
+            skillScore = 90; // Default to mid-Intermediate
+            level = 'Intermediate';
+          }
+          
           // Validate and create player
           const playerData = {
             name: externalPlayer.name,
             gender: externalPlayer.gender || 'Male',
-            level: externalPlayer.level || 'Beginner',
+            level,
+            skillScore,
             gamesPlayed: externalPlayer.gamesPlayed || 0,
             wins: externalPlayer.wins || 0,
             status: 'waiting'
@@ -581,23 +609,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           const validated = insertPlayerSchema.parse(playerData);
           
-          // Set initial skill score based on gender + level (10-200 scale)
-          const skillScoreMap: Record<string, number> = {
-            'Novice': validated.gender === 'Female' ? 10 : 20,
-            'Beginner-': validated.gender === 'Female' ? 30 : 40,
-            'Beginner': validated.gender === 'Female' ? 50 : 60,
-            'Beginner+': validated.gender === 'Female' ? 70 : 80,
-            'Intermediate-': validated.gender === 'Female' ? 90 : 100,
-            'Intermediate': validated.gender === 'Female' ? 110 : 120,
-            'Intermediate+': validated.gender === 'Female' ? 130 : 140,
-            'Advanced': validated.gender === 'Female' ? 150 : 160,
-            'Advanced+': validated.gender === 'Female' ? 170 : 180,
-            'Professional': validated.gender === 'Female' ? 190 : 200,
-          };
-          
-          const skillScore = skillScoreMap[validated.level] || 100;
-          
-          const player = await storage.createPlayer({ ...validated, skillScore });
+          const player = await storage.createPlayer(validated);
           
           // Only add to queue if there's a target session (explicit or active)
           if (targetSession) {
@@ -1042,14 +1054,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const winners = winningTeam === 1 ? team1 : team2;
       const losers = winningTeam === 1 ? team2 : team1;
 
-      // Calculate average skill scores for each team (stored as 0-100, so divide by 10 for calculations)
-      const team1AvgSkill = team1.reduce((sum, p) => sum + (p.skillScore || 50), 0) / team1.length / 10;
-      const team2AvgSkill = team2.reduce((sum, p) => sum + (p.skillScore || 50), 0) / team2.length / 10;
+      // Calculate average skill scores for each team (using 10-200 scale)
+      const { calculateSkillAdjustment, calculateTeamAverage, getSkillTier } = await import('@shared/utils/skillUtils');
       
-      // Calculate skill score adjustments
-      // Base adjustment on skill difference and score margin
-      const scoreDiff = Math.abs(team1Score - team2Score);
-      const scoreMarginFactor = Math.min(scoreDiff / 10, 1.5); // Cap at 1.5x multiplier
+      const team1AvgSkill = calculateTeamAverage(team1.map(p => p.skillScore || 50));
+      const team2AvgSkill = calculateTeamAverage(team2.map(p => p.skillScore || 50));
+      
+      // Calculate point differential for skill adjustment
+      const pointDifferential = Math.abs(team1Score - team2Score);
       
       // Track skill score changes for game history
       const participantData: Array<{
@@ -1063,33 +1075,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const isWinner = winners.some(w => w.id === player.id);
         const isTeam1 = player.team === 1;
         
-        const teamSkill = isTeam1 ? team1AvgSkill : team2AvgSkill;
-        const opponentSkill = isTeam1 ? team2AvgSkill : team1AvgSkill;
+        const opponentAvgSkill = isTeam1 ? team2AvgSkill : team1AvgSkill;
         
-        // Calculate skill change based on opponent strength
-        const skillDiff = opponentSkill - teamSkill;
-        let skillChange = 0;
-        
-        if (isWinner) {
-          // Winners gain more points if they beat stronger opponents
-          skillChange = 0.3 + (skillDiff * 0.1);
-          skillChange *= scoreMarginFactor;
-        } else {
-          // Losers lose fewer points if they lost to stronger opponents
-          skillChange = -0.2 - (skillDiff * 0.08);
-          skillChange *= scoreMarginFactor;
-        }
-        
-        // Clamp skill change to reasonable bounds
-        skillChange = Math.max(-1.5, Math.min(1.5, skillChange));
-        
-        // Calculate new skill score in 0-10 scale
-        const currentSkill = (player.skillScore || 50) / 10;
-        const newSkill = Math.max(0, Math.min(10, currentSkill + skillChange));
-        
-        // Store as integer 0-100 scale (multiply by 10)
+        // Calculate new skill score using ELO-style adjustment
         const skillBefore = player.skillScore || 50;
-        const skillAfter = Math.round(newSkill * 10);
+        const skillAfter = calculateSkillAdjustment(
+          skillBefore,
+          opponentAvgSkill,
+          isWinner,
+          pointDifferential
+        );
+        
+        // Get updated tier based on new skill score
+        const newLevel = getSkillTier(skillAfter);
         
         // Track for game history
         participantData.push({
@@ -1103,6 +1101,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           gamesPlayed: player.gamesPlayed + 1,
           wins: isWinner ? player.wins + 1 : player.wins,
           skillScore: skillAfter,
+          level: newLevel,
           status: 'waiting',
         });
       }

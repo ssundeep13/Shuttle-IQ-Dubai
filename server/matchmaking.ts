@@ -183,8 +183,8 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   skillGap: number;
   variance: number;
 } {
-  const team1Skills = team1.map(p => p.skillScore || 100);
-  const team2Skills = team2.map(p => p.skillScore || 100);
+  const team1Skills = team1.map(p => p.skillScore || 90);
+  const team2Skills = team2.map(p => p.skillScore || 90);
 
   const team1Avg = team1Skills.reduce((a, b) => a + b, 0) / team1Skills.length;
   const team2Avg = team2Skills.reduce((a, b) => a + b, 0) / team2Skills.length;
