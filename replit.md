@@ -55,7 +55,27 @@ Preferred communication style: Simple, everyday language.
 
 ### Recent Changes (Nov 2025)
 
-#### Skill Management System Overhaul
+#### Session-Scoping for Multi-Session Support (Nov 16, 2025)
+Implemented full session-scoping to enable viewing and managing non-active sessions:
+1. **Backend API Enhancement**: Updated GET endpoints (`/api/courts`, `/api/queue`, `/api/stats`) to accept optional `sessionId` query parameter with fallback to active session
+2. **Read-Only Historical Sessions**: Mutations (add/remove queue, court updates, game recording) intentionally restricted to active session only for data safety
+3. **Frontend Session-Aware Queries**: Updated queries to include sessionId in both queryKey and queryFn, using `apiRequest` helper for authenticated access
+4. **Cache Isolation**: Query keys include sessionId for proper cache segmentation; invalidations use `exact: false` to refresh all session variants
+5. **URL-Based Session Navigation**: Support for `/session/:sessionId` route to view any session, with automatic fallback to active session when no sessionId provided
+
+**Technical Details**:
+- Modified `server/routes.ts` to parse `sessionId` query parameter on GET endpoints
+- Updated `client/src/pages/Home.tsx` queries to build session-scoped URLs: `/api/courts?sessionId=${session.id}`
+- All queries use `apiRequest('GET', url)` to ensure Authorization headers are included
+- Cache invalidation strategy uses `exact: false` to invalidate all session-scoped query variants
+- Historical sessions are intentionally read-only; only active session can be mutated
+
+**Design Rationale**:
+- Read-only historical view prevents accidental modification of completed sessions
+- Session-scoped queries enable viewing past sessions without data leakage
+- Active session fallback simplifies default behavior and maintains backward compatibility
+
+#### Skill Management System Overhaul (Nov 2025)
 Implemented a comprehensive skill management system with the following improvements:
 1. **Simplified Tier System**: Reduced from 10 tiers to 5 clear tiers with well-defined numeric ranges on a 10-200 point scale
 2. **Auto-Tier Correlation**: Created `skillUtils.ts` with functions for automatic tier assignment based on numeric scores
