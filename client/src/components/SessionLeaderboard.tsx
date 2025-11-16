@@ -1,8 +1,17 @@
-import { Trophy, TrendingUp } from "lucide-react";
+import { Trophy, TrendingUp, ArrowUp, ArrowDown } from "lucide-react";
 import { Player } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface SessionLeaderboardProps {
   sessionId: string;
@@ -24,28 +33,63 @@ const getLevelColor = (level: string) => {
   return 'border-muted bg-muted text-muted-foreground';
 };
 
+type SortBy = 'skill' | 'wins' | 'games' | 'winRate' | 'name';
+type SortOrder = 'asc' | 'desc';
+
 export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
+  const [sortBy, setSortBy] = useState<SortBy>('games');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  
   // Fetch session-specific stats
   const { data: players = [], isLoading } = useQuery<SessionPlayer[]>({
     queryKey: ['/api/stats/session', sessionId],
     enabled: !!sessionId,
   });
   
+  const toggleSortOrder = () => {
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+  };
+  
   const sortPlayers = (playersToSort: SessionPlayer[]) => {
     return [...playersToSort].sort((a, b) => {
-      // Sort by games played in session, then wins in session
       const gamesA = a.gamesPlayedInSession || 0;
       const gamesB = b.gamesPlayedInSession || 0;
       const winsA = a.winsInSession || 0;
       const winsB = b.winsInSession || 0;
+      const skillA = a.skillScore || 100;
+      const skillB = b.skillScore || 100;
+      const winRateA = gamesA === 0 ? 0 : (winsA / gamesA) * 100;
+      const winRateB = gamesB === 0 ? 0 : (winsB / gamesB) * 100;
       
-      if (gamesB !== gamesA) return gamesB - gamesA;
-      if (winsB !== winsA) return winsB - winsA;
-      // Then by skill score
-      const skillA = a.skillScore || 50;
-      const skillB = b.skillScore || 50;
-      if (skillB !== skillA) return skillB - skillA;
-      return a.name.localeCompare(b.name);
+      let comparison = 0;
+      
+      switch (sortBy) {
+        case 'skill':
+          comparison = skillB - skillA;
+          break;
+        case 'wins':
+          comparison = winsB - winsA;
+          break;
+        case 'games':
+          comparison = gamesB - gamesA;
+          break;
+        case 'winRate':
+          comparison = winRateB - winRateA;
+          break;
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+      }
+      
+      // Apply sort order
+      const result = sortOrder === 'desc' ? comparison : -comparison;
+      
+      // If equal, use name as tiebreaker
+      if (result === 0) {
+        return a.name.localeCompare(b.name);
+      }
+      
+      return result;
     });
   };
 
@@ -84,6 +128,33 @@ export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
           <TrendingUp className="w-3 h-3 mr-1" />
           {sortedPlayers.length} Players
         </Badge>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-4 mb-4">
+        <div className="flex items-center gap-2 flex-1">
+          <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">Sort by:</label>
+          <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortBy)}>
+            <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-session-sort-by">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="skill">Skill Score</SelectItem>
+              <SelectItem value="wins">Wins</SelectItem>
+              <SelectItem value="games">Games Played</SelectItem>
+              <SelectItem value="winRate">Win Rate</SelectItem>
+              <SelectItem value="name">Name</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleSortOrder}
+            className="flex-shrink-0"
+            data-testid="button-session-toggle-sort"
+          >
+            {sortOrder === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />}
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-3">

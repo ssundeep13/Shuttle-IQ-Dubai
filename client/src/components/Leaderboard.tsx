@@ -1,4 +1,4 @@
-import { Trophy, Trash2, Calendar, TrendingUp } from "lucide-react";
+import { Trophy, Trash2, Calendar, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +6,13 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface LeaderboardProps {
   players: Player[];
@@ -29,8 +36,13 @@ const getLevelColor = (level: string) => {
   return 'border-muted bg-muted text-muted-foreground';
 };
 
+type SortBy = 'skill' | 'wins' | 'games' | 'winRate' | 'name';
+type SortOrder = 'asc' | 'desc';
+
 export function Leaderboard({ players, onResetStats, onClearAllPlayers }: LeaderboardProps) {
   const [activeTab, setActiveTab] = useState<'all-time' | 'today'>('all-time');
+  const [sortBy, setSortBy] = useState<SortBy>('skill');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   
   // Fetch today's stats
   const { data: todayPlayers = [] } = useQuery<TodayPlayer[]>({
@@ -38,34 +50,53 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
     enabled: activeTab === 'today',
   });
   
+  const toggleSortOrder = () => {
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+  };
+  
   const sortPlayers = (playersToSort: (Player | TodayPlayer)[], isToday: boolean) => {
     return [...playersToSort].sort((a, b) => {
-      if (isToday) {
-        const playerA = a as TodayPlayer;
-        const playerB = b as TodayPlayer;
-        
-        // Sort by games played today, then wins today
-        const gamesA = playerA.gamesPlayedToday || 0;
-        const gamesB = playerB.gamesPlayedToday || 0;
-        const winsA = playerA.winsToday || 0;
-        const winsB = playerB.winsToday || 0;
-        
-        if (gamesB !== gamesA) return gamesB - gamesA;
-        if (winsB !== winsA) return winsB - winsA;
-        // Then by skill score
-        const skillA = a.skillScore || 50;
-        const skillB = b.skillScore || 50;
-        if (skillB !== skillA) return skillB - skillA;
-        return a.name.localeCompare(b.name);
-      } else {
-        // All-time sorting
-        const skillA = a.skillScore || 50;
-        const skillB = b.skillScore || 50;
-        if (skillB !== skillA) return skillB - skillA;
-        if (b.wins !== a.wins) return b.wins - a.wins;
-        if (a.gamesPlayed !== b.gamesPlayed) return a.gamesPlayed - b.gamesPlayed;
+      const playerA = isToday ? a as TodayPlayer : a;
+      const playerB = isToday ? b as TodayPlayer : b;
+      
+      const gamesA = isToday ? (playerA as TodayPlayer).gamesPlayedToday || 0 : a.gamesPlayed;
+      const gamesB = isToday ? (playerB as TodayPlayer).gamesPlayedToday || 0 : b.gamesPlayed;
+      const winsA = isToday ? (playerA as TodayPlayer).winsToday || 0 : a.wins;
+      const winsB = isToday ? (playerB as TodayPlayer).winsToday || 0 : b.wins;
+      const skillA = a.skillScore || 100;
+      const skillB = b.skillScore || 100;
+      const winRateA = gamesA === 0 ? 0 : (winsA / gamesA) * 100;
+      const winRateB = gamesB === 0 ? 0 : (winsB / gamesB) * 100;
+      
+      let comparison = 0;
+      
+      switch (sortBy) {
+        case 'skill':
+          comparison = skillB - skillA;
+          break;
+        case 'wins':
+          comparison = winsB - winsA;
+          break;
+        case 'games':
+          comparison = gamesB - gamesA;
+          break;
+        case 'winRate':
+          comparison = winRateB - winRateA;
+          break;
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+      }
+      
+      // Apply sort order
+      const result = sortOrder === 'desc' ? comparison : -comparison;
+      
+      // If equal, use name as tiebreaker
+      if (result === 0) {
         return a.name.localeCompare(b.name);
       }
+      
+      return result;
     });
   };
 
@@ -171,6 +202,33 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
           >
             <Trash2 className="w-4 h-4 mr-1" />
             Clear All
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-4 mb-6">
+        <div className="flex items-center gap-2 flex-1">
+          <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">Sort by:</label>
+          <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortBy)}>
+            <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-sort-by">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="skill">Skill Score</SelectItem>
+              <SelectItem value="wins">Wins</SelectItem>
+              <SelectItem value="games">Games Played</SelectItem>
+              <SelectItem value="winRate">Win Rate</SelectItem>
+              <SelectItem value="name">Name</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={toggleSortOrder}
+            className="flex-shrink-0"
+            data-testid="button-toggle-sort-order"
+          >
+            {sortOrder === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />}
           </Button>
         </div>
       </div>
