@@ -40,8 +40,8 @@ export default function Admin() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
     },
   });
 

@@ -202,8 +202,8 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
       
       // Invalidate queries to ensure fresh data when session starts
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       
       setImportResult({
         imported: result.added || 0,
@@ -287,8 +287,8 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
       
       // Invalidate queries to ensure fresh data when session starts
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       
       setImportResult({
         imported: result.added || 0,

@@ -83,7 +83,11 @@ export default function Home() {
 
   // Fetch courts with players (only when session exists)
   const { data: courts = [], isLoading: courtsLoading } = useQuery<CourtWithPlayers[]>({
-    queryKey: ['/api/courts'],
+    queryKey: session?.id ? ['/api/courts', session.id] : ['/api/courts'],
+    queryFn: async () => {
+      const url = session?.id ? `/api/courts?sessionId=${session.id}` : '/api/courts';
+      return await apiRequest('GET', url);
+    },
     enabled: hasSession,
   });
 
@@ -95,13 +99,21 @@ export default function Home() {
 
   // Fetch queue (only when session exists)
   const { data: queue = [], isLoading: queueLoading } = useQuery<string[]>({
-    queryKey: ['/api/queue'],
+    queryKey: session?.id ? ['/api/queue', session.id] : ['/api/queue'],
+    queryFn: async () => {
+      const url = session?.id ? `/api/queue?sessionId=${session.id}` : '/api/queue';
+      return await apiRequest('GET', url);
+    },
     enabled: hasSession,
   });
 
   // Fetch stats (only when session exists)
   const { data: stats } = useQuery<AppStats>({
-    queryKey: ['/api/stats'],
+    queryKey: session?.id ? ['/api/stats', session.id] : ['/api/stats'],
+    queryFn: async () => {
+      const url = session?.id ? `/api/stats?sessionId=${session.id}` : '/api/stats';
+      return await apiRequest('GET', url);
+    },
     enabled: hasSession,
   });
 
@@ -149,8 +161,8 @@ export default function Home() {
       return await apiRequest('POST', '/api/courts', { name });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       addNotification(`Court added`, 'success');
     },
     onError: () => {
@@ -163,8 +175,8 @@ export default function Home() {
       return await apiRequest('DELETE', `/api/courts/${courtId}`, null);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       addNotification('Court removed', 'info');
     },
     onError: (error: any) => {
@@ -179,8 +191,8 @@ export default function Home() {
     },
     onSuccess: (data: Player) => {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       addNotification(`${data.name} added to queue`, 'success');
     },
     onError: () => {
@@ -193,7 +205,7 @@ export default function Home() {
       return await apiRequest('PATCH', `/api/courts/${courtId}`, updates);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
     },
     onError: (error: any) => {
       const message = error?.error || error?.message || 'Failed to update court';
@@ -219,10 +231,10 @@ export default function Home() {
       return await apiRequest('POST', `/api/courts/${courtId}/assign`, { teamAssignments });
     },
     onSuccess: (data: any, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       setTeamAssignments((prev) => {
         const newState = { ...prev };
         delete newState[variables.courtId];
@@ -250,10 +262,10 @@ export default function Home() {
       });
     },
     onSuccess: (data: any, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
       addNotification(
         `Game ended! Team ${variables.winningTeam} wins ${variables.team1Score}-${variables.team2Score}`, 
@@ -271,10 +283,10 @@ export default function Home() {
       return await apiRequest('POST', `/api/courts/${courtId}/cancel-game`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       addNotification('Game canceled and players returned to queue', 'info');
     },
     onError: (error: any) => {
@@ -288,8 +300,8 @@ export default function Home() {
       return await apiRequest('PUT', '/api/queue', { playerIds });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
     },
     onError: (error: any) => {
       const message = error?.error || error?.message || 'Failed to update queue';
@@ -302,8 +314,8 @@ export default function Home() {
       return await apiRequest('DELETE', `/api/queue/${playerId}`, null);
     },
     onSuccess: (_, playerId) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       setTeamAssignments((prev) => {
         const newState = { ...prev };
         Object.keys(newState).forEach(courtId => {
@@ -325,8 +337,8 @@ export default function Home() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
     },
     onError: (error: any) => {
       const message = error?.error || error?.message || 'Failed to delete player';
@@ -341,8 +353,8 @@ export default function Home() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       setTeamAssignments({}); // Clear any pending team assignments
       addNotification('All games, stats, and courts have been reset', 'success');
     },
@@ -398,10 +410,10 @@ export default function Home() {
 
       // Invalidate all session-scoped queries
       await queryClient.invalidateQueries({ queryKey: ['/api/sessions/active'] });
-      await queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
       await queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      await queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      await queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      await queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       await queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
       
       setTeamAssignments({});
@@ -723,10 +735,10 @@ export default function Home() {
     const handleSessionCreated = async () => {
       // Invalidate all session-scoped queries
       await queryClient.invalidateQueries({ queryKey: ['/api/sessions/active'] });
-      await queryClient.invalidateQueries({ queryKey: ['/api/courts'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
       await queryClient.invalidateQueries({ queryKey: ['/api/players'] });
-      await queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
-      await queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      await queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       await queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
     };
 

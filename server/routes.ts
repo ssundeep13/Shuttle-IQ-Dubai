@@ -649,11 +649,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Court routes
   app.get("/api/courts", async (req, res) => {
     try {
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.json([]); // Return empty array if no active session
+      // Accept optional sessionId query parameter
+      let sessionId = req.query.sessionId as string | undefined;
+      
+      // If no sessionId provided, fall back to active session
+      if (!sessionId) {
+        const activeSession = await storage.getActiveSession();
+        if (!activeSession) {
+          return res.json([]); // Return empty array if no active session
+        }
+        sessionId = activeSession.id;
       }
-      const courts = await storage.getCourtsWithPlayers(activeSession.id);
+      
+      const courts = await storage.getCourtsWithPlayers(sessionId);
       res.json(courts);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch courts" });
@@ -738,11 +746,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Queue routes
   app.get("/api/queue", async (req, res) => {
     try {
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.json([]); // Return empty array if no active session
+      // Accept optional sessionId query parameter
+      let sessionId = req.query.sessionId as string | undefined;
+      
+      // If no sessionId provided, fall back to active session
+      if (!sessionId) {
+        const activeSession = await storage.getActiveSession();
+        if (!activeSession) {
+          return res.json([]); // Return empty array if no active session
+        }
+        sessionId = activeSession.id;
       }
-      const queue = await storage.getQueue(activeSession.id);
+      
+      const queue = await storage.getQueue(sessionId);
       res.json(queue);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch queue" });
@@ -1178,20 +1194,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Stats endpoint
   app.get("/api/stats", async (req, res) => {
     try {
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.json({
-          activePlayers: 0,
-          inQueue: 0,
-          availableCourts: 0,
-          occupiedCourts: 0,
-          totalPlayers: 0,
-          totalCourts: 0,
-        });
+      // Accept optional sessionId query parameter
+      let sessionId = req.query.sessionId as string | undefined;
+      
+      // If no sessionId provided, fall back to active session
+      if (!sessionId) {
+        const activeSession = await storage.getActiveSession();
+        if (!activeSession) {
+          return res.json({
+            activePlayers: 0,
+            inQueue: 0,
+            availableCourts: 0,
+            occupiedCourts: 0,
+            totalPlayers: 0,
+            totalCourts: 0,
+          });
+        }
+        sessionId = activeSession.id;
       }
 
-      const courts = await storage.getCourtsBySession(activeSession.id);
-      const queue = await storage.getQueue(activeSession.id);
+      const courts = await storage.getCourtsBySession(sessionId);
+      const queue = await storage.getQueue(sessionId);
       
       // Get session-specific players (those in the queue for this session)
       // Note: queue is already an array of player IDs
