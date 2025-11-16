@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X } from "lucide-react";
 import { insertSessionSchema } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface SessionSetupWizardProps {
   onSessionCreated: () => void;
@@ -200,6 +200,11 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
         sessionId: createdSessionId 
       });
       
+      // Invalidate queries to ensure fresh data when session starts
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      
       setImportResult({
         imported: result.added || 0,
         skipped: result.duplicates || 0
@@ -279,6 +284,11 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
         csvContent,
         sessionId: createdSessionId 
       });
+      
+      // Invalidate queries to ensure fresh data when session starts
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
       
       setImportResult({
         imported: result.added || 0,
