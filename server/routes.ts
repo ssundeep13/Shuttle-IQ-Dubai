@@ -168,6 +168,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const validated = insertSessionSchema.parse(requestData);
+      
+      // Check if creating an active session when one already exists
+      if (validated.status === 'active') {
+        const existingActiveSession = await storage.getActiveSession();
+        if (existingActiveSession) {
+          return res.status(409).json({ 
+            error: "An active session already exists", 
+            details: `Please end the current session (${existingActiveSession.venueName}) before creating a new one`,
+            existingSession: existingActiveSession
+          });
+        }
+      }
+      
       const session = await storage.createSession(validated);
       
       // DO NOT auto-add all players to the queue
@@ -221,6 +234,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const session = await storage.getSession(req.params.id);
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
+      }
+
+      // Check if updating to active status when one already exists
+      if (req.body.status === 'active') {
+        const existingActiveSession = await storage.getActiveSession();
+        if (existingActiveSession && existingActiveSession.id !== req.params.id) {
+          return res.status(409).json({ 
+            error: "An active session already exists", 
+            details: `Please end the current session (${existingActiveSession.venueName}) before activating this one`,
+            existingSession: existingActiveSession
+          });
+        }
       }
 
       // Update session (currently only supports status updates)

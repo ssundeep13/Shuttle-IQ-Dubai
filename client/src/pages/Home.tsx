@@ -419,6 +419,9 @@ export default function Home() {
       setTeamAssignments({});
       setShowEndSessionConfirm(false);
       addNotification('Session ended successfully', 'success');
+      
+      // Navigate to admin page after ending session
+      navigate('/admin');
     },
     onError: (error: any) => {
       const message = error?.error || error?.message || 'Failed to end session';
