@@ -55,6 +55,35 @@ Preferred communication style: Simple, everyday language.
 
 ### Recent Changes (Nov 2025)
 
+#### Smart Suggestions Feature (Nov 22, 2025)
+Implemented AI-powered lineup recommendations displayed on the session dashboard:
+1. **Backend Endpoint**: Added GET `/api/matchmaking/suggestions` returning top 5 balanced team combinations
+   - Uses existing matchmaking algorithm (`generateAllMatchupOptions`)
+   - Protected with `requireAuth` middleware for security
+   - Accepts optional `sessionId` query parameter for historical session support
+   - Returns suggestions, rest warnings, and queue size
+2. **SuggestedLineups Component**: Card-based UI showing team combinations with:
+   - Balance indicators: Perfect Match (< 5 gap), Balanced (< 10 gap), Competitive (≥ 10 gap)
+   - Team composition with player names and skill levels
+   - Skill gap metrics and team averages
+   - One-click "Assign to Court" buttons (active sessions only)
+   - Collapsible section with toggle
+3. **Auto-Refresh Logic**: Query keys include sessionId and queue player IDs for automatic refresh when queue changes
+4. **Read-Only Mode**: Historical sessions display "Read-only" message instead of assign buttons
+5. **Error Handling**: Distinct states for loading, errors, and empty results
+
+**Technical Details**:
+- Frontend uses `apiRequest('GET', url)` with Authorization headers for authenticated access
+- Backend enforces single active session rule and proper auth on all mutations
+- Query cache isolation via session-scoped keys: `['/api/matchmaking/suggestions', sessionId, queueIds]`
+- Assignment flow: finds first available court, calls `assignPlayersMutation`, invalidates cache
+
+**Design Rationale**:
+- Reduces operator decision fatigue by surfacing optimal matchups automatically
+- One-click assignment streamlines workflow and reduces manual team building
+- Balance indicators help operators choose appropriate competition level
+- Auto-refresh ensures suggestions stay current with queue changes
+
 #### Session-Scoping for Multi-Session Support (Nov 16, 2025)
 Implemented full session-scoping to enable viewing and managing non-active sessions:
 1. **Backend API Enhancement**: Updated GET endpoints (`/api/courts`, `/api/queue`, `/api/stats`) to accept optional `sessionId` query parameter with fallback to active session
