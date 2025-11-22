@@ -118,7 +118,7 @@ export function CourtCard({
             <div className="grid grid-cols-2 gap-2">
               <div
                 className={cn(
-                  "p-3 rounded-md border-2 transition-all",
+                  "p-3 rounded-md border-2 transition-colors duration-200",
                   court.winningTeam === 1
                     ? "bg-success/10 border-success"
                     : "bg-primary/5 border-primary/20"
@@ -141,7 +141,7 @@ export function CourtCard({
               </div>
               <div
                 className={cn(
-                  "p-3 rounded-md border-2 transition-all",
+                  "p-3 rounded-md border-2 transition-colors duration-200",
                   court.winningTeam === 2
                     ? "bg-success/10 border-success"
                     : "bg-chart-2/5 border-chart-2/20"
