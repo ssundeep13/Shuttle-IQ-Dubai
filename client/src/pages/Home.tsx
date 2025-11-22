@@ -135,8 +135,8 @@ export default function Home() {
           if (newTime === 0) {
             addNotification(`Time's up for ${court.name}!`, 'warning');
           }
-          // Update court time remaining
-          updateCourtMutation.mutate({ 
+          // Update court time remaining using dedicated timer mutation
+          updateCourtTimerMutation.mutate({ 
             courtId: court.id, 
             updates: { timeRemaining: newTime } 
           });
@@ -205,12 +205,61 @@ export default function Home() {
     mutationFn: async ({ courtId, updates }: { courtId: string; updates: Partial<CourtWithPlayers> }) => {
       return await apiRequest('PATCH', `/api/courts/${courtId}`, updates);
     },
+    onMutate: async ({ courtId, updates }) => {
+      // Determine the correct query key to match the courts query
+      const queryKey = session?.id ? ['/api/courts', session.id] : ['/api/courts'];
+
+      // Cancel any outgoing refetches to prevent optimistic update from being overwritten
+      await queryClient.cancelQueries({ queryKey, exact: true });
+
+      // Snapshot the previous value for rollback
+      const previousCourts = queryClient.getQueryData<CourtWithPlayers[]>(queryKey);
+
+      // Optimistically update the court in the cache
+      queryClient.setQueryData<CourtWithPlayers[]>(
+        queryKey,
+        (old) => {
+          if (!old) return old;
+          return old.map((court) =>
+            court.id === courtId ? { ...court, ...updates } : court
+          );
+        }
+      );
+
+      // Return context with snapshot and query key for rollback
+      return { previousCourts, queryKey };
+    },
+    onError: (error: any, variables, context) => {
+      // Rollback to previous state on error
+      if (context?.previousCourts && context?.queryKey) {
+        queryClient.setQueryData(context.queryKey, context.previousCourts);
+      }
+      const message = error?.error || error?.message || 'Failed to update court';
+      addNotification(message, 'danger');
+    },
+    onSettled: () => {
+      // Invalidate inactive queries to keep other tabs/views in sync
+      // Only refetch queries that are not currently being used (inactive)
+      // This keeps the active tab stable while updating background tabs
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/courts'], 
+        exact: false,
+        refetchType: 'inactive'
+      });
+    },
+  });
+
+  // Separate mutation for timer updates to avoid conflicts with winner selection
+  const updateCourtTimerMutation = useMutation({
+    mutationFn: async ({ courtId, updates }: { courtId: string; updates: Partial<CourtWithPlayers> }) => {
+      return await apiRequest('PATCH', `/api/courts/${courtId}`, updates);
+    },
+    // No optimistic updates for timer - just let it update normally
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
     },
-    onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to update court';
-      addNotification(message, 'danger');
+    onError: () => {
+      // Silent failure for timer updates - not critical for UX
     },
   });
 
