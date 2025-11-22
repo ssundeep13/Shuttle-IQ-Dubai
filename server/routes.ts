@@ -898,6 +898,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get matchmaking suggestions for display (top 3-5 options)
+  app.get("/api/matchmaking/suggestions", requireAuth, async (req, res) => {
+    try {
+      const sessionId = req.query.sessionId as string | undefined;
+      
+      // Get the session - either specific session or active session
+      let session;
+      if (sessionId) {
+        session = await storage.getSession(sessionId);
+        if (!session) {
+          return res.status(404).json({ error: "Session not found" });
+        }
+      } else {
+        session = await storage.getActiveSession();
+        if (!session) {
+          return res.status(404).json({ error: "No active session" });
+        }
+      }
+
+      // Get queue and all players
+      const queue = await storage.getQueue(session.id);
+      const allPlayers = await storage.getAllPlayers();
+
+      if (queue.length < 4) {
+        return res.json({ 
+          suggestions: [],
+          restWarnings: [],
+          queueSize: queue.length,
+          message: `Need ${4 - queue.length} more players in queue`
+        });
+      }
+
+      // Build rest states from game history
+      const gameParticipants = await storage.getSessionGameParticipants(session.id);
+      buildRestStatesFromHistory(session.id, gameParticipants, queue);
+
+      // Generate top 5 matchup options
+      const { allCombinations, restWarnings } = generateAllMatchupOptions(
+        session.id,
+        queue,
+        allPlayers,
+        5 // Return top 5 suggestions
+      );
+
+      res.json({
+        suggestions: allCombinations,
+        restWarnings,
+        queueSize: queue.length
+      });
+    } catch (error) {
+      console.error('Matchmaking suggestions error:', error);
+      res.status(500).json({ error: "Failed to generate suggestions" });
+    }
+  });
+
   // Game management routes
   app.post("/api/courts/:courtId/assign", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {

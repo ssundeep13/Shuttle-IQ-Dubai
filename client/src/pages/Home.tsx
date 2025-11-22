@@ -14,6 +14,7 @@ import { AutoAssignConfirmDialog } from "@/components/AutoAssignConfirmDialog";
 import { NotificationToast } from "@/components/NotificationToast";
 import { SessionSetupWizard } from "@/components/SessionSetupWizard";
 import { SessionLeaderboard } from "@/components/SessionLeaderboard";
+import { SuggestedLineups } from "@/components/SuggestedLineups";
 import { useActiveSession } from "@/hooks/use-active-session";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -557,6 +558,24 @@ export default function Home() {
     setAutoAssignData(null);
   };
 
+  const handleSuggestionAssign = (team1Ids: string[], team2Ids: string[]) => {
+    const availableCourt = courts.find((c) => c.status === 'available');
+    if (!availableCourt) {
+      addNotification('No available courts', 'warning');
+      return;
+    }
+    
+    const assignments = [
+      ...team1Ids.map(playerId => ({ playerId, team: 1 })),
+      ...team2Ids.map(playerId => ({ playerId, team: 2 })),
+    ];
+    
+    assignPlayersMutation.mutate({ 
+      courtId: availableCourt.id, 
+      teamAssignments: assignments 
+    });
+  };
+
   const handleReassignTeams = () => {
     if (!autoAssignData) return;
 
@@ -819,18 +838,27 @@ export default function Home() {
 
         <div className="space-y-6">
           {activeTab === 'courts' && (
-            <CourtManagement
-              courts={courts}
-              queuePlayers={queuePlayers}
-              teamAssignments={teamAssignments}
-              onAddCourt={handleAddCourt}
-              onRemoveCourt={handleRemoveCourt}
-              onTogglePlayerSelection={handleTogglePlayerSelection}
-              onAssignPlayers={handleAssignPlayers}
-              onSelectWinningTeam={handleSelectWinningTeam}
-              onEndGame={handleEndGame}
-              onCancelGame={handleCancelGame}
-            />
+            <>
+              <SuggestedLineups
+                queuePlayerIds={queue}
+                availableCourts={courts.filter(c => c.status === 'available').length}
+                onAssign={handleSuggestionAssign}
+                isActiveSession={!urlSessionId || session?.status === 'active'}
+                sessionId={session?.id}
+              />
+              <CourtManagement
+                courts={courts}
+                queuePlayers={queuePlayers}
+                teamAssignments={teamAssignments}
+                onAddCourt={handleAddCourt}
+                onRemoveCourt={handleRemoveCourt}
+                onTogglePlayerSelection={handleTogglePlayerSelection}
+                onAssignPlayers={handleAssignPlayers}
+                onSelectWinningTeam={handleSelectWinningTeam}
+                onEndGame={handleEndGame}
+                onCancelGame={handleCancelGame}
+              />
+            </>
           )}
 
           {activeTab === 'queue' && (
