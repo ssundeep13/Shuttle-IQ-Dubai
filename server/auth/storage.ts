@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { adminUsers, authSessions, type InsertAdminUser, type AdminUser, type AuthSession } from "@shared/schema";
-import { eq, lt } from "drizzle-orm";
+import { eq, lt, gt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { hashPassword } from "./utils";
 import bcrypt from "bcryptjs";
@@ -41,8 +41,9 @@ export async function createAuthSession(adminUserId: string, refreshToken: strin
 }
 
 export async function findAuthSession(refreshToken: string): Promise<AuthSession | null> {
-  // Get all sessions for potential matching
-  const sessions = await db.select().from(authSessions);
+  // Query only non-expired sessions (filter in database, not delete)
+  const sessions = await db.select().from(authSessions)
+    .where(gt(authSessions.expiresAt, new Date()));
   
   // Check each session's hashed token
   for (const session of sessions) {
@@ -53,6 +54,10 @@ export async function findAuthSession(refreshToken: string): Promise<AuthSession
   }
   
   return null;
+}
+
+export async function deleteSessionsForUser(adminUserId: string): Promise<void> {
+  await db.delete(authSessions).where(eq(authSessions.adminUserId, adminUserId));
 }
 
 export async function deleteAuthSession(refreshToken: string): Promise<void> {

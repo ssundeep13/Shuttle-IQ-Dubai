@@ -20,6 +20,7 @@ import {
   createAuthSession,
   findAuthSession,
   deleteAuthSession,
+  deleteSessionsForUser,
   findAdminById,
   seedAdminUser
 } from "./auth/storage";
@@ -58,6 +59,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await updateAdminLastLogin(admin.id);
+      
+      // Delete any existing sessions for this user to prevent session conflicts
+      await deleteSessionsForUser(admin.id);
 
       const payload = {
         userId: admin.id,
