@@ -32,7 +32,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search, UserPlus, Users, Trophy, Target, Check } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -312,7 +311,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
               </div>
             )}
 
-            <ScrollArea className="flex-1 min-h-[200px] max-h-[50vh] border rounded-md">
+            <div className="flex-1 min-h-[200px] max-h-[50vh] border rounded-md overflow-y-auto">
               {isLoadingPlayers ? (
                 <div className="p-4 text-center text-muted-foreground">
                   Loading players...
@@ -381,7 +380,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
                   })}
                 </div>
               )}
-            </ScrollArea>
+            </div>
 
             <DialogFooter>
               <Button 
