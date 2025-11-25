@@ -937,6 +937,8 @@ export default function Home() {
         open={showAddPlayer}
         onClose={() => setShowAddPlayer(false)}
         onAddPlayer={handleAddPlayer}
+        sessionId={session?.id}
+        queuePlayerIds={queue}
       />
 
       <ImportPlayersModal
