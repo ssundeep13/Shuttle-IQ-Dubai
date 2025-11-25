@@ -860,7 +860,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto p-6 space-y-6 text-[#F2ECE1]">
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
         <Header 
           stats={stats || defaultStats}
           session={session}
