@@ -55,6 +55,27 @@ Preferred communication style: Simple, everyday language.
 
 ### Recent Changes (Nov 2025)
 
+#### Extended Authentication Sessions (Nov 25, 2025)
+Improved JWT authentication for longer, more reliable admin sessions:
+1. **Extended Access Tokens**: Access tokens now expire after 4 hours (previously 15 minutes)
+2. **Automatic Token Refresh**: Proactive refresh every 3.5 hours before expiry
+3. **Session Recovery**: Visibility change and focus event detection to recover sessions when returning to the app
+4. **Session Expiry Notification**: Clear toast message when session expires with prompt to log in again
+5. **Stable Fetch Wrapper**: Using refs for consistent fetch override without race conditions
+6. **Session Cleanup on Login**: Deletes old sessions for user before creating new one
+
+**Technical Details**:
+- Access token: `expiresIn: '4h'`, Refresh token: 7 days
+- Token timestamp tracking to skip refresh on fresh login
+- Debouncing prevents multiple simultaneous refresh attempts
+- `findAuthSession` filters by expiry in query to avoid race conditions
+- All refresh failure paths show notification
+
+**Design Rationale**:
+- 4-hour sessions reduce friction for extended badminton events
+- Proactive refresh maintains seamless experience without re-login
+- Session cleanup prevents stale token conflicts
+
 #### Smart Suggestions Feature (Nov 22, 2025)
 Implemented AI-powered lineup recommendations displayed on the session dashboard:
 1. **Backend Endpoint**: Added GET `/api/matchmaking/suggestions` returning top 5 balanced team combinations
