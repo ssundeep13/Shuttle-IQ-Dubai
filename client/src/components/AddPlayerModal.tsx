@@ -312,7 +312,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
               </div>
             )}
 
-            <ScrollArea className="flex-1 min-h-[200px] max-h-[300px] border rounded-md">
+            <ScrollArea className="flex-1 min-h-[200px] max-h-[50vh] border rounded-md">
               {isLoadingPlayers ? (
                 <div className="p-4 text-center text-muted-foreground">
                   Loading players...
