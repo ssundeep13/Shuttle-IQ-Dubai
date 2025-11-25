@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -145,7 +146,16 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <p className="font-semibold text-foreground text-base sm:text-lg truncate">{player.name}</p>
+                    <Link href={`/player/${player.id}`}>
+                      <span className="font-semibold text-foreground text-base sm:text-lg truncate hover:underline cursor-pointer">
+                        {player.name}
+                      </span>
+                    </Link>
+                    {player.shuttleIqId && (
+                      <Badge variant="outline" className="text-xs">
+                        {player.shuttleIqId}
+                      </Badge>
+                    )}
                     <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
                       {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
                     </Badge>

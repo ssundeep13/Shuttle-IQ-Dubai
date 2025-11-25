@@ -133,7 +133,14 @@ export function PlayerQueue({
                   {index + 1}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-foreground truncate">{player.name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-foreground truncate">{player.name}</p>
+                    {player.shuttleIqId && (
+                      <Badge variant="outline" className="text-xs">
+                        {player.shuttleIqId}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-2 mt-1">
                     <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
                       {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}

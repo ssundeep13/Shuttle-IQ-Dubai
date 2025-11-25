@@ -11,6 +11,8 @@ import NotFound from "@/pages/not-found";
 import Login from "@/pages/Login";
 import Admin from "@/pages/Admin";
 import SessionsManagement from "@/pages/SessionsManagement";
+import PlayerProfile from "@/pages/PlayerProfile";
+import PlayerRegistry from "@/pages/PlayerRegistry";
 
 function Router() {
   return (
@@ -18,6 +20,12 @@ function Router() {
       <Route path="/" component={RootRedirect}/>
       <Route path="/login" component={Login} />
       <Route path="/session/:id" component={Home}/>
+      <Route path="/player/:id" component={PlayerProfile}/>
+      <Route path="/admin/players">
+        <ProtectedRoute>
+          <PlayerRegistry />
+        </ProtectedRoute>
+      </Route>
       <Route path="/admin/sessions">
         <ProtectedRoute>
           <SessionsManagement />

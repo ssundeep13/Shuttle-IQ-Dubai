@@ -336,6 +336,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/players/search", async (req, res) => {
+    try {
+      const query = req.query.q as string || '';
+      if (!query) {
+        return res.json([]);
+      }
+      const players = await storage.searchPlayers(query);
+      res.json(players);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to search players" });
+    }
+  });
+
   app.get("/api/players/:id", async (req, res) => {
     try {
       const player = await storage.getPlayer(req.params.id);
@@ -345,6 +358,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(player);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch player" });
+    }
+  });
+
+  app.get("/api/players/:id/stats", async (req, res) => {
+    try {
+      const stats = await storage.getPlayerStats(req.params.id);
+      if (!stats) {
+        return res.status(404).json({ error: "Player not found" });
+      }
+      res.json(stats);
+    } catch (error) {
+      console.error('Player stats error:', error);
+      res.status(500).json({ error: "Failed to fetch player stats" });
     }
   });
 

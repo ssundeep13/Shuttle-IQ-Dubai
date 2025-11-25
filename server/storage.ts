@@ -8,6 +8,7 @@ import {
   type Session,
   type InsertSession,
   type GameParticipant,
+  type PlayerStats,
   players,
   courts,
   courtPlayers as courtPlayersTable,
@@ -17,7 +18,7 @@ import {
   gameParticipants
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, sql, asc, like } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -27,6 +28,27 @@ function addSkidToPlayer(player: typeof players.$inferSelect): Player {
     ...player,
     skid: Math.floor(player.skillScore / 10)
   };
+}
+
+// Helper function to generate the next ShuttleIQ ID
+async function generateShuttleIqId(): Promise<string> {
+  // Get the highest existing ShuttleIQ ID number
+  const result = await db.select({ shuttleIqId: players.shuttleIqId })
+    .from(players)
+    .where(sql`${players.shuttleIqId} IS NOT NULL`)
+    .orderBy(desc(players.shuttleIqId))
+    .limit(1);
+  
+  let nextNumber = 1;
+  if (result.length > 0 && result[0].shuttleIqId) {
+    // Extract number from "SIQ-00001" format
+    const match = result[0].shuttleIqId.match(/SIQ-(\d+)/);
+    if (match) {
+      nextNumber = parseInt(match[1], 10) + 1;
+    }
+  }
+  
+  return `SIQ-${nextNumber.toString().padStart(5, '0')}`;
 }
 
 export interface IStorage {
@@ -42,10 +64,13 @@ export interface IStorage {
   // Player operations (global)
   getPlayer(id: string): Promise<Player | undefined>;
   getPlayerByExternalId(externalId: string): Promise<Player | undefined>;
+  getPlayerByShuttleIqId(shuttleIqId: string): Promise<Player | undefined>;
   getAllPlayers(): Promise<Player[]>;
+  searchPlayers(query: string): Promise<Player[]>;
   createPlayer(player: InsertPlayer): Promise<Player>;
   updatePlayer(id: string, updates: Partial<Player>): Promise<Player | undefined>;
   deletePlayer(id: string): Promise<boolean>;
+  getPlayerStats(playerId: string): Promise<PlayerStats | null>;
   
   // Court operations (session-specific)
   getCourt(id: string): Promise<Court | undefined>;
@@ -204,18 +229,38 @@ export class DatabaseStorage implements IStorage {
     return player ? addSkidToPlayer(player) : undefined;
   }
 
+  async getPlayerByShuttleIqId(shuttleIqId: string): Promise<Player | undefined> {
+    const [player] = await db
+      .select()
+      .from(players)
+      .where(eq(players.shuttleIqId, shuttleIqId));
+    return player ? addSkidToPlayer(player) : undefined;
+  }
+
   async getAllPlayers(): Promise<Player[]> {
-    const playerList = await db.select().from(players);
+    const playerList = await db.select().from(players).orderBy(asc(players.name));
+    return playerList.map(addSkidToPlayer);
+  }
+
+  async searchPlayers(query: string): Promise<Player[]> {
+    const lowerQuery = `%${query.toLowerCase()}%`;
+    const playerList = await db
+      .select()
+      .from(players)
+      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${`%${query.toUpperCase()}%`}`)
+      .orderBy(asc(players.name));
     return playerList.map(addSkidToPlayer);
   }
 
   async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
     const id = randomUUID();
+    const shuttleIqId = await generateShuttleIqId();
     const [player] = await db
       .insert(players)
       .values({ 
         ...insertPlayer, 
         id,
+        shuttleIqId,
         status: insertPlayer.status || 'waiting',
         gamesPlayed: insertPlayer.gamesPlayed || 0,
         wins: insertPlayer.wins || 0
@@ -243,6 +288,119 @@ export class DatabaseStorage implements IStorage {
     // Delete the player
     const result = await db.delete(players).where(eq(players.id, id)).returning();
     return result.length > 0;
+  }
+
+  async getPlayerStats(playerId: string): Promise<PlayerStats | null> {
+    const player = await this.getPlayer(playerId);
+    if (!player) return null;
+
+    // Get all games this player participated in
+    const playerGames = await db
+      .select()
+      .from(gameParticipants)
+      .where(eq(gameParticipants.playerId, playerId));
+    
+    if (playerGames.length === 0) {
+      return {
+        player,
+        winRate: 0,
+        totalGames: player.gamesPlayed,
+        totalWins: player.wins,
+        bestPartner: null,
+        recentGames: []
+      };
+    }
+
+    const gameIds = playerGames.map(g => g.gameId);
+    
+    // Get game results for these games
+    const games = await db
+      .select()
+      .from(gameResults)
+      .where(inArray(gameResults.id, gameIds))
+      .orderBy(desc(gameResults.createdAt));
+
+    // Get all participants for these games
+    const allParticipants = await db
+      .select()
+      .from(gameParticipants)
+      .where(inArray(gameParticipants.gameId, gameIds));
+
+    // Calculate partner win counts
+    const partnerWins: Record<string, number> = {};
+    
+    for (const game of games) {
+      const gameParticipantsList = allParticipants.filter(p => p.gameId === game.id);
+      const playerInGame = gameParticipantsList.find(p => p.playerId === playerId);
+      if (!playerInGame) continue;
+      
+      const playerTeam = playerInGame.team;
+      const isWin = game.winningTeam === playerTeam;
+      
+      if (isWin) {
+        // Find partner (same team, different player)
+        const partner = gameParticipantsList.find(
+          p => p.team === playerTeam && p.playerId !== playerId
+        );
+        if (partner) {
+          partnerWins[partner.playerId] = (partnerWins[partner.playerId] || 0) + 1;
+        }
+      }
+    }
+
+    // Find best partner
+    let bestPartner: PlayerStats['bestPartner'] = null;
+    let maxWins = 0;
+    for (const [partnerId, wins] of Object.entries(partnerWins)) {
+      if (wins > maxWins) {
+        maxWins = wins;
+        const partnerPlayer = await this.getPlayer(partnerId);
+        if (partnerPlayer) {
+          bestPartner = { player: partnerPlayer, winsTogether: wins };
+        }
+      }
+    }
+
+    // Get player list for recent games display
+    const playerIds = Array.from(new Set(allParticipants.map(p => p.playerId)));
+    const playerList = await db
+      .select()
+      .from(players)
+      .where(inArray(players.id, playerIds));
+    const playerMap = new Map(playerList.map(p => [p.id, p]));
+
+    // Build recent games list (last 10)
+    const recentGames: PlayerStats['recentGames'] = games.slice(0, 10).map(game => {
+      const gameParticipantsList = allParticipants.filter(p => p.gameId === game.id);
+      const playerInGame = gameParticipantsList.find(p => p.playerId === playerId)!;
+      const playerTeam = playerInGame.team;
+      
+      const partner = gameParticipantsList.find(
+        p => p.team === playerTeam && p.playerId !== playerId
+      );
+      const opponents = gameParticipantsList.filter(
+        p => p.team !== playerTeam
+      );
+
+      return {
+        gameId: game.id,
+        sessionId: game.sessionId,
+        partnerName: partner ? (playerMap.get(partner.playerId)?.name || 'Unknown') : 'Solo',
+        opponentNames: opponents.map(o => playerMap.get(o.playerId)?.name || 'Unknown'),
+        won: game.winningTeam === playerTeam,
+        score: `${game.team1Score}-${game.team2Score}`,
+        date: game.createdAt
+      };
+    });
+
+    return {
+      player,
+      winRate: player.gamesPlayed > 0 ? Math.round((player.wins / player.gamesPlayed) * 100) : 0,
+      totalGames: player.gamesPlayed,
+      totalWins: player.wins,
+      bestPartner,
+      recentGames
+    };
   }
 
   // Court operations

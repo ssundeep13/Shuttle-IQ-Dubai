@@ -21,6 +21,7 @@ export type Session = typeof sessions.$inferSelect;
 // Player schema (global player registry)
 export const players = pgTable("players", {
   id: varchar("id").primaryKey(),
+  shuttleIqId: text("shuttle_iq_id").unique(), // Human-readable unique ID (e.g., "SIQ-00001")
   externalId: text("external_id"), // Optional unique identifier for cross-venue tracking (e.g., membership ID)
   name: text("name").notNull(),
   gender: text("gender").notNull(), // 'Male', 'Female'
@@ -29,13 +30,32 @@ export const players = pgTable("players", {
   gamesPlayed: integer("games_played").notNull().default(0),
   wins: integer("wins").notNull().default(0),
   status: text("status").notNull().default('waiting'), // 'waiting', 'playing'
+  createdAt: timestamp("created_at").notNull().defaultNow(), // When player was first registered
 });
 
-export const insertPlayerSchema = createInsertSchema(players).omit({ id: true });
+export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, shuttleIqId: true, createdAt: true });
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
 export type Player = typeof players.$inferSelect & {
   skid?: number; // Computed SKID (1-20), derived from skillScore / 10
 };
+
+// Player profile statistics (computed from game history)
+export interface PlayerStats {
+  player: Player;
+  winRate: number;
+  totalGames: number;
+  totalWins: number;
+  bestPartner: { player: Player; winsTogether: number } | null;
+  recentGames: Array<{
+    gameId: string;
+    sessionId: string;
+    partnerName: string;
+    opponentNames: string[];
+    won: boolean;
+    score: string;
+    date: Date;
+  }>;
+}
 
 // Court schema (session-specific courts)
 export const courts = pgTable("courts", {

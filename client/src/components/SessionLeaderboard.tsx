@@ -178,6 +178,11 @@ export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <p className="font-semibold text-foreground text-base sm:text-lg truncate">{player.name}</p>
+                    {player.shuttleIqId && (
+                      <Badge variant="outline" className="text-xs">
+                        {player.shuttleIqId}
+                      </Badge>
+                    )}
                     <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
                       {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
                     </Badge>

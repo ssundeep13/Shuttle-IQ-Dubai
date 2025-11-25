@@ -100,6 +100,14 @@ export default function Admin() {
           <div className="flex items-center gap-2">
             <Button 
               variant="outline" 
+              onClick={() => navigate('/admin/players')}
+              data-testid="button-players-registry"
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Players
+            </Button>
+            <Button 
+              variant="outline" 
               onClick={() => navigate('/admin/sessions')}
               data-testid="button-sessions"
             >
