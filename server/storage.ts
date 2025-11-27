@@ -382,6 +382,10 @@ export class DatabaseStorage implements IStorage {
         p => p.team !== playerTeam
       );
 
+      const pointsChange = playerInGame.skillScoreAfter - playerInGame.skillScoreBefore;
+      const pointsGained = pointsChange > 0 ? pointsChange : 0;
+      const pointsLost = pointsChange < 0 ? Math.abs(pointsChange) : 0;
+
       return {
         gameId: game.id,
         sessionId: game.sessionId,
@@ -389,7 +393,9 @@ export class DatabaseStorage implements IStorage {
         opponentNames: opponents.map(o => playerMap.get(o.playerId)?.name || 'Unknown'),
         won: game.winningTeam === playerTeam,
         score: `${game.team1Score}-${game.team2Score}`,
-        date: game.createdAt
+        date: game.createdAt,
+        pointsGained: pointsGained > 0 ? pointsGained : undefined,
+        pointsLost: pointsLost > 0 ? pointsLost : undefined
       };
     });
 

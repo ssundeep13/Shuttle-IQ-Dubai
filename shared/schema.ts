@@ -54,6 +54,8 @@ export interface PlayerStats {
     won: boolean;
     score: string;
     date: Date;
+    pointsGained?: number;
+    pointsLost?: number;
   }>;
 }
 

@@ -194,8 +194,22 @@ export default function PlayerProfile() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      {new Date(game.date).toLocaleDateString()}
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="text-sm text-muted-foreground">
+                        {new Date(game.date).toLocaleDateString()}
+                      </div>
+                      <div className="flex gap-2">
+                        {game.pointsGained ? (
+                          <span className="text-xs font-medium text-green-600 dark:text-green-400">
+                            +{game.pointsGained}
+                          </span>
+                        ) : null}
+                        {game.pointsLost ? (
+                          <span className="text-xs font-medium text-red-600 dark:text-red-400">
+                            -{game.pointsLost}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 ))}
