@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Trophy, Target, Users, TrendingUp, Calendar, CheckCircle2, XCircle } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { formatSkillLevel } from "@shared/utils/skillUtils";
 import type { PlayerStats } from "@shared/schema";
 
@@ -62,6 +63,17 @@ export default function PlayerProfile() {
   }
 
   const { player, winRate, totalGames, totalWins, bestPartner, recentGames } = stats;
+
+  // Build chart data from recent games (oldest first for chronological order)
+  const chartData = recentGames
+    .slice()
+    .reverse()
+    .map((game, index) => ({
+      gameNumber: index + 1,
+      score: game.pointsLost ? game.pointsLost * -1 : game.pointsGained || 0,
+      // Note: We don't have skillScoreBefore directly, but we can track it from the points changes
+      // Starting from current score and working backwards
+    }));
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
@@ -156,6 +168,54 @@ export default function PlayerProfile() {
                 <Badge variant="secondary" data-testid="badge-partner-wins">
                   {bestPartner.winsTogether} wins together
                 </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {recentGames.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Skill Score Progression
+              </CardTitle>
+              <CardDescription>
+                Points gained and lost over recent games
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="w-full h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData} margin={{ top: 5, right: 30, left: -20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis 
+                      dataKey="gameNumber" 
+                      label={{ value: 'Game #', position: 'insideBottomRight', offset: -5 }}
+                      stroke="var(--muted-foreground)"
+                    />
+                    <YAxis 
+                      label={{ value: 'Points Change', angle: -90, position: 'insideLeft' }}
+                      stroke="var(--muted-foreground)"
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'var(--card)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px'
+                      }}
+                      formatter={(value: number) => value > 0 ? `+${value}` : `${value}`}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="score" 
+                      stroke="var(--primary)" 
+                      dot={{ fill: 'var(--primary)', r: 4 }}
+                      activeDot={{ r: 6 }}
+                      strokeWidth={2}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
