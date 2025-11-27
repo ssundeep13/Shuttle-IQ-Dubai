@@ -56,6 +56,8 @@ export interface PlayerStats {
     date: Date;
     pointsGained?: number;
     pointsLost?: number;
+    skillScoreBefore?: number;
+    skillScoreAfter?: number;
   }>;
 }
 

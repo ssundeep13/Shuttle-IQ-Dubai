@@ -395,7 +395,9 @@ export class DatabaseStorage implements IStorage {
         score: `${game.team1Score}-${game.team2Score}`,
         date: game.createdAt,
         pointsGained: pointsGained > 0 ? pointsGained : undefined,
-        pointsLost: pointsLost > 0 ? pointsLost : undefined
+        pointsLost: pointsLost > 0 ? pointsLost : undefined,
+        skillScoreBefore: playerInGame.skillScoreBefore,
+        skillScoreAfter: playerInGame.skillScoreAfter
       };
     });
 

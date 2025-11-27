@@ -64,15 +64,13 @@ export default function PlayerProfile() {
 
   const { player, winRate, totalGames, totalWins, bestPartner, recentGames } = stats;
 
-  // Build chart data from recent games (oldest first for chronological order)
+  // Build chart data from recent games showing skill score progression
   const chartData = recentGames
     .slice()
     .reverse()
     .map((game, index) => ({
       gameNumber: index + 1,
-      score: game.pointsLost ? game.pointsLost * -1 : game.pointsGained || 0,
-      // Note: We don't have skillScoreBefore directly, but we can track it from the points changes
-      // Starting from current score and working backwards
+      skillScore: index === 0 ? game.skillScoreBefore : game.skillScoreAfter,
     }));
 
   return (
@@ -195,7 +193,7 @@ export default function PlayerProfile() {
                       stroke="var(--muted-foreground)"
                     />
                     <YAxis 
-                      label={{ value: 'Points Change', angle: -90, position: 'insideLeft' }}
+                      label={{ value: 'Skill Score', angle: -90, position: 'insideLeft' }}
                       stroke="var(--muted-foreground)"
                     />
                     <Tooltip 
@@ -204,11 +202,11 @@ export default function PlayerProfile() {
                         border: '1px solid var(--border)',
                         borderRadius: '6px'
                       }}
-                      formatter={(value: number) => value > 0 ? `+${value}` : `${value}`}
+                      formatter={(value: number) => `${value} pts`}
                     />
                     <Line 
                       type="monotone" 
-                      dataKey="score" 
+                      dataKey="skillScore" 
                       stroke="var(--primary)" 
                       dot={{ fill: 'var(--primary)', r: 4 }}
                       activeDot={{ r: 6 }}
