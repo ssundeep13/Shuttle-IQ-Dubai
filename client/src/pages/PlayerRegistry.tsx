@@ -8,7 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink, Edit } from "lucide-react";
+import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink, Edit, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { formatSkillLevel, getSkillTier } from "@shared/utils/skillUtils";
 import { EditPlayerLevelModal } from "@/components/EditPlayerLevelModal";
 import type { Player, Session } from "@shared/schema";
@@ -17,6 +26,7 @@ export default function PlayerRegistry() {
   const [searchQuery, setSearchQuery] = useState("");
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [deletingPlayer, setDeletingPlayer] = useState<Player | null>(null);
   const { toast } = useToast();
 
   const { data: allPlayers, isLoading: isLoadingPlayers } = useQuery<Player[]>({
@@ -47,6 +57,27 @@ export default function PlayerRegistry() {
       toast({
         title: "Error",
         description: "Failed to add player to queue",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deletePlayerMutation = useMutation({
+    mutationFn: async (playerId: string) => {
+      return apiRequest('DELETE', `/api/players/${playerId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      toast({
+        title: "Player Deleted",
+        description: "Player has been removed from the registry",
+      });
+      setDeletingPlayer(null);
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete player",
         variant: "destructive",
       });
     },
@@ -165,6 +196,15 @@ export default function PlayerRegistry() {
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeletingPlayer(player)}
+                        data-testid={`button-delete-${player.id}`}
+                        className="hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                       <Link href={`/player/${player.id}`}>
                         <Button variant="ghost" size="icon" data-testid={`button-view-${player.id}`}>
                           <ExternalLink className="h-4 w-4" />
@@ -201,6 +241,36 @@ export default function PlayerRegistry() {
           open={editModalOpen}
           onOpenChange={setEditModalOpen}
         />
+
+        <AlertDialog open={!!deletingPlayer} onOpenChange={(open) => {
+          if (!open) setDeletingPlayer(null);
+        }}>
+          <AlertDialogContent data-testid="dialog-confirm-delete">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Player</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete {deletingPlayer?.name}? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="flex gap-3 justify-end">
+              <AlertDialogCancel data-testid="button-cancel-delete">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  if (deletingPlayer) {
+                    deletePlayerMutation.mutate(deletingPlayer.id);
+                  }
+                }}
+                disabled={deletePlayerMutation.isPending}
+                className="bg-destructive hover:bg-destructive/90"
+                data-testid="button-confirm-delete"
+              >
+                {deletePlayerMutation.isPending ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </div>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
