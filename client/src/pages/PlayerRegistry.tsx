@@ -8,12 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink } from "lucide-react";
+import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink, Edit } from "lucide-react";
 import { formatSkillLevel, getSkillTier } from "@shared/utils/skillUtils";
+import { EditPlayerLevelModal } from "@/components/EditPlayerLevelModal";
 import type { Player, Session } from "@shared/schema";
 
 export default function PlayerRegistry() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: allPlayers, isLoading: isLoadingPlayers } = useQuery<Player[]>({
@@ -151,6 +154,17 @@ export default function PlayerRegistry() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setEditingPlayer(player);
+                          setEditModalOpen(true);
+                        }}
+                        data-testid={`button-edit-level-${player.id}`}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
                       <Link href={`/player/${player.id}`}>
                         <Button variant="ghost" size="icon" data-testid={`button-view-${player.id}`}>
                           <ExternalLink className="h-4 w-4" />
@@ -181,6 +195,12 @@ export default function PlayerRegistry() {
             )}
           </CardContent>
         </Card>
+
+        <EditPlayerLevelModal
+          player={editingPlayer}
+          open={editModalOpen}
+          onOpenChange={setEditModalOpen}
+        />
       </div>
     </div>
   );
