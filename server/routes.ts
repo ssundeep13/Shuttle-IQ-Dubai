@@ -1518,8 +1518,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const year = parseInt(req.params.year);
       const month = parseInt(req.params.month); // 1-12
       
+      // Validate month range
       if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
         return res.status(400).json({ error: "Invalid year or month" });
+      }
+      
+      // Validate year range (reasonable bounds: 2020-2100)
+      if (year < 2020 || year > 2100) {
+        return res.status(400).json({ error: "Year must be between 2020 and 2100" });
       }
       
       const players = await storage.getAllPlayers();

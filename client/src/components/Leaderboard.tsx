@@ -1,9 +1,9 @@
-import { Trophy, Trash2, Calendar, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Trophy, Trash2, Calendar, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, CalendarDays } from "lucide-react";
 import { Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatSkillLevel, getSkillTierColor } from "@shared/utils/skillUtils";
+import { format, subMonths } from "date-fns";
 
 interface LeaderboardProps {
   players: Player[];
@@ -29,6 +30,13 @@ interface TodayPlayer extends Player {
   winsToday?: number;
 }
 
+interface MonthlyPlayer extends Player {
+  gamesPlayedInMonth?: number;
+  winsInMonth?: number;
+}
+
+type MonthFilter = 'all-time' | string; // string format: "YYYY-MM"
+
 // Using getSkillTierColor from skillUtils instead of local function
 
 type SortBy = 'skill' | 'wins' | 'games' | 'winRate' | 'name';
@@ -38,6 +46,27 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
   const [activeTab, setActiveTab] = useState<'all-time' | 'today'>('all-time');
   const [sortBy, setSortBy] = useState<SortBy>('skill');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [monthFilter, setMonthFilter] = useState<MonthFilter>('all-time');
+  
+  // Generate month options (current month + past 11 months)
+  const monthOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = [];
+    const now = new Date();
+    
+    for (let i = 0; i < 12; i++) {
+      const date = subMonths(now, i);
+      const value = format(date, 'yyyy-MM');
+      const label = format(date, 'MMMM yyyy');
+      options.push({ value, label });
+    }
+    
+    return options;
+  }, []);
+  
+  // Parse month filter for API call
+  const monthParts = monthFilter !== 'all-time' ? monthFilter.split('-') : null;
+  const selectedYear = monthParts ? parseInt(monthParts[0]) : null;
+  const selectedMonth = monthParts ? parseInt(monthParts[1]) : null;
   
   // Fetch today's stats (only if today tab is enabled and active)
   const { data: todayPlayers = [] } = useQuery<TodayPlayer[]>({
@@ -45,23 +74,46 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
     enabled: showTodayTab && activeTab === 'today',
   });
   
+  // Fetch monthly stats (only when a month is selected)
+  const { data: monthlyPlayers = [], isLoading: isLoadingMonthly } = useQuery<MonthlyPlayer[]>({
+    queryKey: ['/api/stats/month', selectedYear, selectedMonth],
+    enabled: monthFilter !== 'all-time' && selectedYear !== null && selectedMonth !== null,
+  });
+  
   const toggleSortOrder = () => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
   };
   
-  const sortPlayers = (playersToSort: (Player | TodayPlayer)[], isToday: boolean) => {
+  type FilterMode = 'all-time' | 'today' | 'monthly';
+  
+  const getPlayerStats = (player: Player | TodayPlayer | MonthlyPlayer, mode: FilterMode) => {
+    if (mode === 'today' && 'gamesPlayedToday' in player) {
+      return {
+        games: player.gamesPlayedToday || 0,
+        wins: player.winsToday || 0,
+      };
+    }
+    if (mode === 'monthly' && 'gamesPlayedInMonth' in player) {
+      return {
+        games: player.gamesPlayedInMonth || 0,
+        wins: player.winsInMonth || 0,
+      };
+    }
+    return {
+      games: player.gamesPlayed,
+      wins: player.wins,
+    };
+  };
+  
+  const sortPlayers = (playersToSort: (Player | TodayPlayer | MonthlyPlayer)[], mode: FilterMode) => {
     return [...playersToSort].sort((a, b) => {
-      const playerA = isToday ? a as TodayPlayer : a;
-      const playerB = isToday ? b as TodayPlayer : b;
+      const statsA = getPlayerStats(a, mode);
+      const statsB = getPlayerStats(b, mode);
       
-      const gamesA = isToday ? (playerA as TodayPlayer).gamesPlayedToday || 0 : a.gamesPlayed;
-      const gamesB = isToday ? (playerB as TodayPlayer).gamesPlayedToday || 0 : b.gamesPlayed;
-      const winsA = isToday ? (playerA as TodayPlayer).winsToday || 0 : a.wins;
-      const winsB = isToday ? (playerB as TodayPlayer).winsToday || 0 : b.wins;
       const skillA = a.skillScore || 90;
       const skillB = b.skillScore || 90;
-      const winRateA = gamesA === 0 ? 0 : (winsA / gamesA) * 100;
-      const winRateB = gamesB === 0 ? 0 : (winsB / gamesB) * 100;
+      const winRateA = statsA.games === 0 ? 0 : (statsA.wins / statsA.games) * 100;
+      const winRateB = statsB.games === 0 ? 0 : (statsB.wins / statsB.games) * 100;
       
       let comparison = 0;
       
@@ -70,10 +122,10 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
           comparison = skillB - skillA;
           break;
         case 'wins':
-          comparison = winsB - winsA;
+          comparison = statsB.wins - statsA.wins;
           break;
         case 'games':
-          comparison = gamesB - gamesA;
+          comparison = statsB.games - statsA.games;
           break;
         case 'winRate':
           comparison = winRateB - winRateA;
@@ -95,24 +147,31 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
     });
   };
 
-  const getWinRate = (player: Player | TodayPlayer, isToday: boolean = false) => {
-    if (isToday && 'gamesPlayedToday' in player) {
-      const games = player.gamesPlayedToday || 0;
-      if (games === 0) return 0;
-      return Math.round(((player.winsToday || 0) / games) * 100);
-    }
-    if (player.gamesPlayed === 0) return 0;
-    return Math.round((player.wins / player.gamesPlayed) * 100);
+  const getWinRate = (player: Player | TodayPlayer | MonthlyPlayer, mode: FilterMode = 'all-time') => {
+    const stats = getPlayerStats(player, mode);
+    if (stats.games === 0) return 0;
+    return Math.round((stats.wins / stats.games) * 100);
   };
 
-  const renderPlayerList = (playersToRender: (Player | TodayPlayer)[], isToday: boolean) => {
-    const sortedPlayers = sortPlayers(playersToRender, isToday);
+  const getEmptyMessage = (mode: FilterMode) => {
+    switch (mode) {
+      case 'today':
+        return "No games played today yet.";
+      case 'monthly':
+        return "No games played this month yet.";
+      default:
+        return "No players yet. Add players to see the leaderboard.";
+    }
+  };
+  
+  const renderPlayerList = (playersToRender: (Player | TodayPlayer | MonthlyPlayer)[], mode: FilterMode) => {
+    const sortedPlayers = sortPlayers(playersToRender, mode);
     
     if (sortedPlayers.length === 0) {
       return (
         <div className="text-center py-12 bg-muted rounded-md">
           <p className="text-muted-foreground">
-            {isToday ? "No games played today yet." : "No players yet. Add players to see the leaderboard."}
+            {getEmptyMessage(mode)}
           </p>
         </div>
       );
@@ -121,9 +180,7 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
     return (
       <div className="space-y-3">
         {sortedPlayers.map((player, index) => {
-          const todayPlayer = player as TodayPlayer;
-          const gamesCount = isToday ? (todayPlayer.gamesPlayedToday || 0) : player.gamesPlayed;
-          const winsCount = isToday ? (todayPlayer.winsToday || 0) : player.wins;
+          const stats = getPlayerStats(player, mode);
           
           return (
             <div
@@ -144,7 +201,7 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
                     index > 2 && "bg-muted text-muted-foreground"
                   )}
                 >
-                  {index < 3 ? "🏆" : index + 1}
+                  {index < 3 ? <Trophy className="w-4 h-4" /> : index + 1}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -166,9 +223,9 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
                     )}
                   </div>
                   <div className="flex gap-4 text-sm text-muted-foreground">
-                    <span>Games: <span className="font-semibold text-foreground">{gamesCount}</span></span>
-                    <span>Wins: <span className="font-semibold text-success">{winsCount}</span></span>
-                    <span>Win Rate: <span className="font-semibold text-foreground">{getWinRate(player, isToday)}%</span></span>
+                    <span>Games: <span className="font-semibold text-foreground">{stats.games}</span></span>
+                    <span>Wins: <span className="font-semibold text-success">{stats.wins}</span></span>
+                    <span>Win Rate: <span className="font-semibold text-foreground">{getWinRate(player, mode)}%</span></span>
                   </div>
                 </div>
               </div>
@@ -215,7 +272,7 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
         <div className="flex items-center gap-2 flex-1">
           <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">Sort by:</label>
           <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortBy)}>
-            <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-sort-by">
+            <SelectTrigger className="w-full sm:w-[140px]" data-testid="select-sort-by">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -236,6 +293,23 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
             {sortOrder === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />}
           </Button>
         </div>
+        
+        <div className="flex items-center gap-2">
+          <CalendarDays className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+          <Select value={monthFilter} onValueChange={(value) => setMonthFilter(value as MonthFilter)}>
+            <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-month-filter">
+              <SelectValue placeholder="All Time" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all-time">All Time</SelectItem>
+              {monthOptions.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {showTodayTab ? (
@@ -252,16 +326,26 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
           </TabsList>
 
           <TabsContent value="all-time" className="mt-0">
-            {renderPlayerList(players, false)}
+            {monthFilter === 'all-time' 
+              ? renderPlayerList(players, 'all-time')
+              : isLoadingMonthly 
+                ? <div className="text-center py-12 bg-muted rounded-md"><p className="text-muted-foreground">Loading...</p></div>
+                : renderPlayerList(monthlyPlayers, 'monthly')
+            }
           </TabsContent>
 
           <TabsContent value="today" className="mt-0">
-            {renderPlayerList(todayPlayers, true)}
+            {renderPlayerList(todayPlayers, 'today')}
           </TabsContent>
         </Tabs>
       ) : (
         <div>
-          {renderPlayerList(players, false)}
+          {monthFilter === 'all-time' 
+            ? renderPlayerList(players, 'all-time')
+            : isLoadingMonthly 
+              ? <div className="text-center py-12 bg-muted rounded-md"><p className="text-muted-foreground">Loading...</p></div>
+              : renderPlayerList(monthlyPlayers, 'monthly')
+          }
         </div>
       )}
     </div>
