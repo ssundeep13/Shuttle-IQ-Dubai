@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatSkillLevel, getSkillTier } from "@shared/utils/skillUtils";
 import { EditPlayerModal } from "@/components/EditPlayerModal";
+import { Leaderboard } from "@/components/Leaderboard";
 import type { Player, Session } from "@shared/schema";
 
 export default function PlayerRegistry() {
@@ -262,6 +263,13 @@ export default function PlayerRegistry() {
             )}
           </CardContent>
         </Card>
+
+        {/* Public Leaderboard - no admin actions for public view, all-time stats only */}
+        <Leaderboard 
+          players={allPlayers || []} 
+          showAdminActions={false}
+          showTodayTab={false}
+        />
 
         <EditPlayerModal
           player={editingPlayer}

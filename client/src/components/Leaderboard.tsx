@@ -18,8 +18,10 @@ import { formatSkillLevel, getSkillTierColor } from "@shared/utils/skillUtils";
 
 interface LeaderboardProps {
   players: Player[];
-  onResetStats: () => void;
-  onClearAllPlayers: () => void;
+  onResetStats?: () => void;
+  onClearAllPlayers?: () => void;
+  showAdminActions?: boolean;
+  showTodayTab?: boolean;
 }
 
 interface TodayPlayer extends Player {
@@ -32,15 +34,15 @@ interface TodayPlayer extends Player {
 type SortBy = 'skill' | 'wins' | 'games' | 'winRate' | 'name';
 type SortOrder = 'asc' | 'desc';
 
-export function Leaderboard({ players, onResetStats, onClearAllPlayers }: LeaderboardProps) {
+export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdminActions = true, showTodayTab = true }: LeaderboardProps) {
   const [activeTab, setActiveTab] = useState<'all-time' | 'today'>('all-time');
   const [sortBy, setSortBy] = useState<SortBy>('skill');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   
-  // Fetch today's stats
+  // Fetch today's stats (only if today tab is enabled and active)
   const { data: todayPlayers = [] } = useQuery<TodayPlayer[]>({
     queryKey: ['/api/stats/today'],
-    enabled: activeTab === 'today',
+    enabled: showTodayTab && activeTab === 'today',
   });
   
   const toggleSortOrder = () => {
@@ -184,27 +186,29 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
           <Trophy className="w-6 h-6" />
           Leaderboard
         </h2>
-        <div className="flex gap-2">
-          <Button
-            onClick={onResetStats}
-            variant="outline"
-            size="sm"
-            className="min-h-12 sm:min-h-9"
-            data-testid="button-reset-stats"
-          >
-            Reset Stats
-          </Button>
-          <Button
-            onClick={onClearAllPlayers}
-            variant="outline"
-            size="sm"
-            className="text-destructive hover:text-destructive min-h-12 sm:min-h-9"
-            data-testid="button-clear-all-players"
-          >
-            <Trash2 className="w-4 h-4 mr-1" />
-            Clear All
-          </Button>
-        </div>
+        {showAdminActions && onResetStats && onClearAllPlayers && (
+          <div className="flex gap-2">
+            <Button
+              onClick={onResetStats}
+              variant="outline"
+              size="sm"
+              className="min-h-12 sm:min-h-9"
+              data-testid="button-reset-stats"
+            >
+              Reset Stats
+            </Button>
+            <Button
+              onClick={onClearAllPlayers}
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive min-h-12 sm:min-h-9"
+              data-testid="button-clear-all-players"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Clear All
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -234,26 +238,32 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers }: Leader
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'all-time' | 'today')} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-6 min-h-12 sm:min-h-10">
-          <TabsTrigger value="all-time" className="flex items-center gap-2 min-h-12 sm:min-h-9" data-testid="tab-all-time">
-            <TrendingUp className="w-4 h-4" />
-            All Time
-          </TabsTrigger>
-          <TabsTrigger value="today" className="flex items-center gap-2 min-h-12 sm:min-h-9" data-testid="tab-today">
-            <Calendar className="w-4 h-4" />
-            Today
-          </TabsTrigger>
-        </TabsList>
+      {showTodayTab ? (
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'all-time' | 'today')} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-6 min-h-12 sm:min-h-10">
+            <TabsTrigger value="all-time" className="flex items-center gap-2 min-h-12 sm:min-h-9" data-testid="tab-all-time">
+              <TrendingUp className="w-4 h-4" />
+              All Time
+            </TabsTrigger>
+            <TabsTrigger value="today" className="flex items-center gap-2 min-h-12 sm:min-h-9" data-testid="tab-today">
+              <Calendar className="w-4 h-4" />
+              Today
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="all-time" className="mt-0">
+          <TabsContent value="all-time" className="mt-0">
+            {renderPlayerList(players, false)}
+          </TabsContent>
+
+          <TabsContent value="today" className="mt-0">
+            {renderPlayerList(todayPlayers, true)}
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <div>
           {renderPlayerList(players, false)}
-        </TabsContent>
-
-        <TabsContent value="today" className="mt-0">
-          {renderPlayerList(todayPlayers, true)}
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   );
 }
