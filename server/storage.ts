@@ -294,6 +294,25 @@ export class DatabaseStorage implements IStorage {
     const player = await this.getPlayer(playerId);
     if (!player) return null;
 
+    // Get all players for ranking calculations
+    const allPlayers = await this.getAllPlayers();
+    const playersWithGames = allPlayers.filter(p => p.gamesPlayed > 0);
+    
+    // Calculate rankings
+    const sortedBySkill = [...allPlayers].sort((a, b) => b.skillScore - a.skillScore);
+    const sortedByWins = [...allPlayers].sort((a, b) => b.wins - a.wins);
+    const sortedByWinRate = [...playersWithGames].sort((a, b) => {
+      const aRate = a.gamesPlayed > 0 ? a.wins / a.gamesPlayed : 0;
+      const bRate = b.gamesPlayed > 0 ? b.wins / b.gamesPlayed : 0;
+      return bRate - aRate;
+    });
+    
+    const rankBySkillScore = sortedBySkill.findIndex(p => p.id === playerId) + 1;
+    const rankByWins = sortedByWins.findIndex(p => p.id === playerId) + 1;
+    const rankByWinRate = player.gamesPlayed > 0 
+      ? sortedByWinRate.findIndex(p => p.id === playerId) + 1 
+      : playersWithGames.length + 1;
+
     // Get all games this player participated in
     const playerGames = await db
       .select()
@@ -306,14 +325,29 @@ export class DatabaseStorage implements IStorage {
         winRate: 0,
         totalGames: player.gamesPlayed,
         totalWins: player.wins,
+        currentStreak: { type: 'none', count: 0 },
+        longestWinStreak: 0,
+        longestLossStreak: 0,
+        rankBySkillScore,
+        rankByWins,
+        rankByWinRate,
+        totalPlayersRanked: allPlayers.length,
+        performanceTrend: 'stable',
+        recentWinRate: 0,
+        avgScoreDifferential: 0,
+        avgPointsFor: 0,
+        avgPointsAgainst: 0,
         bestPartner: null,
+        frequentPartners: [],
+        rivals: [],
+        favoriteOpponents: [],
         recentGames: []
       };
     }
 
     const gameIds = playerGames.map(g => g.gameId);
     
-    // Get game results for these games
+    // Get game results for these games (ordered by date for streak calculation)
     const games = await db
       .select()
       .from(gameResults)
@@ -326,9 +360,24 @@ export class DatabaseStorage implements IStorage {
       .from(gameParticipants)
       .where(inArray(gameParticipants.gameId, gameIds));
 
-    // Calculate partner win counts
-    const partnerWins: Record<string, number> = {};
+    // Get player list for lookups
+    const participantPlayerIds = Array.from(new Set(allParticipants.map(p => p.playerId)));
+    const playerList = await db
+      .select()
+      .from(players)
+      .where(inArray(players.id, participantPlayerIds));
+    const playerMap = new Map(playerList.map(p => [p.id, addSkidToPlayer(p)]));
+
+    // Calculate game outcomes for streak and trend calculations
+    const gameOutcomes: { won: boolean; team1Score: number; team2Score: number; playerTeam: number }[] = [];
     
+    // Partner and opponent tracking
+    const partnerStats: Record<string, { games: number; wins: number }> = {};
+    const opponentStats: Record<string, { games: number; wins: number }> = {};
+    
+    let totalPointsFor = 0;
+    let totalPointsAgainst = 0;
+
     for (const game of games) {
       const gameParticipantsList = allParticipants.filter(p => p.gameId === game.id);
       const playerInGame = gameParticipantsList.find(p => p.playerId === playerId);
@@ -337,37 +386,139 @@ export class DatabaseStorage implements IStorage {
       const playerTeam = playerInGame.team;
       const isWin = game.winningTeam === playerTeam;
       
-      if (isWin) {
-        // Find partner (same team, different player)
-        const partner = gameParticipantsList.find(
-          p => p.team === playerTeam && p.playerId !== playerId
-        );
-        if (partner) {
-          partnerWins[partner.playerId] = (partnerWins[partner.playerId] || 0) + 1;
+      // Calculate points for/against
+      const pointsFor = playerTeam === 1 ? game.team1Score : game.team2Score;
+      const pointsAgainst = playerTeam === 1 ? game.team2Score : game.team1Score;
+      totalPointsFor += pointsFor;
+      totalPointsAgainst += pointsAgainst;
+      
+      gameOutcomes.push({ won: isWin, team1Score: game.team1Score, team2Score: game.team2Score, playerTeam });
+      
+      // Track partner stats
+      const partner = gameParticipantsList.find(p => p.team === playerTeam && p.playerId !== playerId);
+      if (partner) {
+        if (!partnerStats[partner.playerId]) {
+          partnerStats[partner.playerId] = { games: 0, wins: 0 };
+        }
+        partnerStats[partner.playerId].games++;
+        if (isWin) partnerStats[partner.playerId].wins++;
+      }
+      
+      // Track opponent stats
+      const opponents = gameParticipantsList.filter(p => p.team !== playerTeam);
+      for (const opp of opponents) {
+        if (!opponentStats[opp.playerId]) {
+          opponentStats[opp.playerId] = { games: 0, wins: 0 };
+        }
+        opponentStats[opp.playerId].games++;
+        if (isWin) opponentStats[opp.playerId].wins++;
+      }
+    }
+
+    // Calculate streaks
+    let currentStreak: PlayerStats['currentStreak'] = { type: 'none', count: 0 };
+    let longestWinStreak = 0;
+    let longestLossStreak = 0;
+    let tempWinStreak = 0;
+    let tempLossStreak = 0;
+    
+    // Games are in descending order, so reverse for chronological streak calc
+    const chronologicalOutcomes = [...gameOutcomes].reverse();
+    
+    for (const outcome of chronologicalOutcomes) {
+      if (outcome.won) {
+        tempWinStreak++;
+        tempLossStreak = 0;
+        if (tempWinStreak > longestWinStreak) longestWinStreak = tempWinStreak;
+      } else {
+        tempLossStreak++;
+        tempWinStreak = 0;
+        if (tempLossStreak > longestLossStreak) longestLossStreak = tempLossStreak;
+      }
+    }
+    
+    // Current streak (from most recent games)
+    if (gameOutcomes.length > 0) {
+      const firstOutcome = gameOutcomes[0];
+      currentStreak.type = firstOutcome.won ? 'win' : 'loss';
+      currentStreak.count = 1;
+      for (let i = 1; i < gameOutcomes.length; i++) {
+        if (gameOutcomes[i].won === firstOutcome.won) {
+          currentStreak.count++;
+        } else {
+          break;
         }
       }
     }
 
-    // Find best partner
+    // Performance trend (compare last 5 games to overall)
+    const recentGamesForTrend = gameOutcomes.slice(0, 5);
+    const recentWins = recentGamesForTrend.filter(g => g.won).length;
+    const recentWinRate = recentGamesForTrend.length > 0 
+      ? Math.round((recentWins / recentGamesForTrend.length) * 100) 
+      : 0;
+    const overallWinRate = player.gamesPlayed > 0 
+      ? Math.round((player.wins / player.gamesPlayed) * 100) 
+      : 0;
+    
+    let performanceTrend: PlayerStats['performanceTrend'] = 'stable';
+    if (recentGamesForTrend.length >= 3) {
+      if (recentWinRate > overallWinRate + 10) performanceTrend = 'improving';
+      else if (recentWinRate < overallWinRate - 10) performanceTrend = 'declining';
+    }
+
+    // Score differential
+    const avgPointsFor = games.length > 0 ? Math.round(totalPointsFor / games.length * 10) / 10 : 0;
+    const avgPointsAgainst = games.length > 0 ? Math.round(totalPointsAgainst / games.length * 10) / 10 : 0;
+    const avgScoreDifferential = Math.round((avgPointsFor - avgPointsAgainst) * 10) / 10;
+
+    // Build frequent partners list
+    const frequentPartners: PlayerStats['frequentPartners'] = Object.entries(partnerStats)
+      .map(([partnerId, stats]) => ({
+        player: playerMap.get(partnerId)!,
+        gamesTogether: stats.games,
+        winsTogether: stats.wins,
+        winRate: Math.round((stats.wins / stats.games) * 100)
+      }))
+      .filter(p => p.player)
+      .sort((a, b) => b.gamesTogether - a.gamesTogether)
+      .slice(0, 5);
+
+    // Best partner
     let bestPartner: PlayerStats['bestPartner'] = null;
-    let maxWins = 0;
-    for (const [partnerId, wins] of Object.entries(partnerWins)) {
-      if (wins > maxWins) {
-        maxWins = wins;
-        const partnerPlayer = await this.getPlayer(partnerId);
-        if (partnerPlayer) {
-          bestPartner = { player: partnerPlayer, winsTogether: wins };
-        }
-      }
+    if (frequentPartners.length > 0) {
+      const best = frequentPartners.reduce((best, current) => 
+        current.winsTogether > best.winsTogether ? current : best
+      );
+      bestPartner = { player: best.player, winsTogether: best.winsTogether };
     }
 
-    // Get player list for recent games display
-    const playerIds = Array.from(new Set(allParticipants.map(p => p.playerId)));
-    const playerList = await db
-      .select()
-      .from(players)
-      .where(inArray(players.id, playerIds));
-    const playerMap = new Map(playerList.map(p => [p.id, p]));
+    // Build rivals (most played against)
+    const rivals: PlayerStats['rivals'] = Object.entries(opponentStats)
+      .map(([oppId, stats]) => ({
+        player: playerMap.get(oppId)!,
+        gamesAgainst: stats.games,
+        winsAgainst: stats.wins,
+        lossesAgainst: stats.games - stats.wins,
+        winRate: Math.round((stats.wins / stats.games) * 100)
+      }))
+      .filter(r => r.player)
+      .sort((a, b) => b.gamesAgainst - a.gamesAgainst)
+      .slice(0, 5);
+
+    // Favorite opponents (highest win rate, min 2 games)
+    const favoriteOpponents: PlayerStats['favoriteOpponents'] = Object.entries(opponentStats)
+      .filter(([_, stats]) => stats.games >= 2)
+      .map(([oppId, stats]) => ({
+        player: playerMap.get(oppId)!,
+        gamesAgainst: stats.games,
+        winsAgainst: stats.wins,
+        lossesAgainst: stats.games - stats.wins,
+        winRate: Math.round((stats.wins / stats.games) * 100)
+      }))
+      .filter(r => r.player)
+      .sort((a, b) => b.winRate - a.winRate)
+      .slice(0, 3);
 
     // Build recent games list (last 10)
     const recentGames: PlayerStats['recentGames'] = games.slice(0, 10).map(game => {
@@ -406,7 +557,22 @@ export class DatabaseStorage implements IStorage {
       winRate: player.gamesPlayed > 0 ? Math.round((player.wins / player.gamesPlayed) * 100) : 0,
       totalGames: player.gamesPlayed,
       totalWins: player.wins,
+      currentStreak,
+      longestWinStreak,
+      longestLossStreak,
+      rankBySkillScore,
+      rankByWins,
+      rankByWinRate,
+      totalPlayersRanked: allPlayers.length,
+      performanceTrend,
+      recentWinRate,
+      avgScoreDifferential,
+      avgPointsFor,
+      avgPointsAgainst,
       bestPartner,
+      frequentPartners,
+      rivals,
+      favoriteOpponents,
       recentGames
     };
   }

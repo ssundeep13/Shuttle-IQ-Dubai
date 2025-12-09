@@ -39,13 +39,58 @@ export type Player = typeof players.$inferSelect & {
   skid?: number; // Computed SKID (1-20), derived from skillScore / 10
 };
 
+// Partner statistics for player profile
+export interface PartnerStats {
+  player: Player;
+  gamesTogether: number;
+  winsTogether: number;
+  winRate: number;
+}
+
+// Opponent/rival statistics for player profile
+export interface OpponentStats {
+  player: Player;
+  gamesAgainst: number;
+  winsAgainst: number;
+  lossesAgainst: number;
+  winRate: number;
+}
+
 // Player profile statistics (computed from game history)
 export interface PlayerStats {
   player: Player;
   winRate: number;
   totalGames: number;
   totalWins: number;
+  
+  // Streak statistics
+  currentStreak: { type: 'win' | 'loss' | 'none'; count: number };
+  longestWinStreak: number;
+  longestLossStreak: number;
+  
+  // Ranking (1 = best)
+  rankBySkillScore: number;
+  rankByWins: number;
+  rankByWinRate: number;
+  totalPlayersRanked: number;
+  
+  // Performance trend (based on recent games vs overall)
+  performanceTrend: 'improving' | 'declining' | 'stable';
+  recentWinRate: number; // Last 5 games
+  
+  // Score differential
+  avgScoreDifferential: number; // Positive = winning by more, Negative = losing by more
+  avgPointsFor: number;
+  avgPointsAgainst: number;
+  
+  // Partner stats
   bestPartner: { player: Player; winsTogether: number } | null;
+  frequentPartners: PartnerStats[];
+  
+  // Opponent stats
+  rivals: OpponentStats[]; // Most played against
+  favoriteOpponents: OpponentStats[]; // Highest win rate against (min 2 games)
+  
   recentGames: Array<{
     gameId: string;
     sessionId: string;
