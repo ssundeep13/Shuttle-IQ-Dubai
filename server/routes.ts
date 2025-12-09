@@ -1512,6 +1512,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Monthly stats endpoint for leaderboard
+  app.get("/api/stats/month/:year/:month", async (req, res) => {
+    try {
+      const year = parseInt(req.params.year);
+      const month = parseInt(req.params.month); // 1-12
+      
+      if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+        return res.status(400).json({ error: "Invalid year or month" });
+      }
+      
+      const players = await storage.getAllPlayers();
+      
+      // Get start and end of the month
+      const startOfMonth = new Date(year, month - 1, 1, 0, 0, 0, 0);
+      const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999); // Last day of month
+      
+      // Get all games from the specified month
+      const monthGames = await db
+        .select()
+        .from(gameResults)
+        .where(sql`${gameResults.createdAt} >= ${startOfMonth} AND ${gameResults.createdAt} <= ${endOfMonth}`);
+      
+      const gameIds = monthGames.map(g => g.id);
+      
+      if (gameIds.length === 0) {
+        // No games this month, return all players with 0 stats
+        const playersWithStats = players.map(p => ({
+          ...p,
+          gamesPlayedInMonth: 0,
+          winsInMonth: 0,
+        }));
+        return res.json(playersWithStats);
+      }
+      
+      // Get all participants from month's games
+      const participants = await db
+        .select()
+        .from(gameParticipants)
+        .where(sql`${gameParticipants.gameId} IN (${sql.join(gameIds.map(id => sql`${id}`), sql`, `)})`);
+      
+      // Calculate stats for each player
+      const playersWithStats = players.map(player => {
+        const playerParticipations = participants.filter(p => p.playerId === player.id);
+        const gamesPlayedInMonth = playerParticipations.length;
+        
+        // Count wins: player must be on winning team
+        let winsInMonth = 0;
+        for (const participation of playerParticipations) {
+          const game = monthGames.find(g => g.id === participation.gameId);
+          if (game && game.winningTeam === participation.team) {
+            winsInMonth++;
+          }
+        }
+        
+        return {
+          ...player,
+          gamesPlayedInMonth,
+          winsInMonth,
+        };
+      });
+      
+      res.json(playersWithStats);
+    } catch (error) {
+      console.error('[STATS-MONTH] Error:', error);
+      res.status(500).json({ error: "Failed to fetch monthly stats" });
+    }
+  });
+
   // Get session-specific player stats
   app.get("/api/stats/session/:sessionId", async (req, res) => {
     try {
