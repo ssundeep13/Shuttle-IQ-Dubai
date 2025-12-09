@@ -1,11 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players } from "@shared/schema";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { sql, eq, inArray } from "drizzle-orm";
+import { sql, eq, inArray, and, desc } from "drizzle-orm";
 import { requireAuth, requireAdmin, type AuthRequest } from "./auth/middleware";
 import { 
   generateAccessToken, 
@@ -323,6 +323,111 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Session game history error:', error);
       res.status(500).json({ error: "Failed to fetch session game history" });
+    }
+  });
+
+  // Edit game result (update scores)
+  app.patch("/api/game-results/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { team1Score, team2Score } = req.body;
+      const gameId = req.params.id;
+
+      if (team1Score === undefined || team2Score === undefined) {
+        return res.status(400).json({ error: "team1Score and team2Score are required" });
+      }
+
+      // Server-side validation: no ties allowed
+      if (team1Score === team2Score) {
+        return res.status(400).json({ error: "Scores cannot be tied. One team must win." });
+      }
+
+      // Get existing game result
+      const [existingGame] = await db.select().from(gameResults).where(eq(gameResults.id, gameId));
+      if (!existingGame) {
+        return res.status(404).json({ error: "Game not found" });
+      }
+
+      // Determine new winning team
+      const newWinningTeam = team1Score > team2Score ? 1 : 2;
+      const oldWinningTeam = existingGame.winningTeam;
+      const winnerChanged = newWinningTeam !== oldWinningTeam;
+
+      // Update game result
+      await db.update(gameResults)
+        .set({ team1Score, team2Score, winningTeam: newWinningTeam })
+        .where(eq(gameResults.id, gameId));
+
+      // Get all participants for this game
+      const participants = await db.select().from(gameParticipants).where(eq(gameParticipants.gameId, gameId));
+      
+      // Get player details
+      const playerIds = participants.map(p => p.playerId);
+      const playerList = await db.select().from(players).where(inArray(players.id, playerIds));
+      const playerMap = new Map(playerList.map(p => [p.id, p]));
+
+      const { calculateSkillAdjustment, getSkillTier } = await import('@shared/utils/skillUtils');
+      
+      // Get opponent average skill (from baseline scores before this game)
+      const team1Participants = participants.filter(p => p.team === 1);
+      const team2Participants = participants.filter(p => p.team === 2);
+      
+      const team1AvgSkill = team1Participants.reduce((sum, p) => sum + p.skillScoreBefore, 0) / team1Participants.length;
+      const team2AvgSkill = team2Participants.reduce((sum, p) => sum + p.skillScoreBefore, 0) / team2Participants.length;
+      const pointDifferential = Math.abs(team1Score - team2Score);
+
+      // Process each participant
+      for (const participant of participants) {
+        const player = playerMap.get(participant.playerId);
+        if (!player) continue;
+
+        const wasWinner = participant.team === oldWinningTeam;
+        const isNowWinner = participant.team === newWinningTeam;
+        
+        // Reverse old skill change from player's current score
+        const oldChange = participant.skillScoreAfter - participant.skillScoreBefore;
+        const baselineSkill = player.skillScore - oldChange;
+        
+        // Calculate new skill adjustment from the baseline (skillScoreBefore)
+        const opponentAvgSkill = participant.team === 1 ? team2AvgSkill : team1AvgSkill;
+        
+        const newSkillAfter = calculateSkillAdjustment(
+          participant.skillScoreBefore,
+          opponentAvgSkill,
+          isNowWinner,
+          pointDifferential
+        );
+        
+        // Calculate what player's new current skill should be
+        const newChange = newSkillAfter - participant.skillScoreBefore;
+        const newCurrentSkill = baselineSkill + newChange;
+        const newLevel = getSkillTier(newCurrentSkill);
+        
+        // Update game participant record with new skill after
+        await db.update(gameParticipants)
+          .set({ skillScoreAfter: newSkillAfter })
+          .where(and(
+            eq(gameParticipants.gameId, gameId),
+            eq(gameParticipants.playerId, participant.playerId)
+          ));
+        
+        // Calculate wins adjustment only if winner changed
+        const winsAdjustment = winnerChanged 
+          ? (wasWinner && !isNowWinner ? -1 : (!wasWinner && isNowWinner ? 1 : 0))
+          : 0;
+        
+        await storage.updatePlayer(participant.playerId, {
+          skillScore: newCurrentSkill,
+          level: newLevel,
+          wins: Math.max(0, player.wins + winsAdjustment),
+        });
+      }
+
+      // Return updated game with session ID for cache invalidation
+      const [updatedGame] = await db.select().from(gameResults).where(eq(gameResults.id, gameId));
+      res.json(updatedGame);
+    } catch (error) {
+      console.error('Update game result error:', error);
+      res.status(500).json({ error: "Failed to update game result" });
     }
   });
 

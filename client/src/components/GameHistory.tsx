@@ -1,8 +1,21 @@
-import { History, Trophy, RotateCcw, Download } from "lucide-react";
+import { useState } from "react";
+import { History, Trophy, RotateCcw, Download, Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface GameParticipant {
   gameId: string;
@@ -27,6 +40,7 @@ interface GameHistoryItem {
 interface GameHistoryProps {
   games: GameHistoryItem[];
   onResetGames: () => void;
+  sessionId?: string;
 }
 
 const getLevelColor = (level: string) => {
@@ -42,7 +56,64 @@ const getLevelColor = (level: string) => {
   }
 };
 
-export function GameHistory({ games, onResetGames }: GameHistoryProps) {
+export function GameHistory({ games, onResetGames, sessionId }: GameHistoryProps) {
+  const { toast } = useToast();
+  const [editingGame, setEditingGame] = useState<GameHistoryItem | null>(null);
+  const [team1Score, setTeam1Score] = useState(0);
+  const [team2Score, setTeam2Score] = useState(0);
+
+  const updateGameMutation = useMutation({
+    mutationFn: async ({ gameId, team1Score, team2Score }: { gameId: string; team1Score: number; team2Score: number }) => {
+      const response = await apiRequest("PATCH", `/api/game-results/${gameId}`, { team1Score, team2Score });
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Game Updated",
+        description: "The game score has been updated successfully.",
+      });
+      setEditingGame(null);
+      // Invalidate game history queries with correct key format
+      if (sessionId) {
+        queryClient.invalidateQueries({ queryKey: ['/api/game-history', sessionId] });
+        queryClient.invalidateQueries({ queryKey: ['/api/sessions', sessionId, 'game-history'] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update game score",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleEditClick = (game: GameHistoryItem) => {
+    setEditingGame(game);
+    setTeam1Score(game.team1Score);
+    setTeam2Score(game.team2Score);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingGame) return;
+    if (team1Score === team2Score) {
+      toast({
+        title: "Invalid Score",
+        description: "Scores cannot be tied. One team must win.",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateGameMutation.mutate({
+      gameId: editingGame.id,
+      team1Score,
+      team2Score,
+    });
+  };
+
   const escapeCSVField = (field: string | number): string => {
     // Convert to string
     const str = String(field);
@@ -165,8 +236,19 @@ export function GameHistory({ games, onResetGames }: GameHistoryProps) {
                     {format(new Date(game.createdAt), 'MMM d, yyyy h:mm a')}
                   </span>
                 </div>
-                <div className="text-lg font-bold text-foreground">
-                  {game.team1Score} - {game.team2Score}
+                <div className="flex items-center gap-2">
+                  <div className="text-lg font-bold text-foreground">
+                    {game.team1Score} - {game.team2Score}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => handleEditClick(game)}
+                    data-testid={`button-edit-game-${game.id}`}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
 
@@ -269,6 +351,87 @@ export function GameHistory({ games, onResetGames }: GameHistoryProps) {
           );
         })}
       </div>
+
+      {/* Edit Game Score Modal */}
+      <Dialog open={!!editingGame} onOpenChange={(open) => !open && setEditingGame(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Game Score</DialogTitle>
+          </DialogHeader>
+          {editingGame && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Team 1 Players</Label>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {editingGame.participants
+                      .filter(p => p.team === 1)
+                      .map(p => p.playerName)
+                      .join(', ')}
+                  </div>
+                </div>
+                <div>
+                  <Label>Team 2 Players</Label>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {editingGame.participants
+                      .filter(p => p.team === 2)
+                      .map(p => p.playerName)
+                      .join(', ')}
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="team1Score">Team 1 Score</Label>
+                  <Input
+                    id="team1Score"
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={team1Score}
+                    onChange={(e) => setTeam1Score(parseInt(e.target.value) || 0)}
+                    data-testid="input-team1-score"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="team2Score">Team 2 Score</Label>
+                  <Input
+                    id="team2Score"
+                    type="number"
+                    min={0}
+                    max={99}
+                    value={team2Score}
+                    onChange={(e) => setTeam2Score(parseInt(e.target.value) || 0)}
+                    data-testid="input-team2-score"
+                  />
+                </div>
+              </div>
+              {team1Score === team2Score && team1Score > 0 && (
+                <p className="text-sm text-destructive">Scores cannot be tied. One team must win.</p>
+              )}
+              {team1Score !== editingGame.team1Score || team2Score !== editingGame.team2Score ? (
+                <div className="text-sm text-muted-foreground">
+                  {(team1Score > team2Score) !== (editingGame.team1Score > editingGame.team2Score) && (
+                    <p className="text-warning">Note: This will change the winning team and recalculate skill scores.</p>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingGame(null)} data-testid="button-cancel-edit">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={updateGameMutation.isPending || team1Score === team2Score}
+              data-testid="button-save-edit"
+            >
+              {updateGameMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

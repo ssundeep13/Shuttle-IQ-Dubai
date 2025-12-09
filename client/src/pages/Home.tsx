@@ -924,6 +924,7 @@ export default function Home() {
             <GameHistory 
               games={gameHistory} 
               onResetGames={handleResetGames}
+              sessionId={session?.id}
             />
           )}
 
