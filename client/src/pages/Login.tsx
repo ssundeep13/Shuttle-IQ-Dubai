@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'wouter';
+import { useLocation, Link } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Users } from 'lucide-react';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -122,6 +122,18 @@ export default function Login() {
             <p>Development credentials:</p>
             <p className="font-mono text-xs mt-1">
               admin@shuttleiq.com / admin123
+            </p>
+          </div>
+
+          <div className="mt-6 pt-4 border-t text-center">
+            <Link href="/players">
+              <Button variant="outline" className="gap-2" data-testid="link-player-registry">
+                <Users className="h-4 w-4" />
+                View Player Registry
+              </Button>
+            </Link>
+            <p className="text-xs text-muted-foreground mt-2">
+              Browse all registered players
             </p>
           </div>
         </CardContent>

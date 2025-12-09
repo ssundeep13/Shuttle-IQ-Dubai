@@ -39,13 +39,15 @@ export default function PlayerRegistry() {
     queryKey: ['/api/players'],
   });
 
+  // Only fetch active session and queue for admin view (authenticated users)
   const { data: activeSession } = useQuery<Session>({
     queryKey: ['/api/sessions/active'],
+    enabled: isAuthenticated,
   });
 
   const { data: queuePlayerIds = [] } = useQuery<string[]>({
     queryKey: ['/api/queue'],
-    enabled: !!activeSession,
+    enabled: isAuthenticated && !!activeSession,
   });
 
   const addToQueueMutation = useMutation({
