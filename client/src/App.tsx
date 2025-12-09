@@ -21,6 +21,9 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/session/:id" component={Home}/>
       <Route path="/player/:id" component={PlayerProfile}/>
+      {/* Public player registry - viewable by everyone */}
+      <Route path="/players" component={PlayerRegistry} />
+      {/* Admin player registry - with edit controls */}
       <Route path="/admin/players">
         <ProtectedRoute>
           <PlayerRegistry />

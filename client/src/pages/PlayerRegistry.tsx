@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink, Edit, Trash2 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink, Edit, Trash2, Home } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,6 +29,11 @@ export default function PlayerRegistry() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deletingPlayer, setDeletingPlayer] = useState<Player | null>(null);
   const { toast } = useToast();
+  const { isAuthenticated } = useAuth();
+  const [location] = useLocation();
+  
+  // Determine if this is the admin view (authenticated + on admin path)
+  const isAdminView = isAuthenticated && location.startsWith('/admin');
 
   const { data: allPlayers, isLoading: isLoadingPlayers } = useQuery<Player[]>({
     queryKey: ['/api/players'],
@@ -100,12 +106,21 @@ export default function PlayerRegistry() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <Link href="/admin">
-              <Button variant="ghost" size="sm" className="mb-2" data-testid="button-back">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back to Admin
-              </Button>
-            </Link>
+            {isAdminView ? (
+              <Link href="/admin">
+                <Button variant="ghost" size="sm" className="mb-2" data-testid="button-back">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back to Admin
+                </Button>
+              </Link>
+            ) : (
+              <Link href="/">
+                <Button variant="ghost" size="sm" className="mb-2" data-testid="button-home">
+                  <Home className="mr-2 h-4 w-4" />
+                  Home
+                </Button>
+              </Link>
+            )}
             <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
               <Users className="h-7 w-7" />
               Player Registry
@@ -114,7 +129,7 @@ export default function PlayerRegistry() {
               Browse all registered players • {allPlayers?.length || 0} players total
             </p>
           </div>
-          {activeSession && (
+          {isAdminView && activeSession && (
             <Badge variant="outline" className="self-start md:self-auto">
               Active Session: {activeSession.venueName}
             </Badge>
@@ -185,32 +200,36 @@ export default function PlayerRegistry() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setEditingPlayer(player);
-                          setEditModalOpen(true);
-                        }}
-                        data-testid={`button-edit-level-${player.id}`}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setDeletingPlayer(player)}
-                        data-testid={`button-delete-${player.id}`}
-                        className="hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {isAdminView && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setEditingPlayer(player);
+                              setEditModalOpen(true);
+                            }}
+                            data-testid={`button-edit-level-${player.id}`}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeletingPlayer(player)}
+                            data-testid={`button-delete-${player.id}`}
+                            className="hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
                       <Link href={`/player/${player.id}`}>
                         <Button variant="ghost" size="icon" data-testid={`button-view-${player.id}`}>
                           <ExternalLink className="h-4 w-4" />
                         </Button>
                       </Link>
-                      {activeSession && (
+                      {isAdminView && activeSession && (
                         <Button
                           size="sm"
                           variant={isPlayerInQueue(player.id) ? "secondary" : "default"}
