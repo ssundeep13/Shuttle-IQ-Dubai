@@ -123,8 +123,14 @@ export default function PlayerRegistry() {
                 </Button>
               </Link>
             )}
-            <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
-              <Users className="h-7 w-7" />
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-2xl md:text-3xl font-bold tracking-tight">
+                <span style={{ color: '#002C84' }}>Shuttle</span>
+                <span style={{ color: '#00766C' }}>IQ</span>
+              </span>
+            </div>
+            <h1 className="text-xl md:text-2xl font-semibold flex items-center gap-2 text-muted-foreground">
+              <Users className="h-6 w-6" />
               Player Registry
             </h1>
             <p className="text-muted-foreground mt-1">
