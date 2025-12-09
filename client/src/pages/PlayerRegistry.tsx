@@ -278,13 +278,16 @@ export default function PlayerRegistry() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
 
-        {/* Public Leaderboard - no admin actions for public view, all-time stats only */}
-        <Leaderboard 
-          players={allPlayers || []} 
-          showAdminActions={false}
-          showTodayTab={false}
-        />
+          <TabsContent value="leaderboard" className="mt-0">
+            <Leaderboard 
+              players={allPlayers || []} 
+              showAdminActions={false}
+              showTodayTab={false}
+            />
+          </TabsContent>
+        </Tabs>
 
         <EditPlayerModal
           player={editingPlayer}
