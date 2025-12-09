@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink, Edit, Trash2, Home } from "lucide-react";
@@ -29,6 +30,7 @@ export default function PlayerRegistry() {
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deletingPlayer, setDeletingPlayer] = useState<Player | null>(null);
+  const [activeTab, setActiveTab] = useState<'players' | 'leaderboard'>('players');
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
   const [location] = useLocation();
@@ -145,7 +147,20 @@ export default function PlayerRegistry() {
           )}
         </div>
 
-        <Card>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'players' | 'leaderboard')} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsTrigger value="players" className="flex items-center gap-2" data-testid="tab-players">
+              <Users className="h-4 w-4" />
+              Players
+            </TabsTrigger>
+            <TabsTrigger value="leaderboard" className="flex items-center gap-2" data-testid="tab-leaderboard">
+              <Trophy className="h-4 w-4" />
+              Leaderboard
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="players" className="mt-0">
+            <Card>
           <CardHeader>
             <div className="flex flex-col md:flex-row gap-4">
               <div className="relative flex-1">
