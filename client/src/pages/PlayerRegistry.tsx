@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatSkillLevel, getSkillTier } from "@shared/utils/skillUtils";
-import { EditPlayerLevelModal } from "@/components/EditPlayerLevelModal";
+import { EditPlayerModal } from "@/components/EditPlayerModal";
 import type { Player, Session } from "@shared/schema";
 
 export default function PlayerRegistry() {
@@ -257,7 +257,7 @@ export default function PlayerRegistry() {
           </CardContent>
         </Card>
 
-        <EditPlayerLevelModal
+        <EditPlayerModal
           player={editingPlayer}
           open={editModalOpen}
           onOpenChange={setEditModalOpen}
