@@ -394,7 +394,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           participant.skillScoreBefore,
           opponentAvgSkill,
           isNowWinner,
-          pointDifferential
+          pointDifferential,
+          player.gamesPlayed || 0
         );
         
         // Calculate what player's new current skill should be
@@ -1314,7 +1315,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           skillBefore,
           opponentAvgSkill,
           isWinner,
-          pointDifferential
+          pointDifferential,
+          player.gamesPlayed || 0
         );
         
         // Get updated tier based on new skill score

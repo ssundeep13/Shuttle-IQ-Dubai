@@ -67,85 +67,139 @@ export function calculateTeamAverage(playerScores: number[]): number {
 }
 
 /**
+ * Get K-factor multiplier based on games played.
+ * New players have volatile ratings that settle over time.
+ * 
+ * - <10 games: 1.0 (full adjustments, rating is being discovered)
+ * - 10-30 games: 0.65 (settling into range)
+ * - 30+ games: 0.4 (stable, established rating)
+ */
+export function getKFactor(gamesPlayed: number): number {
+  if (gamesPlayed < 10) return 1.0;
+  if (gamesPlayed < 30) return 0.65;
+  return 0.4;
+}
+
+/**
+ * Get the tier boundary thresholds.
+ * Returns [lowerBound, upperBound) for the tier containing the given score.
+ */
+function getTierBounds(score: number): { lower: number; upper: number } {
+  if (score < 40) return { lower: MIN_SKILL_SCORE, upper: 40 };
+  if (score < 70) return { lower: 40, upper: 70 };
+  if (score < 110) return { lower: 70, upper: 110 };
+  if (score < 160) return { lower: 110, upper: 160 };
+  return { lower: 160, upper: MAX_SKILL_SCORE };
+}
+
+/**
  * Calculate skill score adjustment based on game outcome
  * 
- * Uses ELO-style rating system:
- * - Win against higher-skilled opponent: +8 to +15 points
- * - Win against equal opponent: +5 points
- * - Win against lower-skilled opponent: +2 to +4 points
- * - Loss: Inverse point changes
+ * Uses ELO-style rating system with two stabilization mechanisms:
+ * 
+ * 1. K-Factor Decay: Adjustments shrink as players play more games,
+ *    so established players have stable ratings.
+ * 
+ * 2. Tier Boundary Protection: Players cannot cross into a higher tier
+ *    by beating same-tier or lower-tier opponents. To promote into a
+ *    new tier, you must beat opponents from that tier or above.
+ *    Similarly, you won't demote by losing to same-tier or higher-tier
+ *    opponents.
  * 
  * @param playerScore Current player skill score
  * @param opponentAvgScore Average skill score of opposing team
  * @param won Whether the player won the game
- * @param pointDifferential Absolute difference in game score (optional, for fine-tuning)
+ * @param pointDifferential Absolute difference in game score (optional)
+ * @param gamesPlayed Number of games the player has played (for K-factor)
  * @returns New skill score (bounded between 10-200)
  */
 export function calculateSkillAdjustment(
   playerScore: number,
   opponentAvgScore: number,
   won: boolean,
-  pointDifferential: number = 0
+  pointDifferential: number = 0,
+  gamesPlayed: number = 0
 ): number {
   const skillDiff = opponentAvgScore - playerScore;
-  let adjustment = 0;
+  let baseAdjustment = 0;
 
   if (won) {
-    // Win scenarios
     if (skillDiff > 20) {
-      // Beat much stronger opponent
-      adjustment = 15;
+      baseAdjustment = 15;
     } else if (skillDiff > 10) {
-      // Beat stronger opponent
-      adjustment = 10;
+      baseAdjustment = 10;
     } else if (skillDiff > 0) {
-      // Beat slightly stronger opponent
-      adjustment = 8;
+      baseAdjustment = 8;
     } else if (skillDiff > -10) {
-      // Beat equal opponent
-      adjustment = 5;
+      baseAdjustment = 5;
     } else if (skillDiff > -20) {
-      // Beat slightly weaker opponent
-      adjustment = 4;
+      baseAdjustment = 4;
     } else {
-      // Beat much weaker opponent
-      adjustment = 2;
+      baseAdjustment = 2;
     }
     
-    // Bonus for dominant victory (point differential > 10)
     if (pointDifferential > 10) {
-      adjustment += 2;
+      baseAdjustment += 2;
     }
   } else {
-    // Loss scenarios (inverse of wins)
     if (skillDiff > 20) {
-      // Lost to much stronger opponent (expected)
-      adjustment = -2;
+      baseAdjustment = -2;
     } else if (skillDiff > 10) {
-      // Lost to stronger opponent
-      adjustment = -4;
+      baseAdjustment = -4;
     } else if (skillDiff > 0) {
-      // Lost to slightly stronger opponent
-      adjustment = -5;
+      baseAdjustment = -5;
     } else if (skillDiff > -10) {
-      // Lost to equal opponent
-      adjustment = -8;
+      baseAdjustment = -8;
     } else if (skillDiff > -20) {
-      // Lost to slightly weaker opponent
-      adjustment = -10;
+      baseAdjustment = -10;
     } else {
-      // Lost to much weaker opponent (upset)
-      adjustment = -15;
+      baseAdjustment = -15;
     }
     
-    // Extra penalty for being dominated (point differential > 10)
     if (pointDifferential > 10) {
-      adjustment -= 2;
+      baseAdjustment -= 2;
     }
   }
 
-  // Apply adjustment and bound between min/max
-  const newScore = playerScore + adjustment;
+  // Apply K-factor decay based on games played
+  const kFactor = getKFactor(gamesPlayed);
+  let adjustment = Math.round(baseAdjustment * kFactor);
+  
+  // Ensure minimum adjustment of 1 point (ratings never completely freeze)
+  if (adjustment === 0) {
+    adjustment = won ? 1 : -1;
+  }
+
+  let newScore = playerScore + adjustment;
+
+  // Tier boundary protection
+  const playerTier = getSkillTier(playerScore);
+  const opponentTier = getSkillTier(opponentAvgScore);
+  const playerBounds = getTierBounds(playerScore);
+
+  if (won && newScore >= playerBounds.upper) {
+    // Trying to promote: only allow if opponent is from the higher tier or above
+    const targetTier = getSkillTier(playerBounds.upper);
+    const tierOrder: SkillTier[] = ['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Professional'];
+    const opponentTierIndex = tierOrder.indexOf(opponentTier);
+    const targetTierIndex = tierOrder.indexOf(targetTier);
+    
+    if (opponentTierIndex < targetTierIndex) {
+      // Opponent is from same tier or lower — cap at 1 below boundary
+      newScore = playerBounds.upper - 1;
+    }
+  } else if (!won && newScore < playerBounds.lower) {
+    // Trying to demote: only allow if opponent is from the lower tier or below
+    const currentTierIndex = ['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Professional'].indexOf(playerTier);
+    const opponentTierIndex = ['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Professional'].indexOf(opponentTier);
+    
+    if (opponentTierIndex >= currentTierIndex) {
+      // Opponent is from same tier or higher — cap at lower boundary
+      newScore = playerBounds.lower;
+    }
+  }
+
+  // Final bounds check
   return Math.max(MIN_SKILL_SCORE, Math.min(MAX_SKILL_SCORE, newScore));
 }
 
