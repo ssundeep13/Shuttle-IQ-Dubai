@@ -254,8 +254,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           url = input.toString();
         }
         
-        // Add auth header to API requests (except auth endpoints)
-        if (url.startsWith('/api') && !url.startsWith('/api/auth')) {
+        if (url.startsWith('/api') && !url.startsWith('/api/auth') && !url.startsWith('/api/marketplace/')) {
           const headers = new Headers(init?.headers);
           headers.set('Authorization', `Bearer ${accessToken}`);
           

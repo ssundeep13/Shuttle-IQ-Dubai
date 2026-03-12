@@ -34,10 +34,14 @@ import {
   clearSessionRestStates,
   type TeamCombination
 } from "./matchmaking";
+import { registerMarketplaceRoutes } from "./marketplace-routes";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Seed admin user on startup
   await seedAdminUser();
+
+  // Register marketplace routes
+  registerMarketplaceRoutes(app);
 
   // Auth routes
   app.post("/api/auth/login", async (req, res) => {

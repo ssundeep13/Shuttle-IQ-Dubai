@@ -13,6 +13,18 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+function getAuthToken(url: string): string | null {
+  const isMarketplace = url.startsWith('/api/marketplace/');
+  const isAdminMarketplace = url.startsWith('/api/marketplace/admin/') ||
+    (url.startsWith('/api/marketplace/sessions/') && url.endsWith('/bookings')) ||
+    (url.includes('/api/marketplace/bookings/') && url.endsWith('/attend'));
+  
+  if (isMarketplace && !isAdminMarketplace) {
+    return localStorage.getItem('mp_accessToken');
+  }
+  return localStorage.getItem('accessToken');
+}
+
 export async function apiRequest<T = any>(
   method: string,
   url: string,
@@ -20,13 +32,11 @@ export async function apiRequest<T = any>(
 ): Promise<T> {
   const headers: Record<string, string> = {};
   
-  // Add Content-Type header if there's data
   if (data) {
     headers["Content-Type"] = "application/json";
   }
   
-  // Add Authorization header if access token exists
-  const accessToken = localStorage.getItem('accessToken');
+  const accessToken = getAuthToken(url);
   if (accessToken) {
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
@@ -40,7 +50,6 @@ export async function apiRequest<T = any>(
 
   await throwIfResNotOk(res);
   
-  // Handle 204 No Content responses
   if (res.status === 204) {
     return undefined as T;
   }
@@ -54,8 +63,17 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    const url = queryKey.join("/") as string;
+    const headers: Record<string, string> = {};
+    
+    const accessToken = getAuthToken(url);
+    if (accessToken) {
+      headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+    
+    const res = await fetch(url, {
       credentials: "include",
+      headers,
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

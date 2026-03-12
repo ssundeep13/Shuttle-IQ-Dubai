@@ -27,6 +27,18 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   next();
 }
 
+export function requireMarketplaceAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  if (req.user.role !== 'marketplace_player') {
+    return res.status(403).json({ error: 'Marketplace account required' });
+  }
+
+  next();
+}
+
 export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ error: 'Authentication required' });

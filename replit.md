@@ -36,6 +36,16 @@ Preferred communication style: Simple, everyday language.
 - **Data Import/Export**: Supports flexible player import via CSV or copy-paste with smart header detection and auto-validation. Provides CSV export of game history and player data. Duplicate player detection is handled via ShuttleIQ Unique IDs.
 - **Game History**: Session-specific game history with complete isolation between sessions.
 - **Leaderboards**: Includes a global admin leaderboard for all-time statistics and a session-specific leaderboard showing only players who participated in the current session.
+- **ShuttleIQ Marketplace**: Player-facing booking and community platform with:
+    - **Marketplace Auth**: Separate JWT-based auth for marketplace players (`marketplace_player` role), with tokens stored as `mp_accessToken`/`mp_refreshToken`. Enforced via `requireMarketplaceAuth` middleware on the server.
+    - **Session Browsing & Booking**: Public session listing with venue, date, time, capacity, and pricing (AED). Authenticated users can book sessions (one active booking per session enforced).
+    - **Player Dashboards**: My Bookings (with cancel), My Scores (linked player stats), Rankings (global leaderboard), Profile (account details + player linking).
+    - **Player Linking**: Marketplace accounts can link to existing ShuttleIQ player profiles for score/ranking integration.
+    - **Admin Marketplace**: Admin-only dashboard for managing bookable sessions, viewing bookings, marking attendance, and managing marketplace users.
+    - **Routes**: All marketplace routes under `/marketplace/*`, API under `/api/marketplace/*`.
+    - **DB Tables**: `marketplace_users`, `marketplace_auth_sessions`, `bookable_sessions`, `bookings`, `payments`.
+    - **Frontend Route Guards**: `MarketplaceProtectedRoute` redirects unauthenticated users to `/marketplace/login`.
+    - **Token Routing**: `getAuthToken()` in `queryClient.ts` detects marketplace vs admin URLs and sends the correct token. Admin fetch interceptor in `AuthContext` excludes `/api/marketplace/` URLs.
 
 #### System Design Choices
 - **Storage Strategy**: Drizzle ORM for type-safe PostgreSQL interactions and an `IStorage` interface for interchangeable storage implementations.

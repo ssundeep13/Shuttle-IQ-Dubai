@@ -9,16 +9,31 @@ import {
   type InsertSession,
   type GameParticipant,
   type PlayerStats,
+  type MarketplaceUser,
+  type InsertMarketplaceUser,
+  type BookableSession,
+  type InsertBookableSession,
+  type BookableSessionWithAvailability,
+  type Booking,
+  type InsertBooking,
+  type BookingWithDetails,
+  type Payment,
+  type InsertPayment,
   players,
   courts,
   courtPlayers as courtPlayersTable,
   queueEntries,
   sessions,
   gameResults,
-  gameParticipants
+  gameParticipants,
+  marketplaceUsers,
+  marketplaceAuthSessions,
+  bookableSessions,
+  bookings,
+  payments
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, inArray, desc, sql, asc, like } from "drizzle-orm";
+import { eq, and, inArray, desc, sql, asc, like, gte } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -95,6 +110,40 @@ export interface IStorage {
   getCourtsWithPlayers(sessionId: string): Promise<CourtWithPlayers[]>;
   getSessionGameHistory(sessionId: string): Promise<any[]>;
   getSessionGameParticipants(sessionId: string): Promise<(GameParticipant & { createdAt: Date })[]>;
+
+  // Marketplace User operations
+  createMarketplaceUser(user: InsertMarketplaceUser): Promise<MarketplaceUser>;
+  getMarketplaceUser(id: string): Promise<MarketplaceUser | undefined>;
+  getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined>;
+  updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
+  getAllMarketplaceUsers(): Promise<MarketplaceUser[]>;
+  createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void>;
+  findMarketplaceAuthSession(refreshToken: string): Promise<{ id: string; userId: string; refreshToken: string; expiresAt: Date } | undefined>;
+  deleteMarketplaceAuthSession(id: string): Promise<void>;
+
+  // Bookable Session operations
+  createBookableSession(session: InsertBookableSession): Promise<BookableSession>;
+  getBookableSession(id: string): Promise<BookableSession | undefined>;
+  getBookableSessionWithAvailability(id: string): Promise<BookableSessionWithAvailability | undefined>;
+  getAllBookableSessions(): Promise<BookableSessionWithAvailability[]>;
+  updateBookableSession(id: string, updates: Partial<BookableSession>): Promise<BookableSession | undefined>;
+  deleteBookableSession(id: string): Promise<boolean>;
+
+  // Booking operations
+  createBooking(booking: InsertBooking): Promise<Booking>;
+  getBooking(id: string): Promise<Booking | undefined>;
+  getBookingWithDetails(id: string): Promise<BookingWithDetails | undefined>;
+  getUserBookings(userId: string): Promise<BookingWithDetails[]>;
+  getUserBookingForSession(userId: string, sessionId: string): Promise<Booking | undefined>;
+  getSessionBookings(sessionId: string): Promise<BookingWithDetails[]>;
+  updateBooking(id: string, updates: Partial<Booking>): Promise<Booking | undefined>;
+  getBookingCountForSession(sessionId: string): Promise<number>;
+
+  // Payment operations
+  createPayment(payment: InsertPayment): Promise<Payment>;
+  getPayment(id: string): Promise<Payment | undefined>;
+  getPaymentByBookingId(bookingId: string): Promise<Payment | undefined>;
+  updatePayment(id: string, updates: Partial<Payment>): Promise<Payment | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -777,6 +826,215 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(gameResults.createdAt));
     
     return participants;
+  }
+
+  // ============================================================
+  // MARKETPLACE OPERATIONS
+  // ============================================================
+
+  async createMarketplaceUser(user: InsertMarketplaceUser): Promise<MarketplaceUser> {
+    const id = randomUUID();
+    const [created] = await db
+      .insert(marketplaceUsers)
+      .values({ ...user, id })
+      .returning();
+    return created;
+  }
+
+  async getMarketplaceUser(id: string): Promise<MarketplaceUser | undefined> {
+    const [user] = await db.select().from(marketplaceUsers).where(eq(marketplaceUsers.id, id));
+    return user || undefined;
+  }
+
+  async getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined> {
+    const [user] = await db.select().from(marketplaceUsers).where(eq(marketplaceUsers.email, email));
+    return user || undefined;
+  }
+
+  async updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined> {
+    const [updated] = await db
+      .update(marketplaceUsers)
+      .set(updates)
+      .where(eq(marketplaceUsers.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getAllMarketplaceUsers(): Promise<MarketplaceUser[]> {
+    return await db.select().from(marketplaceUsers).orderBy(desc(marketplaceUsers.createdAt));
+  }
+
+  async createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void> {
+    await db.insert(marketplaceAuthSessions).values({
+      id: randomUUID(),
+      userId,
+      refreshToken,
+      expiresAt,
+    });
+  }
+
+  async findMarketplaceAuthSession(refreshToken: string): Promise<{ id: string; userId: string; refreshToken: string; expiresAt: Date } | undefined> {
+    const [session] = await db
+      .select()
+      .from(marketplaceAuthSessions)
+      .where(eq(marketplaceAuthSessions.refreshToken, refreshToken));
+    return session || undefined;
+  }
+
+  async deleteMarketplaceAuthSession(id: string): Promise<void> {
+    await db.delete(marketplaceAuthSessions).where(eq(marketplaceAuthSessions.id, id));
+  }
+
+  async createBookableSession(session: InsertBookableSession): Promise<BookableSession> {
+    const id = randomUUID();
+    const [created] = await db
+      .insert(bookableSessions)
+      .values({ ...session, id })
+      .returning();
+    return created;
+  }
+
+  async getBookableSession(id: string): Promise<BookableSession | undefined> {
+    const [session] = await db.select().from(bookableSessions).where(eq(bookableSessions.id, id));
+    return session || undefined;
+  }
+
+  async getBookableSessionWithAvailability(id: string): Promise<BookableSessionWithAvailability | undefined> {
+    const session = await this.getBookableSession(id);
+    if (!session) return undefined;
+    const count = await this.getBookingCountForSession(id);
+    return { ...session, spotsRemaining: Math.max(0, session.capacity - count), totalBookings: count };
+  }
+
+  async getAllBookableSessions(): Promise<BookableSessionWithAvailability[]> {
+    const allSessions = await db.select().from(bookableSessions).orderBy(asc(bookableSessions.date));
+    const result: BookableSessionWithAvailability[] = [];
+    for (const session of allSessions) {
+      const count = await this.getBookingCountForSession(session.id);
+      result.push({ ...session, spotsRemaining: Math.max(0, session.capacity - count), totalBookings: count });
+    }
+    return result;
+  }
+
+  async updateBookableSession(id: string, updates: Partial<BookableSession>): Promise<BookableSession | undefined> {
+    const [updated] = await db
+      .update(bookableSessions)
+      .set(updates)
+      .where(eq(bookableSessions.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteBookableSession(id: string): Promise<boolean> {
+    await db.delete(bookings).where(eq(bookings.sessionId, id));
+    const result = await db.delete(bookableSessions).where(eq(bookableSessions.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async createBooking(booking: InsertBooking): Promise<Booking> {
+    const id = randomUUID();
+    const [created] = await db
+      .insert(bookings)
+      .values({ ...booking, id })
+      .returning();
+    return created;
+  }
+
+  async getBooking(id: string): Promise<Booking | undefined> {
+    const [booking] = await db.select().from(bookings).where(eq(bookings.id, id));
+    return booking || undefined;
+  }
+
+  async getBookingWithDetails(id: string): Promise<BookingWithDetails | undefined> {
+    const booking = await this.getBooking(id);
+    if (!booking) return undefined;
+    const session = await this.getBookableSession(booking.sessionId);
+    if (!session) return undefined;
+    const user = await this.getMarketplaceUser(booking.userId);
+    return { ...booking, session, user: user || undefined };
+  }
+
+  async getUserBookings(userId: string): Promise<BookingWithDetails[]> {
+    const userBookings = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.userId, userId))
+      .orderBy(desc(bookings.createdAt));
+    const result: BookingWithDetails[] = [];
+    for (const booking of userBookings) {
+      const session = await this.getBookableSession(booking.sessionId);
+      if (session) result.push({ ...booking, session });
+    }
+    return result;
+  }
+
+  async getUserBookingForSession(userId: string, sessionId: string): Promise<Booking | undefined> {
+    const [booking] = await db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.userId, userId), eq(bookings.sessionId, sessionId)))
+      .limit(1);
+    return booking;
+  }
+
+  async getSessionBookings(sessionId: string): Promise<BookingWithDetails[]> {
+    const sessionBookings = await db
+      .select()
+      .from(bookings)
+      .where(eq(bookings.sessionId, sessionId))
+      .orderBy(desc(bookings.createdAt));
+    const result: BookingWithDetails[] = [];
+    for (const booking of sessionBookings) {
+      const session = await this.getBookableSession(booking.sessionId);
+      const user = await this.getMarketplaceUser(booking.userId);
+      if (session) result.push({ ...booking, session, user: user || undefined });
+    }
+    return result;
+  }
+
+  async updateBooking(id: string, updates: Partial<Booking>): Promise<Booking | undefined> {
+    const [updated] = await db
+      .update(bookings)
+      .set(updates)
+      .where(eq(bookings.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getBookingCountForSession(sessionId: string): Promise<number> {
+    const activeBookings = await db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.sessionId, sessionId), sql`${bookings.status} != 'cancelled'`));
+    return activeBookings.length;
+  }
+
+  async createPayment(payment: InsertPayment): Promise<Payment> {
+    const id = randomUUID();
+    const [created] = await db
+      .insert(payments)
+      .values({ ...payment, id })
+      .returning();
+    return created;
+  }
+
+  async getPayment(id: string): Promise<Payment | undefined> {
+    const [payment] = await db.select().from(payments).where(eq(payments.id, id));
+    return payment || undefined;
+  }
+
+  async getPaymentByBookingId(bookingId: string): Promise<Payment | undefined> {
+    const [payment] = await db.select().from(payments).where(eq(payments.bookingId, bookingId));
+    return payment || undefined;
+  }
+
+  async updatePayment(id: string, updates: Partial<Payment>): Promise<Payment | undefined> {
+    const [updated] = await db
+      .update(payments)
+      .set(updates)
+      .where(eq(payments.id, id))
+      .returning();
+    return updated || undefined;
   }
 }
 

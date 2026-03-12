@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -220,3 +220,101 @@ export const authSessions = pgTable("auth_sessions", {
 export const insertAuthSessionSchema = createInsertSchema(authSessions).omit({ id: true, createdAt: true });
 export type InsertAuthSession = z.infer<typeof insertAuthSessionSchema>;
 export type AuthSession = typeof authSessions.$inferSelect;
+
+// ============================================================
+// MARKETPLACE TABLES
+// ============================================================
+
+// Marketplace Users (player-facing accounts, separate from admin)
+export const marketplaceUsers = pgTable("marketplace_users", {
+  id: varchar("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  linkedPlayerId: varchar("linked_player_id"),
+  role: text("role").notNull().default('player'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastLoginAt: timestamp("last_login_at"),
+});
+
+export const insertMarketplaceUserSchema = createInsertSchema(marketplaceUsers).omit({ id: true, createdAt: true, lastLoginAt: true });
+export type InsertMarketplaceUser = z.infer<typeof insertMarketplaceUserSchema>;
+export type MarketplaceUser = typeof marketplaceUsers.$inferSelect;
+
+// Marketplace Auth Sessions (JWT refresh tokens for marketplace users)
+export const marketplaceAuthSessions = pgTable("marketplace_auth_sessions", {
+  id: varchar("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type MarketplaceAuthSession = typeof marketplaceAuthSessions.$inferSelect;
+
+// Bookable Sessions (distinct from internal court management sessions)
+export const bookableSessions = pgTable("bookable_sessions", {
+  id: varchar("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  venueName: text("venue_name").notNull(),
+  venueLocation: text("venue_location"),
+  date: timestamp("date").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  courtCount: integer("court_count").notNull().default(2),
+  capacity: integer("capacity").notNull().default(16),
+  priceAed: integer("price_aed").notNull().default(50),
+  status: text("status").notNull().default('upcoming'),
+  imageUrl: text("image_url"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertBookableSessionSchema = createInsertSchema(bookableSessions).omit({ id: true, createdAt: true });
+export type InsertBookableSession = z.infer<typeof insertBookableSessionSchema>;
+export type BookableSession = typeof bookableSessions.$inferSelect;
+
+// Bookings (user → bookable session)
+export const bookings = pgTable("bookings", {
+  id: varchar("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  sessionId: varchar("session_id").notNull(),
+  status: text("status").notNull().default('confirmed'),
+  paymentIntentId: text("payment_intent_id"),
+  amountAed: integer("amount_aed").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  cancelledAt: timestamp("cancelled_at"),
+  attendedAt: timestamp("attended_at"),
+});
+
+export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, cancelledAt: true, attendedAt: true });
+export type InsertBooking = z.infer<typeof insertBookingSchema>;
+export type Booking = typeof bookings.$inferSelect;
+
+// Payments
+export const payments = pgTable("payments", {
+  id: varchar("id").primaryKey(),
+  bookingId: varchar("booking_id").notNull(),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  amount: integer("amount").notNull(),
+  currency: text("currency").notNull().default('aed'),
+  status: text("status").notNull().default('pending'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true, completedAt: true });
+export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+export type Payment = typeof payments.$inferSelect;
+
+// Marketplace frontend types
+export interface BookableSessionWithAvailability extends BookableSession {
+  spotsRemaining: number;
+  totalBookings: number;
+}
+
+export interface BookingWithDetails extends Booking {
+  session: BookableSession;
+  user?: MarketplaceUser;
+}
