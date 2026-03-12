@@ -25,14 +25,12 @@ export default function SessionDetails() {
 
   const bookMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('POST', '/api/marketplace/bookings', { sessionId: id });
+      return apiRequest<{ url: string; bookingId: string }>('POST', '/api/marketplace/checkout/create-session', { sessionId: id });
     },
-    onSuccess: () => {
-      toast({ title: 'Booking confirmed!', description: 'Your spot has been reserved.' });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id] });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
-      setLocation('/marketplace/my-bookings');
+    onSuccess: (data: { url: string; bookingId: string }) => {
+      if (data.url) {
+        window.location.href = data.url;
+      }
     },
     onError: (error: any) => {
       toast({ title: 'Booking failed', description: error.error || 'Something went wrong', variant: 'destructive' });
@@ -131,7 +129,7 @@ export default function SessionDetails() {
                   data-testid="button-book-now"
                 >
                   <CreditCard className="h-5 w-5" />
-                  {bookMutation.isPending ? 'Booking...' : session.spotsRemaining <= 0 ? 'Session Full' : 'Book Now'}
+                  {bookMutation.isPending ? 'Redirecting to payment...' : session.spotsRemaining <= 0 ? 'Session Full' : 'Book & Pay Now'}
                 </Button>
               ) : (
                 <Link href="/marketplace/login">

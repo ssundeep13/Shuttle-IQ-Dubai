@@ -39,11 +39,12 @@ Preferred communication style: Simple, everyday language.
 - **ShuttleIQ Marketplace**: Player-facing booking and community platform with:
     - **Marketplace Auth**: Separate JWT-based auth for marketplace players (`marketplace_player` role), with tokens stored as `mp_accessToken`/`mp_refreshToken`. Enforced via `requireMarketplaceAuth` middleware on the server.
     - **Session Browsing & Booking**: Public session listing with venue, date, time, capacity, and pricing (AED). Authenticated users can book sessions (one active booking per session enforced).
+    - **Stripe Checkout Integration**: Real payment processing via Stripe Checkout Sessions. Booking flow: user clicks "Book & Pay Now" → backend creates a pending booking + Stripe Checkout Session → user is redirected to Stripe-hosted checkout → on return, payment is verified and booking status updated to "confirmed". Key files: `server/stripeClient.ts`, `server/webhookHandlers.ts`, `server/marketplace-routes.ts`. Webhook route registered BEFORE `express.json()` in `server/index.ts`. Uses `stripe-replit-sync` for Stripe schema sync and managed webhooks. Checkout success/cancel pages at `/marketplace/checkout/success` and `/marketplace/checkout/cancel`.
     - **Player Dashboards**: My Bookings (with cancel), My Scores (linked player stats), Rankings (global leaderboard), Profile (account details + player linking).
     - **Player Linking**: Marketplace accounts can link to existing ShuttleIQ player profiles for score/ranking integration.
     - **Admin Marketplace**: Admin-only dashboard for managing bookable sessions, viewing bookings, marking attendance, and managing marketplace users.
     - **Routes**: All marketplace routes under `/marketplace/*`, API under `/api/marketplace/*`.
-    - **DB Tables**: `marketplace_users`, `marketplace_auth_sessions`, `bookable_sessions`, `bookings`, `payments`.
+    - **DB Tables**: `marketplace_users`, `marketplace_auth_sessions`, `bookable_sessions`, `bookings` (with `stripe_checkout_session_id`), `payments`.
     - **Frontend Route Guards**: `MarketplaceProtectedRoute` redirects unauthenticated users to `/marketplace/login`.
     - **Token Routing**: `getAuthToken()` in `queryClient.ts` detects marketplace vs admin URLs and sends the correct token. Admin fetch interceptor in `AuthContext` excludes `/api/marketplace/` URLs.
 
@@ -76,6 +77,11 @@ Preferred communication style: Simple, everyday language.
 - **Vite**: Frontend build tool.
 - **ESBuild**: Production server bundling.
 - **tsx**: TypeScript execution in development.
+
+#### Payments
+- **Stripe**: Payment processing via Stripe Checkout Sessions.
+- **stripe-replit-sync**: Stripe schema sync and managed webhooks for PostgreSQL.
+- **@stripe/stripe-js**: Stripe frontend SDK (available but checkout uses Stripe-hosted page).
 
 #### Session & Utilities
 - **connect-pg-simple**: PostgreSQL session store.

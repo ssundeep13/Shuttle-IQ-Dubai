@@ -9,6 +9,7 @@ import {
   hashPassword,
   verifyRefreshToken,
 } from "./auth/utils";
+import { getUncachableStripeClient, getPublishableKey } from "./stripeClient";
 
 export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
@@ -298,10 +299,23 @@ export function registerMarketplaceRoutes(app: Express) {
   });
 
   // ============================================================
-  // BOOKINGS
+  // STRIPE CONFIG
   // ============================================================
 
-  app.post("/api/marketplace/bookings", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+  app.get("/api/marketplace/stripe/config", async (_req, res) => {
+    try {
+      const publishableKey = await getPublishableKey();
+      res.json({ publishableKey });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get Stripe config" });
+    }
+  });
+
+  // ============================================================
+  // CHECKOUT
+  // ============================================================
+
+  app.post("/api/marketplace/checkout/create-session", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
       const { sessionId } = req.body;
@@ -312,16 +326,139 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(400).json({ error: "You already have a booking for this session" });
       }
 
-      const session = await storage.getBookableSessionWithAvailability(sessionId);
-      if (!session) return res.status(404).json({ error: "Session not found" });
-      if (session.spotsRemaining <= 0) return res.status(400).json({ error: "Session is full" });
-      if (session.status === "cancelled") return res.status(400).json({ error: "Session is cancelled" });
+      const bookableSession = await storage.getBookableSessionWithAvailability(sessionId);
+      if (!bookableSession) return res.status(404).json({ error: "Session not found" });
+      if (bookableSession.spotsRemaining <= 0) return res.status(400).json({ error: "Session is full" });
+      if (bookableSession.status === "cancelled") return res.status(400).json({ error: "Session is cancelled" });
 
       const booking = await storage.createBooking({
         userId: req.user.userId,
         sessionId,
+        status: "pending",
+        paymentIntentId: null,
+        stripeCheckoutSessionId: null,
+        amountAed: bookableSession.priceAed,
+      });
+
+      const stripe = await getUncachableStripeClient();
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+
+      const checkoutSession = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'aed',
+              product_data: {
+                name: bookableSession.title,
+                description: `${bookableSession.venueName} - ${bookableSession.startTime} to ${bookableSession.endTime}`,
+              },
+              unit_amount: bookableSession.priceAed * 100,
+            },
+            quantity: 1,
+          },
+        ],
+        mode: 'payment',
+        success_url: `${baseUrl}/marketplace/checkout/success?session_id={CHECKOUT_SESSION_ID}&booking_id=${booking.id}`,
+        cancel_url: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
+        metadata: {
+          bookingId: booking.id,
+          sessionId: sessionId,
+          userId: req.user.userId,
+        },
+      });
+
+      await storage.updateBooking(booking.id, {
+        stripeCheckoutSessionId: checkoutSession.id,
+      });
+
+      res.json({ url: checkoutSession.url, bookingId: booking.id });
+    } catch (error: any) {
+      console.error('Checkout error:', error);
+      res.status(500).json({ error: "Failed to create checkout session" });
+    }
+  });
+
+  app.post("/api/marketplace/checkout/verify", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const { sessionId: stripeSessionId, bookingId } = req.body;
+      if (!stripeSessionId || !bookingId) {
+        return res.status(400).json({ error: "Session ID and booking ID required" });
+      }
+
+      const booking = await storage.getBooking(bookingId);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
+
+      if (booking.stripeCheckoutSessionId !== stripeSessionId) {
+        return res.status(400).json({ error: "Stripe session does not match this booking" });
+      }
+
+      if (booking.status === 'confirmed') {
+        const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+        return res.json({ verified: true, booking: bookingWithDetails });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const checkoutSession = await stripe.checkout.sessions.retrieve(stripeSessionId);
+
+      if (checkoutSession.metadata?.bookingId !== bookingId ||
+          checkoutSession.metadata?.userId !== req.user.userId) {
+        return res.status(400).json({ error: "Payment metadata mismatch" });
+      }
+
+      const expectedAmountCents = booking.amountAed * 100;
+      if (checkoutSession.amount_total !== expectedAmountCents) {
+        return res.status(400).json({ error: "Payment amount mismatch" });
+      }
+
+      if (checkoutSession.payment_status === 'paid') {
+        await storage.updateBooking(bookingId, { status: 'confirmed' });
+
+        await storage.createPayment({
+          bookingId: booking.id,
+          stripePaymentIntentId: checkoutSession.payment_intent as string,
+          amount: booking.amountAed,
+          currency: "aed",
+          status: "completed",
+        });
+
+        const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+        return res.json({ verified: true, booking: bookingWithDetails });
+      } else {
+        return res.json({ verified: false, status: checkoutSession.payment_status });
+      }
+    } catch (error: any) {
+      console.error('Verify error:', error);
+      res.status(500).json({ error: "Failed to verify payment" });
+    }
+  });
+
+  // ============================================================
+  // BOOKINGS
+  // ============================================================
+
+  app.post("/api/marketplace/bookings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId, userId } = req.body;
+      if (!sessionId || !userId) return res.status(400).json({ error: "Session ID and user ID required" });
+
+      const existingBooking = await storage.getUserBookingForSession(userId, sessionId);
+      if (existingBooking && existingBooking.status !== 'cancelled') {
+        return res.status(400).json({ error: "User already has a booking for this session" });
+      }
+
+      const session = await storage.getBookableSessionWithAvailability(sessionId);
+      if (!session) return res.status(404).json({ error: "Session not found" });
+      if (session.spotsRemaining <= 0) return res.status(400).json({ error: "Session is full" });
+
+      const booking = await storage.createBooking({
+        userId,
+        sessionId,
         status: "confirmed",
         paymentIntentId: null,
+        stripeCheckoutSessionId: null,
         amountAed: session.priceAed,
       });
 

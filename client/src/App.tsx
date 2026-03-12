@@ -26,6 +26,8 @@ import MyScores from "@/pages/marketplace/MyScores";
 import Rankings from "@/pages/marketplace/Rankings";
 import Profile from "@/pages/marketplace/Profile";
 import AdminMarketplace from "@/pages/marketplace/AdminMarketplace";
+import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
+import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
 
 function MarketplaceRoute({ component: Component, ...rest }: { component: React.ComponentType<any> } & Record<string, any>) {
   return (
@@ -93,6 +95,12 @@ function Router() {
       </Route>
       <Route path="/marketplace/rankings">
         <MarketplaceRoute component={Rankings} />
+      </Route>
+      <Route path="/marketplace/checkout/success">
+        <MarketplaceRoute component={CheckoutSuccess} />
+      </Route>
+      <Route path="/marketplace/checkout/cancel">
+        <MarketplaceRoute component={CheckoutCancel} />
       </Route>
 
       <Route path="/marketplace/my-bookings">
