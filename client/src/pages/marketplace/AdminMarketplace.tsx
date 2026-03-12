@@ -521,7 +521,7 @@ function UsersTab() {
                         onChange={(e) => { setSearchQuery(e.target.value); searchPlayers(e.target.value); }}
                         data-testid="input-search-player-link"
                       />
-                      <Button variant="ghost" size="sm" onClick={() => setLinkingUser(null)}>Cancel</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setLinkingUser(null)} data-testid="button-cancel-link">Cancel</Button>
                     </div>
                     {searchResults.length > 0 && (
                       <div className="space-y-1">

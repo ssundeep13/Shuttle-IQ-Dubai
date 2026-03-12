@@ -99,6 +99,7 @@ export function MarketplaceNav() {
                   <Button
                     variant={isActive(link.href) ? 'secondary' : 'ghost'}
                     className="w-full justify-start gap-2"
+                    data-testid={`link-mobile-${link.label.toLowerCase().replace(/\s/g, '-')}`}
                   >
                     <link.icon className="h-4 w-4" />
                     {link.label}
@@ -113,6 +114,7 @@ export function MarketplaceNav() {
                       <Button
                         variant={isActive(link.href) ? 'secondary' : 'ghost'}
                         className="w-full justify-start gap-2"
+                        data-testid={`link-mobile-${link.label.toLowerCase().replace(/\s/g, '-')}`}
                       >
                         <link.icon className="h-4 w-4" />
                         {link.label}
@@ -120,7 +122,7 @@ export function MarketplaceNav() {
                     </Link>
                   ))}
                   <div className="h-px bg-border my-2" />
-                  <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => { logout(); setOpen(false); }}>
+                  <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => { logout(); setOpen(false); }} data-testid="button-mobile-logout">
                     <LogOut className="h-4 w-4" /> Logout
                   </Button>
                 </>
@@ -129,10 +131,10 @@ export function MarketplaceNav() {
                 <>
                   <div className="h-px bg-border my-2" />
                   <Link href="/marketplace/login" onClick={() => setOpen(false)}>
-                    <Button variant="ghost" className="w-full justify-start">Log In</Button>
+                    <Button variant="ghost" className="w-full justify-start" data-testid="button-mobile-login">Log In</Button>
                   </Link>
                   <Link href="/marketplace/signup" onClick={() => setOpen(false)}>
-                    <Button className="w-full justify-start">Sign Up</Button>
+                    <Button className="w-full justify-start" data-testid="button-mobile-signup">Sign Up</Button>
                   </Link>
                 </>
               )}
