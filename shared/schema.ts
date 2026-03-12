@@ -24,6 +24,8 @@ export const players = pgTable("players", {
   shuttleIqId: text("shuttle_iq_id").unique(), // Human-readable unique ID (e.g., "SIQ-00001")
   externalId: text("external_id"), // Optional unique identifier for cross-venue tracking (e.g., membership ID)
   name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
   gender: text("gender").notNull(), // 'Male', 'Female'
   level: text("level").notNull(), // 'Novice' (10-39), 'Beginner' (40-69), 'Intermediate' (70-109), 'Advanced' (110-159), 'Professional' (160-200)
   skillScore: integer("skill_score").notNull().default(90), // 10-200 point scale (default: mid-Intermediate)

@@ -298,27 +298,8 @@ export class DatabaseStorage implements IStorage {
     const playerList = await db
       .select()
       .from(players)
-      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${upperQuery}`)
+      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${upperQuery} OR LOWER(${players.email}) LIKE ${lowerQuery} OR LOWER(${players.phone}) LIKE ${lowerQuery}`)
       .orderBy(asc(players.name));
-
-    const linkedResults = await db
-      .select({ linkedPlayerId: marketplaceUsers.linkedPlayerId })
-      .from(marketplaceUsers)
-      .where(sql`(LOWER(${marketplaceUsers.email}) LIKE ${lowerQuery} OR LOWER(${marketplaceUsers.phone}) LIKE ${lowerQuery}) AND ${marketplaceUsers.linkedPlayerId} IS NOT NULL`);
-
-    const linkedPlayerIds = linkedResults
-      .map(r => r.linkedPlayerId)
-      .filter((id): id is string => !!id);
-
-    const existingIds = new Set(playerList.map(p => p.id));
-    const missingIds = linkedPlayerIds.filter(id => !existingIds.has(id));
-    if (missingIds.length > 0) {
-      const extraPlayers = await db
-        .select()
-        .from(players)
-        .where(inArray(players.id, missingIds));
-      playerList.push(...extraPlayers);
-    }
 
     return playerList.map(addSkidToPlayer);
   }
@@ -330,41 +311,18 @@ export class DatabaseStorage implements IStorage {
     const playerList = await db
       .select()
       .from(players)
-      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${upperQuery}`)
+      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${upperQuery} OR LOWER(${players.email}) LIKE ${lowerQuery} OR LOWER(${players.phone}) LIKE ${lowerQuery}`)
       .orderBy(asc(players.name));
 
-    const mpUsers = await db
-      .select()
-      .from(marketplaceUsers)
-      .where(sql`LOWER(${marketplaceUsers.email}) LIKE ${lowerQuery} OR LOWER(${marketplaceUsers.phone}) LIKE ${lowerQuery} OR LOWER(${marketplaceUsers.name}) LIKE ${lowerQuery}`);
-
-    const linkedPlayerIds = mpUsers
-      .filter(u => u.linkedPlayerId)
-      .map(u => u.linkedPlayerId!)
-      .filter(id => !playerList.some(p => p.id === id));
-
-    if (linkedPlayerIds.length > 0) {
-      const extraPlayers = await db
-        .select()
-        .from(players)
-        .where(inArray(players.id, linkedPlayerIds));
-      playerList.push(...extraPlayers);
-    }
-
-    const mpUsersByPlayerId = new Map(mpUsers.filter(u => u.linkedPlayerId).map(u => [u.linkedPlayerId!, u]));
-
-    return playerList.map(p => {
-      const mp = mpUsersByPlayerId.get(p.id);
-      return {
-        id: p.id,
-        name: p.name,
-        shuttleIqId: p.shuttleIqId,
-        level: p.level,
-        skillScore: p.skillScore,
-        email: mp?.email,
-        phone: mp?.phone || undefined,
-      };
-    });
+    return playerList.map(p => ({
+      id: p.id,
+      name: p.name,
+      shuttleIqId: p.shuttleIqId,
+      level: p.level,
+      skillScore: p.skillScore,
+      email: p.email || undefined,
+      phone: p.phone || undefined,
+    }));
   }
 
   async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
