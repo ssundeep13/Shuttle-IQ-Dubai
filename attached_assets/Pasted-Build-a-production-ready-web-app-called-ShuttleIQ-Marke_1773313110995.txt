@@ -1,0 +1,101 @@
+Build a production-ready web app called ShuttleIQ Marketplace.
+
+Context:
+I already have a working badminton scoring platform called ShuttleIQ Dubai. It manages:
+- player registry
+- unique player IDs
+- player rankings
+- match scores
+- match history
+
+Important:
+Do NOT rebuild the existing scoring system.
+Assume ShuttleIQ already has a player registry with unique player IDs and score/ranking records, and the marketplace should use that as the master profile source.
+
+Goal:
+Build a full-stack booking and marketplace web app where players can:
+- sign up and log in
+- browse upcoming badminton sessions
+- book sessions
+- pay for sessions
+- view upcoming bookings
+- check in to sessions
+- after games are completed, view their scores, rankings, and match history from ShuttleIQ in the same account
+
+Core requirements:
+- mobile responsive
+- modern sports-tech UI
+- follows ShuttleIQ brand guidelines
+- clean card-based design
+- admin dashboard included
+- scalable architecture
+
+Brand direction:
+- energetic
+- sporty
+- modern
+- community-driven
+- similar quality level to Playtomic / Strava / Nike Training Club
+- support ShuttleIQ logo, color palette, typography, and reusable branded UI components
+
+Tech requirements:
+- Next.js frontend
+- backend APIs
+- PostgreSQL database
+- auth system
+- payments integration
+- admin dashboard
+- deployment-ready
+
+Architecture rules:
+- ShuttleIQ remains the system of record for player profiles, rankings, scores, and match history
+- Marketplace manages bookings, sessions, payments, attendance, notifications, and user dashboard
+- Every marketplace user must be linked to one ShuttleIQ player profile
+- Use player identity linking by phone/email/player ID
+- Support manual admin resolution for duplicate or mismatched players
+
+Build these modules:
+1. User authentication
+2. Player account linking
+3. Session listing and booking
+4. Checkout/payment
+5. Booking confirmation
+6. Attendance/check-in
+7. My Bookings dashboard
+8. My Scores dashboard
+9. Rankings page
+10. Profile page
+11. Admin dashboard for sessions/bookings/payments
+
+Create:
+- database schema
+- backend API routes
+- frontend pages
+- reusable UI components
+- integration layer with ShuttleIQ
+- seed/demo data where needed
+- environment variable template
+- README with setup steps
+
+Required pages:
+- Home
+- Book Sessions
+- Session Details
+- Checkout
+- My Bookings
+- My Scores
+- Rankings
+- Profile
+- Admin Dashboard
+
+Required backend endpoints:
+- auth signup/login
+- sessions list/details/create
+- bookings create/cancel/list
+- payments create/webhook
+- attendance check-in
+- player profile/scores/rankings/matches via ShuttleIQ integration
+
+Output:
+Generate the full working project structure and code, not just advice.
+Make it deployment-ready.
