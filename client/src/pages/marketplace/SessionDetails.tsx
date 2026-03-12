@@ -1,12 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { useToast } from '@/hooks/use-toast';
-import { apiRequest } from '@/lib/queryClient';
 import { Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'wouter';
@@ -16,26 +14,14 @@ export default function SessionDetails() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const { data: session, isLoading } = useQuery<BookableSessionWithAvailability>({
     queryKey: ['/api/marketplace/sessions', id],
   });
 
-  const bookMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest<{ url: string; bookingId: string }>('POST', '/api/marketplace/checkout/create-session', { sessionId: id });
-    },
-    onSuccess: (data: { url: string; bookingId: string }) => {
-      if (data.url) {
-        window.location.href = data.url;
-      }
-    },
-    onError: (error: any) => {
-      toast({ title: 'Booking failed', description: error.error || 'Something went wrong', variant: 'destructive' });
-    },
-  });
+  const handleBookNow = () => {
+    setLocation(`/marketplace/checkout/${id}`);
+  };
 
   if (isLoading) {
     return (
@@ -124,12 +110,12 @@ export default function SessionDetails() {
                 <Button
                   size="lg"
                   className="gap-2"
-                  disabled={session.spotsRemaining <= 0 || bookMutation.isPending}
-                  onClick={() => bookMutation.mutate()}
+                  disabled={session.spotsRemaining <= 0}
+                  onClick={handleBookNow}
                   data-testid="button-book-now"
                 >
                   <CreditCard className="h-5 w-5" />
-                  {bookMutation.isPending ? 'Redirecting to payment...' : session.spotsRemaining <= 0 ? 'Session Full' : 'Book & Pay Now'}
+                  {session.spotsRemaining <= 0 ? 'Session Full' : 'Book & Pay Now'}
                 </Button>
               ) : (
                 <Link href="/marketplace/login">

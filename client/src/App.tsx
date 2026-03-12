@@ -26,6 +26,7 @@ import MyScores from "@/pages/marketplace/MyScores";
 import Rankings from "@/pages/marketplace/Rankings";
 import Profile from "@/pages/marketplace/Profile";
 import AdminMarketplace from "@/pages/marketplace/AdminMarketplace";
+import Checkout from "@/pages/marketplace/Checkout";
 import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
 import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
 
@@ -101,6 +102,9 @@ function Router() {
       </Route>
       <Route path="/marketplace/checkout/cancel">
         <MarketplaceRoute component={CheckoutCancel} />
+      </Route>
+      <Route path="/marketplace/checkout/:id">
+        <MarketplaceRoute component={Checkout} />
       </Route>
 
       <Route path="/marketplace/my-bookings">

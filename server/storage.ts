@@ -293,11 +293,32 @@ export class DatabaseStorage implements IStorage {
 
   async searchPlayers(query: string): Promise<Player[]> {
     const lowerQuery = `%${query.toLowerCase()}%`;
+    const upperQuery = `%${query.toUpperCase()}%`;
     const playerList = await db
       .select()
       .from(players)
-      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${`%${query.toUpperCase()}%`}`)
+      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${upperQuery}`)
       .orderBy(asc(players.name));
+
+    const linkedResults = await db
+      .select({ linkedPlayerId: marketplaceUsers.linkedPlayerId })
+      .from(marketplaceUsers)
+      .where(sql`(LOWER(${marketplaceUsers.email}) LIKE ${lowerQuery} OR LOWER(${marketplaceUsers.phone}) LIKE ${lowerQuery}) AND ${marketplaceUsers.linkedPlayerId} IS NOT NULL`);
+
+    const linkedPlayerIds = linkedResults
+      .map(r => r.linkedPlayerId)
+      .filter((id): id is string => !!id);
+
+    const existingIds = new Set(playerList.map(p => p.id));
+    const missingIds = linkedPlayerIds.filter(id => !existingIds.has(id));
+    if (missingIds.length > 0) {
+      const extraPlayers = await db
+        .select()
+        .from(players)
+        .where(inArray(players.id, missingIds));
+      playerList.push(...extraPlayers);
+    }
+
     return playerList.map(addSkidToPlayer);
   }
 

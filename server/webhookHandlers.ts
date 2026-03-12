@@ -16,8 +16,13 @@ export class WebhookHandlers {
 
     try {
       const event = JSON.parse(payload.toString());
-      if (event.type === 'checkout.session.completed') {
-        await WebhookHandlers.handleCheckoutCompleted(event.data.object);
+      switch (event.type) {
+        case 'checkout.session.completed':
+          await WebhookHandlers.handleCheckoutCompleted(event.data.object);
+          break;
+        case 'payment_intent.succeeded':
+          await WebhookHandlers.handlePaymentIntentSucceeded(event.data.object);
+          break;
       }
     } catch (error: any) {
       console.error('Business webhook handler error:', error.message);
@@ -45,5 +50,28 @@ export class WebhookHandlers {
 
       console.log(`Webhook: Booking ${bookingId} confirmed via checkout.session.completed`);
     }
+  }
+
+  static async handlePaymentIntentSucceeded(paymentIntent: any): Promise<void> {
+    const { sessionId, userId } = paymentIntent.metadata || {};
+    if (!sessionId || !userId) return;
+
+    const bookings = await storage.getSessionBookings(sessionId);
+    const booking = bookings.find(
+      (b: any) => b.paymentIntentId === paymentIntent.id && b.status === 'pending'
+    );
+    if (!booking) return;
+
+    await storage.updateBooking(booking.id, { status: 'confirmed' });
+
+    await storage.createPayment({
+      bookingId: booking.id,
+      stripePaymentIntentId: paymentIntent.id,
+      amount: booking.amountAed,
+      currency: "aed",
+      status: "completed",
+    });
+
+    console.log(`Webhook: Booking ${booking.id} confirmed via payment_intent.succeeded`);
   }
 }

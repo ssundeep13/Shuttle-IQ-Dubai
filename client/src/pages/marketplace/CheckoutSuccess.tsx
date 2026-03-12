@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CheckCircle, Loader2, AlertCircle } from 'lucide-react';
@@ -7,19 +6,17 @@ import { Link } from 'wouter';
 import type { BookingWithDetails } from '@shared/schema';
 
 export default function CheckoutSuccess() {
-  const [, setLocation] = useLocation();
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [booking, setBooking] = useState<BookingWithDetails | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session_id');
     const bookingId = params.get('booking_id');
 
-    if (!sessionId || !bookingId) {
+    if (!bookingId) {
       setStatus('error');
-      setErrorMessage('Missing payment information');
+      setErrorMessage('Missing booking information');
       return;
     }
 
@@ -30,19 +27,21 @@ export default function CheckoutSuccess() {
       return;
     }
 
-    fetch('/api/marketplace/checkout/verify', {
+    fetch(`/api/marketplace/bookings/${bookingId}/confirm`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({ sessionId, bookingId }),
     })
       .then(res => res.json())
       .then(data => {
-        if (data.verified) {
+        if (data.confirmed) {
           setStatus('success');
           setBooking(data.booking);
+        } else if (data.status === 'processing' || data.status === 'requires_action') {
+          setStatus('success');
+          setBooking(null);
         } else {
           setStatus('error');
           setErrorMessage('Payment not confirmed. Please contact support.');
@@ -87,6 +86,11 @@ export default function CheckoutSuccess() {
                 Amount paid: AED {booking.amountAed}
               </p>
             </>
+          )}
+          {status === 'success' && !booking && (
+            <p className="text-muted-foreground">
+              Your payment is being processed. Your booking will be confirmed shortly.
+            </p>
           )}
           {status === 'error' && (
             <p className="text-muted-foreground">{errorMessage}</p>
