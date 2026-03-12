@@ -268,6 +268,8 @@ export const bookableSessions = pgTable("bookable_sessions", {
   priceAed: integer("price_aed").notNull().default(50),
   status: text("status").notNull().default('upcoming'),
   imageUrl: text("image_url"),
+  bookingStartAt: timestamp("booking_start_at"),
+  bookingEndAt: timestamp("booking_end_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

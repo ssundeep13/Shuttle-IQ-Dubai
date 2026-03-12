@@ -187,13 +187,24 @@ export function registerMarketplaceRoutes(app: Express) {
       const query = req.query.q as string;
       if (!query || query.length < 2) return res.json([]);
       const results = await storage.searchPlayers(query);
-      res.json(results.slice(0, 10).map(p => ({
+      res.json(results.slice(0, 10).map((p: any) => ({
         id: p.id,
         name: p.name,
         shuttleIqId: p.shuttleIqId,
         level: p.level,
         skillScore: p.skillScore,
       })));
+    } catch (error) {
+      res.status(500).json({ error: "Search failed" });
+    }
+  });
+
+  app.get("/api/marketplace/admin/search-players", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const query = req.query.q as string;
+      if (!query || query.length < 2) return res.json([]);
+      const results = await storage.searchPlayersWithContact(query);
+      res.json(results.slice(0, 10));
     } catch (error) {
       res.status(500).json({ error: "Search failed" });
     }

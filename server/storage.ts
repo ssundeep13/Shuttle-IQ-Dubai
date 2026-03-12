@@ -82,6 +82,7 @@ export interface IStorage {
   getPlayerByShuttleIqId(shuttleIqId: string): Promise<Player | undefined>;
   getAllPlayers(): Promise<Player[]>;
   searchPlayers(query: string): Promise<Player[]>;
+  searchPlayersWithContact(query: string): Promise<{ id: string; name: string; shuttleIqId: string | null; level: string; skillScore: number; email?: string; phone?: string }[]>;
   createPlayer(player: InsertPlayer): Promise<Player>;
   updatePlayer(id: string, updates: Partial<Player>): Promise<Player | undefined>;
   deletePlayer(id: string): Promise<boolean>;
@@ -320,6 +321,50 @@ export class DatabaseStorage implements IStorage {
     }
 
     return playerList.map(addSkidToPlayer);
+  }
+
+  async searchPlayersWithContact(query: string): Promise<{ id: string; name: string; shuttleIqId: string | null; level: string; skillScore: number; email?: string; phone?: string }[]> {
+    const lowerQuery = `%${query.toLowerCase()}%`;
+    const upperQuery = `%${query.toUpperCase()}%`;
+
+    const playerList = await db
+      .select()
+      .from(players)
+      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${upperQuery}`)
+      .orderBy(asc(players.name));
+
+    const mpUsers = await db
+      .select()
+      .from(marketplaceUsers)
+      .where(sql`LOWER(${marketplaceUsers.email}) LIKE ${lowerQuery} OR LOWER(${marketplaceUsers.phone}) LIKE ${lowerQuery} OR LOWER(${marketplaceUsers.name}) LIKE ${lowerQuery}`);
+
+    const linkedPlayerIds = mpUsers
+      .filter(u => u.linkedPlayerId)
+      .map(u => u.linkedPlayerId!)
+      .filter(id => !playerList.some(p => p.id === id));
+
+    if (linkedPlayerIds.length > 0) {
+      const extraPlayers = await db
+        .select()
+        .from(players)
+        .where(inArray(players.id, linkedPlayerIds));
+      playerList.push(...extraPlayers);
+    }
+
+    const mpUsersByPlayerId = new Map(mpUsers.filter(u => u.linkedPlayerId).map(u => [u.linkedPlayerId!, u]));
+
+    return playerList.map(p => {
+      const mp = mpUsersByPlayerId.get(p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        shuttleIqId: p.shuttleIqId,
+        level: p.level,
+        skillScore: p.skillScore,
+        email: mp?.email,
+        phone: mp?.phone || undefined,
+      };
+    });
   }
 
   async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {

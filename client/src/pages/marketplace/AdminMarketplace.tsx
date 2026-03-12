@@ -442,7 +442,7 @@ function UsersTab() {
   const searchPlayers = async (query: string) => {
     if (query.length < 2) { setSearchResults([]); return; }
     const token = localStorage.getItem('accessToken');
-    const res = await fetch(`/api/marketplace/search-players?q=${encodeURIComponent(query)}`, {
+    const res = await fetch(`/api/marketplace/admin/search-players?q=${encodeURIComponent(query)}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (res.ok) {
