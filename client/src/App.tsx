@@ -61,7 +61,7 @@ function Router() {
           <SessionsManagement />
         </ProtectedRoute>
       </Route>
-      <Route path="/admin/marketplace"><Redirect to="/admin/sessions" /></Route>
+      <Route path="/admin/marketplace"><Redirect to="/admin" /></Route>
       <Route path="/admin"><Redirect to="/admin/sessions" /></Route>
 
       <Route path="/marketplace">

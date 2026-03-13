@@ -190,7 +190,7 @@ export default function SessionsManagement() {
               </TabsTrigger>
               <TabsTrigger value="marketplace-users" data-testid="tab-marketplace-users">
                 <ShoppingBag className="w-4 h-4 mr-2" />
-                Marketplace
+                Marketplace Users
               </TabsTrigger>
             </TabsList>
 
