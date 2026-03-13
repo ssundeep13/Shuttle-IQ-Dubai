@@ -31,10 +31,7 @@ export function MarketplaceNav() {
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60" data-testid="marketplace-nav">
       <div className="flex h-14 items-center gap-4 px-4 md:px-6">
         <Link href="/marketplace" className="flex items-center gap-2 mr-4" data-testid="link-marketplace-home">
-          <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">SIQ</span>
-          </div>
-          <span className="font-semibold text-lg hidden sm:inline">ShuttleIQ</span>
+          <span className="font-semibold text-lg">ShuttleIQ</span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-1 flex-1">
