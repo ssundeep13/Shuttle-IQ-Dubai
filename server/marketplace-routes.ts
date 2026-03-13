@@ -305,6 +305,9 @@ export function registerMarketplaceRoutes(app: Express) {
       if (sessionId !== null && sessionId !== undefined) {
         const adminSession = await storage.getSession(sessionId);
         if (!adminSession) return res.status(404).json({ error: "Admin session not found" });
+        if (adminSession.status !== 'active' && adminSession.status !== 'upcoming') {
+          return res.status(400).json({ error: "Can only link to active or upcoming sessions" });
+        }
       }
       const updated = await storage.updateBookableSession(req.params.id, {
         linkedSessionId: sessionId || null,

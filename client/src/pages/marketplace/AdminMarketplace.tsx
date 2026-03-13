@@ -295,7 +295,7 @@ function SessionsTab() {
         <div className="space-y-3">
           {sessions?.map((session) => {
             const linkedAdmin = adminSessions?.find(s => s.id === session.linkedSessionId);
-            const linkableSessions = adminSessions?.filter(s => s.status === 'active' || s.status === 'upcoming' || s.status === 'draft') || [];
+            const linkableSessions = adminSessions?.filter(s => s.status === 'active' || s.status === 'upcoming') || [];
             return (
             <Card key={session.id} data-testid={`card-admin-session-${session.id}`}>
               <CardContent className="p-4">
