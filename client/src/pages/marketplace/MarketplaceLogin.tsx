@@ -70,6 +70,11 @@ export default function MarketplaceLogin() {
               Sign up
             </Link>
           </p>
+          <p className="text-center text-xs text-muted-foreground mt-6">
+            <Link href="/admin/login" className="hover:underline" data-testid="link-admin-login">
+              Staff login
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>
