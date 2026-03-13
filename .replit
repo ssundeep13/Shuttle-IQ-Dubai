@@ -46,3 +46,7 @@ integrations = ["javascript_mem_db:1.0.0", "stripe:1.0.0"]
 [userenv.shared]
 STRIPE_SECRET_KEY = "sk_test_51TA7LX9I5y7htML1k8auUVQHGGFAWy7Xxw8fEwJT4Umc9eujtW1PtCocK1Xa75EiHyDNrfGjzi8voXKRRmzpjgGu00qlgIENRl"
 STRIPE_PUBLISHABLE_KEY = "pk_test_51TA7LX9I5y7htML1UU9KIvNY9cfbzTnPJ8cz9WEPqLuCPsfj3yeKVB8jkNNQk5QxOgziUtAUYzdfVuITaRvMnRdh00FUVeCFPd"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
