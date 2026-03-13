@@ -10,10 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,7 +28,18 @@ import { GameHistoryExport } from '@/components/GameHistoryExport';
 import { Leaderboard } from '@/components/Leaderboard';
 import { EditPlayerModal } from '@/components/EditPlayerModal';
 import { useToast } from '@/hooks/use-toast';
-import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
+import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser } from '@shared/schema';
+
+interface MarketplaceUserWithLinkedPlayer extends MarketplaceUser {
+  linkedPlayer: { id: string; name: string; shuttleIqId: string } | null;
+}
+
+interface PlayerSearchResult {
+  id: number;
+  name: string;
+  shuttleIqId: string;
+  level: string;
+}
 
 export default function SessionsManagement() {
   const { user, logout } = useAuth();
@@ -887,352 +894,7 @@ function PlayerRegistrySubTab({ players }: { players: Player[] }) {
 }
 
 function MarketplaceUsersTabContent() {
-  const [subTab, setSubTab] = useState('sessions');
-
-  return (
-    <Tabs value={subTab} onValueChange={setSubTab}>
-      <TabsList className="mb-4">
-        <TabsTrigger value="sessions" data-testid="subtab-marketplace-sessions">
-          <Calendar className="w-4 h-4 mr-2" />
-          Bookable Sessions
-        </TabsTrigger>
-        <TabsTrigger value="users" data-testid="subtab-marketplace-users">
-          <Users className="w-4 h-4 mr-2" />
-          Users
-        </TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="sessions">
-        <MarketplaceSessionsSubTab />
-      </TabsContent>
-
-      <TabsContent value="users">
-        <MarketplaceUsersSubTab />
-      </TabsContent>
-    </Tabs>
-  );
-}
-
-function MarketplaceSessionsSubTab() {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editSession, setEditSession] = useState<BookableSessionWithAvailability | null>(null);
-
-  const { data: sessions, isLoading } = useQuery<BookableSessionWithAvailability[]>({
-    queryKey: ['/api/marketplace/sessions'],
-  });
-
-  const { data: adminSessions } = useQuery<Session[]>({
-    queryKey: ['/api/sessions'],
-  });
-
-  const linkMutation = useMutation({
-    mutationFn: async ({ bookableSessionId, sessionId }: { bookableSessionId: string; sessionId: string | null }) => {
-      const res = await fetch(`/api/marketplace/sessions/${bookableSessionId}/link`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ sessionId }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw { error: data.error || 'Failed to link' };
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: 'Session linked' });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
-    },
-    onError: (error: any) => {
-      toast({ title: 'Failed', description: error.error, variant: 'destructive' });
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async (form: any) => {
-      const res = await fetch('/api/marketplace/sessions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...form,
-          courtCount: parseInt(form.courtCount),
-          capacity: parseInt(form.capacity),
-          priceAed: parseInt(form.priceAed),
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw { error: data.error || 'Failed to create' };
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: 'Session created' });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
-      setCreateOpen(false);
-    },
-    onError: (error: any) => {
-      toast({ title: 'Failed', description: error.error, variant: 'destructive' });
-    },
-  });
-
-  const editMutation = useMutation({
-    mutationFn: async ({ id, form }: { id: string; form: any }) => {
-      const res = await fetch(`/api/marketplace/sessions/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-          venueName: form.venueName,
-          venueLocation: form.venueLocation,
-          date: form.date,
-          startTime: form.startTime,
-          endTime: form.endTime,
-          courtCount: parseInt(form.courtCount),
-          capacity: parseInt(form.capacity),
-          priceAed: parseInt(form.priceAed),
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw { error: data.error || 'Failed to update' };
-      }
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: 'Session updated' });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
-      setEditSession(null);
-    },
-    onError: (error: any) => {
-      toast({ title: 'Failed', description: error.error, variant: 'destructive' });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/marketplace/sessions/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
-      });
-      if (!res.ok) throw new Error('Failed to delete');
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: 'Session deleted' });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
-    },
-  });
-
-  const linkableSessions = adminSessions?.filter(s => s.status === 'active' || s.status === 'upcoming') || [];
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h2 className="text-lg font-semibold">Bookable Sessions</h2>
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" className="gap-1" data-testid="button-create-bookable-session">
-              <Plus className="h-4 w-4" /> Create Listing
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Bookable Session</DialogTitle>
-              <DialogDescription>Create a new marketplace listing for players to book.</DialogDescription>
-            </DialogHeader>
-            <MarketplaceSessionForm
-              initial={{ title: '', description: '', venueName: '', venueLocation: '', date: '', startTime: '', endTime: '', courtCount: '4', capacity: '16', priceAed: '50' }}
-              onSubmit={(form) => createMutation.mutate(form)}
-              isPending={createMutation.isPending}
-              submitLabel="Create Session"
-            />
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      <Dialog open={!!editSession} onOpenChange={(open) => !open && setEditSession(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Session</DialogTitle>
-            <DialogDescription>Update the marketplace listing details.</DialogDescription>
-          </DialogHeader>
-          {editSession && (
-            <MarketplaceSessionForm
-              initial={{
-                title: editSession.title,
-                description: editSession.description || '',
-                venueName: editSession.venueName,
-                venueLocation: editSession.venueLocation || '',
-                date: format(new Date(editSession.date), 'yyyy-MM-dd'),
-                startTime: editSession.startTime,
-                endTime: editSession.endTime,
-                courtCount: String(editSession.courtCount),
-                capacity: String(editSession.capacity),
-                priceAed: String(editSession.priceAed),
-              }}
-              onSubmit={(form) => editMutation.mutate({ id: editSession.id, form })}
-              isPending={editMutation.isPending}
-              submitLabel="Save Changes"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {isLoading ? (
-        <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}</div>
-      ) : !sessions?.length ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            No bookable sessions. Create one above or use the New Session wizard with marketplace enabled.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {sessions.map((session) => {
-            const linkedAdmin = adminSessions?.find(s => s.id === session.linkedSessionId);
-            return (
-              <Card key={session.id} data-testid={`card-bookable-session-${session.id}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold">{session.title}</div>
-                      <div className="text-sm text-muted-foreground flex items-center gap-4 mt-1 flex-wrap">
-                        <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {format(new Date(session.date), 'MMM d, yyyy')}</span>
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {session.startTime}-{session.endTime}</span>
-                        <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {session.venueName}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="outline">{session.totalBookings}/{session.capacity} booked</Badge>
-                      <Badge variant="secondary">AED {session.priceAed}</Badge>
-                      <Button variant="ghost" size="icon" onClick={() => setEditSession(session)} data-testid={`button-edit-bookable-${session.id}`}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteMutation.mutate(session.id)} data-testid={`button-delete-bookable-${session.id}`}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
-                    <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-sm text-muted-foreground shrink-0">Queue Session:</span>
-                    {linkableSessions.length > 0 ? (
-                      <Select
-                        value={session.linkedSessionId || "none"}
-                        onValueChange={(value) => {
-                          linkMutation.mutate({
-                            bookableSessionId: session.id,
-                            sessionId: value === "none" ? null : value,
-                          });
-                        }}
-                      >
-                        <SelectTrigger className="w-auto min-w-[180px]" data-testid={`select-link-session-${session.id}`}>
-                          <SelectValue placeholder="Not linked" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Not linked</SelectItem>
-                          {linkableSessions.map((as) => (
-                            <SelectItem key={as.id} value={as.id}>
-                              {as.venueName} — {format(new Date(as.date), 'MMM d, yyyy')}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <span className="text-sm text-muted-foreground italic">No queue sessions available</span>
-                    )}
-                    {linkedAdmin && (
-                      <Badge variant="secondary" className="text-xs">{linkedAdmin.status}</Badge>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MarketplaceSessionForm({ initial, onSubmit, isPending, submitLabel }: {
-  initial: { title: string; description: string; venueName: string; venueLocation: string; date: string; startTime: string; endTime: string; courtCount: string; capacity: string; priceAed: string; };
-  onSubmit: (form: typeof initial) => void;
-  isPending: boolean;
-  submitLabel: string;
-}) {
-  const [form, setForm] = useState(initial);
-
-  return (
-    <div className="space-y-3 mt-2">
-      <div className="space-y-1">
-        <Label>Title</Label>
-        <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} data-testid="input-bookable-title" />
-      </div>
-      <div className="space-y-1">
-        <Label>Description</Label>
-        <Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} data-testid="input-bookable-description" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label>Venue Name</Label>
-          <Input value={form.venueName} onChange={e => setForm({ ...form, venueName: e.target.value })} data-testid="input-bookable-venue" />
-        </div>
-        <div className="space-y-1">
-          <Label>Location</Label>
-          <Input value={form.venueLocation} onChange={e => setForm({ ...form, venueLocation: e.target.value })} data-testid="input-bookable-location" />
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <Label>Date</Label>
-          <Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} data-testid="input-bookable-date" />
-        </div>
-        <div className="space-y-1">
-          <Label>Start Time</Label>
-          <Input type="time" value={form.startTime} onChange={e => setForm({ ...form, startTime: e.target.value })} data-testid="input-bookable-start" />
-        </div>
-        <div className="space-y-1">
-          <Label>End Time</Label>
-          <Input type="time" value={form.endTime} onChange={e => setForm({ ...form, endTime: e.target.value })} data-testid="input-bookable-end" />
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <Label>Courts</Label>
-          <Input type="number" value={form.courtCount} onChange={e => setForm({ ...form, courtCount: e.target.value })} data-testid="input-bookable-courts" />
-        </div>
-        <div className="space-y-1">
-          <Label>Capacity</Label>
-          <Input type="number" value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} data-testid="input-bookable-capacity" />
-        </div>
-        <div className="space-y-1">
-          <Label>Price (AED)</Label>
-          <Input type="number" value={form.priceAed} onChange={e => setForm({ ...form, priceAed: e.target.value })} data-testid="input-bookable-price" />
-        </div>
-      </div>
-      <Button
-        className="w-full"
-        onClick={() => onSubmit(form)}
-        disabled={isPending || !form.title || !form.venueName || !form.date || !form.startTime || !form.endTime}
-        data-testid="button-submit-bookable-form"
-      >
-        {isPending ? 'Saving...' : submitLabel}
-      </Button>
-    </div>
-  );
+  return <MarketplaceUsersSubTab />;
 }
 
 function MarketplaceUsersSubTab() {
@@ -1240,9 +902,9 @@ function MarketplaceUsersSubTab() {
   const queryClient = useQueryClient();
   const [linkingUser, setLinkingUser] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<PlayerSearchResult[]>([]);
 
-  const { data: users, isLoading } = useQuery<any[]>({
+  const { data: users, isLoading } = useQuery<MarketplaceUserWithLinkedPlayer[]>({
     queryKey: ['/api/marketplace/admin/users'],
     queryFn: async () => {
       const res = await fetch('/api/marketplace/admin/users', {
@@ -1260,7 +922,7 @@ function MarketplaceUsersSubTab() {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (res.ok) {
-      const results = await res.json();
+      const results: PlayerSearchResult[] = await res.json();
       setSearchResults(results);
     }
   };
@@ -1306,7 +968,7 @@ function MarketplaceUsersSubTab() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {users.map((user: any) => (
+          {users.map((user) => (
             <Card key={user.id} data-testid={`card-admin-user-${user.id}`}>
               <CardContent className="p-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
