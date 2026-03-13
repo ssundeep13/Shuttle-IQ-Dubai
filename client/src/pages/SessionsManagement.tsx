@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -30,6 +30,7 @@ import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
 import { Leaderboard } from '@/components/Leaderboard';
+import { EditPlayerModal } from '@/components/EditPlayerModal';
 import { useToast } from '@/hooks/use-toast';
 import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 
@@ -506,10 +507,16 @@ function SessionCard({
             <span>{session.courtCount} courts</span>
           </div>
           {linkedBookable && (
-            <div className="flex items-center gap-2">
-              <DollarSign className="w-4 h-4" />
-              <span>AED {linkedBookable.priceAed} / player</span>
-            </div>
+            <>
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4" />
+                <span>AED {linkedBookable.priceAed} / player</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4" />
+                <span data-testid={`text-revenue-${session.id}`}>Revenue: AED {linkedBookable.totalBookings * linkedBookable.priceAed}</span>
+              </div>
+            </>
           )}
         </div>
         
@@ -522,7 +529,7 @@ function SessionCard({
             data-testid={`button-view-${session.id}`}
           >
             <Eye className="w-4 h-4 mr-1" />
-            View
+            Manage Queue
           </Button>
           {linkedBookable && (
             <Button
@@ -532,7 +539,7 @@ function SessionCard({
               data-testid={`button-bookings-${session.id}`}
             >
               <Users className="w-4 h-4 mr-1" />
-              Bookings
+              View Bookings
             </Button>
           )}
           <Button 
@@ -624,21 +631,34 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
               <div className="space-y-2">
                 {bookings.map((booking) => (
                   <Card key={booking.id} data-testid={`card-sheet-booking-${booking.id}`}>
-                    <CardContent className="p-3 flex items-center justify-between gap-2 flex-wrap">
-                      <div>
-                        <div className="font-medium text-sm">{booking.user?.name || 'Unknown'}</div>
-                        <div className="text-xs text-muted-foreground">{booking.user?.email}</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={booking.status === 'confirmed' ? 'default' : booking.status === 'attended' ? 'secondary' : booking.status === 'pending' ? 'outline' : 'destructive'}>
-                          {booking.status}
-                        </Badge>
+                    <CardContent className="p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <div className="font-medium text-sm">{booking.user?.name || 'Unknown'}</div>
+                          <div className="text-xs text-muted-foreground">{booking.user?.email}</div>
+                        </div>
                         <span className="text-sm font-medium">AED {booking.amountAed}</span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge
+                          variant={booking.status === 'cancelled' ? 'destructive' : booking.status === 'pending' ? 'outline' : 'default'}
+                          data-testid={`badge-payment-${booking.id}`}
+                        >
+                          <DollarSign className="h-3 w-3 mr-1" />
+                          {booking.status === 'confirmed' || booking.status === 'attended' ? 'Paid' : booking.status === 'pending' ? 'Pending' : 'Cancelled'}
+                        </Badge>
+                        <Badge
+                          variant={booking.status === 'attended' ? 'secondary' : 'outline'}
+                          data-testid={`badge-checkin-${booking.id}`}
+                        >
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          {booking.status === 'attended' ? 'Checked In' : 'Not Checked In'}
+                        </Badge>
                         {booking.status === 'confirmed' && (
                           <Button
                             size="sm"
                             variant="outline"
-                            className="gap-1"
+                            className="gap-1 ml-auto"
                             onClick={() => attendMutation.mutate(booking.id)}
                             disabled={attendMutation.isPending}
                             data-testid={`button-sheet-attend-${booking.id}`}
@@ -670,17 +690,21 @@ function PlayersTabContent({ players, onResetStats, onClearAllPlayers }: {
   onResetStats: () => void;
   onClearAllPlayers: () => void;
 }) {
-  const [subTab, setSubTab] = useState('leaderboard');
+  const [subTab, setSubTab] = useState('registry');
 
   return (
     <Tabs value={subTab} onValueChange={setSubTab}>
       <TabsList className="mb-4">
+        <TabsTrigger value="registry" data-testid="subtab-registry">
+          <Users className="w-4 h-4 mr-2" />
+          Registry
+        </TabsTrigger>
         <TabsTrigger value="leaderboard" data-testid="subtab-leaderboard">
           <Trophy className="w-4 h-4 mr-2" />
           Leaderboard
         </TabsTrigger>
         <TabsTrigger value="import" data-testid="subtab-import">
-          <Users className="w-4 h-4 mr-2" />
+          <Plus className="w-4 h-4 mr-2" />
           Import
         </TabsTrigger>
         <TabsTrigger value="export" data-testid="subtab-export">
@@ -688,6 +712,10 @@ function PlayersTabContent({ players, onResetStats, onClearAllPlayers }: {
           Export
         </TabsTrigger>
       </TabsList>
+
+      <TabsContent value="registry">
+        <PlayerRegistrySubTab players={players} />
+      </TabsContent>
 
       <TabsContent value="leaderboard">
         <Leaderboard
@@ -724,6 +752,137 @@ function PlayersTabContent({ players, onResetStats, onClearAllPlayers }: {
         </Card>
       </TabsContent>
     </Tabs>
+  );
+}
+
+function PlayerRegistrySubTab({ players }: { players: Player[] }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [deletingPlayer, setDeletingPlayer] = useState<Player | null>(null);
+
+  const deletePlayerMutation = useMutation({
+    mutationFn: async (playerId: string) => apiRequest('DELETE', `/api/players/${playerId}`),
+    onSuccess: () => {
+      toast({ title: 'Player deleted' });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      setDeletingPlayer(null);
+    },
+    onError: () => {
+      toast({ title: 'Failed to delete player', variant: 'destructive' });
+    },
+  });
+
+  const filteredPlayers = players.filter(player => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      player.name.toLowerCase().includes(query) ||
+      player.shuttleIqId?.toLowerCase().includes(query) ||
+      player.externalId?.toLowerCase().includes(query)
+    );
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-semibold">All Players ({players.length})</h2>
+      </div>
+      <Card>
+        <CardHeader>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name or ShuttleIQ ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+              data-testid="input-registry-search"
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {filteredPlayers.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              {searchQuery ? 'No players found matching your search' : 'No players registered yet'}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredPlayers.map(player => (
+                <div
+                  key={player.id}
+                  className="flex items-center justify-between p-3 rounded-md border hover-elevate"
+                  data-testid={`registry-player-${player.id}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium">{player.name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {player.shuttleIqId || 'No ID'}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
+                      <span>{player.gender === 'Male' ? 'M' : 'F'}</span>
+                      <span>{player.level}</span>
+                      <span>{player.gamesPlayed} games</span>
+                      <span>{player.wins} wins</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => { setEditingPlayer(player); setEditModalOpen(true); }}
+                      data-testid={`button-edit-registry-${player.id}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeletingPlayer(player)}
+                      data-testid={`button-delete-registry-${player.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <EditPlayerModal
+        player={editingPlayer}
+        open={editModalOpen}
+        onOpenChange={setEditModalOpen}
+      />
+
+      <AlertDialog open={!!deletingPlayer} onOpenChange={(open) => { if (!open) setDeletingPlayer(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Player</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {deletingPlayer?.name}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-registry">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (deletingPlayer) deletePlayerMutation.mutate(deletingPlayer.id); }}
+              disabled={deletePlayerMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-delete-registry"
+            >
+              {deletePlayerMutation.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }
 
@@ -891,6 +1050,7 @@ function MarketplaceSessionsSubTab() {
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create Bookable Session</DialogTitle>
+              <DialogDescription>Create a new marketplace listing for players to book.</DialogDescription>
             </DialogHeader>
             <MarketplaceSessionForm
               initial={{ title: '', description: '', venueName: '', venueLocation: '', date: '', startTime: '', endTime: '', courtCount: '4', capacity: '16', priceAed: '50' }}
@@ -906,6 +1066,7 @@ function MarketplaceSessionsSubTab() {
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Session</DialogTitle>
+            <DialogDescription>Update the marketplace listing details.</DialogDescription>
           </DialogHeader>
           {editSession && (
             <MarketplaceSessionForm

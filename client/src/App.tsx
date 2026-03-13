@@ -55,11 +55,7 @@ function Router() {
       <Route path="/session/:id" component={Home}/>
       <Route path="/player/:id" component={PlayerProfile}/>
       <Route path="/players" component={PlayerRegistry} />
-      <Route path="/admin/players">
-        <ProtectedRoute>
-          <PlayerRegistry />
-        </ProtectedRoute>
-      </Route>
+      <Route path="/admin/players"><Redirect to="/admin/sessions" /></Route>
       <Route path="/admin/sessions">
         <ProtectedRoute>
           <SessionsManagement />
