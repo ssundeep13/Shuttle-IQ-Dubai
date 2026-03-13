@@ -1010,7 +1010,7 @@ function MarketplaceUsersSubTab() {
                     </div>
                     {searchResults.length > 0 && (
                       <div className="space-y-1">
-                        {searchResults.map((player: any) => (
+                        {searchResults.map((player) => (
                           <div key={player.id} className="flex items-center justify-between p-2 rounded-md hover-elevate">
                             <div>
                               <span className="font-medium text-sm">{player.name}</span>

@@ -169,7 +169,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Session routes - Protected with auth
   app.post("/api/sessions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      // Transform date string to Date object before validation
       const requestData = {
         ...req.body,
         date: new Date(req.body.date),
@@ -177,13 +176,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validated = insertSessionSchema.parse(requestData);
       
+      const statusToCreate = validated.status || 'active';
+      if (statusToCreate === 'active') {
+        const existingActive = await storage.getActiveSession();
+        if (existingActive) {
+          return res.status(409).json({ 
+            error: "Another session is already active. End it before creating a new active session." 
+          });
+        }
+      }
       
       const session = await storage.createSession(validated);
-      
-      // DO NOT auto-add all players to the queue
-      // Players should be explicitly added to specific sessions only
-      // Either via player import with sessionId, or manually added later
-      
       res.status(201).json(session);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -203,6 +206,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const validated = insertSessionSchema.parse(requestData);
+      
+      const statusToCreate = validated.status || 'active';
+      if (statusToCreate === 'active') {
+        const existingActive = await storage.getActiveSession();
+        if (existingActive) {
+          return res.status(409).json({ 
+            error: "Another session is already active. End it before creating a new active session." 
+          });
+        }
+      }
+      
       const session = await storage.createSession(validated);
       
       let bookableSession = null;
@@ -274,7 +288,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Session not found" });
       }
 
-      // Update session
+      if (req.body.status === 'active' && session.status !== 'active') {
+        const existingActive = await storage.getActiveSession();
+        if (existingActive && existingActive.id !== req.params.id) {
+          return res.status(409).json({ 
+            error: "Another session is already active. End it before activating a new one." 
+          });
+        }
+      }
+
       const updated = await storage.updateSession(req.params.id, req.body);
       res.json(updated);
     } catch (error) {
