@@ -272,6 +272,7 @@ export const bookableSessions = pgTable("bookable_sessions", {
   imageUrl: text("image_url"),
   bookingStartAt: timestamp("booking_start_at"),
   bookingEndAt: timestamp("booking_end_at"),
+  linkedSessionId: varchar("linked_session_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

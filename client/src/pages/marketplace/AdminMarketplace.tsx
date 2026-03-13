@@ -10,9 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, Users, Plus, Trash2, CheckCircle, MapPin, Clock, Pencil, Link2, Search, DollarSign } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Calendar, Users, Plus, Trash2, CheckCircle, MapPin, Clock, Pencil, Link2, Search, DollarSign, Unlink } from 'lucide-react';
 import { format } from 'date-fns';
-import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
+import type { BookableSessionWithAvailability, BookingWithDetails, Session } from '@shared/schema';
 
 function SessionForm({ initial, onSubmit, isPending, submitLabel }: {
   initial: { title: string; description: string; venueName: string; venueLocation: string; date: string; startTime: string; endTime: string; courtCount: string; capacity: string; priceAed: string; };
@@ -90,6 +91,35 @@ function SessionsTab() {
 
   const { data: sessions, isLoading } = useQuery<BookableSessionWithAvailability[]>({
     queryKey: ['/api/marketplace/sessions'],
+  });
+
+  const { data: adminSessions } = useQuery<Session[]>({
+    queryKey: ['/api/sessions'],
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: async ({ bookableSessionId, sessionId }: { bookableSessionId: string; sessionId: string | null }) => {
+      const res = await fetch(`/api/marketplace/sessions/${bookableSessionId}/link`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw { error: data.error || 'Failed to link' };
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: 'Session linked' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Failed', description: error.error, variant: 'destructive' });
+    },
   });
 
   const createMutation = useMutation({
@@ -263,7 +293,10 @@ function SessionsTab() {
         <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}</div>
       ) : (
         <div className="space-y-3">
-          {sessions?.map((session) => (
+          {sessions?.map((session) => {
+            const linkedAdmin = adminSessions?.find(s => s.id === session.linkedSessionId);
+            const linkableSessions = adminSessions?.filter(s => s.status === 'active' || s.status === 'upcoming' || s.status === 'draft') || [];
+            return (
             <Card key={session.id} data-testid={`card-admin-session-${session.id}`}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -296,9 +329,44 @@ function SessionsTab() {
                     </Button>
                   </div>
                 </div>
+                <div className="mt-3 pt-3 border-t flex items-center gap-2 flex-wrap">
+                  <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm text-muted-foreground shrink-0">Queue Session:</span>
+                  {linkableSessions.length > 0 ? (
+                    <Select
+                      value={session.linkedSessionId || "none"}
+                      onValueChange={(value) => {
+                        linkMutation.mutate({
+                          bookableSessionId: session.id,
+                          sessionId: value === "none" ? null : value,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-auto min-w-[180px]" data-testid={`select-link-session-${session.id}`}>
+                        <SelectValue placeholder="Not linked" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not linked</SelectItem>
+                        {linkableSessions.map((as) => (
+                          <SelectItem key={as.id} value={as.id}>
+                            {as.venueName} — {format(new Date(as.date), 'MMM d, yyyy')}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <span className="text-sm text-muted-foreground italic">No admin sessions available — create one in Sessions Management</span>
+                  )}
+                  {linkedAdmin && (
+                    <Badge variant="secondary" className="text-xs">
+                      {linkedAdmin.status}
+                    </Badge>
+                  )}
+                </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -299,6 +299,23 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  app.patch("/api/marketplace/sessions/:id/link", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId } = req.body;
+      if (sessionId !== null && sessionId !== undefined) {
+        const adminSession = await storage.getSession(sessionId);
+        if (!adminSession) return res.status(404).json({ error: "Admin session not found" });
+      }
+      const updated = await storage.updateBookableSession(req.params.id, {
+        linkedSessionId: sessionId || null,
+      });
+      if (!updated) return res.status(404).json({ error: "Bookable session not found" });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to link session" });
+    }
+  });
+
   app.delete("/api/marketplace/sessions/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const deleted = await storage.deleteBookableSession(req.params.id);
