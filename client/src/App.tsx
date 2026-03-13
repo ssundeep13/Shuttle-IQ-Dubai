@@ -11,7 +11,6 @@ import { RootRedirect } from "@/components/RootRedirect";
 import Home from "@/pages/Home";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/Login";
-import Admin from "@/pages/Admin";
 import SessionsManagement from "@/pages/SessionsManagement";
 import PlayerProfile from "@/pages/PlayerProfile";
 import PlayerRegistry from "@/pages/PlayerRegistry";
@@ -25,7 +24,6 @@ import MyBookings from "@/pages/marketplace/MyBookings";
 import MyScores from "@/pages/marketplace/MyScores";
 import Rankings from "@/pages/marketplace/Rankings";
 import Profile from "@/pages/marketplace/Profile";
-import AdminMarketplace from "@/pages/marketplace/AdminMarketplace";
 import Checkout from "@/pages/marketplace/Checkout";
 import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
 import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
@@ -67,18 +65,8 @@ function Router() {
           <SessionsManagement />
         </ProtectedRoute>
       </Route>
-      <Route path="/admin/marketplace">
-        <ProtectedRoute>
-          <MarketplaceLayout>
-            <AdminMarketplace />
-          </MarketplaceLayout>
-        </ProtectedRoute>
-      </Route>
-      <Route path="/admin">
-        <ProtectedRoute>
-          <Admin />
-        </ProtectedRoute>
-      </Route>
+      <Route path="/admin/marketplace"><Redirect to="/admin/sessions" /></Route>
+      <Route path="/admin"><Redirect to="/admin/sessions" /></Route>
 
       <Route path="/marketplace">
         <MarketplaceRoute component={MarketplaceHome} />

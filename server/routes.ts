@@ -177,17 +177,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validated = insertSessionSchema.parse(requestData);
       
-      // Check if creating an active session when one already exists
-      if (validated.status === 'active') {
-        const existingActiveSession = await storage.getActiveSession();
-        if (existingActiveSession) {
-          return res.status(409).json({ 
-            error: "An active session already exists", 
-            details: `Please end the current session (${existingActiveSession.venueName}) before creating a new one`,
-            existingSession: existingActiveSession
-          });
-        }
-      }
       
       const session = await storage.createSession(validated);
       
@@ -200,6 +189,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid session data", details: error.errors });
       }
+      res.status(500).json({ error: "Failed to create session" });
+    }
+  });
+
+  app.post("/api/sessions/unified", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { marketplace, ...sessionData } = req.body;
+      
+      const requestData = {
+        ...sessionData,
+        date: new Date(sessionData.date),
+      };
+      
+      const validated = insertSessionSchema.parse(requestData);
+      const session = await storage.createSession(validated);
+      
+      let bookableSession = null;
+      if (marketplace && marketplace.enabled) {
+        bookableSession = await storage.createBookableSession({
+          title: marketplace.title || session.venueName,
+          description: marketplace.description || null,
+          venueName: session.venueName,
+          venueLocation: session.venueLocation || null,
+          date: new Date(sessionData.date),
+          startTime: marketplace.startTime || '18:00',
+          endTime: marketplace.endTime || '21:00',
+          courtCount: session.courtCount,
+          capacity: marketplace.capacity || 16,
+          priceAed: marketplace.priceAed || 50,
+          status: 'upcoming',
+          imageUrl: null,
+          linkedSessionId: session.id,
+        });
+      }
+      
+      res.status(201).json({ session, bookableSession });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid session data", details: error.errors });
+      }
+      console.error('Unified session creation error:', error);
       res.status(500).json({ error: "Failed to create session" });
     }
   });
@@ -244,19 +274,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Session not found" });
       }
 
-      // Check if updating to active status when one already exists
-      if (req.body.status === 'active') {
-        const existingActiveSession = await storage.getActiveSession();
-        if (existingActiveSession && existingActiveSession.id !== req.params.id) {
-          return res.status(409).json({ 
-            error: "An active session already exists", 
-            details: `Please end the current session (${existingActiveSession.venueName}) before activating this one`,
-            existingSession: existingActiveSession
-          });
-        }
-      }
-
-      // Update session (currently only supports status updates)
+      // Update session
       const updated = await storage.updateSession(req.params.id, req.body);
       res.json(updated);
     } catch (error) {

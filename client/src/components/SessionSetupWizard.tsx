@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
-import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X, ShoppingBag, DollarSign, Clock } from "lucide-react";
 import { insertSessionSchema } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -27,9 +28,28 @@ const sessionFormSchema = insertSessionSchema.extend({
 
 type SessionFormData = z.infer<typeof sessionFormSchema>;
 
+interface MarketplaceData {
+  enabled: boolean;
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  capacity: number;
+  priceAed: number;
+}
+
 export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWizardProps) {
-  const [step, setStep] = useState<'session' | 'players'>('session');
+  const [step, setStep] = useState<'session' | 'marketplace' | 'players'>('session');
   const [sessionData, setSessionData] = useState<SessionFormData | null>(null);
+  const [marketplaceData, setMarketplaceData] = useState<MarketplaceData>({
+    enabled: false,
+    title: '',
+    description: '',
+    startTime: '18:00',
+    endTime: '21:00',
+    capacity: 16,
+    priceAed: 50,
+  });
   const [createdSessionId, setCreatedSessionId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
@@ -48,7 +68,6 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     } as SessionFormData,
   });
 
-  // Reset wizard state on mount to ensure fresh start for each session creation
   useEffect(() => {
     setCreatedSessionId(null);
     setSessionData(null);
@@ -60,7 +79,6 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     form.reset();
   }, []);
 
-  // Add escape key handler
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && onClose) {
@@ -72,22 +90,40 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
   }, [onClose]);
 
   const handleSessionSubmit = async (data: SessionFormData) => {
+    setSessionData(data);
+    setMarketplaceData(prev => ({
+      ...prev,
+      title: data.venueName + ' Session',
+    }));
+    setStep('marketplace');
+  };
+
+  const handleMarketplaceContinue = async () => {
+    if (!sessionData) return;
+    
     setIsCreating(true);
     setImportError(null);
 
     try {
-      // Create session immediately with status='draft'
       const payload = {
-        ...data,
-        date: data.date,
-        venueLocation: data.venueLocation || null,
-        status: 'draft', // Mark as draft until wizard completes
+        ...sessionData,
+        date: sessionData.date,
+        venueLocation: sessionData.venueLocation || null,
+        status: 'draft',
+        marketplace: marketplaceData.enabled ? {
+          enabled: true,
+          title: marketplaceData.title,
+          description: marketplaceData.description || null,
+          startTime: marketplaceData.startTime,
+          endTime: marketplaceData.endTime,
+          capacity: marketplaceData.capacity,
+          priceAed: marketplaceData.priceAed,
+        } : undefined,
       };
 
-      const session = await apiRequest('POST', '/api/sessions', payload);
+      const result = await apiRequest('POST', '/api/sessions/unified', payload);
       
-      setSessionData(data);
-      setCreatedSessionId(session.id);
+      setCreatedSessionId(result.session.id);
       setStep('players');
     } catch (err: any) {
       const message = err?.error || err?.message || "Failed to create session";
@@ -106,76 +142,6 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     }
   };
 
-  const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      const nextChar = line[i + 1];
-      
-      if (char === '"') {
-        if (inQuotes && nextChar === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        result.push(current.trim());
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    
-    result.push(current.trim());
-    return result;
-  };
-
-  const parseCSV = (text: string): Array<{ name: string; gender: string; level: string; externalId?: string }> => {
-    const cleanText = text.replace(/^\uFEFF/, '');
-    const lines = cleanText.split('\n').filter(line => line.trim());
-    
-    if (lines.length < 2) {
-      throw new Error('CSV file must have at least a header row and one data row');
-    }
-
-    const headerFields = parseCSVLine(lines[0]);
-    const header = headerFields.map(h => h.toLowerCase().replace(/^"|"$/g, ''));
-    const nameIndex = header.findIndex(h => h === 'name');
-    const genderIndex = header.findIndex(h => h === 'gender');
-    const levelIndex = header.findIndex(h => h === 'level');
-    const externalIdIndex = header.findIndex(h => h === 'externalid' || h === 'external_id' || h === 'id');
-
-    if (nameIndex === -1 || genderIndex === -1 || levelIndex === -1) {
-      throw new Error('CSV must have columns: Name, Gender, Level (optional: ExternalId)');
-    }
-
-    const players: Array<{ name: string; gender: string; level: string; externalId?: string }> = [];
-    for (let i = 1; i < lines.length; i++) {
-      const values = parseCSVLine(lines[i]);
-      
-      if (values.length > Math.max(nameIndex, genderIndex, levelIndex)) {
-        const name = values[nameIndex]?.trim();
-        const gender = values[genderIndex]?.trim();
-        const level = values[levelIndex]?.trim();
-        const externalId = externalIdIndex !== -1 ? values[externalIdIndex]?.trim() : undefined;
-        
-        if (name && gender && level) {
-          players.push({ name, gender, level, externalId });
-        }
-      }
-    }
-
-    if (players.length === 0) {
-      throw new Error('No valid player data found in CSV');
-    }
-
-    return players;
-  };
-
   const handleImportCSV = async () => {
     if (!selectedFile) {
       setImportError("Please select a CSV file");
@@ -191,16 +157,12 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     setImportError(null);
 
     try {
-      // Read CSV content directly instead of parsing it
       const csvContent = await selectedFile.text();
-
-      // Use apiRequest which includes auth headers, pass sessionId
       const result = await apiRequest('POST', '/api/players/import', { 
         csvContent,
         sessionId: createdSessionId 
       });
       
-      // Invalidate queries to ensure fresh data when session starts
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
@@ -232,60 +194,46 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     setImportError(null);
 
     try {
-      // Helper function to escape CSV fields properly
       const escapeCSVField = (field: string): string => {
         field = field.trim();
-        // If field contains comma, newline, or quote, wrap in quotes and escape internal quotes
         if (field.includes(',') || field.includes('"') || field.includes('\n')) {
           return `"${field.replace(/"/g, '""')}"`;
         }
         return field;
       };
 
-      // Convert tab-separated (from Excel) or comma-separated to CSV format
-      // Don't trim the entire blob to preserve trailing delimiters (empty columns)
       const lines = pastedText.replace(/\r/g, "").split('\n').filter(line => line.trim());
-      
-      // Check if first line looks like a header
       const firstLine = lines[0].toLowerCase();
       const hasHeader = firstLine.includes('name') || firstLine.includes('gender') || firstLine.includes('level');
       
-      // Build CSV with proper headers
       const csvLines = [];
       
-      // Add header row - either from user's data or standard format
       if (hasHeader) {
-        // User provided headers - use them (normalized)
         const headerFields = lines[0].includes('\t') 
           ? lines[0].split('\t').map(f => f.trim())
           : lines[0].split(',').map(f => f.trim());
         csvLines.push(headerFields.join(','));
       } else {
-        // No header provided - add standard format
         csvLines.push('ShuttleIQ Unique ID,Name,Gender,Level');
       }
       
-      // Process data rows
       const dataLines = hasHeader ? lines.slice(1) : lines;
       for (const line of dataLines) {
         const fields = line.includes('\t') 
           ? line.split('\t').map(f => f.trim())
           : line.split(',').map(f => f.trim());
         
-        // Escape fields properly and join
         const escapedFields = fields.map(escapeCSVField);
         csvLines.push(escapedFields.join(','));
       }
       
       const csvContent = csvLines.join('\n');
 
-      // Use apiRequest which includes auth headers, pass sessionId
       const result = await apiRequest('POST', '/api/players/import', { 
         csvContent,
         sessionId: createdSessionId 
       });
       
-      // Invalidate queries to ensure fresh data when session starts
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
@@ -294,7 +242,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
         imported: result.added || 0,
         skipped: result.duplicates || 0
       });
-      setPastedText(""); // Clear the textarea on success
+      setPastedText("");
     } catch (err: any) {
       const message = err?.error || err?.message || "Failed to import players from pasted data";
       setImportError(message);
@@ -313,12 +261,10 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     setImportError(null);
 
     try {
-      // Promote session from 'draft' to 'active'
       await apiRequest('PATCH', `/api/sessions/${createdSessionId}`, { 
         status: 'active' 
       });
 
-      // Reset wizard state for next use
       setCreatedSessionId(null);
       setSessionData(null);
       setImportResult(null);
@@ -338,18 +284,37 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     handleFinishWizard();
   };
 
+  const stepIndicator = (
+    <div className="flex items-center justify-center gap-2 mb-2">
+      {['session', 'marketplace', 'players'].map((s, i) => (
+        <div key={s} className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${
+            s === step ? 'bg-primary' : 
+            (['session', 'marketplace', 'players'].indexOf(step) > i) ? 'bg-primary/40' : 'bg-muted-foreground/20'
+          }`} />
+          {i < 2 && <div className="w-6 h-px bg-muted-foreground/20" />}
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl">
         <CardHeader className="space-y-2">
           <div className="flex items-start justify-between">
             <div className="flex-1">
+              {stepIndicator}
               <CardTitle className="text-2xl sm:text-3xl font-bold text-center">
-                {step === 'session' ? 'Start New Session' : 'Add Players (Optional)'}
+                {step === 'session' ? 'Start New Session' : 
+                 step === 'marketplace' ? 'Marketplace Listing' :
+                 'Add Players (Optional)'}
               </CardTitle>
               <CardDescription className="text-center mt-2">
                 {step === 'session' 
                   ? 'Set up your badminton session details' 
+                  : step === 'marketplace'
+                  ? 'Optionally list this session on the marketplace for player bookings'
                   : 'Import your player roster or skip to add players later'}
               </CardDescription>
             </div>
@@ -476,13 +441,157 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                 <Button 
                   type="submit" 
                   className="w-full min-h-12 sm:min-h-10"
-                  data-testid="button-continue-to-players"
+                  data-testid="button-continue-to-marketplace"
                 >
-                  Continue to Players
+                  Continue
                 </Button>
               </CardFooter>
             </form>
           </Form>
+        ) : step === 'marketplace' ? (
+          <>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-card">
+                <div className="flex items-center gap-3">
+                  <ShoppingBag className="h-5 w-5 text-muted-foreground" />
+                  <div>
+                    <p className="font-medium text-sm">List on Marketplace</p>
+                    <p className="text-xs text-muted-foreground">Allow players to discover and book this session online</p>
+                  </div>
+                </div>
+                <Switch
+                  checked={marketplaceData.enabled}
+                  onCheckedChange={(checked) => setMarketplaceData(prev => ({ ...prev, enabled: checked }))}
+                  data-testid="switch-marketplace-enabled"
+                />
+              </div>
+
+              {marketplaceData.enabled && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-2">
+                      <ShoppingBag className="h-4 w-4" />
+                      Listing Title
+                    </Label>
+                    <Input
+                      value={marketplaceData.title}
+                      onChange={(e) => setMarketplaceData(prev => ({ ...prev, title: e.target.value }))}
+                      placeholder="e.g., Evening Badminton Session"
+                      className="min-h-12 sm:min-h-10"
+                      data-testid="input-marketplace-title"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Description (optional)</Label>
+                    <Textarea
+                      value={marketplaceData.description}
+                      onChange={(e) => setMarketplaceData(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Describe the session for players..."
+                      className="min-h-[80px]"
+                      data-testid="input-marketplace-description"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        Start Time
+                      </Label>
+                      <Input
+                        type="time"
+                        value={marketplaceData.startTime}
+                        onChange={(e) => setMarketplaceData(prev => ({ ...prev, startTime: e.target.value }))}
+                        className="min-h-12 sm:min-h-10"
+                        data-testid="input-marketplace-start-time"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        End Time
+                      </Label>
+                      <Input
+                        type="time"
+                        value={marketplaceData.endTime}
+                        onChange={(e) => setMarketplaceData(prev => ({ ...prev, endTime: e.target.value }))}
+                        className="min-h-12 sm:min-h-10"
+                        data-testid="input-marketplace-end-time"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        Max Players
+                      </Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={marketplaceData.capacity}
+                        onChange={(e) => setMarketplaceData(prev => ({ ...prev, capacity: parseInt(e.target.value) || 16 }))}
+                        className="min-h-12 sm:min-h-10"
+                        data-testid="input-marketplace-capacity"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2">
+                        <DollarSign className="h-4 w-4" />
+                        Price (AED)
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={marketplaceData.priceAed}
+                        onChange={(e) => setMarketplaceData(prev => ({ ...prev, priceAed: parseInt(e.target.value) || 0 }))}
+                        className="min-h-12 sm:min-h-10"
+                        data-testid="input-marketplace-price"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {importError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{importError}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+
+            <CardFooter className="flex gap-3">
+              <Button 
+                type="button"
+                variant="outline"
+                onClick={() => { setStep('session'); setImportError(null); }}
+                disabled={isCreating}
+                className="min-h-12 sm:min-h-10"
+                data-testid="button-back-to-session"
+              >
+                Back
+              </Button>
+              <Button 
+                type="button"
+                onClick={handleMarketplaceContinue}
+                disabled={isCreating || (marketplaceData.enabled && !marketplaceData.title)}
+                className="flex-1 min-h-12 sm:min-h-10"
+                data-testid="button-continue-to-players"
+              >
+                {isCreating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  'Continue to Players'
+                )}
+              </Button>
+            </CardFooter>
+          </>
         ) : (
           <>
             <CardContent className="space-y-6">
@@ -708,12 +817,12 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setStep('session')}
+                onClick={() => setStep('marketplace')}
                 disabled={isCreating}
                 className="w-full min-h-12 sm:min-h-10"
-                data-testid="button-back-to-session"
+                data-testid="button-back-to-marketplace"
               >
-                Back to Session Details
+                Back to Marketplace Options
               </Button>
             </CardFooter>
           </>
