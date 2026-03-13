@@ -63,7 +63,7 @@ export default function SessionsManagement() {
       await logout();
     } finally {
       // Always navigate to login, even if logout fails
-      navigate('/login');
+      navigate('/admin/login');
     }
   };
 

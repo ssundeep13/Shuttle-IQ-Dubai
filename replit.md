@@ -43,7 +43,7 @@ Preferred communication style: Simple, everyday language.
     - **Player Dashboards**: My Bookings (with cancel), My Scores (linked player stats), Rankings (global leaderboard), Profile (account details + player linking).
     - **Player Linking**: Marketplace accounts can link to existing ShuttleIQ player profiles for score/ranking integration.
     - **Admin Marketplace**: Admin-only dashboard for managing bookable sessions, viewing bookings, marking attendance, and managing marketplace users.
-    - **Routes**: All marketplace routes under `/marketplace/*`, API under `/api/marketplace/*`.
+    - **Routes**: Root `/` redirects to `/marketplace` for unauthenticated users (and to `/admin/sessions` for admins). Admin login at `/admin/login` (old `/login` redirects to `/marketplace`). All marketplace routes under `/marketplace/*`, API under `/api/marketplace/*`.
     - **DB Tables**: `marketplace_users`, `marketplace_auth_sessions`, `bookable_sessions`, `bookings` (with `stripe_checkout_session_id`), `payments`.
     - **Frontend Route Guards**: `MarketplaceProtectedRoute` redirects unauthenticated users to `/marketplace/login`.
     - **Token Routing**: `getAuthToken()` in `queryClient.ts` detects marketplace vs admin URLs and sends the correct token. Admin fetch interceptor in `AuthContext` excludes `/api/marketplace/` URLs.

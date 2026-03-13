@@ -12,8 +12,8 @@ export function RootRedirect() {
         // Redirect authenticated users to Sessions Management (main hub)
         navigate('/admin/sessions', { replace: true });
       } else {
-        // Redirect unauthenticated users to Login
-        navigate('/login', { replace: true });
+        // Redirect unauthenticated users to Marketplace
+        navigate('/marketplace', { replace: true });
       }
     }
   }, [user, isLoading, navigate]);
