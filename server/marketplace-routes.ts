@@ -531,7 +531,27 @@ export function registerMarketplaceRoutes(app: Express) {
         status: "attended",
         attendedAt: new Date(),
       });
-      res.json(updated);
+
+      let queueResult: { added: boolean; reason?: string } = { added: false };
+
+      const marketplaceUser = await storage.getMarketplaceUser(booking.userId);
+      const bookableSession = await storage.getBookableSession(booking.sessionId);
+
+      if (!marketplaceUser?.linkedPlayerId) {
+        queueResult = { added: false, reason: "no_player_link" };
+      } else if (!bookableSession?.linkedSessionId) {
+        queueResult = { added: false, reason: "no_session_link" };
+      } else {
+        const queue = await storage.getQueue(bookableSession.linkedSessionId);
+        if (queue.includes(marketplaceUser.linkedPlayerId)) {
+          queueResult = { added: false, reason: "already_in_queue" };
+        } else {
+          await storage.addToQueue(bookableSession.linkedSessionId, marketplaceUser.linkedPlayerId);
+          queueResult = { added: true };
+        }
+      }
+
+      res.json({ ...updated, queueResult });
     } catch (error) {
       res.status(500).json({ error: "Failed to mark attendance" });
     }

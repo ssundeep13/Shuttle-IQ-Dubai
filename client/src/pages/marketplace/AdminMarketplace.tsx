@@ -403,8 +403,19 @@ function BookingsTab() {
       if (!res.ok) throw new Error('Failed');
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: 'Attendance marked' });
+    onSuccess: (data) => {
+      const qr = data.queueResult;
+      if (qr?.added) {
+        toast({ title: 'Checked in', description: 'Player added to session queue' });
+      } else if (qr?.reason === 'no_player_link') {
+        toast({ title: 'Checked in', description: 'No player profile linked — add them to the queue manually' });
+      } else if (qr?.reason === 'no_session_link') {
+        toast({ title: 'Checked in', description: 'No queue session linked — add them to the queue manually' });
+      } else if (qr?.reason === 'already_in_queue') {
+        toast({ title: 'Checked in', description: 'Player is already in the queue' });
+      } else {
+        toast({ title: 'Attendance marked' });
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', selectedSession, 'bookings'] });
     },
   });
