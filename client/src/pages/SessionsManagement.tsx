@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play } from 'lucide-react';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
@@ -70,7 +70,7 @@ export default function SessionsManagement() {
     }
   }, [showCreateSession]);
 
-  const sessions = allSessions.filter(s => s.status !== 'draft');
+  const sessions = allSessions;
 
   const deleteSessionMutation = useMutation({
     mutationFn: async (id: string) => apiRequest('DELETE', `/api/sessions/${id}`),
@@ -120,6 +120,17 @@ export default function SessionsManagement() {
     }
   };
 
+  const handleActivateSession = async (session: Session) => {
+    try {
+      await apiRequest('PATCH', `/api/sessions/${session.id}`, { status: 'active' });
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+      toast({ title: "Session activated", description: `"${session.venueName}" is now active` });
+    } catch (err: any) {
+      const message = err?.error || err?.message || "Failed to activate session";
+      toast({ title: "Cannot activate", description: message, variant: "destructive" });
+    }
+  };
+
   const handleResetStats = () => {
     players.forEach((player) => {
       updatePlayerMutation.mutate({
@@ -143,7 +154,7 @@ export default function SessionsManagement() {
   };
 
   const activeSessions = sessions.filter(s => s.status === 'active');
-  const upcomingSessions = sessions.filter(s => s.status === 'upcoming');
+  const upcomingSessions = sessions.filter(s => s.status === 'upcoming' || s.status === 'draft');
   const endedSessions = sessions.filter(s => s.status === 'ended');
 
   const totalBookings = bookableSessions.reduce((sum, s) => sum + s.totalBookings, 0);
@@ -216,6 +227,7 @@ export default function SessionsManagement() {
               onView={(session) => navigate(`/session/${session.id}`)}
               onDelete={(session) => setSessionToDelete(session)}
               onViewBookings={(session) => setBookingsSession(session)}
+              onActivate={handleActivateSession}
               totalBookings={totalBookings}
               totalRevenue={totalRevenue}
             />
@@ -285,7 +297,7 @@ export default function SessionsManagement() {
 
 function SessionsTabContent({ 
   sessions, activeSessions, upcomingSessions, endedSessions, bookableSessions,
-  isLoading, onView, onDelete, onViewBookings, totalBookings, totalRevenue
+  isLoading, onView, onDelete, onViewBookings, onActivate, totalBookings, totalRevenue
 }: { 
   sessions: Session[];
   activeSessions: Session[];
@@ -296,6 +308,7 @@ function SessionsTabContent({
   onView: (session: Session) => void;
   onDelete: (session: Session) => void;
   onViewBookings: (session: Session) => void;
+  onActivate: (session: Session) => void;
   totalBookings: number;
   totalRevenue: number;
 }) {
@@ -372,6 +385,7 @@ function SessionsTabContent({
             onView={onView}
             onDelete={onDelete}
             onViewBookings={onViewBookings}
+            onActivate={onActivate}
             getLinkedBookableSession={getLinkedBookableSession}
           />
 
@@ -385,6 +399,7 @@ function SessionsTabContent({
               onView={onView}
               onDelete={onDelete}
               onViewBookings={onViewBookings}
+              onActivate={onActivate}
               getLinkedBookableSession={getLinkedBookableSession}
             />
           )}
@@ -399,6 +414,7 @@ function SessionsTabContent({
               onView={onView}
               onDelete={onDelete}
               onViewBookings={onViewBookings}
+              onActivate={onActivate}
               getLinkedBookableSession={getLinkedBookableSession}
             />
           )}
@@ -410,7 +426,7 @@ function SessionsTabContent({
 
 function SessionSection({ 
   title, icon, iconBg, sessions, badge, emptyMessage, emptySubMessage,
-  onView, onDelete, onViewBookings, getLinkedBookableSession
+  onView, onDelete, onViewBookings, onActivate, getLinkedBookableSession
 }: {
   title: string;
   icon: React.ReactNode;
@@ -422,6 +438,7 @@ function SessionSection({
   onView: (session: Session) => void;
   onDelete: (session: Session) => void;
   onViewBookings: (session: Session) => void;
+  onActivate: (session: Session) => void;
   getLinkedBookableSession: (sessionId: string) => BookableSessionWithAvailability | undefined;
 }) {
   return (
@@ -451,6 +468,7 @@ function SessionSection({
               onView={() => onView(session)}
               onDelete={() => onDelete(session)}
               onViewBookings={() => onViewBookings(session)}
+              onActivate={() => onActivate(session)}
             />
           ))}
         </div>
@@ -460,13 +478,14 @@ function SessionSection({
 }
 
 function SessionCard({ 
-  session, linkedBookable, onView, onDelete, onViewBookings
+  session, linkedBookable, onView, onDelete, onViewBookings, onActivate
 }: { 
   session: Session;
   linkedBookable?: BookableSessionWithAvailability;
   onView: () => void; 
   onDelete: () => void;
   onViewBookings: () => void;
+  onActivate?: () => void;
 }) {
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
@@ -547,6 +566,17 @@ function SessionCard({
             >
               <Users className="w-4 h-4 mr-1" />
               View Bookings
+            </Button>
+          )}
+          {(session.status === 'draft' || session.status === 'upcoming') && onActivate && (
+            <Button 
+              size="sm" 
+              variant="outline"
+              onClick={onActivate}
+              data-testid={`button-activate-${session.id}`}
+            >
+              <Play className="w-4 h-4 mr-1" />
+              Activate
             </Button>
           )}
           <Button 
