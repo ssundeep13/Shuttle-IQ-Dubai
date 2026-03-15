@@ -287,8 +287,14 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
 
       completeWizard();
     } catch (err: any) {
-      const message = err?.error || err?.message || "Failed to activate session";
-      setImportError(message);
+      if (err?.status === 409 || err?.error?.includes?.('already active')) {
+        await queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+        setImportError("There is already an active session. End it first or save this session as upcoming.");
+        setShowConflict(true);
+      } else {
+        const message = err?.error || err?.message || "Failed to activate session";
+        setImportError(message);
+      }
       setIsCreating(false);
     }
   };
@@ -311,8 +317,14 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
 
       completeWizard();
     } catch (err: any) {
-      const message = err?.error || err?.message || "Failed to switch sessions";
-      setImportError(message);
+      if (err?.status === 409 || err?.error?.includes?.('already active')) {
+        await queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+        setImportError("There is already an active session. End it first or save this session as upcoming.");
+        setShowConflict(true);
+      } else {
+        const message = err?.error || err?.message || "Failed to switch sessions";
+        setImportError(message);
+      }
       setIsCreating(false);
     }
   };
