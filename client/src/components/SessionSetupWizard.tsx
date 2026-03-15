@@ -677,27 +677,31 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
         ) : (
           <>
             <CardContent className="space-y-6">
-              {showConflict && activeSession && (
+              {showConflict && (
                 <Alert className="border-orange-500/50">
                   <AlertTriangle className="h-4 w-4 text-orange-500" />
                   <AlertDescription className="space-y-3">
                     <p>
-                      There is already an active session (<strong>{activeSession.venueName}</strong>). 
-                      Only one session can be active at a time.
+                      {activeSession 
+                        ? <>There is already an active session (<strong>{activeSession.venueName}</strong>). Only one session can be active at a time.</>
+                        : <>There is already an active session. Only one session can be active at a time.</>
+                      }
                     </p>
                     <div className="flex flex-col sm:flex-row gap-2">
-                      <Button
-                        size="sm"
-                        onClick={handleEndCurrentAndActivate}
-                        disabled={isCreating}
-                        className="flex-1"
-                        data-testid="button-end-and-activate"
-                      >
-                        {isCreating ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : null}
-                        End Current & Activate New
-                      </Button>
+                      {activeSession && (
+                        <Button
+                          size="sm"
+                          onClick={handleEndCurrentAndActivate}
+                          disabled={isCreating}
+                          className="flex-1"
+                          data-testid="button-end-and-activate"
+                        >
+                          {isCreating ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : null}
+                          End Current & Activate New
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
