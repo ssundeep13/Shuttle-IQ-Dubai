@@ -105,7 +105,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
 
   const { data: bookingsResponse, isLoading: isLoadingBooked } = useQuery<BookingsResponse>({
     queryKey: ['/api/sessions', sessionId, 'bookings'],
-    enabled: open && activeTab === 'booked' && !!sessionId,
+    enabled: open && !!sessionId,
   });
 
   const hasLinkedBookableSession = bookingsResponse?.linked ?? false;
@@ -306,7 +306,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
             <TabsTrigger 
               value="booked" 
               className="flex items-center gap-1.5 text-xs sm:text-sm" 
-              disabled={!hasActiveSession}
+              disabled={!hasActiveSession || (!isLoadingBooked && !hasLinkedBookableSession)}
               data-testid="tab-booked-players"
             >
               <Ticket className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
