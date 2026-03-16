@@ -948,7 +948,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllBookableSessions(): Promise<BookableSessionWithAvailability[]> {
-    const allSessions = await db.select().from(bookableSessions).orderBy(asc(bookableSessions.date));
+    const allSessions = await db.select().from(bookableSessions)
+      .where(sql`${bookableSessions.linkedSessionId} IS NOT NULL`)
+      .orderBy(asc(bookableSessions.date));
     const result: BookableSessionWithAvailability[] = [];
     for (const session of allSessions) {
       const count = await this.getBookingCountForSession(session.id);
