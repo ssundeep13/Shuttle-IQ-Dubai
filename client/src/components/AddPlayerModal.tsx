@@ -105,7 +105,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
 
   const { data: bookingsResponse, isLoading: isLoadingBooked } = useQuery<BookingsResponse>({
     queryKey: ['/api/sessions', sessionId, 'bookings'],
-    enabled: open && !!sessionId,
+    enabled: open && activeTab === 'booked' && !!sessionId,
   });
 
   const hasLinkedBookableSession = bookingsResponse?.linked ?? false;
@@ -306,7 +306,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
             <TabsTrigger 
               value="booked" 
               className="flex items-center gap-1.5 text-xs sm:text-sm" 
-              disabled={!hasActiveSession || (!isLoadingBooked && !hasLinkedBookableSession)}
+              disabled={!hasActiveSession}
               data-testid="tab-booked-players"
             >
               <Ticket className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -554,11 +554,17 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
                 <div className="p-4 text-center text-muted-foreground">
                   Loading bookings...
                 </div>
+              ) : !hasLinkedBookableSession ? (
+                <div className="p-6 text-center text-muted-foreground">
+                  <Ticket className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm font-medium mb-1">No marketplace link</p>
+                  <p className="text-xs">This session is not linked to a bookable marketplace listing.</p>
+                </div>
               ) : bookedEntries.length === 0 ? (
                 <div className="p-6 text-center text-muted-foreground">
                   <Ticket className="h-10 w-10 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm font-medium mb-1">No bookings found</p>
-                  <p className="text-xs">This session has no linked marketplace bookings.</p>
+                  <p className="text-sm font-medium mb-1">No bookings yet</p>
+                  <p className="text-xs">No players have booked this session yet.</p>
                 </div>
               ) : (
                 <div className="p-2 space-y-1">
