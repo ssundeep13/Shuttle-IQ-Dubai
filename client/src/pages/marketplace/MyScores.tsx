@@ -139,7 +139,8 @@ export default function MyScores() {
     ? `${stats.currentStreak.count}${stats.currentStreak.type === 'win' ? 'W' : 'L'}`
     : '0';
 
-  const chartData = stats.recentGames
+  const chartGames = stats.recentGames.slice(0, 10);
+  const chartData = chartGames
     .slice()
     .reverse()
     .map((g, i) => ({
@@ -148,11 +149,13 @@ export default function MyScores() {
       won: g.won,
     }));
 
-  const startingScore = stats.recentGames.length > 0
-    ? (stats.recentGames[stats.recentGames.length - 1].skillScoreBefore ?? stats.player.skillScore)
+  const startingScore = chartData.length > 0
+    ? (chartGames[chartGames.length - 1].skillScoreBefore ?? chartData[0].score)
     : stats.player.skillScore;
-  const currentScore = stats.player.skillScore;
-  const totalChange = currentScore - startingScore;
+  const endingScore = chartData.length > 0
+    ? chartData[chartData.length - 1].score
+    : stats.player.skillScore;
+  const totalChange = endingScore - startingScore;
 
   const last5Results = stats.recentGames.slice(0, 5).map(g => g.won);
 
@@ -557,9 +560,12 @@ export default function MyScores() {
                         <div className="text-right shrink-0">
                           <div className="text-xs text-muted-foreground">{gameDate}</div>
                           {eloChange !== null && eloChange !== 0 && (
-                            <div className={`text-xs font-semibold ${eloChange > 0 ? 'text-teal-600 dark:text-teal-400' : 'text-red-500'}`}>
+                            <Badge
+                              variant="outline"
+                              className={`text-xs no-default-hover-elevate no-default-active-elevate ${eloChange > 0 ? 'bg-green-500/10 text-green-600 border-green-500/20 dark:text-green-400' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}
+                            >
                               {eloChange > 0 ? '+' : ''}{eloChange}
-                            </div>
+                            </Badge>
                           )}
                         </div>
                         <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
