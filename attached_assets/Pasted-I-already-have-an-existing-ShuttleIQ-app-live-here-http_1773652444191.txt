@@ -1,0 +1,213 @@
+I already have an existing ShuttleIQ app live here:
+https://83e867f2-c699-4ed2-9ccd-fa5ff3b54e1b-00-2msk0gweplhtg.worf.replit.dev/
+
+I have also uploaded a separate UI reference zip that contains a visual style I really like.
+
+Your job is NOT to rebuild ShuttleIQ from scratch.
+Your job is to REDESIGN and REFACTOR the existing ShuttleIQ frontend so that it takes strong inspiration from the uploaded UI reference, while preserving ShuttleIQ’s existing core product logic, workflows, and badminton-specific functionality.
+
+CORE OBJECTIVE
+Transform the current ShuttleIQ app into a more premium, modern, polished product by applying the design language of the uploaded UI reference to the existing ShuttleIQ experience.
+
+IMPORTANT RULES
+- Do NOT copy the uploaded UI literally.
+- Do NOT replace ShuttleIQ’s product identity with generic SaaS language.
+- Do NOT break the existing business logic.
+- Do NOT remove current working flows unless replacing them with a cleaner equivalent.
+- Use the uploaded zip as visual inspiration only.
+- Keep ShuttleIQ clearly centered around badminton sessions, queue management, player rankings, and community bookings.
+
+WHAT I LIKE IN THE REFERENCE UI
+Adopt the following from the uploaded UI:
+- warm beige / sand background
+- deep royal blue as the dominant text/brand color
+- teal/green accent CTAs
+- premium rounded cards
+- soft elegant shadows
+- spacious modern layout
+- better typography hierarchy
+- polished dashboard sections
+- elegant badges, chips, and status indicators
+- refined landing page composition
+- subtle motion and transitions
+- mobile-friendly premium feel
+
+DESIGN SYSTEM TO IMPLEMENT
+Create a consistent ShuttleIQ design system with:
+
+COLORS
+- background: warm beige / sand
+- primary text: deep royal blue
+- primary brand color: royal blue
+- accent CTA color: teal / emerald teal
+- secondary surfaces: off-white / muted sand
+- borders: subtle low-contrast blue-gray
+- muted text: desaturated blue-gray
+
+STYLE
+- rounded corners throughout
+- generous spacing
+- premium card design
+- subtle shadows
+- strong section hierarchy
+- cleaner button styling
+- softer borders
+- elegant hover states
+- refined empty states
+- premium stats blocks
+- polished pills/badges/chips
+
+TYPOGRAPHY
+- modern clean sans-serif
+- bold, premium section headings
+- highly readable body text
+- better spacing between headings, subheadings, and content
+
+MOTION
+- subtle Framer Motion animations only
+- smooth hover and entrance transitions
+- avoid flashy or over-animated behavior
+
+WHAT TO DO WITH THE EXISTING SHUTTLEIQ APP
+Start from the existing ShuttleIQ implementation and improve these areas:
+
+1. LANDING PAGE
+Redesign the marketing/landing page using the uploaded reference style:
+- premium hero section
+- stronger CTA placement
+- better visual hierarchy
+- a polished nav bar
+- feature highlights
+- “how it works” section
+- testimonials or social proof
+- final CTA section
+- premium footer
+
+Make it feel like a high-quality sports-tech brand, not a template.
+
+2. LOGGED-IN DASHBOARD
+Refactor the logged-in dashboard so it feels much more premium:
+- welcome header
+- next session card
+- player stats card
+- leaderboard preview
+- bookings / queue activity
+- announcements / updates
+- recent activity
+- clean responsive grid
+
+This is one of the most important screens.
+
+3. SESSION / QUEUE / BOOKING FLOW
+Improve the visual design of:
+- upcoming sessions
+- join queue action
+- booking cards
+- waitlist status
+- available slots
+- venue, date, time, level details
+- confirmation UI
+- session status chips
+
+These flows should be more intuitive and more polished.
+
+4. LEADERBOARD
+Refactor leaderboard UI to look premium:
+- highlight top 3 elegantly
+- cleaner rank rows
+- better spacing
+- clearer stat display
+- optional filters/tabs if helpful
+- more visual energy without clutter
+
+5. PLAYER PROFILE
+Refactor player profile:
+- avatar area
+- player level/rank
+- stats summary
+- streaks / matches / win rate
+- badges or achievements
+- recent history
+- better structured cards and sections
+
+6. VENUE / SESSION CARDS
+All cards across the app should be upgraded:
+- better spacing
+- rounded corners
+- subtle shadows
+- clearer metadata hierarchy
+- improved CTA positioning
+- premium badges and status labels
+
+7. NAVIGATION
+Improve information architecture and UI consistency:
+- more polished top navigation
+- cleaner mobile nav
+- clearer active states
+- better icon usage
+- less clutter
+
+TECHNICAL EXPECTATIONS
+- Reuse as much of the existing ShuttleIQ codebase as practical
+- Refactor the frontend cleanly instead of layering random styles
+- Create reusable primitives/components where needed
+- Standardize:
+  - buttons
+  - cards
+  - badges
+  - section headers
+  - stat widgets
+  - forms
+  - tabs
+  - modal/dialog patterns
+  - list/table/session row patterns
+- Keep code modular and maintainable
+- Preserve responsive behavior and improve mobile UX
+- Keep accessibility reasonably strong
+
+STACK / IMPLEMENTATION PREFERENCES
+- Use the existing stack where possible
+- If the app is React / Next / Tailwind based, standardize the entire UI around that
+- If useful, introduce or align to shadcn/ui conventions
+- Use Tailwind cleanly and consistently
+- Use a central theme/token setup for colors, spacing, radii, and shadows
+
+SHUTTLEIQ BRAND POSITIONING
+This should feel like:
+- a premium badminton community platform
+- built for Dubai / UAE players
+- queueing and session management without chaos
+- player stats + rankings + bookings in one polished experience
+
+The visual identity should remain sporty, premium, and community-driven.
+
+COPY DIRECTION
+Replace any generic SaaS copy with ShuttleIQ-relevant language like:
+- Join the queue without the chaos
+- Book your next badminton session
+- Track your stats and climb the leaderboard
+- Find games across Dubai
+- Play more, wait less
+- Smart queue management for badminton communities
+
+DELIVERABLES I WANT
+1. A refreshed global design system/theme
+2. Redesigned landing page
+3. Refactored dashboard
+4. Refined booking/queue/session flow
+5. Upgraded leaderboard UI
+6. Upgraded player profile UI
+7. Consistent reusable component system
+8. Better mobile responsiveness across all major screens
+
+WORKING METHOD
+Before making major code changes:
+1. Audit the current ShuttleIQ UI structure
+2. Summarize the current key screens/components
+3. Summarize what you infer from the uploaded reference UI
+4. Propose the updated design system
+5. Then begin implementation
+
+VERY IMPORTANT
+This is a UI/UX redesign and refinement of the EXISTING ShuttleIQ app — not a totally new product.
+Preserve the app’s current logic and badminton-specific workflows, but elevate the experience dramatically.
