@@ -56,6 +56,8 @@ export default function SessionsManagement() {
 
   const { data: allSessions = [], isLoading } = useQuery<Session[]>({
     queryKey: ['/api/sessions'],
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const { data: players = [] } = useQuery<Player[]>({
@@ -64,6 +66,8 @@ export default function SessionsManagement() {
 
   const { data: bookableSessions = [] } = useQuery<BookableSessionWithAvailability[]>({
     queryKey: ['/api/marketplace/sessions'],
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   useEffect(() => {
@@ -78,6 +82,7 @@ export default function SessionsManagement() {
     mutationFn: async (id: string) => apiRequest('DELETE', `/api/sessions/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
       setSessionToDelete(null);
     },
   });
