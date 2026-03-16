@@ -51,7 +51,7 @@ function Router() {
     <Switch>
       <Route path="/" component={RootRedirect}/>
       <Route path="/admin/login" component={Login} />
-      <Route path="/login"><Redirect to="/marketplace" /></Route>
+      <Route path="/login"><Redirect to="/" /></Route>
       <Route path="/session/:id" component={Home}/>
       <Route path="/player/:id" component={PlayerProfile}/>
       <Route path="/players" component={PlayerRegistry} />
