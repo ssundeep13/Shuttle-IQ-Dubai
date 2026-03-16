@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -13,8 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X, ShoppingBag, DollarSign, Clock, AlertTriangle } from "lucide-react";
-import { insertSessionSchema, type Session } from "@shared/schema";
+import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X, ShoppingBag, DollarSign, Clock } from "lucide-react";
+import { insertSessionSchema } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface SessionSetupWizardProps {
@@ -57,14 +56,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [pastedText, setPastedText] = useState<string>("");
-  const [showConflict, setShowConflict] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const { data: sessions = [] } = useQuery<Session[]>({
-    queryKey: ['/api/sessions'],
-  });
-
-  const activeSession = sessions.find(s => s.status === 'active');
   
   const form = useForm<SessionFormData>({
     resolver: zodResolver(sessionFormSchema),
@@ -265,101 +257,28 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
       return;
     }
 
-    if (activeSession && activeSession.id !== createdSessionId) {
-      setShowConflict(true);
-      return;
-    }
-
-    await activateSession();
-  };
-
-  const activateSession = async () => {
-    if (!createdSessionId) return;
-
     setIsCreating(true);
     setImportError(null);
-    setShowConflict(false);
-
-    try {
-      await apiRequest('PATCH', `/api/sessions/${createdSessionId}`, { 
-        status: 'active' 
-      });
-
-      completeWizard();
-    } catch (err: any) {
-      if (err?.status === 409 || err?.error?.includes?.('already active')) {
-        await queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
-        setImportError("There is already an active session. End it first or save this session as upcoming.");
-        setShowConflict(true);
-      } else {
-        const message = err?.error || err?.message || "Failed to activate session";
-        setImportError(message);
-      }
-      setIsCreating(false);
-    }
-  };
-
-  const handleEndCurrentAndActivate = async () => {
-    if (!createdSessionId || !activeSession) return;
-
-    setIsCreating(true);
-    setImportError(null);
-    setShowConflict(false);
-
-    try {
-      await apiRequest('PATCH', `/api/sessions/${activeSession.id}`, { 
-        status: 'ended' 
-      });
-
-      await apiRequest('PATCH', `/api/sessions/${createdSessionId}`, { 
-        status: 'active' 
-      });
-
-      completeWizard();
-    } catch (err: any) {
-      if (err?.status === 409 || err?.error?.includes?.('already active')) {
-        await queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
-        setImportError("There is already an active session. End it first or save this session as upcoming.");
-        setShowConflict(true);
-      } else {
-        const message = err?.error || err?.message || "Failed to switch sessions";
-        setImportError(message);
-      }
-      setIsCreating(false);
-    }
-  };
-
-  const handleSaveAsUpcoming = async () => {
-    if (!createdSessionId) return;
-
-    setIsCreating(true);
-    setImportError(null);
-    setShowConflict(false);
 
     try {
       await apiRequest('PATCH', `/api/sessions/${createdSessionId}`, { 
         status: 'upcoming' 
       });
 
-      completeWizard();
+      setCreatedSessionId(null);
+      setSessionData(null);
+      setImportResult(null);
+      setImportError(null);
+      setStep('session');
+      form.reset();
+
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+      onSessionCreated();
     } catch (err: any) {
       const message = err?.error || err?.message || "Failed to save session";
       setImportError(message);
       setIsCreating(false);
     }
-  };
-
-  const completeWizard = () => {
-    setCreatedSessionId(null);
-    setSessionData(null);
-    setImportResult(null);
-    setImportError(null);
-    setShowConflict(false);
-    setStep('session');
-    form.reset();
-
-    queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
-    onSessionCreated();
   };
 
   const handleSkipImport = () => {
@@ -677,49 +596,6 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
         ) : (
           <>
             <CardContent className="space-y-6">
-              {showConflict && (
-                <Alert className="border-orange-500/50">
-                  <AlertTriangle className="h-4 w-4 text-orange-500" />
-                  <AlertDescription className="space-y-3">
-                    <p>
-                      {activeSession 
-                        ? <>There is already an active session (<strong>{activeSession.venueName}</strong>). Only one session can be active at a time.</>
-                        : <>There is already an active session. Only one session can be active at a time.</>
-                      }
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      {activeSession && (
-                        <Button
-                          size="sm"
-                          onClick={handleEndCurrentAndActivate}
-                          disabled={isCreating}
-                          className="flex-1"
-                          data-testid="button-end-and-activate"
-                        >
-                          {isCreating ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : null}
-                          End Current & Activate New
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleSaveAsUpcoming}
-                        disabled={isCreating}
-                        className="flex-1"
-                        data-testid="button-save-upcoming"
-                      >
-                        {isCreating ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : null}
-                        Save as Upcoming
-                      </Button>
-                    </div>
-                  </AlertDescription>
-                </Alert>
-              )}
-
               <Tabs defaultValue="paste" className="w-full">
                 <TabsList className="grid w-full grid-cols-3 min-h-12 sm:min-h-10">
                   <TabsTrigger value="paste" className="min-h-12 sm:min-h-10" data-testid="tab-paste-import">
@@ -819,10 +695,10 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                         {isCreating ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Starting Session...
+                            Saving Session...
                           </>
                         ) : (
-                          'Start Session'
+                          'Save Session'
                         )}
                       </Button>
                     )}
@@ -901,10 +777,10 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                         {isCreating ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Starting Session...
+                            Saving Session...
                           </>
                         ) : (
-                          'Start Session'
+                          'Save Session'
                         )}
                       </Button>
                     )}
@@ -928,10 +804,10 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                     {isCreating ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Starting Session...
+                        Saving Session...
                       </>
                     ) : (
-                      'Start Session Without Players'
+                      'Save Session Without Players'
                     )}
                   </Button>
                 </TabsContent>
