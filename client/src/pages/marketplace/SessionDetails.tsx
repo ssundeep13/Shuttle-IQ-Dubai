@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info } from 'lucide-react';
+import { Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info, Banknote } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookableSessionWithAvailability } from '@shared/schema';
@@ -89,7 +89,8 @@ export default function SessionDetails() {
                   { icon: Calendar, label: 'Date', value: format(new Date(session.date), 'EEEE, MMMM d, yyyy') },
                   { icon: Clock, label: 'Time', value: `${session.startTime} - ${session.endTime}` },
                   { icon: MapPin, label: 'Venue', value: session.venueName, sub: session.venueLocation },
-                  { icon: Users, label: 'Courts', value: `${session.courtCount} courts available` },
+                  { icon: Users, label: 'Capacity', value: `${session.courtCount} courts, ${session.capacity} max players` },
+                  { icon: Banknote, label: 'Price', value: `AED ${session.priceAed} per player` },
                 ].map((item) => (
                   <div key={item.label} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                     <div className="w-9 h-9 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
