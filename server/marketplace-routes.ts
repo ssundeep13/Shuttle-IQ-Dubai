@@ -260,6 +260,7 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!session) return res.status(404).json({ error: "Session not found" });
       res.json(session);
     } catch (error) {
+      console.error('Failed to update marketplace session:', error);
       res.status(500).json({ error: "Failed to update session" });
     }
   });

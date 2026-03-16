@@ -297,9 +297,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const updated = await storage.updateSession(req.params.id, req.body);
+      const updates = { ...req.body };
+      if (updates.date && typeof updates.date === 'string') {
+        updates.date = new Date(updates.date);
+      }
+
+      const updated = await storage.updateSession(req.params.id, updates);
       res.json(updated);
     } catch (error) {
+      console.error('Failed to update session:', error);
       res.status(500).json({ error: "Failed to update session" });
     }
   });
