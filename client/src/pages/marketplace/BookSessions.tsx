@@ -27,7 +27,7 @@ export default function BookSessions() {
     if (!myBookings) return new Set<string>();
     return new Set(
       myBookings
-        .filter(b => b.status !== 'cancelled')
+        .filter(b => b.status === 'confirmed' || b.status === 'attended')
         .map(b => b.sessionId)
     );
   }, [myBookings]);
