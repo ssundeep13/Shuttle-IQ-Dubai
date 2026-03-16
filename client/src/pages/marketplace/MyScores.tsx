@@ -203,7 +203,7 @@ export default function MyScores() {
                 </span>
               </div>
             </div>
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-teal-600 border-3 border-teal-400 flex flex-col items-center justify-center shrink-0">
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-teal-600 border-2 border-teal-400 flex flex-col items-center justify-center shrink-0">
               <span className="text-white font-bold text-lg md:text-2xl leading-none">{stats.player.skillScore}</span>
               <span className="text-teal-200 text-[10px] md:text-xs">pts</span>
             </div>
