@@ -61,6 +61,11 @@ interface BookedEntry {
   player: Player | null;
 }
 
+interface BookingsResponse {
+  linked: boolean;
+  bookings: BookedEntry[];
+}
+
 const formSchema = insertPlayerSchema.extend({
   name: z.string().min(1, "Player name is required"),
   gender: z.enum(['Male', 'Female']),
@@ -98,10 +103,13 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
     enabled: open && activeTab === 'registry',
   });
 
-  const { data: bookedEntries = [], isLoading: isLoadingBooked } = useQuery<BookedEntry[]>({
+  const { data: bookingsResponse, isLoading: isLoadingBooked } = useQuery<BookingsResponse>({
     queryKey: ['/api/sessions', sessionId, 'bookings'],
-    enabled: open && activeTab === 'booked' && !!sessionId,
+    enabled: open && !!sessionId,
   });
+
+  const hasLinkedBookableSession = bookingsResponse?.linked ?? false;
+  const bookedEntries = bookingsResponse?.bookings ?? [];
 
   const addToQueueMutation = useMutation({
     mutationFn: async (playerId: string) => {
@@ -298,7 +306,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
             <TabsTrigger 
               value="booked" 
               className="flex items-center gap-1.5 text-xs sm:text-sm" 
-              disabled={!hasActiveSession}
+              disabled={!hasActiveSession || (!isLoadingBooked && !hasLinkedBookableSession)}
               data-testid="tab-booked-players"
             >
               <Ticket className="h-3.5 w-3.5 sm:h-4 sm:w-4" />

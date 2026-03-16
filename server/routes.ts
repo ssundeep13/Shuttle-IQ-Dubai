@@ -338,7 +338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sessionId = req.params.id;
       const bookableSession = await storage.getBookableSessionByLinkedSessionId(sessionId);
       if (!bookableSession) {
-        return res.json([]);
+        return res.json({ linked: false, bookings: [] });
       }
 
       const sessionBookings = await storage.getSessionBookings(bookableSession.id);
@@ -365,7 +365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       }));
 
-      res.json(result);
+      res.json({ linked: true, bookings: result });
     } catch (error) {
       console.error('Get session bookings error:', error);
       res.status(500).json({ error: "Failed to fetch session bookings" });
