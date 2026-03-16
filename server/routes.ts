@@ -374,7 +374,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/sessions/:id/bookings/:bookingId/checkin", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const updated = await storage.updateBooking(req.params.bookingId, {
+      const sessionId = req.params.id;
+      const bookingId = req.params.bookingId;
+
+      const bookableSession = await storage.getBookableSessionByLinkedSessionId(sessionId);
+      if (!bookableSession) {
+        return res.status(404).json({ error: "No linked bookable session found" });
+      }
+
+      const booking = await storage.getBooking(bookingId);
+      if (!booking || booking.sessionId !== bookableSession.id) {
+        return res.status(404).json({ error: "Booking not found for this session" });
+      }
+
+      const updated = await storage.updateBooking(bookingId, {
         attendedAt: new Date(),
       });
       if (!updated) {
