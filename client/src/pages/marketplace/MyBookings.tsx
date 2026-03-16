@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Calendar, MapPin, Clock, XCircle } from 'lucide-react';
+import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard } from 'lucide-react';
 import { format } from 'date-fns';
 import type { BookingWithDetails } from '@shared/schema';
 
@@ -67,9 +67,18 @@ export default function MyBookings() {
           </div>
         </div>
         <div className="flex items-center justify-between gap-2 mt-4 flex-wrap">
-          <span className="font-medium" data-testid={`text-booking-amount-${booking.id}`}>
-            AED {booking.amountAed}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium" data-testid={`text-booking-amount-${booking.id}`}>
+              AED {booking.amountAed}
+            </span>
+            <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
+              {booking.paymentMethod === 'cash' ? (
+                <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
+              ) : (
+                <><CreditCard className="h-3 w-3 mr-1" /> Card</>
+              )}
+            </Badge>
+          </div>
           {booking.status === 'confirmed' && new Date(booking.session.date) >= new Date() && (
             <Button
               variant="outline"

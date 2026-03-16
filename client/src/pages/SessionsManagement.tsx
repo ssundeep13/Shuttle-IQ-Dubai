@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard } from 'lucide-react';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
@@ -641,6 +641,25 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     },
   });
 
+  const cashPaidMutation = useMutation({
+    mutationFn: async ({ bookingId, cashPaid }: { bookingId: string; cashPaid: boolean }) => {
+      const res = await fetch(`/api/marketplace/bookings/${bookingId}/cash-paid`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ cashPaid }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: 'Payment status updated' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', linkedBookable?.id, 'bookings'] });
+    },
+  });
+
   const sessionRevenue = bookings?.filter(b => b.status !== 'cancelled').reduce((sum, b) => sum + b.amountAed, 0) || 0;
 
   return (
@@ -678,11 +697,26 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge
+                          variant={booking.paymentMethod === 'cash' ? 'secondary' : 'outline'}
+                          data-testid={`badge-method-${booking.id}`}
+                        >
+                          {booking.paymentMethod === 'cash' ? (
+                            <><Banknote className="h-3 w-3 mr-1" /> Cash</>
+                          ) : (
+                            <><CreditCard className="h-3 w-3 mr-1" /> Card</>
+                          )}
+                        </Badge>
+                        <Badge
                           variant={booking.status === 'cancelled' ? 'destructive' : booking.status === 'pending' ? 'outline' : 'default'}
                           data-testid={`badge-payment-${booking.id}`}
                         >
                           <DollarSign className="h-3 w-3 mr-1" />
-                          {booking.status === 'confirmed' || booking.status === 'attended' ? 'Paid' : booking.status === 'pending' ? 'Pending' : 'Cancelled'}
+                          {booking.status === 'cancelled'
+                            ? 'Cancelled'
+                            : booking.paymentMethod === 'cash'
+                              ? (booking.cashPaid ? 'Cash Received' : 'Cash Pending')
+                              : (booking.status === 'confirmed' || booking.status === 'attended' ? 'Paid' : 'Pending')
+                          }
                         </Badge>
                         <Badge
                           variant={booking.status === 'attended' ? 'secondary' : 'outline'}
@@ -691,6 +725,21 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                           <CheckCircle className="h-3 w-3 mr-1" />
                           {booking.status === 'attended' ? 'Checked In' : 'Not Checked In'}
                         </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {booking.paymentMethod === 'cash' && booking.status !== 'cancelled' && (
+                          <Button
+                            size="sm"
+                            variant={booking.cashPaid ? 'secondary' : 'outline'}
+                            className="gap-1"
+                            onClick={() => cashPaidMutation.mutate({ bookingId: booking.id, cashPaid: !booking.cashPaid })}
+                            disabled={cashPaidMutation.isPending}
+                            data-testid={`button-toggle-cash-${booking.id}`}
+                          >
+                            <Banknote className="h-3 w-3" />
+                            {booking.cashPaid ? 'Mark Unpaid' : 'Mark Cash Paid'}
+                          </Button>
+                        )}
                         {booking.status === 'confirmed' && (
                           <Button
                             size="sm"

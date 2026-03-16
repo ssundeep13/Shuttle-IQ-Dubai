@@ -314,8 +314,10 @@ export function registerMarketplaceRoutes(app: Express) {
   app.post("/api/marketplace/bookings", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const { sessionId } = req.body;
+      const { sessionId, paymentMethod } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
+
+      const method = paymentMethod === 'cash' ? 'cash' : 'stripe';
 
       const existingBooking = await storage.getUserBookingForSession(req.user.userId, sessionId);
       if (existingBooking && existingBooking.status !== 'cancelled') {
@@ -326,6 +328,34 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
       if (bookableSession.spotsRemaining <= 0) return res.status(400).json({ error: "Session is full" });
       if (bookableSession.status === "cancelled") return res.status(400).json({ error: "Session is cancelled" });
+
+      if (method === 'cash') {
+        const booking = await storage.createBooking({
+          userId: req.user.userId,
+          sessionId,
+          status: "confirmed",
+          paymentMethod: "cash",
+          paymentIntentId: null,
+          stripeCheckoutSessionId: null,
+          amountAed: bookableSession.priceAed,
+          cashPaid: false,
+        });
+
+        const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+        return res.json({
+          bookingId: booking.id,
+          paymentMethod: "cash",
+          amount: bookableSession.priceAed,
+          booking: bookingWithDetails,
+          session: {
+            title: bookableSession.title,
+            venueName: bookableSession.venueName,
+            date: bookableSession.date,
+            startTime: bookableSession.startTime,
+            endTime: bookableSession.endTime,
+          },
+        });
+      }
 
       const stripe = await getUncachableStripeClient();
 
@@ -343,13 +373,16 @@ export function registerMarketplaceRoutes(app: Express) {
         userId: req.user.userId,
         sessionId,
         status: "pending",
+        paymentMethod: "stripe",
         paymentIntentId: paymentIntent.id,
         stripeCheckoutSessionId: null,
         amountAed: bookableSession.priceAed,
+        cashPaid: false,
       });
 
       res.json({
         bookingId: booking.id,
+        paymentMethod: "stripe",
         clientSecret: paymentIntent.client_secret,
         amount: bookableSession.priceAed,
         session: {
@@ -438,17 +471,11 @@ export function registerMarketplaceRoutes(app: Express) {
         userId,
         sessionId,
         status: "confirmed",
+        paymentMethod: "cash",
         paymentIntentId: null,
         stripeCheckoutSessionId: null,
         amountAed: session.priceAed,
-      });
-
-      await storage.createPayment({
-        bookingId: booking.id,
-        stripePaymentIntentId: null,
-        amount: session.priceAed,
-        currency: "aed",
-        status: "completed",
+        cashPaid: false,
       });
 
       const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
@@ -519,6 +546,21 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({ ...updated, queueResult });
     } catch (error) {
       res.status(500).json({ error: "Failed to mark attendance" });
+    }
+  });
+
+  // Admin: toggle cash paid status
+  app.patch("/api/marketplace/bookings/:id/cash-paid", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.paymentMethod !== 'cash') return res.status(400).json({ error: "Only cash bookings can be toggled" });
+
+      const { cashPaid } = req.body;
+      const updated = await storage.updateBooking(req.params.id, { cashPaid: !!cashPaid });
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update cash payment status" });
     }
   });
 
