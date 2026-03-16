@@ -707,7 +707,13 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                           )}
                         </Badge>
                         <Badge
-                          variant={booking.status === 'cancelled' ? 'destructive' : booking.status === 'pending' ? 'outline' : 'default'}
+                          variant={
+                            booking.status === 'cancelled' ? 'destructive'
+                            : (booking.paymentMethod === 'cash' && !booking.cashPaid) ? 'outline'
+                            : booking.status === 'pending' ? 'outline'
+                            : 'default'
+                          }
+                          className={booking.paymentMethod === 'cash' && !booking.cashPaid && booking.status !== 'cancelled' ? 'border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400' : ''}
                           data-testid={`badge-payment-${booking.id}`}
                         >
                           <DollarSign className="h-3 w-3 mr-1" />

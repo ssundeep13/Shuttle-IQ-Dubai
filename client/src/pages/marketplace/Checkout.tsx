@@ -43,10 +43,9 @@ function CancellationPolicy() {
           <div className="space-y-1.5">
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Cancellation Policy</p>
             <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-disc pl-4">
-              <li>Cancel more than <span className="font-medium">12 hours</span> before the session for a full refund</li>
-              <li>Cancel within <span className="font-medium">1-12 hours</span> for a 50% refund</li>
-              <li>Cancellations less than <span className="font-medium">1 hour</span> before the session are non-refundable</li>
-              <li><span className="font-medium">No-shows</span> are non-refundable</li>
+              <li>Cancellations within <span className="font-medium">12 hours</span> of the session are subject to full payment</li>
+              <li>Last-hour cancellations are subject to <span className="font-medium">full payment</span></li>
+              <li><span className="font-medium">No-shows</span> are charged 150% of the session price</li>
             </ul>
           </div>
         </div>
