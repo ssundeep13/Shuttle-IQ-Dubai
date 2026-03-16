@@ -27,6 +27,7 @@ import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
 import { Leaderboard } from '@/components/Leaderboard';
 import { EditPlayerModal } from '@/components/EditPlayerModal';
+import { EditSessionModal } from '@/components/EditSessionModal';
 import { useToast } from '@/hooks/use-toast';
 import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser } from '@shared/schema';
 
@@ -51,6 +52,7 @@ export default function SessionsManagement() {
   const [wizardKey, setWizardKey] = useState(0);
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
   const [bookingsSession, setBookingsSession] = useState<Session | null>(null);
+  const [editingSession, setEditingSession] = useState<Session | null>(null);
 
   const { data: allSessions = [], isLoading } = useQuery<Session[]>({
     queryKey: ['/api/sessions'],
@@ -228,6 +230,7 @@ export default function SessionsManagement() {
               onDelete={(session) => setSessionToDelete(session)}
               onViewBookings={(session) => setBookingsSession(session)}
               onActivate={handleActivateSession}
+              onEdit={(session) => setEditingSession(session)}
               totalBookings={totalBookings}
               totalRevenue={totalRevenue}
             />
@@ -291,13 +294,20 @@ export default function SessionsManagement() {
         session={bookingsSession} 
         onClose={() => setBookingsSession(null)} 
       />
+
+      <EditSessionModal
+        open={!!editingSession}
+        onClose={() => setEditingSession(null)}
+        session={editingSession}
+        linkedBookable={editingSession ? bookableSessions.find(bs => bs.linkedSessionId === editingSession.id) || null : null}
+      />
     </div>
   );
 }
 
 function SessionsTabContent({ 
   sessions, activeSessions, upcomingSessions, endedSessions, bookableSessions,
-  isLoading, onView, onDelete, onViewBookings, onActivate, totalBookings, totalRevenue
+  isLoading, onView, onDelete, onViewBookings, onActivate, onEdit, totalBookings, totalRevenue
 }: { 
   sessions: Session[];
   activeSessions: Session[];
@@ -309,6 +319,7 @@ function SessionsTabContent({
   onDelete: (session: Session) => void;
   onViewBookings: (session: Session) => void;
   onActivate: (session: Session) => void;
+  onEdit: (session: Session) => void;
   totalBookings: number;
   totalRevenue: number;
 }) {
@@ -386,6 +397,7 @@ function SessionsTabContent({
             onDelete={onDelete}
             onViewBookings={onViewBookings}
             onActivate={onActivate}
+            onEdit={onEdit}
             getLinkedBookableSession={getLinkedBookableSession}
           />
 
@@ -400,6 +412,7 @@ function SessionsTabContent({
               onDelete={onDelete}
               onViewBookings={onViewBookings}
               onActivate={onActivate}
+              onEdit={onEdit}
               getLinkedBookableSession={getLinkedBookableSession}
             />
           )}
@@ -415,6 +428,7 @@ function SessionsTabContent({
               onDelete={onDelete}
               onViewBookings={onViewBookings}
               onActivate={onActivate}
+              onEdit={onEdit}
               getLinkedBookableSession={getLinkedBookableSession}
             />
           )}
@@ -426,7 +440,7 @@ function SessionsTabContent({
 
 function SessionSection({ 
   title, icon, iconBg, sessions, badge, emptyMessage, emptySubMessage,
-  onView, onDelete, onViewBookings, onActivate, getLinkedBookableSession
+  onView, onDelete, onViewBookings, onActivate, onEdit, getLinkedBookableSession
 }: {
   title: string;
   icon: React.ReactNode;
@@ -439,6 +453,7 @@ function SessionSection({
   onDelete: (session: Session) => void;
   onViewBookings: (session: Session) => void;
   onActivate: (session: Session) => void;
+  onEdit: (session: Session) => void;
   getLinkedBookableSession: (sessionId: string) => BookableSessionWithAvailability | undefined;
 }) {
   return (
@@ -469,6 +484,7 @@ function SessionSection({
               onDelete={() => onDelete(session)}
               onViewBookings={() => onViewBookings(session)}
               onActivate={() => onActivate(session)}
+              onEdit={() => onEdit(session)}
             />
           ))}
         </div>
@@ -478,7 +494,7 @@ function SessionSection({
 }
 
 function SessionCard({ 
-  session, linkedBookable, onView, onDelete, onViewBookings, onActivate
+  session, linkedBookable, onView, onDelete, onViewBookings, onActivate, onEdit
 }: { 
   session: Session;
   linkedBookable?: BookableSessionWithAvailability;
@@ -486,6 +502,7 @@ function SessionCard({
   onDelete: () => void;
   onViewBookings: () => void;
   onActivate?: () => void;
+  onEdit?: () => void;
 }) {
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
@@ -577,6 +594,16 @@ function SessionCard({
             >
               <Play className="w-4 h-4 mr-1" />
               Activate
+            </Button>
+          )}
+          {(session.status === 'draft' || session.status === 'upcoming') && onEdit && (
+            <Button 
+              size="sm" 
+              variant="ghost"
+              onClick={onEdit}
+              data-testid={`button-edit-${session.id}`}
+            >
+              <Pencil className="w-4 h-4" />
             </Button>
           )}
           <Button 
