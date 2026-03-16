@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Menu, X, User, Calendar, Trophy, BarChart3, LogOut, Home } from 'lucide-react';
 
 const navLinks = [
-  { href: '/marketplace', label: 'Home', icon: Home },
+  { href: '/', label: 'Home', icon: Home },
   { href: '/marketplace/book', label: 'Book Sessions', icon: Calendar },
   { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
 ];
@@ -23,14 +23,14 @@ export function MarketplaceNav() {
   const [open, setOpen] = useState(false);
 
   const isActive = (href: string) => {
-    if (href === '/marketplace') return location === '/marketplace';
+    if (href === '/') return location === '/' || location === '/marketplace';
     return location.startsWith(href);
   };
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60" data-testid="marketplace-nav">
       <div className="flex h-14 items-center gap-4 px-4 md:px-6">
-        <Link href="/marketplace" className="flex items-center gap-2 mr-4" data-testid="link-marketplace-home">
+        <Link href="/" className="flex items-center gap-2 mr-4" data-testid="link-marketplace-home">
           <span className="text-lg font-bold">Shuttle<span className="text-[#00766C]">IQ</span></span>
         </Link>
 

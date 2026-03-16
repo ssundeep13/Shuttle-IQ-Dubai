@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Users } from 'lucide-react';
+import { AlertCircle, Users, ArrowLeft } from 'lucide-react';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -125,16 +125,24 @@ export default function Login() {
             </p>
           </div>
 
-          <div className="mt-6 pt-4 border-t text-center">
-            <Link href="/players">
-              <Button variant="outline" className="gap-2" data-testid="link-player-registry">
-                <Users className="h-4 w-4" />
-                View Player Registry
+          <div className="mt-6 pt-4 border-t text-center space-y-3">
+            <Link href="/">
+              <Button variant="ghost" className="gap-2" data-testid="link-back-home">
+                <ArrowLeft className="h-4 w-4" />
+                Back to Home
               </Button>
             </Link>
-            <p className="text-xs text-muted-foreground mt-2">
-              Browse all registered players
-            </p>
+            <div>
+              <Link href="/players">
+                <Button variant="outline" className="gap-2" data-testid="link-player-registry">
+                  <Users className="h-4 w-4" />
+                  View Player Registry
+                </Button>
+              </Link>
+              <p className="text-xs text-muted-foreground mt-2">
+                Browse all registered players
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
