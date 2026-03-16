@@ -14,6 +14,11 @@ async function throwIfResNotOk(res: Response) {
 }
 
 function getAuthToken(url: string): string | null {
+  const isAdminPage = window.location.pathname.startsWith('/admin');
+  if (isAdminPage) {
+    return localStorage.getItem('accessToken');
+  }
+
   const isMarketplace = url.startsWith('/api/marketplace/');
   const isAdminMarketplace = url.startsWith('/api/marketplace/admin/') ||
     (url.startsWith('/api/marketplace/sessions/') && url.endsWith('/bookings')) ||
