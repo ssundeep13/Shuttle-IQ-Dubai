@@ -4,14 +4,33 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar, MapPin, Clock, Users } from 'lucide-react';
+import { Calendar, MapPin, Clock, Users, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
-import type { BookableSessionWithAvailability } from '@shared/schema';
+import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
+import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
+import { useMemo } from 'react';
 
 export default function BookSessions() {
+  const { isAuthenticated } = useMarketplaceAuth();
+
   const { data: sessions, isLoading } = useQuery<BookableSessionWithAvailability[]>({
     queryKey: ['/api/marketplace/sessions'],
   });
+
+  const { data: myBookings } = useQuery<BookingWithDetails[]>({
+    queryKey: ['/api/marketplace/bookings/mine'],
+    enabled: isAuthenticated,
+    staleTime: 0,
+  });
+
+  const bookedSessionIds = useMemo(() => {
+    if (!myBookings) return new Set<string>();
+    return new Set(
+      myBookings
+        .filter(b => b.status !== 'cancelled')
+        .map(b => b.sessionId)
+    );
+  }, [myBookings]);
 
   const upcomingSessions = sessions?.filter(s => s.status === 'upcoming') || [];
 
@@ -45,54 +64,73 @@ export default function BookSessions() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {upcomingSessions.map((session) => (
-            <Card key={session.id} className="hover-elevate" data-testid={`card-session-${session.id}`}>
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <h3 className="font-semibold text-lg" data-testid={`text-session-title-${session.id}`}>
-                    {session.title}
-                  </h3>
-                  <Badge variant={session.spotsRemaining > 0 ? 'secondary' : 'destructive'} data-testid={`badge-spots-${session.id}`}>
-                    {session.spotsRemaining > 0 ? `${session.spotsRemaining} spots` : 'Full'}
-                  </Badge>
-                </div>
+          {upcomingSessions.map((session) => {
+            const isBooked = bookedSessionIds.has(session.id);
 
-                <div className="space-y-2 text-sm text-muted-foreground mb-4">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 shrink-0" />
-                    <span>{format(new Date(session.date), 'EEEE, MMMM d, yyyy')}</span>
+            return (
+              <Card key={session.id} className="hover-elevate" data-testid={`card-session-${session.id}`}>
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <h3 className="font-semibold text-lg" data-testid={`text-session-title-${session.id}`}>
+                      {session.title}
+                    </h3>
+                    {isBooked ? (
+                      <Badge variant="default" className="bg-green-600 dark:bg-green-700" data-testid={`badge-booked-${session.id}`}>
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        Booked
+                      </Badge>
+                    ) : (
+                      <Badge variant={session.spotsRemaining > 0 ? 'secondary' : 'destructive'} data-testid={`badge-spots-${session.id}`}>
+                        {session.spotsRemaining > 0 ? `${session.spotsRemaining} spots` : 'Full'}
+                      </Badge>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 shrink-0" />
-                    <span>{session.startTime} - {session.endTime}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 shrink-0" />
-                    <span>{session.venueName}{session.venueLocation ? ` — ${session.venueLocation}` : ''}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 shrink-0" />
-                    <span>{session.courtCount} courts, {session.capacity} max players</span>
-                  </div>
-                </div>
 
-                {session.description && (
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{session.description}</p>
-                )}
+                  <div className="space-y-2 text-sm text-muted-foreground mb-4">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 shrink-0" />
+                      <span>{format(new Date(session.date), 'EEEE, MMMM d, yyyy')}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 shrink-0" />
+                      <span>{session.startTime} - {session.endTime}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 shrink-0" />
+                      <span>{session.venueName}{session.venueLocation ? ` — ${session.venueLocation}` : ''}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 shrink-0" />
+                      <span>{session.courtCount} courts, {session.capacity} max players</span>
+                    </div>
+                  </div>
 
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <span className="font-semibold text-lg" data-testid={`text-price-${session.id}`}>
-                    AED {session.priceAed}
-                  </span>
-                  <Link href={`/marketplace/sessions/${session.id}`}>
-                    <Button size="sm" disabled={session.spotsRemaining <= 0} data-testid={`button-view-session-${session.id}`}>
-                      {session.spotsRemaining > 0 ? 'View & Book' : 'View Details'}
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  {session.description && (
+                    <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{session.description}</p>
+                  )}
+
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="font-semibold text-lg" data-testid={`text-price-${session.id}`}>
+                      AED {session.priceAed}
+                    </span>
+                    {isBooked ? (
+                      <Link href="/marketplace/my-bookings">
+                        <Button size="sm" variant="outline" data-testid={`button-view-booking-${session.id}`}>
+                          View Booking
+                        </Button>
+                      </Link>
+                    ) : (
+                      <Link href={`/marketplace/sessions/${session.id}`}>
+                        <Button size="sm" disabled={session.spotsRemaining <= 0} data-testid={`button-view-session-${session.id}`}>
+                          {session.spotsRemaining > 0 ? 'View & Book' : 'View Details'}
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
