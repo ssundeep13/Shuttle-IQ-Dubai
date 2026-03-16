@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import { Calendar, MapPin, Clock, Users, CheckCircle, ArrowRight } from 'lucide-react';
+import { Calendar, MapPin, Clock, Users, CheckCircle, ArrowRight, Building2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { motion } from 'framer-motion';
@@ -85,35 +85,51 @@ export default function BookSessions() {
                 : 0;
               const spotsLow = session.spotsRemaining > 0 && session.spotsRemaining <= 3;
 
+              const levelBandColor = session.title.toLowerCase().includes('advanced') || session.title.toLowerCase().includes('pro')
+                ? 'bg-purple-500'
+                : session.title.toLowerCase().includes('intermediate')
+                ? 'bg-blue-500'
+                : session.title.toLowerCase().includes('beginner') || session.title.toLowerCase().includes('novice')
+                ? 'bg-green-500'
+                : 'bg-secondary';
+
               return (
                 <motion.div key={session.id} variants={fadeInUp}>
-                  <Card className="hover-elevate h-full flex flex-col" data-testid={`card-session-${session.id}`}>
-                    <CardContent className="p-5 flex flex-col flex-1">
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="font-semibold text-lg truncate" data-testid={`text-session-title-${session.id}`}>
-                            {session.title}
-                          </h3>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {format(new Date(session.date), 'EEEE, MMM d')}
-                          </p>
-                        </div>
+                  <Card className="h-full flex flex-col overflow-hidden" data-testid={`card-session-${session.id}`}>
+                    <div className={`h-1 w-full ${levelBandColor}`} />
+                    <div className="h-28 bg-muted/50 flex items-center justify-center relative">
+                      {session.imageUrl ? (
+                        <img src={session.imageUrl} alt={session.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <Building2 className="h-10 w-10 text-muted-foreground/30" />
+                      )}
+                      <div className="absolute top-2 right-2">
                         {isBooked ? (
-                          <Badge variant="default" className="bg-green-600 dark:bg-green-700 shrink-0" data-testid={`badge-booked-${session.id}`}>
+                          <Badge variant="default" className="bg-green-600 dark:bg-green-700" data-testid={`badge-booked-${session.id}`}>
                             <CheckCircle className="h-3 w-3 mr-1" />
                             Booked
                           </Badge>
                         ) : session.spotsRemaining <= 0 ? (
-                          <Badge variant="destructive" className="shrink-0" data-testid={`badge-spots-${session.id}`}>Full</Badge>
+                          <Badge variant="destructive" data-testid={`badge-spots-${session.id}`}>Full</Badge>
                         ) : spotsLow ? (
-                          <Badge variant="secondary" className="shrink-0 bg-orange-500/10 text-orange-600 border-orange-500/20" data-testid={`badge-spots-${session.id}`}>
+                          <Badge variant="secondary" className="bg-orange-500/10 text-orange-600 border-orange-500/20" data-testid={`badge-spots-${session.id}`}>
                             {session.spotsRemaining} left
                           </Badge>
                         ) : (
-                          <Badge variant="secondary" className="shrink-0" data-testid={`badge-spots-${session.id}`}>
+                          <Badge variant="secondary" data-testid={`badge-spots-${session.id}`}>
                             {session.spotsRemaining} spots
                           </Badge>
                         )}
+                      </div>
+                    </div>
+                    <CardContent className="p-5 flex flex-col flex-1">
+                      <div className="mb-3">
+                        <h3 className="font-semibold text-lg truncate" data-testid={`text-session-title-${session.id}`}>
+                          {session.title}
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {format(new Date(session.date), 'EEEE, MMM d')}
+                        </p>
                       </div>
 
                       <div className="space-y-1.5 text-sm text-muted-foreground mb-4">

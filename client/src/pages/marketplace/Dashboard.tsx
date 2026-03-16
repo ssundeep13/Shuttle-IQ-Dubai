@@ -38,7 +38,9 @@ export default function Dashboard() {
     queryKey: ['/api/players'],
   });
 
-  const upcomingBookings = bookings?.filter(b => b.status !== 'cancelled' && new Date(b.session.date) >= new Date()) || [];
+  const upcomingBookings = (bookings || [])
+    .filter(b => b.status === 'confirmed' && new Date(b.session.date) >= new Date())
+    .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
 
   const ranked = (players || [])
@@ -145,8 +147,8 @@ export default function Dashboard() {
                         <div className="text-xs text-muted-foreground">Skill Score</div>
                       </div>
                       <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <div className="text-2xl font-bold">{stats.totalGames}</div>
-                        <div className="text-xs text-muted-foreground">Games</div>
+                        <div className="text-2xl font-bold">#{stats.rankBySkillScore}</div>
+                        <div className="text-xs text-muted-foreground">Rank</div>
                       </div>
                       <div className="text-center p-3 rounded-lg bg-muted/50">
                         <div className="text-2xl font-bold">{stats.totalWins}</div>
