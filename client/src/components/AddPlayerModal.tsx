@@ -32,7 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Search, UserPlus, Users, Trophy, Target, Check } from "lucide-react";
+import { Search, UserPlus, Users, Trophy, Target, Check, Ticket, UserCheck, Link2Off, CreditCard, Banknote } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatSkillLevel } from "@shared/utils/skillUtils";
@@ -46,6 +46,21 @@ interface AddPlayerModalProps {
   queuePlayerIds?: string[];
 }
 
+interface BookedEntry {
+  bookingId: string;
+  bookingStatus: string;
+  attendedAt: string | null;
+  paymentMethod: string;
+  cashPaid: boolean;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    linkedPlayerId: string | null;
+  } | null;
+  player: Player | null;
+}
+
 const formSchema = insertPlayerSchema.extend({
   name: z.string().min(1, "Player name is required"),
   gender: z.enum(['Male', 'Female']),
@@ -56,9 +71,11 @@ const formSchema = insertPlayerSchema.extend({
 type FormValues = z.infer<typeof formSchema>;
 
 export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePlayerIds = [] }: AddPlayerModalProps) {
-  const [activeTab, setActiveTab] = useState<'new' | 'registry'>('new');
+  const [activeTab, setActiveTab] = useState<'new' | 'registry' | 'booked'>('new');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
+  const [selectedBookedPlayerIds, setSelectedBookedPlayerIds] = useState<string[]>([]);
+  const [bookedBookingMap, setBookedBookingMap] = useState<Record<string, string>>({});
   const { toast } = useToast();
   
   const hasActiveSession = !!sessionId;
@@ -81,6 +98,11 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
     enabled: open && activeTab === 'registry',
   });
 
+  const { data: bookedEntries = [], isLoading: isLoadingBooked } = useQuery<BookedEntry[]>({
+    queryKey: ['/api/sessions', sessionId, 'bookings'],
+    enabled: open && activeTab === 'booked' && !!sessionId,
+  });
+
   const addToQueueMutation = useMutation({
     mutationFn: async (playerId: string) => {
       return apiRequest('POST', `/api/queue/${playerId}`);
@@ -91,6 +113,12 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
         description: "Failed to add player to queue",
         variant: "destructive",
       });
+    },
+  });
+
+  const checkinMutation = useMutation({
+    mutationFn: async ({ bookingId }: { bookingId: string }) => {
+      return apiRequest('PATCH', `/api/sessions/${sessionId}/bookings/${bookingId}/checkin`);
     },
   });
 
@@ -113,6 +141,20 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
     );
   };
 
+  const toggleBookedPlayerSelection = (playerId: string, bookingId: string) => {
+    setSelectedBookedPlayerIds(prev => {
+      if (prev.includes(playerId)) {
+        const newMap = { ...bookedBookingMap };
+        delete newMap[playerId];
+        setBookedBookingMap(newMap);
+        return prev.filter(id => id !== playerId);
+      } else {
+        setBookedBookingMap(prev2 => ({ ...prev2, [playerId]: bookingId }));
+        return [...prev, playerId];
+      }
+    });
+  };
+
   const handleAddSelectedPlayers = async () => {
     if (selectedPlayerIds.length === 0) return;
 
@@ -122,12 +164,10 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
         await addToQueueMutation.mutateAsync(playerId);
         successCount++;
       } catch (error) {
-        // Error already handled in mutation
       }
     }
 
     if (successCount > 0) {
-      // Invalidate both base and session-specific queue queries
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       toast({
@@ -141,6 +181,37 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
     onClose();
   };
 
+  const handleAddBookedPlayers = async () => {
+    if (selectedBookedPlayerIds.length === 0) return;
+
+    let successCount = 0;
+    for (const playerId of selectedBookedPlayerIds) {
+      try {
+        await addToQueueMutation.mutateAsync(playerId);
+        const bookingId = bookedBookingMap[playerId];
+        if (bookingId) {
+          await checkinMutation.mutateAsync({ bookingId });
+        }
+        successCount++;
+      } catch (error) {
+      }
+    }
+
+    if (successCount > 0) {
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions', sessionId, 'bookings'] });
+      toast({
+        title: "Players Added & Checked In",
+        description: `${successCount} player${successCount > 1 ? 's' : ''} added to queue and checked in`,
+      });
+    }
+
+    setSelectedBookedPlayerIds([]);
+    setBookedBookingMap({});
+    onClose();
+  };
+
   const handleSubmit = (values: FormValues) => {
     onAddPlayer(values.name, values.gender, values.level);
     form.reset();
@@ -150,6 +221,8 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
   const handleClose = () => {
     form.reset();
     setSelectedPlayerIds([]);
+    setSelectedBookedPlayerIds([]);
+    setBookedBookingMap({});
     setSearchQuery("");
     setActiveTab('new');
     onClose();
@@ -170,30 +243,66 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
     }
   };
 
+  const selectableBookedEntries = bookedEntries.filter(
+    e => e.player && !isPlayerInQueue(e.player.id) && !e.attendedAt
+  );
+  const allBookedSelected = selectableBookedEntries.length > 0 &&
+    selectableBookedEntries.every(e => selectedBookedPlayerIds.includes(e.player!.id));
+
+  const toggleSelectAllBooked = () => {
+    if (allBookedSelected) {
+      setSelectedBookedPlayerIds([]);
+      setBookedBookingMap({});
+    } else {
+      const ids: string[] = [];
+      const map: Record<string, string> = {};
+      selectableBookedEntries.forEach(e => {
+        if (e.player) {
+          ids.push(e.player.id);
+          map[e.player.id] = e.bookingId;
+        }
+      });
+      setSelectedBookedPlayerIds(ids);
+      setBookedBookingMap(map);
+    }
+  };
+
+  const isAddingBooked = addToQueueMutation.isPending || checkinMutation.isPending;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg max-h-[90vh] flex flex-col" data-testid="modal-add-player">
         <DialogHeader>
           <DialogTitle>Add Player</DialogTitle>
           <DialogDescription>
-            Create a new player or add existing players from your registry.
+            Create a new player, add from registry, or add booked players.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'new' | 'registry')} className="flex-1 flex flex-col min-h-0">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="new" className="flex items-center gap-2" data-testid="tab-new-player">
-              <UserPlus className="h-4 w-4" />
-              New Player
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'new' | 'registry' | 'booked')} className="flex-1 flex flex-col min-h-0">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="new" className="flex items-center gap-1.5 text-xs sm:text-sm" data-testid="tab-new-player">
+              <UserPlus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">New Player</span>
+              <span className="sm:hidden">New</span>
             </TabsTrigger>
             <TabsTrigger 
               value="registry" 
-              className="flex items-center gap-2" 
+              className="flex items-center gap-1.5 text-xs sm:text-sm" 
               disabled={!hasActiveSession}
               data-testid="tab-from-registry"
             >
-              <Users className="h-4 w-4" />
-              From Registry
+              <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              Registry
+            </TabsTrigger>
+            <TabsTrigger 
+              value="booked" 
+              className="flex items-center gap-1.5 text-xs sm:text-sm" 
+              disabled={!hasActiveSession}
+              data-testid="tab-booked-players"
+            >
+              <Ticket className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              Booked
             </TabsTrigger>
           </TabsList>
 
@@ -405,6 +514,155 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
                   <>
                     <UserPlus className="h-4 w-4 mr-2" />
                     Add {selectedPlayerIds.length > 0 ? `(${selectedPlayerIds.length})` : 'Selected'}
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </TabsContent>
+
+          <TabsContent value="booked" className="flex-1 flex flex-col min-h-0 mt-4 space-y-4">
+            {selectableBookedEntries.length > 0 && (
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={allBookedSelected}
+                    onCheckedChange={toggleSelectAllBooked}
+                    data-testid="checkbox-select-all-booked"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    Select all ({selectableBookedEntries.length})
+                  </span>
+                </div>
+                {selectedBookedPlayerIds.length > 0 && (
+                  <Badge variant="secondary" data-testid="badge-booked-selected-count">
+                    {selectedBookedPlayerIds.length} selected
+                  </Badge>
+                )}
+              </div>
+            )}
+
+            <div className="flex-1 min-h-[200px] max-h-[50vh] border rounded-md overflow-y-auto">
+              {isLoadingBooked ? (
+                <div className="p-4 text-center text-muted-foreground">
+                  Loading bookings...
+                </div>
+              ) : bookedEntries.length === 0 ? (
+                <div className="p-6 text-center text-muted-foreground">
+                  <Ticket className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm font-medium mb-1">No bookings found</p>
+                  <p className="text-xs">This session has no linked marketplace bookings.</p>
+                </div>
+              ) : (
+                <div className="p-2 space-y-1">
+                  {bookedEntries.map(entry => {
+                    const hasPlayer = !!entry.player;
+                    const inQueue = hasPlayer && isPlayerInQueue(entry.player!.id);
+                    const isCheckedIn = !!entry.attendedAt;
+                    const isDisabled = !hasPlayer || inQueue || isCheckedIn;
+                    const isSelected = hasPlayer && selectedBookedPlayerIds.includes(entry.player!.id);
+                    
+                    return (
+                      <div
+                        key={entry.bookingId}
+                        className={cn(
+                          "flex items-center gap-3 p-3 rounded-md transition-colors",
+                          isDisabled
+                            ? "bg-muted/50 opacity-60"
+                            : isSelected
+                              ? "bg-primary/10 border border-primary/20"
+                              : "hover-elevate cursor-pointer"
+                        )}
+                        onClick={() => !isDisabled && hasPlayer && toggleBookedPlayerSelection(entry.player!.id, entry.bookingId)}
+                        data-testid={`booked-entry-${entry.bookingId}`}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          disabled={isDisabled}
+                          onCheckedChange={() => hasPlayer && toggleBookedPlayerSelection(entry.player!.id, entry.bookingId)}
+                          onClick={(e) => e.stopPropagation()}
+                          data-testid={`checkbox-booked-${entry.bookingId}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium truncate">{entry.user?.name || 'Unknown'}</span>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-xs",
+                                entry.bookingStatus === 'confirmed' && "bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20",
+                                entry.bookingStatus === 'pending' && "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20"
+                              )}
+                            >
+                              {entry.bookingStatus === 'confirmed' ? 'Confirmed' : entry.bookingStatus}
+                            </Badge>
+                            {entry.paymentMethod === 'cash' ? (
+                              <Badge variant="outline" className="text-xs">
+                                <Banknote className="h-3 w-3 mr-0.5" />
+                                {entry.cashPaid ? 'Paid' : 'Cash'}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs">
+                                <CreditCard className="h-3 w-3 mr-0.5" />
+                                Card
+                              </Badge>
+                            )}
+                            {(inQueue || isCheckedIn) && (
+                              <Badge className="bg-info/10 text-info border-info/20 text-xs">
+                                <UserCheck className="h-3 w-3 mr-1" />
+                                {isCheckedIn ? 'Checked In' : 'In Queue'}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                            <span className="truncate">{entry.user?.email}</span>
+                          </div>
+                          {hasPlayer ? (
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <Badge variant="secondary" className="text-xs gap-1">
+                                <Check className="h-3 w-3" />
+                                {entry.player!.name}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {entry.player!.level} ({entry.player!.skillScore})
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
+                              <Link2Off className="h-3 w-3" />
+                              No linked player profile
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={handleClose} 
+                className="min-h-12 sm:min-h-10"
+                data-testid="button-cancel-booked"
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="button"
+                onClick={handleAddBookedPlayers}
+                disabled={selectedBookedPlayerIds.length === 0 || isAddingBooked}
+                className="min-h-12 sm:min-h-10"
+                data-testid="button-add-checkin-booked"
+              >
+                {isAddingBooked ? (
+                  "Adding..."
+                ) : (
+                  <>
+                    <UserCheck className="h-4 w-4 mr-2" />
+                    Add & Check In {selectedBookedPlayerIds.length > 0 ? `(${selectedBookedPlayerIds.length})` : ''}
                   </>
                 )}
               </Button>

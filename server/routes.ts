@@ -333,6 +333,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/sessions/:id/bookings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const sessionId = req.params.id;
+      const bookableSession = await storage.getBookableSessionByLinkedSessionId(sessionId);
+      if (!bookableSession) {
+        return res.json([]);
+      }
+
+      const sessionBookings = await storage.getSessionBookings(bookableSession.id);
+      const nonCancelled = sessionBookings.filter(b => b.status !== 'cancelled');
+
+      const result = await Promise.all(nonCancelled.map(async (b) => {
+        let player = null;
+        if (b.user?.linkedPlayerId) {
+          player = await storage.getPlayer(b.user.linkedPlayerId);
+        }
+        return {
+          bookingId: b.id,
+          bookingStatus: b.status,
+          attendedAt: b.attendedAt,
+          paymentMethod: b.paymentMethod,
+          cashPaid: b.cashPaid,
+          user: b.user ? {
+            id: b.user.id,
+            name: b.user.name,
+            email: b.user.email,
+            linkedPlayerId: b.user.linkedPlayerId,
+          } : null,
+          player: player || null,
+        };
+      }));
+
+      res.json(result);
+    } catch (error) {
+      console.error('Get session bookings error:', error);
+      res.status(500).json({ error: "Failed to fetch session bookings" });
+    }
+  });
+
+  app.patch("/api/sessions/:id/bookings/:bookingId/checkin", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const updated = await storage.updateBooking(req.params.bookingId, {
+        attendedAt: new Date(),
+      });
+      if (!updated) {
+        return res.status(404).json({ error: "Booking not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error('Checkin booking error:', error);
+      res.status(500).json({ error: "Failed to check in booking" });
+    }
+  });
+
   app.get("/api/sessions/:id/game-history", async (req, res) => {
     try {
       const { eq } = await import('drizzle-orm');

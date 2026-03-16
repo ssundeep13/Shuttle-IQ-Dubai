@@ -125,6 +125,7 @@ export interface IStorage {
   // Bookable Session operations
   createBookableSession(session: InsertBookableSession): Promise<BookableSession>;
   getBookableSession(id: string): Promise<BookableSession | undefined>;
+  getBookableSessionByLinkedSessionId(linkedSessionId: string): Promise<BookableSession | undefined>;
   getBookableSessionWithAvailability(id: string): Promise<BookableSessionWithAvailability | undefined>;
   getAllBookableSessions(): Promise<BookableSessionWithAvailability[]>;
   updateBookableSession(id: string, updates: Partial<BookableSession>): Promise<BookableSession | undefined>;
@@ -920,6 +921,11 @@ export class DatabaseStorage implements IStorage {
 
   async getBookableSession(id: string): Promise<BookableSession | undefined> {
     const [session] = await db.select().from(bookableSessions).where(eq(bookableSessions.id, id));
+    return session || undefined;
+  }
+
+  async getBookableSessionByLinkedSessionId(linkedSessionId: string): Promise<BookableSession | undefined> {
+    const [session] = await db.select().from(bookableSessions).where(eq(bookableSessions.linkedSessionId, linkedSessionId));
     return session || undefined;
   }
 
