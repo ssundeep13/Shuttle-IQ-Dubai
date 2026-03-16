@@ -94,7 +94,7 @@ export default function Rankings() {
       .map(p => ({
         player: p,
         primaryStat: p.skillScore,
-        primaryLabel: 'pts',
+        primaryLabel: 'skill score',
         secondaryLine: `${p.wins}W / ${p.gamesPlayed - p.wins}L (${p.gamesPlayed > 0 ? Math.round((p.wins / p.gamesPlayed) * 100) : 0}%)`,
       }));
   } else if (timeFilter === 'this-month' && monthPlayers) {
