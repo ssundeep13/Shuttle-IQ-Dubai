@@ -114,7 +114,7 @@ export default function BookSessions() {
                       AED {session.priceAed}
                     </span>
                     {isBooked ? (
-                      <Link href="/marketplace/my-bookings">
+                      <Link href={`/marketplace/sessions/${session.id}`}>
                         <Button size="sm" variant="outline" data-testid={`button-view-booking-${session.id}`}>
                           View Booking
                         </Button>
