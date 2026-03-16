@@ -24,6 +24,7 @@ import MyBookings from "@/pages/marketplace/MyBookings";
 import MyScores from "@/pages/marketplace/MyScores";
 import Rankings from "@/pages/marketplace/Rankings";
 import Profile from "@/pages/marketplace/Profile";
+import Dashboard from "@/pages/marketplace/Dashboard";
 import Checkout from "@/pages/marketplace/Checkout";
 import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
 import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
@@ -78,6 +79,9 @@ function Router() {
       </Route>
       <Route path="/marketplace/sessions/:id">
         <MarketplaceRoute component={SessionDetails} />
+      </Route>
+      <Route path="/marketplace/dashboard">
+        <MarketplaceAuthRoute component={Dashboard} />
       </Route>
       <Route path="/marketplace/rankings">
         <MarketplaceRoute component={Rankings} />

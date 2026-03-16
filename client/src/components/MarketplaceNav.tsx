@@ -3,19 +3,39 @@ import { Link, useLocation } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Menu, X, User, Calendar, Trophy, BarChart3, LogOut, Home } from 'lucide-react';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Menu, User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark } from 'lucide-react';
 
 const navLinks = [
   { href: '/', label: 'Home', icon: Home },
-  { href: '/marketplace/book', label: 'Book Sessions', icon: Calendar },
+  { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
   { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
 ];
 
-const authLinks = [
-  { href: '/marketplace/my-bookings', label: 'My Bookings', icon: Calendar },
+const authNavLinks = [
+  { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
+  { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
+];
+
+const authMenuLinks = [
+  { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/marketplace/my-bookings', label: 'My Bookings', icon: Bookmark },
   { href: '/marketplace/my-scores', label: 'My Scores', icon: BarChart3 },
   { href: '/marketplace/profile', label: 'Profile', icon: User },
 ];
+
+function getInitials(name: string | undefined) {
+  if (!name) return '?';
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+}
 
 export function MarketplaceNav() {
   const { isAuthenticated, user, logout } = useMarketplaceAuth();
@@ -24,40 +44,35 @@ export function MarketplaceNav() {
 
   const isActive = (href: string) => {
     if (href === '/') return location === '/' || location === '/marketplace';
-    return location.startsWith(href);
+    if (href === '/marketplace/dashboard') return location === '/marketplace/dashboard';
+    return location.startsWith(href) && href !== '/marketplace/dashboard';
   };
+
+  const activeLinks = isAuthenticated ? authNavLinks : navLinks;
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60" data-testid="marketplace-nav">
-      <div className="flex h-14 items-center gap-4 px-4 md:px-6">
-        <Link href="/" className="flex items-center gap-2 mr-4" data-testid="link-marketplace-home">
-          <span className="text-lg font-bold">Shuttle<span className="text-[#00766C]">IQ</span></span>
+      <div className="max-w-6xl mx-auto flex h-14 items-center gap-2 px-4 md:px-6">
+        <Link href="/" className="flex items-center gap-2 mr-6 shrink-0" data-testid="link-marketplace-home">
+          <span className="text-xl font-bold tracking-tight">
+            Shuttle<span className="text-secondary">IQ</span>
+          </span>
         </Link>
 
         <nav className="hidden md:flex items-center gap-1 flex-1">
-          {navLinks.map((link) => (
+          {activeLinks.map((link) => (
             <Link key={link.href} href={link.href}>
               <Button
-                variant={isActive(link.href) ? 'secondary' : 'ghost'}
+                variant="ghost"
                 size="sm"
-                className="gap-2"
+                className={`gap-2 relative ${isActive(link.href) ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}
                 data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
               >
                 <link.icon className="h-4 w-4" />
                 {link.label}
-              </Button>
-            </Link>
-          ))}
-          {isAuthenticated && authLinks.map((link) => (
-            <Link key={link.href} href={link.href}>
-              <Button
-                variant={isActive(link.href) ? 'secondary' : 'ghost'}
-                size="sm"
-                className="gap-2"
-                data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
-              >
-                <link.icon className="h-4 w-4" />
-                {link.label}
+                {isActive(link.href) && (
+                  <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-secondary rounded-full" />
+                )}
               </Button>
             </Link>
           ))}
@@ -65,12 +80,33 @@ export function MarketplaceNav() {
 
         <div className="hidden md:flex items-center gap-2 ml-auto">
           {isAuthenticated ? (
-            <>
-              <span className="text-sm text-muted-foreground" data-testid="text-user-name">{user?.name}</span>
-              <Button variant="ghost" size="sm" onClick={logout} data-testid="button-logout">
-                <LogOut className="h-4 w-4 mr-1" /> Logout
-              </Button>
-            </>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-2" data-testid="button-user-menu">
+                  <Avatar className="h-7 w-7">
+                    <AvatarFallback className="text-xs bg-secondary text-secondary-foreground font-semibold">
+                      {getInitials(user?.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm font-medium max-w-[120px] truncate" data-testid="text-user-name">{user?.name}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {authMenuLinks.map((link) => (
+                  <Link key={link.href} href={link.href}>
+                    <DropdownMenuItem className="gap-2 cursor-pointer" data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}>
+                      <link.icon className="h-4 w-4" />
+                      {link.label}
+                    </DropdownMenuItem>
+                  </Link>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="gap-2 cursor-pointer" onClick={logout} data-testid="button-logout">
+                  <LogOut className="h-4 w-4" />
+                  Log Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : (
             <>
               <Link href="/marketplace/login">
@@ -91,7 +127,21 @@ export function MarketplaceNav() {
           </SheetTrigger>
           <SheetContent side="right" className="w-72">
             <div className="flex flex-col gap-1 mt-6">
-              {navLinks.map((link) => (
+              {isAuthenticated && (
+                <div className="flex items-center gap-3 px-3 py-2 mb-2">
+                  <Avatar className="h-9 w-9">
+                    <AvatarFallback className="text-sm bg-secondary text-secondary-foreground font-semibold">
+                      {getInitials(user?.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{user?.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                  </div>
+                </div>
+              )}
+
+              {activeLinks.map((link) => (
                 <Link key={link.href} href={link.href} onClick={() => setOpen(false)}>
                   <Button
                     variant={isActive(link.href) ? 'secondary' : 'ghost'}
@@ -103,10 +153,11 @@ export function MarketplaceNav() {
                   </Button>
                 </Link>
               ))}
+
               {isAuthenticated && (
                 <>
                   <div className="h-px bg-border my-2" />
-                  {authLinks.map((link) => (
+                  {authMenuLinks.filter(l => !activeLinks.some(a => a.href === l.href)).map((link) => (
                     <Link key={link.href} href={link.href} onClick={() => setOpen(false)}>
                       <Button
                         variant={isActive(link.href) ? 'secondary' : 'ghost'}
@@ -120,10 +171,11 @@ export function MarketplaceNav() {
                   ))}
                   <div className="h-px bg-border my-2" />
                   <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => { logout(); setOpen(false); }} data-testid="button-mobile-logout">
-                    <LogOut className="h-4 w-4" /> Logout
+                    <LogOut className="h-4 w-4" /> Log Out
                   </Button>
                 </>
               )}
+
               {!isAuthenticated && (
                 <>
                   <div className="h-px bg-border my-2" />

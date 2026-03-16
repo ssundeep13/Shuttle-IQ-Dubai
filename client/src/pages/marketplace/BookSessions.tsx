@@ -4,11 +4,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar, MapPin, Clock, Users, CheckCircle } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { Calendar, MapPin, Clock, Users, CheckCircle, ArrowRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
+import { motion } from 'framer-motion';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { useMemo } from 'react';
+
+const fadeInUp = {
+  hidden: { opacity: 0, y: 16 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+};
+const stagger = { visible: { transition: { staggerChildren: 0.06 } } };
 
 export default function BookSessions() {
   const { isAuthenticated } = useMarketplaceAuth();
@@ -36,103 +44,130 @@ export default function BookSessions() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold" data-testid="text-page-title">Book a Session</h1>
-        <p className="text-muted-foreground mt-1">Browse upcoming badminton sessions across Dubai</p>
-      </div>
+      <motion.div initial="hidden" animate="visible" variants={stagger}>
+        <motion.div variants={fadeInUp} className="mb-8">
+          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
+            <Calendar className="h-6 w-6 text-secondary" /> Sessions
+          </h1>
+          <p className="text-muted-foreground mt-1">Browse and book upcoming badminton sessions across Dubai</p>
+        </motion.div>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[1, 2, 3, 4].map(i => (
-            <Card key={i}>
-              <CardContent className="p-6">
-                <Skeleton className="h-6 w-3/4 mb-3" />
-                <Skeleton className="h-4 w-1/2 mb-2" />
-                <Skeleton className="h-4 w-full mb-2" />
-                <Skeleton className="h-9 w-28 mt-4" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : upcomingSessions.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <h3 className="font-semibold mb-1">No upcoming sessions</h3>
-            <p className="text-sm text-muted-foreground">Check back soon for new sessions.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {upcomingSessions.map((session) => {
-            const isBooked = bookedSessionIds.has(session.id);
-
-            return (
-              <Card key={session.id} className="hover-elevate" data-testid={`card-session-${session.id}`}>
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[1, 2, 3, 4].map(i => (
+              <Card key={i}>
                 <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <h3 className="font-semibold text-lg" data-testid={`text-session-title-${session.id}`}>
-                      {session.title}
-                    </h3>
-                    {isBooked ? (
-                      <Badge variant="default" className="bg-green-600 dark:bg-green-700" data-testid={`badge-booked-${session.id}`}>
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Booked
-                      </Badge>
-                    ) : (
-                      <Badge variant={session.spotsRemaining > 0 ? 'secondary' : 'destructive'} data-testid={`badge-spots-${session.id}`}>
-                        {session.spotsRemaining > 0 ? `${session.spotsRemaining} spots` : 'Full'}
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="space-y-2 text-sm text-muted-foreground mb-4">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 shrink-0" />
-                      <span>{format(new Date(session.date), 'EEEE, MMMM d, yyyy')}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 shrink-0" />
-                      <span>{session.startTime} - {session.endTime}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 shrink-0" />
-                      <span>{session.venueName}{session.venueLocation ? ` — ${session.venueLocation}` : ''}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Users className="h-4 w-4 shrink-0" />
-                      <span>{session.courtCount} courts, {session.capacity} max players</span>
-                    </div>
-                  </div>
-
-                  {session.description && (
-                    <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{session.description}</p>
-                  )}
-
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="font-semibold text-lg" data-testid={`text-price-${session.id}`}>
-                      AED {session.priceAed}
-                    </span>
-                    {isBooked ? (
-                      <Link href={`/marketplace/sessions/${session.id}`}>
-                        <Button size="sm" variant="outline" data-testid={`button-view-booking-${session.id}`}>
-                          View Booking
-                        </Button>
-                      </Link>
-                    ) : (
-                      <Link href={`/marketplace/sessions/${session.id}`}>
-                        <Button size="sm" disabled={session.spotsRemaining <= 0} data-testid={`button-view-session-${session.id}`}>
-                          {session.spotsRemaining > 0 ? 'View & Book' : 'View Details'}
-                        </Button>
-                      </Link>
-                    )}
-                  </div>
+                  <Skeleton className="h-6 w-3/4 mb-3" />
+                  <Skeleton className="h-4 w-1/2 mb-2" />
+                  <Skeleton className="h-4 w-full mb-2" />
+                  <Skeleton className="h-2 w-full mb-3" />
+                  <Skeleton className="h-9 w-28 mt-4" />
                 </CardContent>
               </Card>
-            );
-          })}
-        </div>
-      )}
+            ))}
+          </div>
+        ) : upcomingSessions.length === 0 ? (
+          <motion.div variants={fadeInUp}>
+            <Card>
+              <CardContent className="p-8 text-center">
+                <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                <h3 className="font-semibold mb-1">No upcoming sessions</h3>
+                <p className="text-sm text-muted-foreground">Check back soon for new sessions.</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {upcomingSessions.map((session) => {
+              const isBooked = bookedSessionIds.has(session.id);
+              const capacityPercent = session.capacity > 0
+                ? Math.round((session.totalBookings / session.capacity) * 100)
+                : 0;
+              const spotsLow = session.spotsRemaining > 0 && session.spotsRemaining <= 3;
+
+              return (
+                <motion.div key={session.id} variants={fadeInUp}>
+                  <Card className="hover-elevate h-full flex flex-col" data-testid={`card-session-${session.id}`}>
+                    <CardContent className="p-5 flex flex-col flex-1">
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-semibold text-lg truncate" data-testid={`text-session-title-${session.id}`}>
+                            {session.title}
+                          </h3>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {format(new Date(session.date), 'EEEE, MMM d')}
+                          </p>
+                        </div>
+                        {isBooked ? (
+                          <Badge variant="default" className="bg-green-600 dark:bg-green-700 shrink-0" data-testid={`badge-booked-${session.id}`}>
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Booked
+                          </Badge>
+                        ) : session.spotsRemaining <= 0 ? (
+                          <Badge variant="destructive" className="shrink-0" data-testid={`badge-spots-${session.id}`}>Full</Badge>
+                        ) : spotsLow ? (
+                          <Badge variant="secondary" className="shrink-0 bg-orange-500/10 text-orange-600 border-orange-500/20" data-testid={`badge-spots-${session.id}`}>
+                            {session.spotsRemaining} left
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="shrink-0" data-testid={`badge-spots-${session.id}`}>
+                            {session.spotsRemaining} spots
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5 text-sm text-muted-foreground mb-4">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-3.5 w-3.5 shrink-0" />
+                          <span>{session.startTime} - {session.endTime}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{session.venueName}{session.venueLocation ? ` - ${session.venueLocation}` : ''}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Users className="h-3.5 w-3.5 shrink-0" />
+                          <span>{session.courtCount} courts</span>
+                        </div>
+                      </div>
+
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                          <span>{session.totalBookings} / {session.capacity} booked</span>
+                          <span>{capacityPercent}%</span>
+                        </div>
+                        <Progress value={capacityPercent} className="h-1.5" />
+                      </div>
+
+                      {session.description && (
+                        <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{session.description}</p>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2 mt-auto pt-3 border-t flex-wrap">
+                        <span className="font-bold text-lg" data-testid={`text-price-${session.id}`}>
+                          AED {session.priceAed}
+                        </span>
+                        <Link href={`/marketplace/sessions/${session.id}`}>
+                          <Button
+                            size="sm"
+                            variant={isBooked ? 'outline' : 'default'}
+                            className="gap-1"
+                            disabled={!isBooked && session.spotsRemaining <= 0}
+                            data-testid={isBooked ? `button-view-booking-${session.id}` : `button-view-session-${session.id}`}
+                          >
+                            {isBooked ? 'View Booking' : session.spotsRemaining > 0 ? 'View & Book' : 'View Details'}
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </motion.div>
     </div>
   );
 }
