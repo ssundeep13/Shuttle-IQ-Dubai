@@ -52,8 +52,8 @@ export default function MyBookings() {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
     },
-    onError: (error: any) => {
-      toast({ title: 'Failed to cancel', description: error.error, variant: 'destructive' });
+    onError: (error: Error) => {
+      toast({ title: 'Failed to cancel', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -64,89 +64,97 @@ export default function MyBookings() {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
     const canCancel = booking.status === 'confirmed' && new Date(booking.session.date) >= new Date();
 
+    const stripColor = booking.status === 'confirmed' ? 'bg-secondary'
+      : booking.status === 'attended' ? 'bg-green-500'
+      : booking.status === 'cancelled' ? 'bg-muted-foreground/30'
+      : 'bg-muted-foreground/20';
+
     return (
-      <Card className={isPast ? 'opacity-75' : ''} data-testid={`card-booking-${booking.id}`}>
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
-            <div className="min-w-0 flex-1">
-              <h3 className="font-semibold truncate" data-testid={`text-booking-title-${booking.id}`}>
-                {booking.session.title}
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Booked {format(new Date(booking.createdAt || Date.now()), 'MMM d, yyyy')}
-              </p>
-            </div>
-            <Badge variant={status.variant} data-testid={`badge-status-${booking.id}`}>
-              {status.label}
-            </Badge>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm text-muted-foreground mb-4">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-3.5 w-3.5 shrink-0" />
-              <span>{format(new Date(booking.session.date), 'EEE, MMM d')}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-3.5 w-3.5 shrink-0" />
-              <span>{booking.session.startTime} - {booking.session.endTime}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <MapPin className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{booking.session.venueName}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-2 pt-3 border-t flex-wrap">
-            <div className="flex items-center gap-3">
-              <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
-                AED {booking.amountAed}
-              </span>
-              <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
-                {booking.paymentMethod === 'cash' ? (
-                  <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
-                ) : (
-                  <><CreditCard className="h-3 w-3 mr-1" /> Card</>
-                )}
+      <Card className={`overflow-hidden ${isPast ? 'opacity-75' : ''}`} data-testid={`card-booking-${booking.id}`}>
+        <div className="flex">
+          <div className={`w-1 shrink-0 ${stripColor}`} />
+          <CardContent className="p-5 flex-1">
+            <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <h3 className="font-semibold truncate" data-testid={`text-booking-title-${booking.id}`}>
+                  {booking.session.title}
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Booked {format(new Date(booking.createdAt || Date.now()), 'MMM d, yyyy')}
+                </p>
+              </div>
+              <Badge variant={status.variant} data-testid={`badge-status-${booking.id}`}>
+                {status.label}
               </Badge>
             </div>
-            {canCancel && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1"
-                    disabled={cancelMutation.isPending}
-                    data-testid={`button-cancel-${booking.id}`}
-                  >
-                    <XCircle className="h-3.5 w-3.5" /> Cancel
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="flex items-center gap-2">
-                      <AlertTriangle className="h-5 w-5 text-destructive" />
-                      Cancel Booking
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Are you sure you want to cancel your booking for <strong>{booking.session.title}</strong> on {format(new Date(booking.session.date), 'MMMM d')}?
-                      Cancellations within 12 hours of the session may be subject to full payment.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Keep Booking</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => cancelMutation.mutate(booking.id)}
-                      className="bg-destructive text-destructive-foreground"
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm text-muted-foreground mb-4">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-3.5 w-3.5 shrink-0" />
+                <span>{format(new Date(booking.session.date), 'EEE, MMM d')}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 shrink-0" />
+                <span>{booking.session.startTime} - {booking.session.endTime}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{booking.session.venueName}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-3 border-t flex-wrap">
+              <div className="flex items-center gap-3">
+                <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
+                  AED {booking.amountAed}
+                </span>
+                <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
+                  {booking.paymentMethod === 'cash' ? (
+                    <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
+                  ) : (
+                    <><CreditCard className="h-3 w-3 mr-1" /> Card</>
+                  )}
+                </Badge>
+              </div>
+              {canCancel && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      disabled={cancelMutation.isPending}
+                      data-testid={`button-cancel-${booking.id}`}
                     >
-                      Yes, Cancel
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-          </div>
-        </CardContent>
+                      <XCircle className="h-3.5 w-3.5" /> Cancel
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-destructive" />
+                        Cancel Booking
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to cancel your booking for <strong>{booking.session.title}</strong> on {format(new Date(booking.session.date), 'MMMM d')}?
+                        Cancellations within 12 hours of the session may be subject to full payment.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => cancelMutation.mutate(booking.id)}
+                        className="bg-destructive text-destructive-foreground"
+                      >
+                        Yes, Cancel
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
+          </CardContent>
+        </div>
       </Card>
     );
   };

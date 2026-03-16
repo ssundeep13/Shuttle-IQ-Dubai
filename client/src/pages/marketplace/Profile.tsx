@@ -39,7 +39,7 @@ export default function Profile() {
     try {
       const results = await apiRequest<PlayerSearchResult[]>('GET', `/api/marketplace/search-players?q=${encodeURIComponent(searchQuery)}`);
       setSearchResults(results);
-    } catch {
+    } catch (err) {
       toast({ title: 'Search failed', variant: 'destructive' });
     } finally {
       setSearching(false);
@@ -56,8 +56,8 @@ export default function Profile() {
       setSearchResults([]);
       setSearchQuery('');
     },
-    onError: (error: any) => {
-      toast({ title: 'Link failed', description: error.error, variant: 'destructive' });
+    onError: (error: Error) => {
+      toast({ title: 'Link failed', description: error.message, variant: 'destructive' });
     },
   });
 

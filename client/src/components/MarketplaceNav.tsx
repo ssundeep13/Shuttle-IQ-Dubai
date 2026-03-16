@@ -63,16 +63,13 @@ export function MarketplaceNav() {
           {activeLinks.map((link) => (
             <Link key={link.href} href={link.href}>
               <Button
-                variant="ghost"
+                variant={isActive(link.href) ? 'secondary' : 'ghost'}
                 size="sm"
-                className={`gap-2 relative ${isActive(link.href) ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}
+                className={`gap-2 ${isActive(link.href) ? 'font-semibold' : 'text-muted-foreground'}`}
                 data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
               >
                 <link.icon className="h-4 w-4" />
                 {link.label}
-                {isActive(link.href) && (
-                  <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-secondary rounded-full" />
-                )}
               </Button>
             </Link>
           ))}

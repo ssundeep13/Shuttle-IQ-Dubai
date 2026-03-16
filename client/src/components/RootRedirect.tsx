@@ -1,20 +1,24 @@
 import { useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
+import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { MarketplaceLayout } from '@/pages/marketplace/MarketplaceLayout';
 import MarketplaceHome from '@/pages/marketplace/MarketplaceHome';
 
 export function RootRedirect() {
-  const { user, isLoading } = useAuth();
+  const { user: adminUser, isLoading: adminLoading } = useAuth();
+  const { isAuthenticated: mpAuthenticated, isLoading: mpLoading } = useMarketplaceAuth();
   const [, navigate] = useLocation();
 
   useEffect(() => {
-    if (!isLoading && user) {
+    if (!adminLoading && adminUser) {
       navigate('/admin/sessions', { replace: true });
+    } else if (!mpLoading && mpAuthenticated && !adminUser) {
+      navigate('/marketplace/dashboard', { replace: true });
     }
-  }, [user, isLoading, navigate]);
+  }, [adminUser, adminLoading, mpAuthenticated, mpLoading, navigate]);
 
-  if (isLoading) {
+  if (adminLoading || mpLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-muted-foreground">Loading...</p>
@@ -22,7 +26,7 @@ export function RootRedirect() {
     );
   }
 
-  if (user) {
+  if (adminUser || mpAuthenticated) {
     return null;
   }
 
