@@ -252,41 +252,6 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/marketplace/sessions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-    try {
-      const schema = z.object({
-        title: z.string().min(1),
-        description: z.string().optional(),
-        venueName: z.string().min(1),
-        venueLocation: z.string().optional(),
-        date: z.string(),
-        startTime: z.string(),
-        endTime: z.string(),
-        courtCount: z.number().min(1).optional(),
-        capacity: z.number().min(1).optional(),
-        priceAed: z.number().min(0).optional(),
-        status: z.string().optional(),
-        imageUrl: z.string().optional(),
-      });
-      const data = schema.parse(req.body);
-      const session = await storage.createBookableSession({
-        ...data,
-        date: new Date(data.date),
-        description: data.description || null,
-        venueLocation: data.venueLocation || null,
-        courtCount: data.courtCount || 2,
-        capacity: data.capacity || 16,
-        priceAed: data.priceAed || 50,
-        status: data.status || "upcoming",
-        imageUrl: data.imageUrl || null,
-      });
-      res.json(session);
-    } catch (error: any) {
-      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors[0].message });
-      res.status(500).json({ error: "Failed to create session" });
-    }
-  });
-
   app.patch("/api/marketplace/sessions/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const updates = req.body;
