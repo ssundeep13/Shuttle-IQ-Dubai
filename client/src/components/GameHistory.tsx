@@ -64,8 +64,7 @@ export function GameHistory({ games, onResetGames, sessionId }: GameHistoryProps
 
   const updateGameMutation = useMutation({
     mutationFn: async ({ gameId, team1Score, team2Score }: { gameId: string; team1Score: number; team2Score: number }) => {
-      const response = await apiRequest("PATCH", `/api/game-results/${gameId}`, { team1Score, team2Score });
-      return response.json();
+      return await apiRequest("PATCH", `/api/game-results/${gameId}`, { team1Score, team2Score });
     },
     onSuccess: () => {
       toast({
