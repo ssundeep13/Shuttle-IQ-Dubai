@@ -285,11 +285,13 @@ export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey(),
   userId: varchar("user_id").notNull(),
   sessionId: varchar("session_id").notNull(),
-  status: text("status").notNull().default('pending'),
+  status: text("status").notNull().default('pending'), // 'pending', 'confirmed', 'waitlisted', 'attended', 'cancelled'
   paymentMethod: text("payment_method").notNull().default('ziina'),
   ziinaPaymentIntentId: text("ziina_payment_intent_id"),
   amountAed: integer("amount_aed").notNull(),
   cashPaid: boolean("cash_paid").notNull().default(false),
+  waitlistPosition: integer("waitlist_position"),
+  lateFeeApplied: boolean("late_fee_applied").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   cancelledAt: timestamp("cancelled_at"),
   attendedAt: timestamp("attended_at"),
@@ -315,10 +317,25 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true,
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
 
+// Marketplace Notifications
+export const marketplaceNotifications = pgTable("marketplace_notifications", {
+  id: varchar("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  type: text("type").notNull(), // 'waitlist_promoted' | 'late_fee_applied' | 'booking_confirmed'
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  read: boolean("read").notNull().default(false),
+  relatedBookingId: varchar("related_booking_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type MarketplaceNotification = typeof marketplaceNotifications.$inferSelect;
+
 // Marketplace frontend types
 export interface BookableSessionWithAvailability extends BookableSession {
   spotsRemaining: number;
   totalBookings: number;
+  waitlistCount: number;
 }
 
 export interface BookingWithDetails extends Booking {
