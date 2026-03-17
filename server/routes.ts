@@ -1631,6 +1631,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Weekly stats endpoint for leaderboard (current week, Mon–Sun)
+  app.get("/api/stats/week", async (req, res) => {
+    try {
+      const players = await storage.getAllPlayers();
+
+      // Get start of current week (Monday at midnight)
+      const now = new Date();
+      const dayOfWeek = now.getDay(); // 0=Sun,1=Mon,...,6=Sat
+      const daysFromMonday = (dayOfWeek + 6) % 7; // days since last Monday
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - daysFromMonday);
+      startOfWeek.setHours(0, 0, 0, 0);
+
+      const weekGames = await db
+        .select()
+        .from(gameResults)
+        .where(sql`${gameResults.createdAt} >= ${startOfWeek}`);
+
+      const gameIds = weekGames.map(g => g.id);
+
+      if (gameIds.length === 0) {
+        return res.json(players.map(p => ({ ...p, gamesPlayedThisWeek: 0, winsThisWeek: 0 })));
+      }
+
+      const participants = await db
+        .select()
+        .from(gameParticipants)
+        .where(sql`${gameParticipants.gameId} IN (${sql.join(gameIds.map(id => sql`${id}`), sql`, `)})`);
+
+      const playersWithStats = players.map(player => {
+        const playerParticipations = participants.filter(p => p.playerId === player.id);
+        const gamesPlayedThisWeek = playerParticipations.length;
+        let winsThisWeek = 0;
+        for (const participation of playerParticipations) {
+          const game = weekGames.find(g => g.id === participation.gameId);
+          if (game && game.winningTeam === participation.team) {
+            winsThisWeek++;
+          }
+        }
+        return { ...player, gamesPlayedThisWeek, winsThisWeek };
+      });
+
+      res.json(playersWithStats);
+    } catch (error) {
+      console.error('[STATS-WEEK] Error:', error);
+      res.status(500).json({ error: "Failed to fetch this week's stats" });
+    }
+  });
+
   // Monthly stats endpoint for leaderboard
   app.get("/api/stats/month/:year/:month", async (req, res) => {
     try {

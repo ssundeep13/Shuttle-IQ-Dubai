@@ -5,15 +5,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Trophy, Medal, Calendar, CalendarDays, Clock } from 'lucide-react';
+import { Trophy, Medal, Calendar, CalendarDays, CalendarRange } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Player } from '@shared/schema';
 
-type TimeFilter = 'all-time' | 'this-month' | 'today';
+type TimeFilter = 'all-time' | 'this-month' | 'this-week';
 
-interface PlayerWithTodayStats extends Player {
-  gamesPlayedToday: number;
-  winsToday: number;
+interface PlayerWithWeekStats extends Player {
+  gamesPlayedThisWeek: number;
+  winsThisWeek: number;
 }
 
 interface PlayerWithMonthStats extends Player {
@@ -56,7 +56,7 @@ const podiumColors = [
 const filters: { value: TimeFilter; label: string; icon: typeof Trophy }[] = [
   { value: 'all-time', label: 'All Time', icon: Calendar },
   { value: 'this-month', label: 'This Month', icon: CalendarDays },
-  { value: 'today', label: 'Today', icon: Clock },
+  { value: 'this-week', label: 'This Week', icon: CalendarRange },
 ];
 
 export default function Rankings() {
@@ -76,15 +76,15 @@ export default function Rankings() {
     enabled: timeFilter === 'this-month',
   });
 
-  const { data: todayPlayers, isLoading: loadingToday } = useQuery<PlayerWithTodayStats[]>({
-    queryKey: ['/api/stats/today'],
-    enabled: timeFilter === 'today',
+  const { data: weekPlayers, isLoading: loadingWeek } = useQuery<PlayerWithWeekStats[]>({
+    queryKey: ['/api/stats/week'],
+    enabled: timeFilter === 'this-week',
   });
 
   const isLoading =
     (timeFilter === 'all-time' && loadingAllTime) ||
     (timeFilter === 'this-month' && loadingMonth) ||
-    (timeFilter === 'today' && loadingToday);
+    (timeFilter === 'this-week' && loadingWeek);
 
   let ranked: RankedEntry[] = [];
 
@@ -108,15 +108,15 @@ export default function Rankings() {
         primaryLabel: p.winsInMonth === 1 ? 'win' : 'wins',
         secondaryLine: `${p.gamesPlayedInMonth} games (${p.gamesPlayedInMonth > 0 ? Math.round((p.winsInMonth / p.gamesPlayedInMonth) * 100) : 0}%)`,
       }));
-  } else if (timeFilter === 'today' && todayPlayers) {
-    ranked = todayPlayers
-      .filter(p => p.gamesPlayedToday > 0)
-      .sort((a, b) => b.winsToday - a.winsToday || b.gamesPlayedToday - a.gamesPlayedToday)
+  } else if (timeFilter === 'this-week' && weekPlayers) {
+    ranked = weekPlayers
+      .filter(p => p.gamesPlayedThisWeek > 0)
+      .sort((a, b) => b.winsThisWeek - a.winsThisWeek || b.gamesPlayedThisWeek - a.gamesPlayedThisWeek)
       .map(p => ({
         player: p,
-        primaryStat: p.winsToday,
-        primaryLabel: p.winsToday === 1 ? 'win' : 'wins',
-        secondaryLine: `${p.gamesPlayedToday} games (${p.gamesPlayedToday > 0 ? Math.round((p.winsToday / p.gamesPlayedToday) * 100) : 0}%)`,
+        primaryStat: p.winsThisWeek,
+        primaryLabel: p.winsThisWeek === 1 ? 'win' : 'wins',
+        secondaryLine: `${p.gamesPlayedThisWeek} games (${p.gamesPlayedThisWeek > 0 ? Math.round((p.winsThisWeek / p.gamesPlayedThisWeek) * 100) : 0}%)`,
       }));
   }
 
@@ -127,7 +127,7 @@ export default function Rankings() {
     ? 'Players need to complete games to appear here.'
     : timeFilter === 'this-month'
     ? 'No games recorded this month yet.'
-    : 'No games recorded today yet.';
+    : 'No games recorded this week yet.';
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
