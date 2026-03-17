@@ -202,6 +202,8 @@ export async function sendCancellationEmail(
 }
 
 // ─── Session Reminder ─────────────────────────────────────────────────────
+// NOTE: This function rethrows on failure so the scheduler can track success/failure
+// and only mark reminderSentAt when the email actually delivered.
 
 export async function sendSessionReminderEmail(
   toEmail: string,
@@ -226,10 +228,8 @@ export async function sendSessionReminderEmail(
     <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
     <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">If you can no longer make it, please cancel as soon as possible so another player can take your spot.</p>
   `;
-  try {
-    await sendEmail(toEmail, `Reminder: ${session.title} is tomorrow`, emailWrapper(body));
-    console.log(`[Email] Reminder sent to ${toEmail}`);
-  } catch (err) {
-    console.error('[Email] sendSessionReminderEmail failed:', err);
-  }
+  // Intentionally rethrows so the scheduler can distinguish success from failure
+  // and only set reminderSentAt when the email actually delivers.
+  await sendEmail(toEmail, `Reminder: ${session.title} is tomorrow`, emailWrapper(body));
+  console.log(`[Email] Reminder sent to ${toEmail}`);
 }

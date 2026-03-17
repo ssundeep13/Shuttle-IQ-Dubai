@@ -1112,8 +1112,14 @@ export class DatabaseStorage implements IStorage {
     for (const booking of activeBookings) {
       const session = await this.getBookableSession(booking.sessionId);
       if (!session) continue;
-      const sessionDate = new Date(session.date);
-      if (sessionDate >= windowStart && sessionDate <= windowEnd) {
+
+      // Compute actual session start datetime from date + startTime (same pattern as cancellation cutoff)
+      // startTime is stored as "HH:MM" text
+      const [hours, minutes] = session.startTime.split(':').map(Number);
+      const sessionStartAt = new Date(session.date);
+      sessionStartAt.setHours(hours, minutes, 0, 0);
+
+      if (sessionStartAt >= windowStart && sessionStartAt <= windowEnd) {
         const user = await this.getMarketplaceUser(booking.userId);
         result.push({ ...booking, session, user: user || undefined });
       }

@@ -8,14 +8,20 @@ async function runReminderJob(): Promise<void> {
     const bookings = await storage.getBookingsNeedingReminder();
     if (bookings.length === 0) return;
 
-    console.log(`[Scheduler] Sending ${bookings.length} session reminder(s)...`);
+    console.log(`[Scheduler] Processing ${bookings.length} session reminder(s)...`);
     for (const booking of bookings) {
       if (!booking.user?.email) continue;
-      await sendSessionReminderEmail(booking.user.email, booking.user.name, booking.session);
-      await storage.updateBooking(booking.id, { reminderSentAt: new Date() });
+      try {
+        // sendSessionReminderEmail rethrows on failure — only mark sent when it succeeds
+        await sendSessionReminderEmail(booking.user.email, booking.user.name, booking.session);
+        await storage.updateBooking(booking.id, { reminderSentAt: new Date() });
+      } catch (emailErr) {
+        // Log but leave reminderSentAt unset so the next scheduler run retries
+        console.error(`[Scheduler] Reminder failed for booking ${booking.id} (${booking.user.email}):`, emailErr);
+      }
     }
   } catch (err) {
-    console.error('[Scheduler] Reminder job failed:', err);
+    console.error('[Scheduler] Reminder job error:', err);
   }
 }
 
