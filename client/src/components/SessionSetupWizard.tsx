@@ -24,6 +24,10 @@ interface SessionSetupWizardProps {
 const sessionFormSchema = insertSessionSchema.extend({
   date: z.string().min(1, "Date is required"),
   venueLocation: z.string().nullish().transform(val => val || ""),
+  venueMapUrl: z.string().nullish().refine(
+    val => !val || /^https?:\/\/.+/.test(val),
+    { message: "Must be a valid URL (starting with http)" }
+  ).transform(val => val || ""),
 });
 
 type SessionFormData = z.infer<typeof sessionFormSchema>;
@@ -64,6 +68,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
       date: new Date().toISOString().split('T')[0],
       venueName: "",
       venueLocation: "",
+      venueMapUrl: "",
       courtCount: 2,
     } as SessionFormData,
   });
@@ -109,6 +114,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
         ...sessionData,
         date: sessionData.date,
         venueLocation: sessionData.venueLocation || null,
+        venueMapUrl: sessionData.venueMapUrl || null,
         status: 'draft',
         marketplace: marketplaceData.enabled ? {
           enabled: true,
@@ -396,6 +402,29 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                           {...field}
                           className="min-h-12 sm:min-h-10"
                           data-testid="input-venue-location"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="venueMapUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4" />
+                        Google Maps Link
+                        <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="https://maps.app.goo.gl/..."
+                          {...field}
+                          className="min-h-12 sm:min-h-10"
+                          data-testid="input-venue-map-url"
                         />
                       </FormControl>
                       <FormMessage />

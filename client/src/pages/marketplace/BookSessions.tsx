@@ -139,7 +139,20 @@ export default function BookSessions() {
                         </div>
                         <div className="flex items-center gap-2">
                           <MapPin className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{session.venueName}{session.venueLocation ? ` - ${session.venueLocation}` : ''}</span>
+                          {(session as any).venueMapUrl ? (
+                            <a
+                              href={(session as any).venueMapUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="truncate hover:underline text-primary"
+                              onClick={(e) => e.stopPropagation()}
+                              data-testid={`link-session-map-card-${session.id}`}
+                            >
+                              {session.venueName}{session.venueLocation ? ` · ${session.venueLocation}` : ''}
+                            </a>
+                          ) : (
+                            <span className="truncate">{session.venueName}{session.venueLocation ? ` · ${session.venueLocation}` : ''}</span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <Users className="h-3.5 w-3.5 shrink-0" />

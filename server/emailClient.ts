@@ -53,11 +53,15 @@ function ctaButton(href: string, label: string): string {
 
 function sessionBlock(session: BookableSession): string {
   const dateStr = new Date(session.date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const mapLink = session.venueMapUrl
+    ? `<a href="${session.venueMapUrl}" style="color:#0a7ea4;font-size:13px;text-decoration:none;" target="_blank">View on Google Maps &rarr;</a>`
+    : '';
   return `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f9fb;border-radius:6px;margin-bottom:24px;">
     <tr>
       <td style="padding:16px 20px;">
         <p style="margin:0 0 4px;font-size:16px;font-weight:600;color:#0a2540;">${session.title}</p>
         <p style="margin:0 0 2px;font-size:14px;color:#4a5568;">${session.venueName}${session.venueLocation ? `, ${session.venueLocation}` : ''}</p>
+        ${mapLink ? `<p style="margin:0 0 4px;">${mapLink}</p>` : ''}
         <p style="margin:0 0 2px;font-size:14px;color:#4a5568;">${dateStr}</p>
         <p style="margin:0;font-size:14px;color:#4a5568;">${session.startTime} &ndash; ${session.endTime}</p>
       </td>

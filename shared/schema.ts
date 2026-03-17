@@ -8,6 +8,7 @@ export const sessions = pgTable("sessions", {
   date: timestamp("date").notNull(),
   venueName: text("venue_name").notNull(),
   venueLocation: text("venue_location"),
+  venueMapUrl: text("venue_map_url"),
   courtCount: integer("court_count").notNull(),
   status: text("status").notNull().default('active'), // 'draft', 'active', 'upcoming', 'ended'
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -264,6 +265,7 @@ export const bookableSessions = pgTable("bookable_sessions", {
   description: text("description"),
   venueName: text("venue_name").notNull(),
   venueLocation: text("venue_location"),
+  venueMapUrl: text("venue_map_url"),
   date: timestamp("date").notNull(),
   startTime: text("start_time").notNull(),
   endTime: text("end_time").notNull(),

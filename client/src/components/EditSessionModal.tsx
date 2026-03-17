@@ -46,6 +46,10 @@ interface EditSessionModalProps {
 const editSessionSchema = z.object({
   venueName: z.string().min(1, "Venue name is required"),
   venueLocation: z.string().optional(),
+  venueMapUrl: z.string().optional().refine(
+    val => !val || /^https?:\/\/.+/.test(val),
+    { message: "Must be a valid URL (starting with http)" }
+  ),
   date: z.string().min(1, "Date is required"),
   courtCount: z.number().min(1).max(8),
   marketplaceTitle: z.string().optional(),
@@ -67,6 +71,7 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
     defaultValues: {
       venueName: "",
       venueLocation: "",
+      venueMapUrl: "",
       date: "",
       courtCount: 2,
       marketplaceTitle: "",
@@ -84,6 +89,7 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
       form.reset({
         venueName: session.venueName,
         venueLocation: session.venueLocation || "",
+        venueMapUrl: (session as any).venueMapUrl || "",
         date: dateStr,
         courtCount: session.courtCount,
         marketplaceTitle: linkedBookable?.title || "",
@@ -101,6 +107,7 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
       const adminUpdates = {
         venueName: values.venueName,
         venueLocation: values.venueLocation || null,
+        venueMapUrl: values.venueMapUrl || null,
         date: values.date,
         courtCount: values.courtCount,
       };
@@ -113,6 +120,7 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
           description: values.marketplaceDescription || null,
           venueName: values.venueName,
           venueLocation: values.venueLocation || null,
+          venueMapUrl: values.venueMapUrl || null,
           date: values.date,
           startTime: values.startTime,
           endTime: values.endTime,
@@ -199,6 +207,29 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
                       placeholder="e.g., 123 Main St, City"
                       className="min-h-12 sm:min-h-10"
                       data-testid="input-edit-venue-location"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="venueMapUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    Google Maps Link
+                    <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="https://maps.app.goo.gl/..."
+                      className="min-h-12 sm:min-h-10"
+                      data-testid="input-edit-venue-map-url"
                     />
                   </FormControl>
                   <FormMessage />

@@ -546,8 +546,23 @@ function SessionCard({
           </div>
           {session.venueLocation && (
             <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4" />
+              <MapPin className="w-4 h-4 shrink-0" />
               <span className="truncate">{session.venueLocation}</span>
+            </div>
+          )}
+          {(session as any).venueMapUrl && (
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 shrink-0 text-primary" />
+              <a
+                href={(session as any).venueMapUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline truncate text-sm"
+                data-testid={`link-session-map-${session.id}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                View on Google Maps
+              </a>
             </div>
           )}
           <div className="flex items-center gap-2">

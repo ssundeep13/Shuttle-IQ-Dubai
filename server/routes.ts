@@ -228,6 +228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           description: marketplace.description || null,
           venueName: session.venueName,
           venueLocation: session.venueLocation || null,
+          venueMapUrl: session.venueMapUrl || null,
           date: new Date(sessionData.date),
           startTime: marketplace.startTime || '18:00',
           endTime: marketplace.endTime || '21:00',

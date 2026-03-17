@@ -315,7 +315,7 @@ export default function SessionDetails() {
                 {[
                   { icon: Calendar, label: 'Date', value: format(new Date(session.date), 'EEEE, MMMM d, yyyy') },
                   { icon: Clock, label: 'Time', value: `${session.startTime} - ${session.endTime}` },
-                  { icon: MapPin, label: 'Venue', value: session.venueName, sub: session.venueLocation },
+                  { icon: MapPin, label: 'Venue', value: session.venueName, sub: session.venueLocation, mapUrl: (session as any).venueMapUrl },
                   { icon: Users, label: 'Capacity', value: `${session.courtCount} courts, ${session.capacity} max players` },
                   { icon: Banknote, label: 'Price', value: `AED ${session.priceAed} per player` },
                 ].map((item) => (
@@ -327,6 +327,17 @@ export default function SessionDetails() {
                       <div className="text-xs text-muted-foreground">{item.label}</div>
                       <div className="font-medium text-sm">{item.value}</div>
                       {item.sub && <div className="text-xs text-muted-foreground">{item.sub}</div>}
+                      {(item as any).mapUrl && (
+                        <a
+                          href={(item as any).mapUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline"
+                          data-testid="link-session-detail-map"
+                        >
+                          View on Google Maps
+                        </a>
+                      )}
                     </div>
                   </div>
                 ))}
