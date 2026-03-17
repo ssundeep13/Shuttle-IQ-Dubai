@@ -419,31 +419,33 @@ export default function MyScores() {
                         ? 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300'
                         : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300';
                       return (
-                        <div key={rival.player.id} className="rounded-lg border p-3" data-testid={`rival-${rival.player.id}`}>
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-semibold shrink-0">
-                              {getInitial(rival.player.name)}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-sm truncate">{rival.player.name}</div>
-                              <div className="text-xs text-muted-foreground">{rival.player.level} ({rival.player.skillScore})</div>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <div className="text-xs font-semibold">
-                                <span className="text-teal-600 dark:text-teal-400">{rival.winsAgainst}W</span>
-                                {' - '}
-                                <span className="text-red-500">{rival.lossesAgainst}L</span>
+                        <Link key={rival.player.id} href={`/marketplace/players/${rival.player.id}`}>
+                          <div className="rounded-lg border p-3 hover-elevate cursor-pointer" data-testid={`rival-${rival.player.id}`}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-semibold shrink-0">
+                                {getInitial(rival.player.name)}
                               </div>
-                              <div className="text-[10px] text-muted-foreground">{rival.gamesAgainst} games</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-sm truncate">{rival.player.name}</div>
+                                <div className="text-xs text-muted-foreground">{rival.player.level} ({rival.player.skillScore})</div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="text-xs font-semibold">
+                                  <span className="text-teal-600 dark:text-teal-400">{rival.winsAgainst}W</span>
+                                  {' - '}
+                                  <span className="text-red-500">{rival.lossesAgainst}L</span>
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">{rival.gamesAgainst} games</div>
+                              </div>
+                              <Badge className={`text-xs shrink-0 no-default-hover-elevate no-default-active-elevate ${rBadgeColor} border-0`}>
+                                ~ {rWinRate}%
+                              </Badge>
                             </div>
-                            <Badge className={`text-xs shrink-0 no-default-hover-elevate no-default-active-elevate ${rBadgeColor} border-0`}>
-                              ~ {rWinRate}%
-                            </Badge>
+                            <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div className={`h-full rounded-full transition-all ${rBarColor}`} style={{ width: `${rWinRate}%` }} />
+                            </div>
                           </div>
-                          <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
-                            <div className={`h-full rounded-full transition-all ${rBarColor}`} style={{ width: `${rWinRate}%` }} />
-                          </div>
-                        </div>
+                        </Link>
                       );
                     })}
                   </CardContent>
@@ -470,35 +472,37 @@ export default function MyScores() {
                         : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300';
                       const isBestPartner = idx === 0 && stats.bestPartner?.player.id === partner.player.id;
                       return (
-                        <div key={partner.player.id} className="rounded-lg border p-3" data-testid={`partner-${partner.player.id}`}>
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-semibold shrink-0 relative">
-                              {getInitial(partner.player.name)}
-                              {isBestPartner && (
-                                <span className="absolute -top-1 -right-1 text-yellow-500 text-xs">
-                                  <Zap className="h-3 w-3 fill-yellow-500" />
-                                </span>
-                              )}
+                        <Link key={partner.player.id} href={`/marketplace/players/${partner.player.id}`}>
+                          <div className="rounded-lg border p-3 hover-elevate cursor-pointer" data-testid={`partner-${partner.player.id}`}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-semibold shrink-0 relative">
+                                {getInitial(partner.player.name)}
+                                {isBestPartner && (
+                                  <span className="absolute -top-1 -right-1 text-yellow-500 text-xs">
+                                    <Zap className="h-3 w-3 fill-yellow-500" />
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-sm truncate">{partner.player.name}</div>
+                                <div className="text-xs text-muted-foreground">{partner.player.level} ({partner.player.skillScore})</div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="text-xs font-semibold">{partner.gamesTogether} games</div>
+                                <div className="text-[10px] text-muted-foreground">{partner.winsTogether} wins</div>
+                              </div>
+                              <Badge className={`text-xs shrink-0 no-default-hover-elevate no-default-active-elevate ${pBadgeColor} border-0`}>
+                                {pWinRate}%
+                              </Badge>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-sm truncate">{partner.player.name}</div>
-                              <div className="text-xs text-muted-foreground">{partner.player.level} ({partner.player.skillScore})</div>
+                            <div className="flex items-center gap-2 mt-2">
+                              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${pBarColor}`} style={{ width: `${pWinRate}%` }} />
+                              </div>
+                              <span className={`text-[10px] font-medium shrink-0 ${chemistry.color}`}>{chemistry.label}</span>
                             </div>
-                            <div className="text-right shrink-0">
-                              <div className="text-xs font-semibold">{partner.gamesTogether} games</div>
-                              <div className="text-[10px] text-muted-foreground">{partner.winsTogether} wins</div>
-                            </div>
-                            <Badge className={`text-xs shrink-0 no-default-hover-elevate no-default-active-elevate ${pBadgeColor} border-0`}>
-                              {pWinRate}%
-                            </Badge>
                           </div>
-                          <div className="flex items-center gap-2 mt-2">
-                            <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                              <div className={`h-full rounded-full transition-all ${pBarColor}`} style={{ width: `${pWinRate}%` }} />
-                            </div>
-                            <span className={`text-[10px] font-medium shrink-0 ${chemistry.color}`}>{chemistry.label}</span>
-                          </div>
-                        </div>
+                        </Link>
                       );
                     })}
                   </CardContent>
