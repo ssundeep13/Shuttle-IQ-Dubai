@@ -179,12 +179,12 @@ export function registerMarketplaceRoutes(app: Express) {
         const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
         await storage.updateMarketplaceUser(user.id, { resetToken: token, resetTokenExpiry: expiry });
 
-        // In production, send an email. For now log the reset URL.
         const resetUrl = `/marketplace/reset-password?token=${token}`;
         console.log(`[Password Reset] ${user.email}: ${resetUrl}`);
+        return res.json({ success: true, resetUrl });
       }
 
-      res.json({ success: true, message: "If this email is registered, a reset link has been sent." });
+      res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to process request" });
     }

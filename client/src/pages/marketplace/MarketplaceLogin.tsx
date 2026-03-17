@@ -14,14 +14,20 @@ function ForgotPasswordForm() {
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [resetUrl, setResetUrl] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setNotFound(false);
     try {
-      await apiRequest('POST', '/api/marketplace/auth/forgot-password', { email });
-      setSubmitted(true);
+      const data: any = await apiRequest('POST', '/api/marketplace/auth/forgot-password', { email });
+      if (data?.resetUrl) {
+        setResetUrl(data.resetUrl);
+      } else {
+        setNotFound(true);
+      }
     } catch (err: any) {
       toast({ title: 'Error', description: err.message || 'Something went wrong', variant: 'destructive' });
     } finally {
@@ -29,21 +35,51 @@ function ForgotPasswordForm() {
     }
   };
 
-  if (submitted) {
+  if (resetUrl) {
     return (
-      <div className="flex flex-col items-center gap-4 py-4 text-center">
+      <div className="flex flex-col items-center gap-4 py-2 text-center">
         <div className="w-12 h-12 rounded-full bg-secondary/10 flex items-center justify-center">
           <CheckCircle2 className="h-6 w-6 text-secondary" />
         </div>
         <div>
-          <p className="font-medium mb-1">Check your inbox</p>
-          <p className="text-sm text-muted-foreground">
-            If <span className="font-medium">{email}</span> is registered, you'll receive a password reset link shortly.
-          </p>
+          <p className="font-medium mb-1">Your reset link is ready</p>
+          <p className="text-sm text-muted-foreground mb-3">Click the button below to set a new password. This link expires in 1 hour.</p>
         </div>
-        <p className="text-xs text-muted-foreground mt-2">
-          Didn't get it? Ask a staff member for help.
-        </p>
+        <Link href={resetUrl} className="w-full">
+          <Button className="w-full gap-2" data-testid="button-open-reset-link">
+            Reset My Password
+          </Button>
+        </Link>
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:underline"
+          onClick={() => { setResetUrl(null); setEmail(''); }}
+          data-testid="button-try-another-email"
+        >
+          Use a different email
+        </button>
+      </div>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-2 text-center">
+        <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+          <Mail className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <div>
+          <p className="font-medium mb-1">No account found</p>
+          <p className="text-sm text-muted-foreground">There's no account registered with that email address.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setNotFound(false)} data-testid="button-try-again">
+          Try a different email
+        </Button>
+        <Link href="/marketplace/signup">
+          <button type="button" className="text-xs text-secondary hover:underline" data-testid="link-signup-instead">
+            Create an account instead
+          </button>
+        </Link>
       </div>
     );
   }
