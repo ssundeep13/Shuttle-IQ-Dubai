@@ -1025,12 +1025,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserBookingForSession(userId: string, sessionId: string): Promise<Booking | undefined> {
-    const [booking] = await db
+    // Only return an active (non-cancelled) booking so historical cancelled rows don't block re-booking
+    const results = await db
       .select()
       .from(bookings)
       .where(and(eq(bookings.userId, userId), eq(bookings.sessionId, sessionId)))
-      .limit(1);
-    return booking;
+      .orderBy(desc(bookings.createdAt));
+    return results.find(b => b.status !== 'cancelled');
   }
 
   async getSessionBookings(sessionId: string): Promise<BookingWithDetails[]> {

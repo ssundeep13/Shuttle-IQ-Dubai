@@ -576,11 +576,19 @@ export function registerMarketplaceRoutes(app: Express) {
             relatedBookingId: first.id,
           });
 
-          // Re-number remaining waitlisted bookings
+          // Re-number remaining waitlisted bookings (skip the promoted one)
           const remaining = waitlisted.slice(1);
           for (let i = 0; i < remaining.length; i++) {
             await storage.updateBooking(remaining[i].id, { waitlistPosition: i + 1 });
           }
+        }
+      }
+
+      // If a waitlisted booking was cancelled, renumber the remaining waitlisted positions
+      if (booking.status === 'waitlisted') {
+        const waitlisted = await storage.getWaitlistedBookingsForSession(booking.sessionId);
+        for (let i = 0; i < waitlisted.length; i++) {
+          await storage.updateBooking(waitlisted[i].id, { waitlistPosition: i + 1 });
         }
       }
 
