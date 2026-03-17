@@ -692,7 +692,93 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     },
   });
 
-  const sessionRevenue = bookings?.filter(b => b.status !== 'cancelled').reduce((sum, b) => sum + b.amountAed, 0) || 0;
+  const sessionRevenue = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended').reduce((sum, b) => sum + b.amountAed, 0) || 0;
+
+  const confirmedBookings = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended' || b.status === 'cancelled') || [];
+  const waitlistedBookings = bookings?.filter(b => b.status === 'waitlisted') || [];
+
+  const BookingRow = ({ booking }: { booking: BookingWithDetails }) => (
+    <Card key={booking.id} data-testid={`card-sheet-booking-${booking.id}`}>
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <div className="font-medium text-sm">{booking.user?.name || 'Unknown'}</div>
+            <div className="text-xs text-muted-foreground">{booking.user?.email}</div>
+          </div>
+          <span className="text-sm font-medium">AED {booking.amountAed}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge
+            variant={booking.paymentMethod === 'cash' ? 'secondary' : 'outline'}
+            data-testid={`badge-method-${booking.id}`}
+          >
+            {booking.paymentMethod === 'cash' ? (
+              <><Banknote className="h-3 w-3 mr-1" /> Cash</>
+            ) : (
+              <><CreditCard className="h-3 w-3 mr-1" /> Ziina</>
+            )}
+          </Badge>
+          <Badge
+            variant={
+              booking.status === 'cancelled' ? 'destructive'
+              : (booking.paymentMethod === 'cash' && !booking.cashPaid) ? 'outline'
+              : booking.status === 'pending' ? 'outline'
+              : 'default'
+            }
+            className={booking.paymentMethod === 'cash' && !booking.cashPaid && booking.status !== 'cancelled' ? 'border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400' : ''}
+            data-testid={`badge-payment-${booking.id}`}
+          >
+            <DollarSign className="h-3 w-3 mr-1" />
+            {booking.status === 'cancelled'
+              ? 'Cancelled'
+              : booking.paymentMethod === 'cash'
+                ? (booking.cashPaid ? 'Cash Received' : 'Cash Pending')
+                : (booking.status === 'confirmed' || booking.status === 'attended' ? 'Paid' : 'Pending')
+            }
+          </Badge>
+          <Badge
+            variant={booking.status === 'attended' ? 'secondary' : 'outline'}
+            data-testid={`badge-checkin-${booking.id}`}
+          >
+            <CheckCircle className="h-3 w-3 mr-1" />
+            {booking.status === 'attended' ? 'Checked In' : 'Not Checked In'}
+          </Badge>
+          {booking.lateFeeApplied && (
+            <Badge variant="destructive" className="gap-1 text-xs" data-testid={`badge-latefee-${booking.id}`}>
+              Late Fee
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {booking.paymentMethod === 'cash' && booking.status !== 'cancelled' && (
+            <Button
+              size="sm"
+              variant={booking.cashPaid ? 'secondary' : 'outline'}
+              className="gap-1"
+              onClick={() => cashPaidMutation.mutate({ bookingId: booking.id, cashPaid: !booking.cashPaid })}
+              disabled={cashPaidMutation.isPending}
+              data-testid={`button-toggle-cash-${booking.id}`}
+            >
+              <Banknote className="h-3 w-3" />
+              {booking.cashPaid ? 'Mark Unpaid' : 'Mark Cash Paid'}
+            </Button>
+          )}
+          {booking.status === 'confirmed' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 ml-auto"
+              onClick={() => attendMutation.mutate(booking.id)}
+              disabled={attendMutation.isPending}
+              data-testid={`button-sheet-attend-${booking.id}`}
+            >
+              <CheckCircle className="h-3 w-3" /> Check In
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <Sheet open={!!session} onOpenChange={(open) => !open && onClose()}>
@@ -716,84 +802,49 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             ) : !bookings?.length ? (
               <div className="py-8 text-center text-muted-foreground text-sm">No bookings yet</div>
             ) : (
-              <div className="space-y-2">
-                {bookings.map((booking) => (
-                  <Card key={booking.id} data-testid={`card-sheet-booking-${booking.id}`}>
-                    <CardContent className="p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <div className="font-medium text-sm">{booking.user?.name || 'Unknown'}</div>
-                          <div className="text-xs text-muted-foreground">{booking.user?.email}</div>
-                        </div>
-                        <span className="text-sm font-medium">AED {booking.amountAed}</span>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge
-                          variant={booking.paymentMethod === 'cash' ? 'secondary' : 'outline'}
-                          data-testid={`badge-method-${booking.id}`}
-                        >
-                          {booking.paymentMethod === 'cash' ? (
-                            <><Banknote className="h-3 w-3 mr-1" /> Cash</>
-                          ) : (
-                            <><CreditCard className="h-3 w-3 mr-1" /> Ziina</>
-                          )}
-                        </Badge>
-                        <Badge
-                          variant={
-                            booking.status === 'cancelled' ? 'destructive'
-                            : (booking.paymentMethod === 'cash' && !booking.cashPaid) ? 'outline'
-                            : booking.status === 'pending' ? 'outline'
-                            : 'default'
-                          }
-                          className={booking.paymentMethod === 'cash' && !booking.cashPaid && booking.status !== 'cancelled' ? 'border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400' : ''}
-                          data-testid={`badge-payment-${booking.id}`}
-                        >
-                          <DollarSign className="h-3 w-3 mr-1" />
-                          {booking.status === 'cancelled'
-                            ? 'Cancelled'
-                            : booking.paymentMethod === 'cash'
-                              ? (booking.cashPaid ? 'Cash Received' : 'Cash Pending')
-                              : (booking.status === 'confirmed' || booking.status === 'attended' ? 'Paid' : 'Pending')
-                          }
-                        </Badge>
-                        <Badge
-                          variant={booking.status === 'attended' ? 'secondary' : 'outline'}
-                          data-testid={`badge-checkin-${booking.id}`}
-                        >
-                          <CheckCircle className="h-3 w-3 mr-1" />
-                          {booking.status === 'attended' ? 'Checked In' : 'Not Checked In'}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {booking.paymentMethod === 'cash' && booking.status !== 'cancelled' && (
-                          <Button
-                            size="sm"
-                            variant={booking.cashPaid ? 'secondary' : 'outline'}
-                            className="gap-1"
-                            onClick={() => cashPaidMutation.mutate({ bookingId: booking.id, cashPaid: !booking.cashPaid })}
-                            disabled={cashPaidMutation.isPending}
-                            data-testid={`button-toggle-cash-${booking.id}`}
-                          >
-                            <Banknote className="h-3 w-3" />
-                            {booking.cashPaid ? 'Mark Unpaid' : 'Mark Cash Paid'}
-                          </Button>
-                        )}
-                        {booking.status === 'confirmed' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="gap-1 ml-auto"
-                            onClick={() => attendMutation.mutate(booking.id)}
-                            disabled={attendMutation.isPending}
-                            data-testid={`button-sheet-attend-${booking.id}`}
-                          >
-                            <CheckCircle className="h-3 w-3" /> Check In
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+              <div className="space-y-5">
+                {confirmedBookings.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Confirmed / Attended
+                      </p>
+                      <Badge variant="secondary" className="text-xs">{confirmedBookings.filter(b => b.status !== 'cancelled').length}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {confirmedBookings.map(b => <BookingRow key={b.id} booking={b} />)}
+                    </div>
+                  </div>
+                )}
+
+                {waitlistedBookings.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Waitlist
+                      </p>
+                      <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-600 dark:text-amber-400">{waitlistedBookings.length}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {waitlistedBookings.map(b => (
+                        <Card key={b.id} data-testid={`card-sheet-waitlist-${b.id}`}>
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="min-w-0">
+                                <div className="font-medium text-sm">{b.user?.name || 'Unknown'}</div>
+                                <div className="text-xs text-muted-foreground">{b.user?.email}</div>
+                              </div>
+                              <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-600 dark:text-amber-400 shrink-0" data-testid={`badge-waitlist-pos-${b.id}`}>
+                                #{b.waitlistPosition}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1.5">No payment — waiting for a spot to open</p>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
