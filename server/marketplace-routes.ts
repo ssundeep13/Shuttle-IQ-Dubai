@@ -434,11 +434,13 @@ export function registerMarketplaceRoutes(app: Express) {
           cashPaid: false,
         });
 
-        // Fire-and-forget booking confirmation email
-        const cashUser = await storage.getMarketplaceUser(req.user.userId);
-        if (cashUser) {
-          sendBookingConfirmationEmail(cashUser.email, cashUser.name, bookableSession, 'cash', bookableSession.priceAed).catch(() => {});
-        }
+        // Fire-and-forget booking confirmation email (fully isolated)
+        try {
+          const cashUser = await storage.getMarketplaceUser(req.user.userId);
+          if (cashUser) {
+            sendBookingConfirmationEmail(cashUser.email, cashUser.name, bookableSession, 'cash', bookableSession.priceAed).catch(() => {});
+          }
+        } catch (emailErr) { console.error('[Email] cash booking confirm lookup failed:', emailErr); }
 
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
         return res.json({
@@ -541,13 +543,15 @@ export function registerMarketplaceRoutes(app: Express) {
           });
         }
 
-        // Fire-and-forget booking confirmation email (only on first confirm)
+        // Fire-and-forget booking confirmation email (only on first confirm, fully isolated)
         if (!wasAlreadyConfirmed) {
-          const ziinaUser = await storage.getMarketplaceUser(booking.userId);
-          const ziinaSession = await storage.getBookableSession(booking.sessionId);
-          if (ziinaUser && ziinaSession) {
-            sendBookingConfirmationEmail(ziinaUser.email, ziinaUser.name, ziinaSession, 'ziina', booking.amountAed).catch(() => {});
-          }
+          try {
+            const ziinaUser = await storage.getMarketplaceUser(booking.userId);
+            const ziinaSession = await storage.getBookableSession(booking.sessionId);
+            if (ziinaUser && ziinaSession) {
+              sendBookingConfirmationEmail(ziinaUser.email, ziinaUser.name, ziinaSession, 'ziina', booking.amountAed).catch(() => {});
+            }
+          } catch (emailErr) { console.error('[Email] ziina booking confirm lookup failed:', emailErr); }
         }
 
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
@@ -647,11 +651,13 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      // Send cancellation email to the cancelling user (fire-and-forget)
-      const cancellingUser = await storage.getMarketplaceUser(booking.userId);
-      if (cancellingUser && bookableSession) {
-        sendCancellationEmail(cancellingUser.email, cancellingUser.name, bookableSession, lateFeeApplied, booking.amountAed).catch(() => {});
-      }
+      // Send cancellation email (fully isolated so email failure cannot affect API response)
+      try {
+        const cancellingUser = await storage.getMarketplaceUser(booking.userId);
+        if (cancellingUser && bookableSession) {
+          sendCancellationEmail(cancellingUser.email, cancellingUser.name, bookableSession, lateFeeApplied, booking.amountAed).catch(() => {});
+        }
+      } catch (emailErr) { console.error('[Email] cancellation lookup failed:', emailErr); }
 
       // If was a confirmed booking, promote first waitlisted user
       let promoted: { bookingId: string; userId: string } | null = null;
@@ -671,11 +677,13 @@ export function registerMarketplaceRoutes(app: Express) {
             relatedBookingId: first.id,
           });
 
-          // Send waitlist promotion email (fire-and-forget)
-          const promotedUser = await storage.getMarketplaceUser(first.userId);
-          if (promotedUser) {
-            sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession).catch(() => {});
-          }
+          // Send waitlist promotion email (fully isolated)
+          try {
+            const promotedUser = await storage.getMarketplaceUser(first.userId);
+            if (promotedUser) {
+              sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession).catch(() => {});
+            }
+          } catch (emailErr) { console.error('[Email] waitlist promotion lookup failed:', emailErr); }
 
           // Re-number remaining waitlisted bookings (skip the promoted one)
           const remaining = waitlisted.slice(1);
