@@ -19,6 +19,7 @@ import {
   type BookingWithDetails,
   type Payment,
   type InsertPayment,
+  type MarketplaceNotification,
   players,
   courts,
   courtPlayers as courtPlayersTable,
@@ -30,7 +31,8 @@ import {
   marketplaceAuthSessions,
   bookableSessions,
   bookings,
-  payments
+  payments,
+  marketplaceNotifications,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte } from "drizzle-orm";
@@ -140,6 +142,14 @@ export interface IStorage {
   getSessionBookings(sessionId: string): Promise<BookingWithDetails[]>;
   updateBooking(id: string, updates: Partial<Booking>): Promise<Booking | undefined>;
   getBookingCountForSession(sessionId: string): Promise<number>;
+  getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]>;
+  getWaitlistCountForSession(sessionId: string): Promise<number>;
+
+  // Notification operations
+  createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string }): Promise<MarketplaceNotification>;
+  getNotificationsForUser(userId: string): Promise<MarketplaceNotification[]>;
+  markNotificationRead(id: string): Promise<void>;
+  markAllNotificationsRead(userId: string): Promise<void>;
 
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
@@ -945,7 +955,8 @@ export class DatabaseStorage implements IStorage {
     const session = await this.getBookableSession(id);
     if (!session) return undefined;
     const count = await this.getBookingCountForSession(id);
-    return { ...session, spotsRemaining: Math.max(0, session.capacity - count), totalBookings: count };
+    const waitlistCount = await this.getWaitlistCountForSession(id);
+    return { ...session, spotsRemaining: Math.max(0, session.capacity - count), totalBookings: count, waitlistCount };
   }
 
   async getAllBookableSessions(): Promise<BookableSessionWithAvailability[]> {
@@ -955,7 +966,8 @@ export class DatabaseStorage implements IStorage {
     const result: BookableSessionWithAvailability[] = [];
     for (const session of allSessions) {
       const count = await this.getBookingCountForSession(session.id);
-      result.push({ ...session, spotsRemaining: Math.max(0, session.capacity - count), totalBookings: count });
+      const waitlistCount = await this.getWaitlistCountForSession(session.id);
+      result.push({ ...session, spotsRemaining: Math.max(0, session.capacity - count), totalBookings: count, waitlistCount });
     }
     return result;
   }
@@ -1049,8 +1061,27 @@ export class DatabaseStorage implements IStorage {
     const activeBookings = await db
       .select()
       .from(bookings)
-      .where(and(eq(bookings.sessionId, sessionId), sql`${bookings.status} != 'cancelled'`));
+      .where(and(
+        eq(bookings.sessionId, sessionId),
+        sql`${bookings.status} NOT IN ('cancelled', 'waitlisted')`
+      ));
     return activeBookings.length;
+  }
+
+  async getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]> {
+    return await db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.sessionId, sessionId), eq(bookings.status, 'waitlisted')))
+      .orderBy(asc(bookings.createdAt));
+  }
+
+  async getWaitlistCountForSession(sessionId: string): Promise<number> {
+    const waitlisted = await db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.sessionId, sessionId), eq(bookings.status, 'waitlisted')));
+    return waitlisted.length;
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {
@@ -1083,6 +1114,37 @@ export class DatabaseStorage implements IStorage {
       .where(eq(payments.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  async createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string }): Promise<MarketplaceNotification> {
+    const id = randomUUID();
+    const [created] = await db
+      .insert(marketplaceNotifications)
+      .values({ id, ...data, relatedBookingId: data.relatedBookingId || null })
+      .returning();
+    return created;
+  }
+
+  async getNotificationsForUser(userId: string): Promise<MarketplaceNotification[]> {
+    return await db
+      .select()
+      .from(marketplaceNotifications)
+      .where(eq(marketplaceNotifications.userId, userId))
+      .orderBy(desc(marketplaceNotifications.createdAt));
+  }
+
+  async markNotificationRead(id: string): Promise<void> {
+    await db
+      .update(marketplaceNotifications)
+      .set({ read: true })
+      .where(eq(marketplaceNotifications.id, id));
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<void> {
+    await db
+      .update(marketplaceNotifications)
+      .set({ read: true })
+      .where(eq(marketplaceNotifications.userId, userId));
   }
 }
 

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useLocation, Link } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -7,10 +7,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info, Banknote, ShieldCheck } from 'lucide-react';
+import { Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info, Banknote, ShieldCheck, ListOrdered, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import type { BookableSessionWithAvailability } from '@shared/schema';
+import { apiRequest } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
+import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -132,9 +134,52 @@ export default function SessionDetails() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const { data: session, isLoading } = useQuery<BookableSessionWithAvailability>({
     queryKey: ['/api/marketplace/sessions', id],
+  });
+
+  const { data: myBookings } = useQuery<BookingWithDetails[]>({
+    queryKey: ['/api/marketplace/bookings/mine'],
+    enabled: !!isAuthenticated,
+  });
+
+  const myBookingForSession = myBookings?.find(
+    b => b.sessionId === id && b.status !== 'cancelled'
+  );
+  const isWaitlisted = myBookingForSession?.status === 'waitlisted';
+  const isConfirmed = myBookingForSession?.status === 'confirmed' || myBookingForSession?.status === 'attended';
+
+  const waitlistMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/marketplace/bookings', { sessionId: id, paymentMethod: 'cash' });
+    },
+    onSuccess: (data: any) => {
+      if (data.waitlisted) {
+        toast({ title: "You're on the waitlist!", description: `You are #${data.waitlistPosition} on the waitlist. We'll notify you if a spot opens up.` });
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to join waitlist', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const cancelWaitlistMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`);
+    },
+    onSuccess: () => {
+      toast({ title: 'Removed from waitlist' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to leave waitlist', description: error.message, variant: 'destructive' });
+    },
   });
 
   const handleBookNow = () => {
@@ -164,6 +209,77 @@ export default function SessionDetails() {
   const capacityPercent = session.capacity > 0
     ? Math.round((session.totalBookings / session.capacity) * 100)
     : 0;
+
+  const renderBookingButton = () => {
+    if (!isAuthenticated) {
+      return (
+        <Link href="/marketplace/login">
+          <Button size="lg" className="gap-2" data-testid="button-login-to-book">
+            Log in to book
+          </Button>
+        </Link>
+      );
+    }
+
+    if (isConfirmed) {
+      return (
+        <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-green-500/10 border border-green-500/20" data-testid="status-confirmed">
+          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
+          <span className="text-sm font-medium text-green-700 dark:text-green-400">You're booked!</span>
+        </div>
+      );
+    }
+
+    if (isWaitlisted && myBookingForSession) {
+      return (
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-500/10 border border-amber-500/20" data-testid="status-waitlisted">
+            <ListOrdered className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
+              Waitlist #{myBookingForSession.waitlistPosition}
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => cancelWaitlistMutation.mutate(myBookingForSession.id)}
+            disabled={cancelWaitlistMutation.isPending}
+            data-testid="button-leave-waitlist"
+          >
+            Leave Waitlist
+          </Button>
+        </div>
+      );
+    }
+
+    if (session.spotsRemaining <= 0) {
+      return (
+        <Button
+          size="lg"
+          variant="outline"
+          className="gap-2"
+          onClick={() => waitlistMutation.mutate()}
+          disabled={waitlistMutation.isPending}
+          data-testid="button-join-waitlist"
+        >
+          <ListOrdered className="h-5 w-5" />
+          {waitlistMutation.isPending ? 'Joining...' : 'Join Waitlist'}
+        </Button>
+      );
+    }
+
+    return (
+      <Button
+        size="lg"
+        className="gap-2"
+        onClick={handleBookNow}
+        data-testid="button-book-now"
+      >
+        <CreditCard className="h-5 w-5" />
+        Book & Pay Now
+      </Button>
+    );
+  };
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -217,9 +333,16 @@ export default function SessionDetails() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between text-sm mb-2">
+                <div className="flex items-center justify-between text-sm mb-2 flex-wrap gap-1">
                   <span className="text-muted-foreground">Capacity</span>
-                  <span className="font-medium">{session.totalBookings} / {session.capacity} booked</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{session.totalBookings} / {session.capacity} booked</span>
+                    {session.waitlistCount > 0 && (
+                      <span className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-waitlist-count">
+                        + {session.waitlistCount} on waitlist
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <Progress value={capacityPercent} className="h-2" />
               </div>
@@ -240,8 +363,8 @@ export default function SessionDetails() {
                 <div className="text-sm">
                   <p className="font-medium text-orange-700 dark:text-orange-400 mb-1">Cancellation Policy</p>
                   <ul className="text-muted-foreground space-y-0.5 text-xs leading-relaxed">
-                    <li>Cancellations within 12 hours of the session are subject to full payment.</li>
-                    <li>Last-hour cancellations are subject to full payment.</li>
+                    <li>Cancellations within 5 hours of the session start will forfeit the full payment.</li>
+                    <li>Cancellations made more than 5 hours before the session are free.</li>
                     <li>No-shows may be charged 150% of the session price.</li>
                   </ul>
                 </div>
@@ -253,24 +376,7 @@ export default function SessionDetails() {
                     <div className="text-xs text-muted-foreground">Price per player</div>
                     <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
                   </div>
-                  {isAuthenticated ? (
-                    <Button
-                      size="lg"
-                      className="gap-2"
-                      disabled={session.spotsRemaining <= 0}
-                      onClick={handleBookNow}
-                      data-testid="button-book-now"
-                    >
-                      <CreditCard className="h-5 w-5" />
-                      {session.spotsRemaining <= 0 ? 'Session Full' : 'Book & Pay Now'}
-                    </Button>
-                  ) : (
-                    <Link href="/marketplace/login">
-                      <Button size="lg" className="gap-2" data-testid="button-login-to-book">
-                        Log in to book
-                      </Button>
-                    </Link>
-                  )}
+                  {renderBookingButton()}
                 </div>
               </div>
             </CardContent>

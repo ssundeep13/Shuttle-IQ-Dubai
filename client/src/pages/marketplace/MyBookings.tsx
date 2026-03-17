@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails } from '@shared/schema';
@@ -33,7 +33,16 @@ const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destruc
   attended: { variant: 'secondary', label: 'Attended' },
   cancelled: { variant: 'destructive', label: 'Cancelled' },
   pending: { variant: 'outline', label: 'Pending' },
+  waitlisted: { variant: 'outline', label: 'Waitlisted' },
 };
+
+function isWithin5Hours(sessionDate: Date | string, startTime: string): boolean {
+  const [hours, minutes] = startTime.split(':').map(Number);
+  const sessionStartAt = new Date(sessionDate);
+  sessionStartAt.setHours(hours, minutes, 0, 0);
+  const cutoff = new Date(sessionStartAt.getTime() - 5 * 60 * 60 * 1000);
+  return new Date() >= cutoff;
+}
 
 export default function MyBookings() {
   const { toast } = useToast();
@@ -47,10 +56,19 @@ export default function MyBookings() {
     mutationFn: async (bookingId: string) => {
       return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`);
     },
-    onSuccess: () => {
-      toast({ title: 'Booking cancelled' });
+    onSuccess: (data: any) => {
+      if (data?.lateFeeApplied) {
+        toast({
+          title: 'Booking cancelled — fee applied',
+          description: 'You cancelled within 5 hours of the session. Your full payment has been retained.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({ title: 'Booking cancelled' });
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/notifications'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to cancel', description: error.message, variant: 'destructive' });
@@ -58,13 +76,18 @@ export default function MyBookings() {
   });
 
   const upcoming = bookings?.filter(b => b.status !== 'cancelled' && new Date(b.session.date) >= new Date()) || [];
+  const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
+  const active = upcoming.filter(b => b.status !== 'waitlisted');
   const past = bookings?.filter(b => b.status === 'cancelled' || new Date(b.session.date) < new Date()) || [];
 
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
-    const canCancel = booking.status === 'confirmed' && new Date(booking.session.date) >= new Date();
+    const isWaitlisted = booking.status === 'waitlisted';
+    const canCancel = (booking.status === 'confirmed' || booking.status === 'waitlisted') && new Date(booking.session.date) >= new Date();
+    const lateFee = !isWaitlisted && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
 
-    const stripColor = booking.status === 'confirmed' ? 'bg-secondary'
+    const stripColor = isWaitlisted ? 'bg-amber-500'
+      : booking.status === 'confirmed' ? 'bg-secondary'
       : booking.status === 'attended' ? 'bg-green-500'
       : booking.status === 'cancelled' ? 'bg-muted-foreground/30'
       : 'bg-muted-foreground/20';
@@ -83,9 +106,17 @@ export default function MyBookings() {
                   Booked {format(new Date(booking.createdAt || Date.now()), 'MMM d, yyyy')}
                 </p>
               </div>
-              <Badge variant={status.variant} data-testid={`badge-status-${booking.id}`}>
-                {status.label}
-              </Badge>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {isWaitlisted && booking.waitlistPosition && (
+                  <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-600 dark:text-amber-400 gap-1" data-testid={`badge-waitlist-position-${booking.id}`}>
+                    <ListOrdered className="h-3 w-3" />
+                    #{booking.waitlistPosition}
+                  </Badge>
+                )}
+                <Badge variant={status.variant} data-testid={`badge-status-${booking.id}`}>
+                  {status.label}
+                </Badge>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm text-muted-foreground mb-4">
@@ -105,16 +136,23 @@ export default function MyBookings() {
 
             <div className="flex items-center justify-between gap-2 pt-3 border-t flex-wrap">
               <div className="flex items-center gap-3">
-                <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
-                  AED {booking.amountAed}
-                </span>
-                <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
-                  {booking.paymentMethod === 'cash' ? (
-                    <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
-                  ) : (
-                    <><CreditCard className="h-3 w-3 mr-1" /> Card</>
-                  )}
-                </Badge>
+                {!isWaitlisted && (
+                  <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
+                    AED {booking.amountAed}
+                  </span>
+                )}
+                {!isWaitlisted && (
+                  <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
+                    {booking.paymentMethod === 'cash' ? (
+                      <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
+                    ) : (
+                      <><CreditCard className="h-3 w-3 mr-1" /> Card</>
+                    )}
+                  </Badge>
+                )}
+                {isWaitlisted && (
+                  <span className="text-xs text-muted-foreground">No payment until confirmed</span>
+                )}
               </div>
               {canCancel && (
                 <AlertDialog>
@@ -126,27 +164,41 @@ export default function MyBookings() {
                       disabled={cancelMutation.isPending}
                       data-testid={`button-cancel-${booking.id}`}
                     >
-                      <XCircle className="h-3.5 w-3.5" /> Cancel
+                      <XCircle className="h-3.5 w-3.5" />
+                      {isWaitlisted ? 'Leave Waitlist' : 'Cancel'}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle className="flex items-center gap-2">
                         <AlertTriangle className="h-5 w-5 text-destructive" />
-                        Cancel Booking
+                        {isWaitlisted ? 'Leave Waitlist' : 'Cancel Booking'}
                       </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Are you sure you want to cancel your booking for <strong>{booking.session.title}</strong> on {format(new Date(booking.session.date), 'MMMM d')}?
-                        Cancellations within 12 hours of the session may be subject to full payment.
+                      <AlertDialogDescription asChild>
+                        <div className="space-y-3">
+                          <p>
+                            {isWaitlisted
+                              ? `Remove yourself from the waitlist for "${booking.session.title}" on ${format(new Date(booking.session.date), 'MMMM d')}?`
+                              : `Are you sure you want to cancel your booking for "${booking.session.title}" on ${format(new Date(booking.session.date), 'MMMM d')}?`}
+                          </p>
+                          {lateFee && !isWaitlisted && (
+                            <div className="flex gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                              <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                              <p className="text-sm text-destructive font-medium">
+                                This cancellation is within 5 hours of the session start. Your full payment of AED {booking.amountAed} will be retained. This cannot be undone.
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Keep Booking</AlertDialogCancel>
+                      <AlertDialogCancel>{isWaitlisted ? 'Stay on Waitlist' : 'Keep Booking'}</AlertDialogCancel>
                       <AlertDialogAction
                         onClick={() => cancelMutation.mutate(booking.id)}
                         className="bg-destructive text-destructive-foreground"
                       >
-                        Yes, Cancel
+                        {isWaitlisted ? 'Leave Waitlist' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -190,14 +242,32 @@ export default function MyBookings() {
           </motion.div>
         ) : (
           <div className="space-y-8">
-            {upcoming.length > 0 && (
+            {waitlisted.length > 0 && (
+              <motion.div variants={fadeInUp}>
+                <div className="flex items-center gap-2 mb-4">
+                  <h2 className="text-lg font-semibold flex items-center gap-2" data-testid="text-waitlist-title">
+                    <ListOrdered className="h-5 w-5 text-amber-500" />
+                    Waitlisted
+                  </h2>
+                  <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-600 dark:text-amber-400">{waitlisted.length}</Badge>
+                </div>
+                <div className="space-y-3">
+                  {waitlisted.map(b => (
+                    <motion.div key={b.id} variants={fadeInUp}>
+                      <BookingCard booking={b} />
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+            {active.length > 0 && (
               <motion.div variants={fadeInUp}>
                 <div className="flex items-center gap-2 mb-4">
                   <h2 className="text-lg font-semibold" data-testid="text-upcoming-title">Upcoming</h2>
-                  <Badge variant="secondary" className="text-xs">{upcoming.length}</Badge>
+                  <Badge variant="secondary" className="text-xs">{active.length}</Badge>
                 </div>
                 <div className="space-y-3">
-                  {upcoming.map(b => (
+                  {active.map(b => (
                     <motion.div key={b.id} variants={fadeInUp}>
                       <BookingCard booking={b} />
                     </motion.div>

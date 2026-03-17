@@ -319,8 +319,36 @@ export function registerMarketplaceRoutes(app: Express) {
 
       const bookableSession = await storage.getBookableSessionWithAvailability(sessionId);
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
-      if (bookableSession.spotsRemaining <= 0) return res.status(400).json({ error: "Session is full" });
       if (bookableSession.status === "cancelled") return res.status(400).json({ error: "Session is cancelled" });
+
+      // Handle waitlist when session is full
+      if (bookableSession.spotsRemaining <= 0) {
+        const waitlistCount = await storage.getWaitlistCountForSession(sessionId);
+        const booking = await storage.createBooking({
+          userId: req.user.userId,
+          sessionId,
+          status: 'waitlisted',
+          paymentMethod: 'cash',
+          ziinaPaymentIntentId: null,
+          amountAed: bookableSession.priceAed,
+          cashPaid: false,
+          waitlistPosition: waitlistCount + 1,
+          lateFeeApplied: false,
+        });
+        return res.json({
+          bookingId: booking.id,
+          waitlisted: true,
+          waitlistPosition: booking.waitlistPosition,
+          amount: bookableSession.priceAed,
+          session: {
+            title: bookableSession.title,
+            venueName: bookableSession.venueName,
+            date: bookableSession.date,
+            startTime: bookableSession.startTime,
+            endTime: bookableSession.endTime,
+          },
+        });
+      }
 
       if (method === 'cash') {
         const booking = await storage.createBooking({
@@ -497,11 +525,66 @@ export function registerMarketplaceRoutes(app: Express) {
       if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
       if (booking.status === "cancelled") return res.status(400).json({ error: "Already cancelled" });
 
+      // Check late cancellation window (< 5 hours before session start)
+      let lateFeeApplied = false;
+      const bookableSession = await storage.getBookableSession(booking.sessionId);
+      if (bookableSession && booking.status === 'confirmed') {
+        const [hours, minutes] = bookableSession.startTime.split(':').map(Number);
+        const sessionStartAt = new Date(bookableSession.date);
+        sessionStartAt.setHours(hours, minutes, 0, 0);
+        const cutoff = new Date(sessionStartAt.getTime() - 5 * 60 * 60 * 1000);
+        if (new Date() >= cutoff) {
+          lateFeeApplied = true;
+        }
+      }
+
+      const wasConfirmed = booking.status === 'confirmed';
+
+      // Cancel the booking
       const updated = await storage.updateBooking(req.params.id, {
         status: "cancelled",
         cancelledAt: new Date(),
+        lateFeeApplied,
       });
-      res.json(updated);
+
+      // Notify user if late fee applied
+      if (lateFeeApplied && bookableSession) {
+        await storage.createMarketplaceNotification({
+          userId: booking.userId,
+          type: 'late_fee_applied',
+          title: 'Cancellation fee applied',
+          message: `You cancelled "${bookableSession.title}" within 5 hours of the session start. Your full payment of AED ${booking.amountAed} has been retained.`,
+          relatedBookingId: booking.id,
+        });
+      }
+
+      // If was a confirmed booking, promote first waitlisted user
+      let promoted: { bookingId: string; userId: string } | null = null;
+      if (wasConfirmed && bookableSession) {
+        const waitlisted = await storage.getWaitlistedBookingsForSession(booking.sessionId);
+        if (waitlisted.length > 0) {
+          const first = waitlisted[0];
+          await storage.updateBooking(first.id, { status: 'confirmed', waitlistPosition: null });
+          promoted = { bookingId: first.id, userId: first.userId };
+
+          // Create notification for promoted user
+          await storage.createMarketplaceNotification({
+            userId: first.userId,
+            type: 'waitlist_promoted',
+            title: "You're confirmed!",
+            message: `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
+            relatedBookingId: first.id,
+          });
+
+          // Re-number remaining waitlisted bookings
+          const remaining = waitlisted.slice(1);
+          for (let i = 0; i < remaining.length; i++) {
+            await storage.updateBooking(remaining[i].id, { waitlistPosition: i + 1 });
+          }
+        }
+      }
+
+      res.json({ booking: updated, lateFeeApplied, promoted });
     } catch (error) {
       res.status(500).json({ error: "Failed to cancel booking" });
     }
@@ -626,6 +709,41 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json(usersWithPlayers);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  // ============================================================
+  // NOTIFICATIONS
+  // ============================================================
+
+  app.get("/api/marketplace/notifications", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const notifications = await storage.getNotificationsForUser(req.user.userId);
+      const unreadCount = notifications.filter(n => !n.read).length;
+      res.json({ notifications, unreadCount });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.post("/api/marketplace/notifications/read-all", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      await storage.markAllNotificationsRead(req.user.userId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark notifications as read" });
+    }
+  });
+
+  app.post("/api/marketplace/notifications/:id/read", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      await storage.markNotificationRead(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark notification as read" });
     }
   });
 
