@@ -29,6 +29,7 @@ import Checkout from "@/pages/marketplace/Checkout";
 import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
 import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
 import PlayerPublicProfile from "@/pages/marketplace/PlayerPublicProfile";
+import ResetPassword from "@/pages/marketplace/ResetPassword";
 
 function MarketplaceRoute({ component: Component, ...rest }: { component: React.ComponentType<any> } & Record<string, any>) {
   return (
@@ -74,6 +75,9 @@ function Router() {
       </Route>
       <Route path="/marketplace/signup">
         <MarketplaceRoute component={MarketplaceSignup} />
+      </Route>
+      <Route path="/marketplace/reset-password">
+        <MarketplaceRoute component={ResetPassword} />
       </Route>
       <Route path="/marketplace/book">
         <MarketplaceRoute component={BookSessions} />

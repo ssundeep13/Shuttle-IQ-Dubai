@@ -118,6 +118,7 @@ export interface IStorage {
   createMarketplaceUser(user: InsertMarketplaceUser): Promise<MarketplaceUser>;
   getMarketplaceUser(id: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined>;
+  getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
   getAllMarketplaceUsers(): Promise<MarketplaceUser[]>;
   createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void>;
@@ -890,6 +891,14 @@ export class DatabaseStorage implements IStorage {
 
   async getMarketplaceUser(id: string): Promise<MarketplaceUser | undefined> {
     const [user] = await db.select().from(marketplaceUsers).where(eq(marketplaceUsers.id, id));
+    return user || undefined;
+  }
+
+  async getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined> {
+    const [user] = await db
+      .select()
+      .from(marketplaceUsers)
+      .where(eq(marketplaceUsers.resetToken, token));
     return user || undefined;
   }
 

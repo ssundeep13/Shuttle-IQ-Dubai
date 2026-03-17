@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { storage } from "./storage";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import {
   generateAccessToken,
@@ -159,6 +160,58 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Logout failed" });
+    }
+  });
+
+  // ============================================================
+  // PASSWORD RESET
+  // ============================================================
+
+  app.post("/api/marketplace/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: "Email required" });
+
+      // Always return success to prevent email enumeration
+      const user = await storage.getMarketplaceUserByEmail(email.toLowerCase().trim());
+      if (user) {
+        const token = randomUUID().replace(/-/g, '');
+        const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+        await storage.updateMarketplaceUser(user.id, { resetToken: token, resetTokenExpiry: expiry });
+
+        // In production, send an email. For now log the reset URL.
+        const resetUrl = `/marketplace/reset-password?token=${token}`;
+        console.log(`[Password Reset] ${user.email}: ${resetUrl}`);
+      }
+
+      res.json({ success: true, message: "If this email is registered, a reset link has been sent." });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to process request" });
+    }
+  });
+
+  app.post("/api/marketplace/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) return res.status(400).json({ error: "Token and password required" });
+      if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+      // Find user by token
+      const user = await storage.getMarketplaceUserByResetToken(token);
+      if (!user || !user.resetTokenExpiry || new Date() > user.resetTokenExpiry) {
+        return res.status(400).json({ error: "Invalid or expired reset link. Please request a new one." });
+      }
+
+      const passwordHash = await hashPassword(password);
+      await storage.updateMarketplaceUser(user.id, {
+        passwordHash,
+        resetToken: null,
+        resetTokenExpiry: null,
+      });
+
+      res.json({ success: true, message: "Password updated. You can now log in." });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reset password" });
     }
   });
 
