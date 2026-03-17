@@ -5,8 +5,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info, Banknote } from 'lucide-react';
+import { Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info, Banknote, ShieldCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookableSessionWithAvailability } from '@shared/schema';
@@ -16,6 +17,99 @@ const fadeInUp = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
 };
 const stagger = { visible: { transition: { staggerChildren: 0.06 } } };
+
+interface SessionPlayer {
+  name: string;
+  level: string | null;
+  skillScore: number | null;
+}
+
+const LEVEL_COLORS: Record<string, string> = {
+  novice: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  beginner: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
+  intermediate: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400',
+  advanced: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400',
+  professional: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
+};
+
+function getInitials(name: string): string {
+  return name
+    .split(' ')
+    .map(n => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function WhosPlaying({ sessionId }: { sessionId: string }) {
+  const { data: players, isLoading } = useQuery<SessionPlayer[]>({
+    queryKey: ['/api/marketplace/sessions', sessionId, 'players'],
+  });
+
+  return (
+    <div data-testid="section-whos-playing">
+      <h3 className="font-semibold mb-3 flex items-center gap-2">
+        <Users className="h-4 w-4 text-secondary" />
+        Who's Playing
+        {players && players.length > 0 && (
+          <Badge variant="secondary" className="text-xs">
+            {players.length}
+          </Badge>
+        )}
+      </h3>
+
+      {isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
+              <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : players && players.length > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {players.map((player, idx) => {
+            const levelKey = player.level?.toLowerCase() ?? '';
+            const levelColor = LEVEL_COLORS[levelKey] ?? 'bg-muted text-muted-foreground';
+            return (
+              <div
+                key={idx}
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50"
+                data-testid={`card-player-${idx}`}
+              >
+                <Avatar className="h-8 w-8 shrink-0">
+                  <AvatarFallback className="text-xs font-semibold bg-secondary/20 text-secondary">
+                    {getInitials(player.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate" data-testid={`text-player-name-${idx}`}>{player.name}</p>
+                  {player.level ? (
+                    <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded capitalize mt-0.5 ${levelColor}`}>
+                      {player.level}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Player</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2 py-6 text-center rounded-lg bg-muted/30">
+          <ShieldCheck className="h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm font-medium text-muted-foreground">Be the first to book!</p>
+          <p className="text-xs text-muted-foreground/70">No players have joined this session yet.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function SessionDetails() {
   const { id } = useParams<{ id: string }>();
@@ -121,6 +215,8 @@ export default function SessionDetails() {
                   <p className="text-sm text-muted-foreground leading-relaxed">{session.description}</p>
                 </div>
               )}
+
+              {isAuthenticated && id && <WhosPlaying sessionId={id} />}
 
               <div className="flex gap-3 p-4 rounded-md border border-orange-500/20 bg-orange-500/5">
                 <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />

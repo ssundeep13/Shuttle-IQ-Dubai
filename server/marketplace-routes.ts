@@ -558,6 +558,39 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Public (authenticated players): get confirmed player list for a session
+  app.get("/api/marketplace/sessions/:id/players", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const sessionBookings = await storage.getSessionBookings(req.params.id);
+      const confirmedBookings = sessionBookings.filter(b => b.status === 'confirmed' || b.status === 'attended');
+
+      const players = await Promise.all(
+        confirmedBookings.map(async (booking) => {
+          let level: string | null = null;
+          let skillScore: number | null = null;
+
+          if (booking.user?.linkedPlayerId) {
+            const player = await storage.getPlayer(booking.user.linkedPlayerId);
+            if (player) {
+              level = player.level ?? null;
+              skillScore = player.skillScore ?? null;
+            }
+          }
+
+          return {
+            name: booking.user?.name ?? 'Player',
+            level,
+            skillScore,
+          };
+        })
+      );
+
+      res.json(players);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch players" });
+    }
+  });
+
   // Admin: get bookings for a session
   app.get("/api/marketplace/sessions/:id/bookings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
