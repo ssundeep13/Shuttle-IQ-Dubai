@@ -432,13 +432,18 @@ export function registerMarketplaceRoutes(app: Express) {
       if (charge.status === 'CAPTURED') {
         await storage.updateBooking(booking.id, { status: 'confirmed' });
 
-        await storage.createPayment({
-          bookingId: booking.id,
-          tapChargeId: charge.id,
-          amount: booking.amountAed,
-          currency: 'aed',
-          status: 'completed',
-        });
+        // Idempotency: only create payment record if one doesn't already exist for this charge
+        const existingPayments = await storage.getPaymentsByBookingId(booking.id);
+        const alreadyRecorded = existingPayments.some(p => p.tapChargeId === charge.id);
+        if (!alreadyRecorded) {
+          await storage.createPayment({
+            bookingId: booking.id,
+            tapChargeId: charge.id,
+            amount: booking.amountAed,
+            currency: 'aed',
+            status: 'completed',
+          });
+        }
 
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
         return res.json({ confirmed: true, booking: bookingWithDetails });

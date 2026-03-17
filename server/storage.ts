@@ -145,6 +145,7 @@ export interface IStorage {
   createPayment(payment: InsertPayment): Promise<Payment>;
   getPayment(id: string): Promise<Payment | undefined>;
   getPaymentByBookingId(bookingId: string): Promise<Payment | undefined>;
+  getPaymentsByBookingId(bookingId: string): Promise<Payment[]>;
   updatePayment(id: string, updates: Partial<Payment>): Promise<Payment | undefined>;
 }
 
@@ -1069,6 +1070,10 @@ export class DatabaseStorage implements IStorage {
   async getPaymentByBookingId(bookingId: string): Promise<Payment | undefined> {
     const [payment] = await db.select().from(payments).where(eq(payments.bookingId, bookingId));
     return payment || undefined;
+  }
+
+  async getPaymentsByBookingId(bookingId: string): Promise<Payment[]> {
+    return db.select().from(payments).where(eq(payments.bookingId, bookingId));
   }
 
   async updatePayment(id: string, updates: Partial<Payment>): Promise<Payment | undefined> {
