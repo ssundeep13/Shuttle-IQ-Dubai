@@ -14,6 +14,14 @@ import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 
+interface SessionInfoItem {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  sub?: string | null;
+  mapUrl?: string | null;
+}
+
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
@@ -312,13 +320,13 @@ export default function SessionDetails() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {[
+                {([
                   { icon: Calendar, label: 'Date', value: format(new Date(session.date), 'EEEE, MMMM d, yyyy') },
                   { icon: Clock, label: 'Time', value: `${session.startTime} - ${session.endTime}` },
-                  { icon: MapPin, label: 'Venue', value: session.venueName, sub: session.venueLocation, mapUrl: (session as any).venueMapUrl },
+                  { icon: MapPin, label: 'Venue', value: session.venueName, sub: session.venueLocation, mapUrl: session.venueMapUrl },
                   { icon: Users, label: 'Capacity', value: `${session.courtCount} courts, ${session.capacity} max players` },
                   { icon: Banknote, label: 'Price', value: `AED ${session.priceAed} per player` },
-                ].map((item) => (
+                ] as SessionInfoItem[]).map((item) => (
                   <div key={item.label} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                     <div className="w-9 h-9 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
                       <item.icon className="h-4 w-4 text-secondary" />
@@ -327,9 +335,9 @@ export default function SessionDetails() {
                       <div className="text-xs text-muted-foreground">{item.label}</div>
                       <div className="font-medium text-sm">{item.value}</div>
                       {item.sub && <div className="text-xs text-muted-foreground">{item.sub}</div>}
-                      {(item as any).mapUrl && (
+                      {item.mapUrl && (
                         <a
-                          href={(item as any).mapUrl}
+                          href={item.mapUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-xs text-primary hover:underline"

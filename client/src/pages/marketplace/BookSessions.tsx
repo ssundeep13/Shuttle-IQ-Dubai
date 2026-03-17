@@ -137,22 +137,23 @@ export default function BookSessions() {
                           <Clock className="h-3.5 w-3.5 shrink-0" />
                           <span>{session.startTime} - {session.endTime}</span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-3.5 w-3.5 shrink-0" />
-                          {(session as any).venueMapUrl ? (
-                            <a
-                              href={(session as any).venueMapUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="truncate hover:underline text-primary"
-                              onClick={(e) => e.stopPropagation()}
-                              data-testid={`link-session-map-card-${session.id}`}
-                            >
-                              {session.venueName}{session.venueLocation ? ` · ${session.venueLocation}` : ''}
-                            </a>
-                          ) : (
-                            <span className="truncate">{session.venueName}{session.venueLocation ? ` · ${session.venueLocation}` : ''}</span>
-                          )}
+                        <div className="flex items-start gap-2">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                          <div className="min-w-0">
+                            <span className="truncate block">{session.venueName}{session.venueLocation ? ` · ${session.venueLocation}` : ''}</span>
+                            {session.venueMapUrl && (
+                              <a
+                                href={session.venueMapUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                                data-testid={`link-session-map-card-${session.id}`}
+                              >
+                                View on Map
+                              </a>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <Users className="h-3.5 w-3.5 shrink-0" />

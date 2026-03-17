@@ -89,7 +89,7 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
       form.reset({
         venueName: session.venueName,
         venueLocation: session.venueLocation || "",
-        venueMapUrl: (session as any).venueMapUrl || "",
+        venueMapUrl: session.venueMapUrl || "",
         date: dateStr,
         courtCount: session.courtCount,
         marketplaceTitle: linkedBookable?.title || "",

@@ -550,11 +550,11 @@ function SessionCard({
               <span className="truncate">{session.venueLocation}</span>
             </div>
           )}
-          {(session as any).venueMapUrl && (
+          {session.venueMapUrl && (
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 shrink-0 text-primary" />
               <a
-                href={(session as any).venueMapUrl}
+                href={session.venueMapUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline truncate text-sm"
