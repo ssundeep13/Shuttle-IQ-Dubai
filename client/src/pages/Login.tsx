@@ -118,13 +118,6 @@ export default function Login() {
             </form>
           </Form>
 
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>Development credentials:</p>
-            <p className="font-mono text-xs mt-1">
-              admin@shuttleiq.com / admin123
-            </p>
-          </div>
-
           <div className="mt-6 pt-4 border-t text-center space-y-3">
             <Link href="/">
               <Button variant="ghost" className="gap-2" data-testid="link-back-home">

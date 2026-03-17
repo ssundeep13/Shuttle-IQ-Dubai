@@ -81,7 +81,7 @@ export async function seedAdminUser(): Promise<AdminUser | null> {
   // Create default admin user
   const existingDefaultAdmin = await findAdminByEmail('admin@shuttleiq.com');
   if (!existingDefaultAdmin) {
-    const defaultPasswordHash = await hashPassword('admin123');
+    const defaultPasswordHash = await hashPassword('admin@shuttleiq.com');
     await createAdminUser({
       email: 'admin@shuttleiq.com',
       passwordHash: defaultPasswordHash,
