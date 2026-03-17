@@ -758,6 +758,62 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Admin: force-confirm a pending Ziina booking (escape hatch when Ziina timing caused status to get stuck)
+  app.post("/api/marketplace/bookings/:id/admin-confirm", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.paymentMethod === 'cash') return res.status(400).json({ error: "Use the cash-paid toggle for cash bookings" });
+      if (booking.status === 'confirmed' || booking.status === 'attended') {
+        return res.json({ message: "Booking already confirmed", booking });
+      }
+
+      // Try to fetch latest Ziina status first; log it for audit purposes
+      let ziinaStatus = 'unknown';
+      if (booking.ziinaPaymentIntentId) {
+        try {
+          const intent = await retrieveZiinaPaymentIntent(booking.ziinaPaymentIntentId);
+          ziinaStatus = intent.status;
+          console.log(`[Admin confirm] Booking ${booking.id} — Ziina status at confirm time: "${ziinaStatus}"`);
+        } catch (zErr) {
+          console.warn(`[Admin confirm] Could not fetch Ziina status for booking ${booking.id}:`, zErr);
+        }
+      }
+
+      await storage.updateBooking(booking.id, { status: 'confirmed' });
+
+      // Record the payment if not already present
+      if (booking.ziinaPaymentIntentId) {
+        const existingPayments = await storage.getPaymentsByBookingId(booking.id);
+        const alreadyRecorded = existingPayments.some(p => p.ziinaPaymentIntentId === booking.ziinaPaymentIntentId);
+        if (!alreadyRecorded) {
+          await storage.createPayment({
+            bookingId: booking.id,
+            ziinaPaymentIntentId: booking.ziinaPaymentIntentId,
+            amount: booking.amountAed,
+            currency: 'aed',
+            status: 'completed',
+          });
+        }
+      }
+
+      // Send confirmation email (fully isolated)
+      try {
+        const user = await storage.getMarketplaceUser(booking.userId);
+        const session = await storage.getBookableSession(booking.sessionId);
+        if (user && session) {
+          sendBookingConfirmationEmail(user.email, user.name, session, 'ziina', booking.amountAed).catch(() => {});
+        }
+      } catch (emailErr) { console.error('[Email] admin-confirm email failed:', emailErr); }
+
+      const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+      res.json({ confirmed: true, ziinaStatus, booking: bookingWithDetails });
+    } catch (error: any) {
+      console.error('Admin confirm error:', error);
+      res.status(500).json({ error: "Failed to confirm booking" });
+    }
+  });
+
   // Public (authenticated players): get confirmed player list for a session
   app.get("/api/marketplace/sessions/:id/players", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {

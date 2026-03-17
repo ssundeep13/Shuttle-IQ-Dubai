@@ -56,9 +56,14 @@ export async function createZiinaPaymentIntent(input: ZiinaPaymentIntentInput): 
 }
 
 export async function retrieveZiinaPaymentIntent(intentId: string): Promise<ZiinaPaymentIntent> {
-  return ziinaRequest('GET', `/payment_intent/${intentId}`);
+  const result = await ziinaRequest('GET', `/payment_intent/${intentId}`);
+  // Log the raw status so we can identify any new status strings Ziina introduces
+  console.log(`[Ziina] Payment intent ${intentId} status: "${result.status}"`);
+  return result;
 }
 
 export function isZiinaPaymentSuccessful(status: string): boolean {
-  return ['completed', 'paid', 'succeeded', 'COMPLETED', 'PAID', 'SUCCEEDED'].includes(status);
+  // Normalise to lowercase for a case-insensitive check across all Ziina status variants
+  const s = (status || '').toLowerCase();
+  return ['completed', 'paid', 'succeeded', 'success', 'authorized', 'captured', 'approved'].includes(s);
 }

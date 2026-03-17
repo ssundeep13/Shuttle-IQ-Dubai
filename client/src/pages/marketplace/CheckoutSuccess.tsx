@@ -5,8 +5,16 @@ import { CheckCircle, Loader2, AlertCircle } from 'lucide-react';
 import { Link } from 'wouter';
 import type { BookingWithDetails } from '@shared/schema';
 
+const MAX_ATTEMPTS = 4;
+const RETRY_DELAY_MS = 2500;
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export default function CheckoutSuccess() {
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
+  const [attempt, setAttempt] = useState(0);
   const [booking, setBooking] = useState<BookingWithDetails | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -27,37 +35,62 @@ export default function CheckoutSuccess() {
       return;
     }
 
-    fetch(`/api/marketplace/bookings/${bookingId}/confirm`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.confirmed) {
-          setStatus('success');
-          setBooking(data.booking);
-        } else if (data.status && data.status !== 'requires_payment_instrument') {
-          setStatus('error');
-          setErrorMessage(
-            `Payment status: ${data.status}. Please contact support if you were charged.`
-          );
-        } else {
-          setStatus('error');
-          setErrorMessage(
-            data.status
-              ? `Payment status: ${data.status}. Please contact support if you were charged.`
-              : 'Payment not confirmed. Please contact support.'
-          );
+    // Poll the confirm endpoint up to MAX_ATTEMPTS times with a delay between each.
+    // Ziina sometimes redirects before it finishes updating the payment status on
+    // their side, so we give them a few seconds to settle before giving up.
+    let cancelled = false;
+
+    async function pollConfirm() {
+      for (let i = 0; i < MAX_ATTEMPTS; i++) {
+        if (cancelled) return;
+        if (i > 0) {
+          setAttempt(i);
+          await sleep(RETRY_DELAY_MS);
         }
-      })
-      .catch(() => {
-        setStatus('error');
-        setErrorMessage('Failed to verify payment');
-      });
+        if (cancelled) return;
+
+        try {
+          const res = await fetch(`/api/marketplace/bookings/${bookingId}/confirm`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          const data = await res.json();
+
+          if (data.confirmed) {
+            setStatus('success');
+            setBooking(data.booking);
+            return;
+          }
+
+          // If it's the last attempt, surface the error
+          if (i === MAX_ATTEMPTS - 1) {
+            setStatus('error');
+            setErrorMessage(
+              data.status
+                ? `Payment status: ${data.status}. Please contact support if you were charged.`
+                : 'Payment not confirmed. Please contact support.'
+            );
+          }
+          // Otherwise loop around and retry
+        } catch {
+          if (i === MAX_ATTEMPTS - 1) {
+            setStatus('error');
+            setErrorMessage('Failed to verify payment. Please check My Bookings or contact support.');
+          }
+        }
+      }
+    }
+
+    pollConfirm();
+    return () => { cancelled = true; };
   }, []);
+
+  const verifyingLabel = attempt > 0
+    ? `Checking with payment provider… (attempt ${attempt + 1} of ${MAX_ATTEMPTS})`
+    : 'Verifying your payment…';
 
   return (
     <div className="max-w-lg mx-auto px-4 py-12">
@@ -66,7 +99,7 @@ export default function CheckoutSuccess() {
           {status === 'verifying' && (
             <>
               <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary mb-4" />
-              <CardTitle>Verifying your payment...</CardTitle>
+              <CardTitle>{verifyingLabel}</CardTitle>
             </>
           )}
           {status === 'success' && (

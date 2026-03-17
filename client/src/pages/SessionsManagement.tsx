@@ -692,6 +692,25 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     },
   });
 
+  const adminConfirmMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      const res = await fetch(`/api/marketplace/bookings/${bookingId}/admin-confirm`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: 'Booking confirmed',
+        description: data.ziinaStatus ? `Ziina status was: ${data.ziinaStatus}` : undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', linkedBookable?.id, 'bookings'] });
+    },
+    onError: () => toast({ title: 'Failed to confirm booking', variant: 'destructive' }),
+  });
+
   const sessionRevenue = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended').reduce((sum, b) => sum + b.amountAed, 0) || 0;
 
   const confirmedBookings = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended' || b.status === 'cancelled') || [];
@@ -761,6 +780,19 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             >
               <Banknote className="h-3 w-3" />
               {booking.cashPaid ? 'Mark Unpaid' : 'Mark Cash Paid'}
+            </Button>
+          )}
+          {booking.paymentMethod !== 'cash' && booking.status === 'pending' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1 border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400"
+              onClick={() => adminConfirmMutation.mutate(booking.id)}
+              disabled={adminConfirmMutation.isPending}
+              data-testid={`button-admin-confirm-${booking.id}`}
+            >
+              <CheckCircle className="h-3 w-3" />
+              Confirm Payment
             </Button>
           )}
           {booking.status === 'confirmed' && (
