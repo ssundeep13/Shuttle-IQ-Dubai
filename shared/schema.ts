@@ -322,6 +322,29 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true,
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
 
+// Score Disputes (marketplace players flagging incorrect game results)
+export const scoreDisputes = pgTable("score_disputes", {
+  id: varchar("id").primaryKey(),
+  gameResultId: varchar("game_result_id").notNull(),
+  filedByUserId: varchar("filed_by_user_id").notNull(),
+  note: text("note"),
+  status: text("status").notNull().default('open'), // 'open' | 'resolved' | 'dismissed'
+  adminNote: text("admin_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertScoreDisputeSchema = createInsertSchema(scoreDisputes).omit({ id: true, createdAt: true });
+export type InsertScoreDispute = z.infer<typeof insertScoreDisputeSchema>;
+export type ScoreDispute = typeof scoreDisputes.$inferSelect;
+
+export interface ScoreDisputeWithDetails extends ScoreDispute {
+  filedByName: string;
+  filedByEmail: string;
+  gameScore: string;
+  gameDate: Date;
+  sessionId: string;
+}
+
 // Marketplace Notifications
 export const marketplaceNotifications = pgTable("marketplace_notifications", {
   id: varchar("id").primaryKey(),

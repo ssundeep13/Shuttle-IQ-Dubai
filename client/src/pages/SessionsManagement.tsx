@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle } from 'lucide-react';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
@@ -29,7 +29,9 @@ import { Leaderboard } from '@/components/Leaderboard';
 import { EditPlayerModal } from '@/components/EditPlayerModal';
 import { EditSessionModal } from '@/components/EditSessionModal';
 import { useToast } from '@/hooks/use-toast';
-import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser } from '@shared/schema';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails } from '@shared/schema';
 
 interface MarketplaceUserWithLinkedPlayer extends MarketplaceUser {
   linkedPlayer: { id: string; name: string; shuttleIqId: string } | null;
@@ -69,6 +71,13 @@ export default function SessionsManagement() {
     staleTime: 0,
     refetchOnMount: 'always',
   });
+
+  const { data: disputes = [] } = useQuery<ScoreDisputeWithDetails[]>({
+    queryKey: ['/api/disputes'],
+    refetchOnMount: 'always',
+  });
+
+  const openDisputeCount = disputes.filter(d => d.status === 'open').length;
 
   useEffect(() => {
     if (!showCreateSession) {
@@ -210,6 +219,15 @@ export default function SessionsManagement() {
                 <ShoppingBag className="w-4 h-4 mr-2" />
                 Marketplace Users
               </TabsTrigger>
+              <TabsTrigger value="disputes" data-testid="tab-disputes" className="flex items-center gap-2">
+                <Flag className="w-4 h-4" />
+                Disputes
+                {openDisputeCount > 0 && (
+                  <Badge className="ml-1 h-5 min-w-5 px-1 text-xs bg-amber-500 text-white border-0 no-default-hover-elevate no-default-active-elevate">
+                    {openDisputeCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
             </TabsList>
 
             {activeTab === 'sessions' && (
@@ -251,6 +269,10 @@ export default function SessionsManagement() {
 
           <TabsContent value="marketplace-users" className="mt-6 space-y-6">
             <MarketplaceUsersTabContent />
+          </TabsContent>
+
+          <TabsContent value="disputes" className="mt-6">
+            <DisputesTabContent disputes={disputes} />
           </TabsContent>
         </Tabs>
       </main>
@@ -1266,6 +1288,223 @@ function MarketplaceUsersSubTab() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function DisputesTabContent({ disputes }: { disputes: ScoreDisputeWithDetails[] }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [resolvingDispute, setResolvingDispute] = useState<ScoreDisputeWithDetails | null>(null);
+  const [adminNote, setAdminNote] = useState('');
+  const [pendingStatus, setPendingStatus] = useState<'resolved' | 'dismissed'>('dismissed');
+  const [editingScore, setEditingScore] = useState<ScoreDisputeWithDetails | null>(null);
+  const [team1Score, setTeam1Score] = useState(0);
+  const [team2Score, setTeam2Score] = useState(0);
+
+  const resolveMutation = useMutation({
+    mutationFn: async ({ id, status, adminNote }: { id: string; status: 'resolved' | 'dismissed'; adminNote: string }) =>
+      apiRequest('PATCH', `/api/disputes/${id}`, { status, adminNote: adminNote.trim() || undefined }),
+    onSuccess: () => {
+      toast({ title: pendingStatus === 'resolved' ? 'Dispute Resolved' : 'Dispute Dismissed', description: 'The player has been notified by email.' });
+      setResolvingDispute(null);
+      setAdminNote('');
+      queryClient.invalidateQueries({ queryKey: ['/api/disputes'] });
+    },
+    onError: () => toast({ title: 'Error', description: 'Failed to update dispute', variant: 'destructive' }),
+  });
+
+  const editScoreMutation = useMutation({
+    mutationFn: async ({ gameResultId, t1, t2 }: { gameResultId: string; t1: number; t2: number }) =>
+      apiRequest('PATCH', `/api/game-results/${gameResultId}`, { team1Score: t1, team2Score: t2 }),
+    onSuccess: () => {
+      toast({ title: 'Score Updated', description: 'Now mark the dispute as resolved.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/game-history'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      const dispute = editingScore;
+      setEditingScore(null);
+      if (dispute) {
+        setPendingStatus('resolved');
+        setAdminNote('Score has been corrected as requested.');
+        setResolvingDispute(dispute);
+      }
+    },
+    onError: () => toast({ title: 'Error', description: 'Failed to update score', variant: 'destructive' }),
+  });
+
+  const openDisputes = disputes.filter(d => d.status === 'open');
+  const closedDisputes = disputes.filter(d => d.status !== 'open');
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+          <Flag className="h-4 w-4 text-amber-500" />
+          Open Disputes
+          {openDisputes.length > 0 && (
+            <Badge className="bg-amber-500 text-white border-0 no-default-hover-elevate no-default-active-elevate">
+              {openDisputes.length}
+            </Badge>
+          )}
+        </h3>
+        {openDisputes.length === 0 ? (
+          <Card>
+            <CardContent className="p-8 text-center text-muted-foreground">
+              <CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-green-500 opacity-60" />
+              <p className="font-medium">No open disputes</p>
+              <p className="text-sm mt-1">All score disputes have been resolved.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {openDisputes.map(d => (
+              <Card key={d.id} data-testid={`card-dispute-${d.id}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm" data-testid={`text-dispute-player-${d.id}`}>{d.filedByName}</span>
+                        <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate">{d.filedByEmail}</Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+                        <span>Score: <strong className="text-foreground">{d.gameScore}</strong></span>
+                        <span>&middot;</span>
+                        <span>{format(new Date(d.gameDate), 'MMM d, yyyy')}</span>
+                      </div>
+                      {d.note && (
+                        <p className="text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mt-2" data-testid={`text-dispute-note-${d.id}`}>
+                          "{d.note}"
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const parts = d.gameScore.split(' - ');
+                          setTeam1Score(parseInt(parts[0]) || 0);
+                          setTeam2Score(parseInt(parts[1]) || 0);
+                          setEditingScore(d);
+                        }}
+                        data-testid={`button-edit-score-${d.id}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5 mr-1" />
+                        Edit Score
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => { setPendingStatus('dismissed'); setAdminNote(''); setResolvingDispute(d); }}
+                        data-testid={`button-dismiss-${d.id}`}
+                      >
+                        <XCircle className="h-3.5 w-3.5 mr-1" />
+                        Dismiss
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {closedDisputes.length > 0 && (
+        <div>
+          <h3 className="text-base font-semibold mb-3 text-muted-foreground">Resolved / Dismissed</h3>
+          <div className="space-y-2">
+            {closedDisputes.map(d => (
+              <Card key={d.id} className="opacity-60" data-testid={`card-dispute-closed-${d.id}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <span className="font-medium text-sm">{d.filedByName}</span>
+                      <div className="text-xs text-muted-foreground">
+                        Score: {d.gameScore} &middot; {format(new Date(d.gameDate), 'MMM d, yyyy')}
+                        {d.adminNote && <span> &middot; "{d.adminNote}"</span>}
+                      </div>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={`text-xs no-default-hover-elevate no-default-active-elevate ${d.status === 'resolved' ? 'text-green-600 border-green-500/30' : 'text-muted-foreground'}`}
+                    >
+                      {d.status === 'resolved' ? 'Resolved' : 'Dismissed'}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Score Dialog */}
+      <Dialog open={!!editingScore} onOpenChange={(open) => { if (!open) setEditingScore(null); }}>
+        <DialogContent data-testid="dialog-edit-dispute-score">
+          <DialogHeader>
+            <DialogTitle>Edit Game Score</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-2">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Team 1 Score</label>
+              <Input type="number" min={0} value={team1Score} onChange={(e) => setTeam1Score(Number(e.target.value))} data-testid="input-dispute-team1-score" />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Team 2 Score</label>
+              <Input type="number" min={0} value={team2Score} onChange={(e) => setTeam2Score(Number(e.target.value))} data-testid="input-dispute-team2-score" />
+            </div>
+          </div>
+          {team1Score === team2Score && team1Score > 0 && (
+            <p className="text-sm text-amber-600">Scores cannot be tied.</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingScore(null)}>Cancel</Button>
+            <Button
+              onClick={() => { if (editingScore) editScoreMutation.mutate({ gameResultId: editingScore.gameResultId, t1: team1Score, t2: team2Score }); }}
+              disabled={editScoreMutation.isPending || team1Score === team2Score}
+              data-testid="button-dispute-save-score"
+            >
+              {editScoreMutation.isPending ? 'Saving...' : 'Save & Resolve Dispute'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resolve / Dismiss confirmation Dialog */}
+      <Dialog open={!!resolvingDispute} onOpenChange={(open) => { if (!open) setResolvingDispute(null); }}>
+        <DialogContent data-testid="dialog-resolve-dispute">
+          <DialogHeader>
+            <DialogTitle>{pendingStatus === 'resolved' ? 'Resolve Dispute' : 'Dismiss Dispute'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              {pendingStatus === 'resolved'
+                ? 'Confirm that the score has been corrected. The player will be notified by email.'
+                : 'Dismiss this dispute. The original score will remain as recorded. The player will be notified by email.'}
+            </p>
+            <Textarea
+              placeholder="Optional note to the player..."
+              value={adminNote}
+              onChange={(e) => setAdminNote(e.target.value)}
+              maxLength={500}
+              rows={2}
+              data-testid="textarea-admin-note"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResolvingDispute(null)}>Cancel</Button>
+            <Button
+              onClick={() => { if (resolvingDispute) resolveMutation.mutate({ id: resolvingDispute.id, status: pendingStatus, adminNote }); }}
+              disabled={resolveMutation.isPending}
+              data-testid="button-confirm-resolve"
+            >
+              {resolveMutation.isPending ? 'Saving...' : pendingStatus === 'resolved' ? 'Resolve' : 'Dismiss'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -237,3 +237,69 @@ export async function sendSessionReminderEmail(
   await sendEmail(toEmail, `Reminder: ${session.title} is tomorrow`, emailWrapper(body));
   console.log(`[Email] Reminder sent to ${toEmail}`);
 }
+
+export async function sendDisputeResolutionEmail(
+  toEmail: string,
+  params: {
+    playerName: string;
+    status: 'resolved' | 'dismissed';
+    gameScore: string;
+    gameDate: Date;
+    adminNote?: string | null;
+  }
+): Promise<void> {
+  const { playerName, status, gameScore, gameDate, adminNote } = params;
+  const dateStr = gameDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const isResolved = status === 'resolved';
+  const statusLabel = isResolved ? 'Resolved' : 'Dismissed';
+  const statusColor = isResolved ? '#059669' : '#a0aec0';
+  const adminNoteHtml = adminNote
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f9fb;border-radius:6px;margin-bottom:24px;">
+        <tr>
+          <td style="padding:16px 20px;">
+            <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#0a2540;">Note from the admin</p>
+            <p style="margin:0;font-size:14px;color:#4a5568;line-height:1.6;">${adminNote}</p>
+          </td>
+        </tr>
+      </table>`
+    : '';
+  const body = `
+    <h2 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#0a2540;letter-spacing:-0.3px;">Score Dispute Update</h2>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${playerName}, your score dispute has been reviewed.</p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f9fb;border-radius:6px;margin-bottom:24px;">
+      <tr>
+        <td style="padding:16px 20px;">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="font-size:13px;color:#6b7280;padding-bottom:6px;">Game</td>
+              <td style="font-size:13px;color:#6b7280;padding-bottom:6px;text-align:right;">Status</td>
+            </tr>
+            <tr>
+              <td>
+                <p style="margin:0;font-size:15px;font-weight:600;color:#0a2540;">${gameScore}</p>
+                <p style="margin:2px 0 0;font-size:13px;color:#6b7280;">${dateStr}</p>
+              </td>
+              <td style="text-align:right;">
+                <span style="display:inline-block;padding:4px 12px;border-radius:20px;background-color:${statusColor}20;color:${statusColor};font-size:13px;font-weight:600;">${statusLabel}</span>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    ${adminNoteHtml}
+
+    <p style="margin:0 0 24px;font-size:14px;color:#4a5568;line-height:1.6;">
+      ${isResolved
+        ? 'Your dispute has been reviewed and the game score has been updated accordingly. Your updated stats will be reflected in your profile.'
+        : 'Your dispute has been reviewed by our team. After careful consideration, the original score has been kept as recorded.'}
+    </p>
+
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+    <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">If you have further questions, please contact the session organiser directly.</p>
+  `;
+  await sendEmail(toEmail, `Score Dispute ${statusLabel} — ShuttleIQ`, emailWrapper(body));
+  console.log(`[Email] Dispute resolution email sent to ${toEmail} (${status})`);
+}

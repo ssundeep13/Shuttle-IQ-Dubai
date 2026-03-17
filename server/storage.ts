@@ -20,6 +20,8 @@ import {
   type Payment,
   type InsertPayment,
   type MarketplaceNotification,
+  type ScoreDispute,
+  type ScoreDisputeWithDetails,
   players,
   courts,
   courtPlayers as courtPlayersTable,
@@ -33,6 +35,7 @@ import {
   bookings,
   payments,
   marketplaceNotifications,
+  scoreDisputes,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte } from "drizzle-orm";
@@ -159,6 +162,14 @@ export interface IStorage {
   getPaymentByBookingId(bookingId: string): Promise<Payment | undefined>;
   getPaymentsByBookingId(bookingId: string): Promise<Payment[]>;
   updatePayment(id: string, updates: Partial<Payment>): Promise<Payment | undefined>;
+
+  // Score dispute operations
+  createScoreDispute(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<ScoreDispute>;
+  getScoreDispute(id: string): Promise<ScoreDispute | undefined>;
+  getDisputeByUserAndGame(userId: string, gameResultId: string): Promise<ScoreDispute | undefined>;
+  getAllDisputesWithDetails(): Promise<ScoreDisputeWithDetails[]>;
+  getDisputesByUser(userId: string): Promise<ScoreDispute[]>;
+  updateScoreDispute(id: string, updates: Partial<ScoreDispute>): Promise<ScoreDispute | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1188,6 +1199,69 @@ export class DatabaseStorage implements IStorage {
       .update(marketplaceNotifications)
       .set({ read: true })
       .where(eq(marketplaceNotifications.userId, userId));
+  }
+
+  // Score dispute operations
+  async createScoreDispute(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<ScoreDispute> {
+    const id = randomUUID();
+    const [dispute] = await db
+      .insert(scoreDisputes)
+      .values({ id, gameResultId: data.gameResultId, filedByUserId: data.filedByUserId, note: data.note ?? null, status: 'open' })
+      .returning();
+    return dispute;
+  }
+
+  async getScoreDispute(id: string): Promise<ScoreDispute | undefined> {
+    const [dispute] = await db.select().from(scoreDisputes).where(eq(scoreDisputes.id, id));
+    return dispute;
+  }
+
+  async getDisputeByUserAndGame(userId: string, gameResultId: string): Promise<ScoreDispute | undefined> {
+    const [dispute] = await db
+      .select()
+      .from(scoreDisputes)
+      .where(and(eq(scoreDisputes.filedByUserId, userId), eq(scoreDisputes.gameResultId, gameResultId)));
+    return dispute;
+  }
+
+  async getAllDisputesWithDetails(): Promise<ScoreDisputeWithDetails[]> {
+    const rows = await db
+      .select({
+        id: scoreDisputes.id,
+        gameResultId: scoreDisputes.gameResultId,
+        filedByUserId: scoreDisputes.filedByUserId,
+        note: scoreDisputes.note,
+        status: scoreDisputes.status,
+        adminNote: scoreDisputes.adminNote,
+        createdAt: scoreDisputes.createdAt,
+        filedByName: marketplaceUsers.name,
+        filedByEmail: marketplaceUsers.email,
+        team1Score: gameResults.team1Score,
+        team2Score: gameResults.team2Score,
+        gameDate: gameResults.createdAt,
+        sessionId: gameResults.sessionId,
+      })
+      .from(scoreDisputes)
+      .innerJoin(marketplaceUsers, eq(scoreDisputes.filedByUserId, marketplaceUsers.id))
+      .innerJoin(gameResults, eq(scoreDisputes.gameResultId, gameResults.id))
+      .orderBy(desc(scoreDisputes.createdAt));
+    return rows.map(r => ({
+      ...r,
+      gameScore: `${r.team1Score} - ${r.team2Score}`,
+    }));
+  }
+
+  async getDisputesByUser(userId: string): Promise<ScoreDispute[]> {
+    return db.select().from(scoreDisputes).where(eq(scoreDisputes.filedByUserId, userId)).orderBy(desc(scoreDisputes.createdAt));
+  }
+
+  async updateScoreDispute(id: string, updates: Partial<ScoreDispute>): Promise<ScoreDispute | undefined> {
+    const [updated] = await db
+      .update(scoreDisputes)
+      .set(updates)
+      .where(eq(scoreDisputes.id, id))
+      .returning();
+    return updated;
   }
 }
 

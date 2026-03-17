@@ -8,6 +8,7 @@ import {
   sendBookingConfirmationEmail,
   sendWaitlistPromotionEmail,
   sendCancellationEmail,
+  sendDisputeResolutionEmail,
 } from "./emailClient";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import {
@@ -917,6 +918,91 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+  });
+
+  // ============================================================
+  // SCORE DISPUTES
+  // ============================================================
+
+  // File a dispute (marketplace player)
+  app.post("/api/marketplace/game-results/:gameResultId/dispute", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const { gameResultId } = req.params;
+      const userId = req.user!.userId;
+      const { note } = z.object({ note: z.string().max(500).optional() }).parse(req.body);
+
+      const existing = await storage.getDisputeByUserAndGame(userId, gameResultId);
+      if (existing) {
+        return res.status(409).json({ error: "You have already filed a dispute for this game." });
+      }
+
+      const dispute = await storage.createScoreDispute({ gameResultId, filedByUserId: userId, note });
+      res.status(201).json(dispute);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to file dispute" });
+    }
+  });
+
+  // Get current user's disputes (marketplace player)
+  app.get("/api/marketplace/my-disputes", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const userId = req.user!.userId;
+      const disputes = await storage.getDisputesByUser(userId);
+      res.json(disputes);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch disputes" });
+    }
+  });
+
+  // Get all disputes (admin)
+  app.get("/api/disputes", requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const disputes = await storage.getAllDisputesWithDetails();
+      res.json(disputes);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch disputes" });
+    }
+  });
+
+  // Resolve or dismiss a dispute (admin)
+  app.patch("/api/disputes/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { status, adminNote } = z.object({
+        status: z.enum(['resolved', 'dismissed']),
+        adminNote: z.string().max(500).optional(),
+      }).parse(req.body);
+
+      const dispute = await storage.getScoreDispute(id);
+      if (!dispute) return res.status(404).json({ error: "Dispute not found" });
+
+      const updated = await storage.updateScoreDispute(id, { status, adminNote: adminNote ?? null });
+
+      // Send email notification to the player
+      try {
+        const user = await storage.getMarketplaceUser(dispute.filedByUserId);
+        if (user) {
+          // Get dispute details for the email
+          const allDisputes = await storage.getAllDisputesWithDetails();
+          const detail = allDisputes.find(d => d.id === id);
+          if (detail) {
+            await sendDisputeResolutionEmail(user.email, {
+              playerName: user.name,
+              status,
+              gameScore: detail.gameScore,
+              gameDate: detail.gameDate,
+              adminNote: adminNote ?? null,
+            });
+          }
+        }
+      } catch (emailErr) {
+        console.error('[Email] Failed to send dispute resolution email:', emailErr);
+      }
+
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to update dispute" });
     }
   });
 
