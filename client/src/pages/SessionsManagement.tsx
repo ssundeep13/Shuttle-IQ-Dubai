@@ -714,6 +714,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
   const sessionRevenue = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended').reduce((sum, b) => sum + b.amountAed, 0) || 0;
 
   const confirmedBookings = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended' || b.status === 'cancelled') || [];
+  const pendingBookings = bookings?.filter(b => b.status === 'pending') || [];
   const waitlistedBookings = bookings?.filter(b => b.status === 'waitlisted') || [];
 
   const BookingRow = ({ booking }: { booking: BookingWithDetails }) => (
@@ -835,6 +836,20 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
               <div className="py-8 text-center text-muted-foreground text-sm">No bookings yet</div>
             ) : (
               <div className="space-y-5">
+                {pendingBookings.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                        Pending Payment
+                      </p>
+                      <Badge variant="outline" className="text-xs border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400">{pendingBookings.length}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {pendingBookings.map(b => <BookingRow key={b.id} booking={b} />)}
+                    </div>
+                  </div>
+                )}
+
                 {confirmedBookings.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-2">
