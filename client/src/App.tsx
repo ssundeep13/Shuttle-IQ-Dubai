@@ -28,6 +28,7 @@ import Dashboard from "@/pages/marketplace/Dashboard";
 import Checkout from "@/pages/marketplace/Checkout";
 import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
 import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
+import PlayerPublicProfile from "@/pages/marketplace/PlayerPublicProfile";
 
 function MarketplaceRoute({ component: Component, ...rest }: { component: React.ComponentType<any> } & Record<string, any>) {
   return (
@@ -104,6 +105,9 @@ function Router() {
       </Route>
       <Route path="/marketplace/profile">
         <MarketplaceAuthRoute component={Profile} />
+      </Route>
+      <Route path="/marketplace/players/:id">
+        <MarketplaceRoute component={PlayerPublicProfile} />
       </Route>
 
       <Route component={NotFound} />

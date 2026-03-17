@@ -581,6 +581,7 @@ export function registerMarketplaceRoutes(app: Express) {
             name: booking.user?.name ?? 'Player',
             level,
             skillScore,
+            linkedPlayerId: booking.user?.linkedPlayerId ?? null,
           };
         })
       );

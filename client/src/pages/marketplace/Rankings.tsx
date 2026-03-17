@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'wouter';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -188,30 +189,32 @@ export default function Rankings() {
                       const rank = podiumIdx + 1;
                       return (
                         <motion.div key={entry.player.id} variants={fadeInUp}>
-                          <Card
-                            className={`text-center border ${colors.border} ${podiumIdx === 0 ? 'md:-mt-4' : ''}`}
-                            data-testid={`card-podium-${entry.player.id}`}
-                          >
-                            <CardContent className="p-4">
-                              <div className={`w-10 h-10 rounded-full ${colors.bg} flex items-center justify-center mx-auto mb-2`}>
-                                <Medal className={`h-5 w-5 ${colors.medal}`} />
-                              </div>
-                              <div className={`text-xs font-bold ${colors.text} mb-1`}>#{rank}</div>
-                              <p className="font-semibold text-sm truncate" data-testid={`text-player-name-${entry.player.id}`}>
-                                {entry.player.name}
-                              </p>
-                              <p className="text-2xl font-extrabold mt-1" data-testid={`text-player-score-${entry.player.id}`}>
-                                {entry.primaryStat}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground -mt-0.5">{entry.primaryLabel}</p>
-                              <Badge variant="outline" className={`text-xs mt-2 ${levelColor(entry.player.level)}`}>
-                                {entry.player.level}
-                              </Badge>
-                              <p className="text-xs text-muted-foreground mt-1.5">
-                                {entry.secondaryLine}
-                              </p>
-                            </CardContent>
-                          </Card>
+                          <Link href={`/marketplace/players/${entry.player.id}`}>
+                            <Card
+                              className={`text-center border ${colors.border} ${podiumIdx === 0 ? 'md:-mt-4' : ''} hover-elevate cursor-pointer`}
+                              data-testid={`card-podium-${entry.player.id}`}
+                            >
+                              <CardContent className="p-4">
+                                <div className={`w-10 h-10 rounded-full ${colors.bg} flex items-center justify-center mx-auto mb-2`}>
+                                  <Medal className={`h-5 w-5 ${colors.medal}`} />
+                                </div>
+                                <div className={`text-xs font-bold ${colors.text} mb-1`}>#{rank}</div>
+                                <p className="font-semibold text-sm truncate" data-testid={`text-player-name-${entry.player.id}`}>
+                                  {entry.player.name}
+                                </p>
+                                <p className="text-2xl font-extrabold mt-1" data-testid={`text-player-score-${entry.player.id}`}>
+                                  {entry.primaryStat}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground -mt-0.5">{entry.primaryLabel}</p>
+                                <Badge variant="outline" className={`text-xs mt-2 ${levelColor(entry.player.level)}`}>
+                                  {entry.player.level}
+                                </Badge>
+                                <p className="text-xs text-muted-foreground mt-1.5">
+                                  {entry.secondaryLine}
+                                </p>
+                              </CardContent>
+                            </Card>
+                          </Link>
                         </motion.div>
                       );
                     })}
@@ -223,33 +226,34 @@ export default function Rankings() {
                     <CardContent className="p-0">
                       <div className="divide-y">
                         {rest.map((entry, index) => (
-                          <motion.div
-                            key={entry.player.id}
-                            variants={fadeInUp}
-                            className="flex items-center gap-3 px-4 py-3"
-                            data-testid={`row-player-${entry.player.id}`}
-                          >
-                            <div className="w-8 text-center shrink-0">
-                              <span className="text-sm text-muted-foreground font-medium">{index + 4}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate" data-testid={`text-player-name-${entry.player.id}`}>
-                                {entry.player.name}
+                          <Link key={entry.player.id} href={`/marketplace/players/${entry.player.id}`}>
+                            <motion.div
+                              variants={fadeInUp}
+                              className="flex items-center gap-3 px-4 py-3 hover-elevate cursor-pointer"
+                              data-testid={`row-player-${entry.player.id}`}
+                            >
+                              <div className="w-8 text-center shrink-0">
+                                <span className="text-sm text-muted-foreground font-medium">{index + 4}</span>
                               </div>
-                              <div className="text-xs text-muted-foreground">{entry.player.shuttleIqId}</div>
-                            </div>
-                            <div className="text-right shrink-0 space-y-1">
-                              <div className="font-semibold" data-testid={`text-player-score-${entry.player.id}`}>
-                                {entry.primaryStat} <span className="text-xs font-normal text-muted-foreground">{entry.primaryLabel}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium truncate" data-testid={`text-player-name-${entry.player.id}`}>
+                                  {entry.player.name}
+                                </div>
+                                <div className="text-xs text-muted-foreground">{entry.player.shuttleIqId}</div>
                               </div>
-                              <Badge variant="outline" className={`text-xs ${levelColor(entry.player.level)}`}>
-                                {entry.player.level}
-                              </Badge>
-                            </div>
-                            <div className="text-right shrink-0 text-sm text-muted-foreground w-24">
-                              <div>{entry.secondaryLine}</div>
-                            </div>
-                          </motion.div>
+                              <div className="text-right shrink-0 space-y-1">
+                                <div className="font-semibold" data-testid={`text-player-score-${entry.player.id}`}>
+                                  {entry.primaryStat} <span className="text-xs font-normal text-muted-foreground">{entry.primaryLabel}</span>
+                                </div>
+                                <Badge variant="outline" className={`text-xs ${levelColor(entry.player.level)}`}>
+                                  {entry.player.level}
+                                </Badge>
+                              </div>
+                              <div className="text-right shrink-0 text-sm text-muted-foreground w-24">
+                                <div>{entry.secondaryLine}</div>
+                              </div>
+                            </motion.div>
+                          </Link>
                         ))}
                       </div>
                     </CardContent>

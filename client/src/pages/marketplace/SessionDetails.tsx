@@ -22,6 +22,7 @@ interface SessionPlayer {
   name: string;
   level: string | null;
   skillScore: number | null;
+  linkedPlayerId: string | null;
 }
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -77,12 +78,8 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
           {players.map((player, idx) => {
             const levelKey = player.level?.toLowerCase() ?? '';
             const levelColor = LEVEL_COLORS[levelKey] ?? 'bg-muted text-muted-foreground';
-            return (
-              <div
-                key={idx}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50"
-                data-testid={`card-player-${idx}`}
-              >
+            const cardContent = (
+              <>
                 <Avatar className="h-8 w-8 shrink-0">
                   <AvatarFallback className="text-xs font-semibold bg-secondary/20 text-secondary">
                     {getInitials(player.name)}
@@ -98,6 +95,24 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
                     <span className="text-xs text-muted-foreground">Player</span>
                   )}
                 </div>
+              </>
+            );
+            return player.linkedPlayerId ? (
+              <Link key={idx} href={`/marketplace/players/${player.linkedPlayerId}`}>
+                <div
+                  className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50 hover-elevate cursor-pointer"
+                  data-testid={`card-player-${idx}`}
+                >
+                  {cardContent}
+                </div>
+              </Link>
+            ) : (
+              <div
+                key={idx}
+                className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50"
+                data-testid={`card-player-${idx}`}
+              >
+                {cardContent}
               </div>
             );
           })}
