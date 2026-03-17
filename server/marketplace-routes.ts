@@ -371,22 +371,30 @@ export function registerMarketplaceRoutes(app: Express) {
         cashPaid: false,
       });
 
-      const redirectUrl = `${process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 'http://localhost:5000'}/marketplace/checkout/success?booking_id=${booking.id}`;
+      let charge;
+      try {
+        const redirectUrl = `${process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 'http://localhost:5000'}/marketplace/checkout/success?booking_id=${booking.id}`;
 
-      const charge = await createTapCharge({
-        amount: bookableSession.priceAed,
-        currency: 'AED',
-        sourceId: tapToken,
-        description: `Booking for ${bookableSession.title}`,
-        reference: booking.id,
-        redirectUrl,
-        metadata: {
-          bookingId: booking.id,
-          sessionId,
-          userId: req.user.userId,
-          sessionTitle: bookableSession.title,
-        },
-      });
+        charge = await createTapCharge({
+          amount: bookableSession.priceAed,
+          currency: 'AED',
+          sourceId: tapToken,
+          description: `Booking for ${bookableSession.title}`,
+          reference: booking.id,
+          redirectUrl,
+          metadata: {
+            bookingId: booking.id,
+            sessionId,
+            userId: req.user.userId,
+            sessionTitle: bookableSession.title,
+          },
+        });
+      } catch (chargeError: any) {
+        // Cancel the pending booking so the user can retry
+        await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date() });
+        console.error('Tap charge creation failed — booking cancelled:', chargeError.message);
+        return res.status(502).json({ error: chargeError.message || 'Payment provider error. Please try again.' });
+      }
 
       await storage.updateBooking(booking.id, { tapChargeId: charge.id });
 

@@ -39,12 +39,17 @@ export default function CheckoutSuccess() {
         if (data.confirmed) {
           setStatus('success');
           setBooking(data.booking);
-        } else if (data.status === 'processing' || data.status === 'requires_action') {
+        } else if (data.status === 'INITIATED' || data.status === 'AUTHORIZED') {
+          // Tap interim states — payment is in progress
           setStatus('success');
           setBooking(null);
         } else {
           setStatus('error');
-          setErrorMessage('Payment not confirmed. Please contact support.');
+          setErrorMessage(
+            data.status
+              ? `Payment status: ${data.status}. Please contact support if you were charged.`
+              : 'Payment not confirmed. Please contact support.'
+          );
         }
       })
       .catch(() => {
