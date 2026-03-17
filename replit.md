@@ -81,6 +81,9 @@ Preferred communication style: Simple, everyday language.
 #### Payments
 - **Ziina**: Payment processing via Ziina REST API (UAE-focused, redirect-based hosted checkout). Uses `ZIINA_API_TOKEN` env var. No frontend SDK required — backend creates payment intent and returns redirect URL.
 
+#### Email
+- **Resend**: Transactional email via Resend API. Uses `RESEND_API_KEY` secret. Client at `server/emailClient.ts`. Currently used for marketplace password reset emails. From address: `onboarding@resend.dev` (Resend's shared domain for testing; swap to a verified custom domain for production). `sendPasswordResetEmail(toEmail, resetUrl)` sends a branded HTML email with a 1-hour expiry reset link.
+
 #### Session & Utilities
 - **connect-pg-simple**: PostgreSQL session store.
 - **clsx** and **tailwind-merge**: Utility for conditional className management.

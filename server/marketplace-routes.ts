@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { storage } from "./storage";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { sendPasswordResetEmail } from "./emailClient";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import {
   generateAccessToken,
@@ -172,19 +173,26 @@ export function registerMarketplaceRoutes(app: Express) {
       const { email } = req.body;
       if (!email) return res.status(400).json({ error: "Email required" });
 
-      // Always return success to prevent email enumeration
       const user = await storage.getMarketplaceUserByEmail(email.toLowerCase().trim());
       if (user) {
         const token = randomUUID().replace(/-/g, '');
         const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
         await storage.updateMarketplaceUser(user.id, { resetToken: token, resetTokenExpiry: expiry });
 
-        const resetUrl = `/marketplace/reset-password?token=${token}`;
-        console.log(`[Password Reset] ${user.email}: ${resetUrl}`);
-        return res.json({ success: true, resetUrl });
+        const host = req.get('host') || 'localhost:5000';
+        const protocol = req.get('x-forwarded-proto') || req.protocol || 'https';
+        const resetUrl = `${protocol}://${host}/marketplace/reset-password?token=${token}`;
+
+        try {
+          await sendPasswordResetEmail(user.email, resetUrl);
+          console.log(`[Password Reset] Email sent to ${user.email}`);
+        } catch (emailErr) {
+          console.error(`[Password Reset] Email failed for ${user.email}, token: ${token}`, emailErr);
+        }
       }
 
-      res.json({ success: true });
+      // Always return the same response to prevent email enumeration
+      res.json({ success: true, message: "If that email is registered, a reset link is on its way." });
     } catch (error) {
       res.status(500).json({ error: "Failed to process request" });
     }
