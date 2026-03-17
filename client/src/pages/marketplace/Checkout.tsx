@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useLocation, Link } from 'wouter';
+import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -50,7 +51,7 @@ function OrderSummary({ sessionInfo, amount }: { sessionInfo: BookingData['sessi
       <CardContent className="space-y-3">
         <div className="flex items-center gap-2 text-sm">
           <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span>{sessionInfo.date}</span>
+          <span>{sessionInfo.date ? format(new Date(sessionInfo.date), 'MMM d, yyyy') : '—'}</span>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <Clock className="h-4 w-4 text-muted-foreground shrink-0" />

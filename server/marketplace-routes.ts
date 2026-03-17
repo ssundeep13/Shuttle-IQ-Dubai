@@ -308,8 +308,13 @@ export function registerMarketplaceRoutes(app: Express) {
       const method = paymentMethod === 'cash' ? 'cash' : 'ziina';
 
       const existingBooking = await storage.getUserBookingForSession(req.user.userId, sessionId);
-      if (existingBooking && existingBooking.status !== 'cancelled') {
-        return res.status(400).json({ error: "You already have a booking for this session" });
+      if (existingBooking) {
+        if (existingBooking.status === 'pending') {
+          // Previous payment was never completed — cancel it and allow retry
+          await storage.updateBooking(existingBooking.id, { status: 'cancelled', cancelledAt: new Date() });
+        } else if (existingBooking.status !== 'cancelled') {
+          return res.status(400).json({ error: "You already have a booking for this session" });
+        }
       }
 
       const bookableSession = await storage.getBookableSessionWithAvailability(sessionId);
