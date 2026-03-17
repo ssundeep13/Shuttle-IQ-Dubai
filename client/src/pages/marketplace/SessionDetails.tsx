@@ -42,8 +42,10 @@ function getInitials(name: string): string {
 }
 
 function WhosPlaying({ sessionId }: { sessionId: string }) {
+  const { isAuthenticated } = useMarketplaceAuth();
   const { data: players, isLoading } = useQuery<SessionPlayer[]>({
     queryKey: ['/api/marketplace/sessions', sessionId, 'players'],
+    enabled: !!isAuthenticated && !!sessionId,
   });
 
   return (
