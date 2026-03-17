@@ -2,7 +2,7 @@ import { db } from "../db";
 import { adminUsers, authSessions, type InsertAdminUser, type AdminUser, type AuthSession } from "@shared/schema";
 import { eq, lt, gt } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { hashPassword } from "./utils";
+import { hashPassword, comparePassword } from "./utils";
 import bcrypt from "bcryptjs";
 
 export async function createAdminUser(data: InsertAdminUser): Promise<AdminUser> {
@@ -70,6 +70,25 @@ export async function deleteAuthSession(refreshToken: string): Promise<void> {
 
 export async function deleteExpiredSessions(): Promise<void> {
   await db.delete(authSessions).where(lt(authSessions.expiresAt, new Date()));
+}
+
+// Rotate the default admin@shuttleiq.com password away from the legacy 'admin123'
+// default. Runs at every startup; is idempotent — exits immediately once the
+// old password no longer matches (i.e. already rotated or account doesn't exist).
+export async function rotateDefaultAdminPassword(): Promise<void> {
+  const LEGACY_PASSWORD = 'admin123';
+  const NEW_PASSWORD = 'admin@shuttleiq.com';
+  const TARGET_EMAIL = 'admin@shuttleiq.com';
+
+  const admin = await findAdminByEmail(TARGET_EMAIL);
+  if (!admin) return; // account not yet seeded — nothing to rotate
+
+  const stillHasLegacy = await comparePassword(LEGACY_PASSWORD, admin.passwordHash);
+  if (!stillHasLegacy) return; // already rotated
+
+  const newHash = await hashPassword(NEW_PASSWORD);
+  await db.update(adminUsers).set({ passwordHash: newHash }).where(eq(adminUsers.email, TARGET_EMAIL));
+  console.log('[Auth] Default admin password rotated to new credential');
 }
 
 export async function seedAdminUser(): Promise<AdminUser | null> {
