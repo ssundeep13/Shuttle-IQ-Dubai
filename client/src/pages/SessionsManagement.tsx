@@ -735,7 +735,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                           {booking.paymentMethod === 'cash' ? (
                             <><Banknote className="h-3 w-3 mr-1" /> Cash</>
                           ) : (
-                            <><CreditCard className="h-3 w-3 mr-1" /> Card</>
+                            <><CreditCard className="h-3 w-3 mr-1" /> Tap</>
                           )}
                         </Badge>
                         <Badge
