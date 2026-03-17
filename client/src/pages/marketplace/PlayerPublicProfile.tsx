@@ -403,7 +403,8 @@ export default function PlayerPublicProfile() {
                         ? 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300'
                         : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300';
                       return (
-                        <div key={rival.player.id} className="rounded-lg border p-3" data-testid={`rival-${rival.player.id}`}>
+                        <Link key={rival.player.id} href={`/marketplace/players/${rival.player.id}`}>
+                        <div className="rounded-lg border p-3 hover-elevate cursor-pointer" data-testid={`rival-${rival.player.id}`}>
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-semibold shrink-0">
                               {getInitial(rival.player.name)}
@@ -428,6 +429,7 @@ export default function PlayerPublicProfile() {
                             <div className={`h-full rounded-full transition-all ${rBarColor}`} style={{ width: `${rWinRate}%` }} />
                           </div>
                         </div>
+                        </Link>
                       );
                     })}
                   </CardContent>
@@ -454,7 +456,8 @@ export default function PlayerPublicProfile() {
                         : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300';
                       const isBestPartner = idx === 0 && stats.bestPartner?.player.id === partner.player.id;
                       return (
-                        <div key={partner.player.id} className="rounded-lg border p-3" data-testid={`partner-${partner.player.id}`}>
+                        <Link key={partner.player.id} href={`/marketplace/players/${partner.player.id}`}>
+                        <div className="rounded-lg border p-3 hover-elevate cursor-pointer" data-testid={`partner-${partner.player.id}`}>
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-semibold shrink-0 relative">
                               {getInitial(partner.player.name)}
@@ -480,6 +483,7 @@ export default function PlayerPublicProfile() {
                             <div className={`h-full rounded-full transition-all ${pBarColor}`} style={{ width: `${pWinRate}%` }} />
                           </div>
                         </div>
+                        </Link>
                       );
                     })}
                   </CardContent>
