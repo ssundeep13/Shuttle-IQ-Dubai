@@ -1,7 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useLocation, Link } from 'wouter';
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,10 +7,18 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info } from 'lucide-react';
 
+declare global {
+  interface Window {
+    Tapjsli?: (publicKey: string) => any;
+  }
+}
+
 interface BookingData {
   bookingId: string;
-  paymentMethod: 'stripe' | 'cash';
-  clientSecret?: string;
+  paymentMethod: 'tap' | 'cash';
+  chargeId?: string;
+  chargeStatus?: string;
+  redirectUrl?: string;
   amount: number;
   session: {
     title: string;
@@ -21,17 +27,6 @@ interface BookingData {
     startTime: string;
     endTime: string;
   };
-}
-
-let stripePromise: ReturnType<typeof loadStripe> | null = null;
-
-function getStripePromise() {
-  if (!stripePromise) {
-    stripePromise = fetch('/api/marketplace/stripe/config')
-      .then(r => r.json())
-      .then(data => loadStripe(data.publishableKey));
-  }
-  return stripePromise;
 }
 
 function CancellationPolicy() {
@@ -82,52 +77,117 @@ function OrderSummary({ sessionInfo, amount }: { sessionInfo: BookingData['sessi
   );
 }
 
-function PaymentForm({ bookingId, amount, sessionInfo, onSuccess }: {
+function TapPaymentForm({ bookingId, amount, sessionInfo, onSuccess }: {
   bookingId: string;
   amount: number;
   sessionInfo: BookingData['session'];
   onSuccess: () => void;
 }) {
-  const stripe = useStripe();
-  const elements = useElements();
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tapReady, setTapReady] = useState(false);
+  const [publicKey, setPublicKey] = useState<string | null>(null);
+  const tapRef = useRef<any>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    fetch('/api/marketplace/tap/config')
+      .then(r => r.json())
+      .then(data => {
+        if (data.publicKey) setPublicKey(data.publicKey);
+        else setError('Payment provider not configured. Please contact support.');
+      })
+      .catch(() => setError('Could not load payment provider. Please try again.'));
+  }, []);
+
+  useEffect(() => {
+    if (!publicKey) return;
+
+    const loadTapSDK = () => {
+      if (window.Tapjsli) {
+        initTap(window.Tapjsli);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://secure.gosell.io/js/sdk/tap.min.js';
+      script.async = true;
+      script.onload = () => {
+        if (window.Tapjsli) initTap(window.Tapjsli);
+      };
+      document.head.appendChild(script);
+    };
+
+    const initTap = (Tapjsli: any) => {
+      const tap = Tapjsli(publicKey);
+      const elements = tap.elements({});
+      const style = {
+        base: {
+          color: '#535353',
+          lineHeight: '18px',
+          fontFamily: 'sans-serif',
+          fontSmoothing: 'antialiased',
+          fontSize: '16px',
+          '::placeholder': { color: 'rgba(0, 0, 0, 0.26)', fontSize: '15px' },
+        },
+        invalid: { color: 'red', iconColor: '#fa755a' },
+      };
+      const card = elements.create('card', { style });
+      if (cardRef.current) {
+        card.mount(cardRef.current);
+        card.addEventListener('change', (event: any) => {
+          if (event.error) setError(event.error.message);
+          else setError(null);
+        });
+      }
+      tapRef.current = { tap, card };
+      setTapReady(true);
+    };
+
+    loadTapSDK();
+  }, [publicKey]);
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!stripe || !elements) return;
+    if (!tapRef.current || !tapReady) return;
 
     setProcessing(true);
     setError(null);
 
-    const { error: submitError } = await elements.submit();
-    if (submitError) {
-      setError(submitError.message || 'Validation error');
-      setProcessing(false);
-      return;
-    }
+    const token = localStorage.getItem('mp_accessToken');
 
-    const { error: confirmError, paymentIntent } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        return_url: `${window.location.origin}/marketplace/checkout/success?booking_id=${bookingId}`,
-      },
-      redirect: 'if_required',
-    });
+    try {
+      const { tap, card } = tapRef.current;
+      const result = await tap.createToken(card);
 
-    if (confirmError) {
-      setError(confirmError.message || 'Payment failed');
-      setProcessing(false);
-    } else if (paymentIntent?.status === 'succeeded') {
-      const token = localStorage.getItem('mp_accessToken');
-      try {
-        const confirmRes = await fetch(`/api/marketplace/bookings/${bookingId}/confirm`, {
+      if (result.error) {
+        setError(result.error.message || 'Card validation failed');
+        setProcessing(false);
+        return;
+      }
+
+      const tapToken = result.id;
+
+      const res = await fetch('/api/marketplace/bookings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ sessionId: bookingId, paymentMethod: 'tap', tapToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Booking failed');
+
+      if (data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+        return;
+      }
+
+      if (data.chargeStatus === 'CAPTURED') {
+        const confirmRes = await fetch(`/api/marketplace/bookings/${data.bookingId}/confirm`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         });
         const confirmData = await confirmRes.json();
         if (confirmRes.ok && confirmData.confirmed) {
@@ -135,35 +195,40 @@ function PaymentForm({ bookingId, amount, sessionInfo, onSuccess }: {
           onSuccess();
         } else {
           setError(confirmData.error || 'Failed to confirm booking. Please contact support.');
-          setProcessing(false);
         }
-      } catch {
-        setError('Failed to confirm booking. Your payment was received — please contact support.');
-        setProcessing(false);
+      } else {
+        setError('Payment was not completed. Please try again.');
       }
-    } else if (paymentIntent?.status === 'processing') {
-      toast({ title: 'Payment processing', description: 'Your payment is being processed. We will confirm your booking shortly.' });
-      onSuccess();
-    } else {
-      setError('Payment was not completed. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'Payment failed. Please try again.');
+    } finally {
       setProcessing(false);
     }
-  }, [stripe, elements, bookingId, toast, onSuccess]);
+  }, [tapReady, bookingId, toast, onSuccess]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <OrderSummary sessionInfo={sessionInfo} amount={amount} />
-
       <CancellationPolicy />
 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
-            <CreditCard className="h-5 w-5" /> Payment Details
+            <CreditCard className="h-5 w-5" /> Card Details
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <PaymentElement />
+          {!publicKey && !error && (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          <div ref={cardRef} id="tap-card-element" className={!publicKey ? 'hidden' : ''} />
+          {!tapReady && publicKey && (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -178,7 +243,7 @@ function PaymentForm({ bookingId, amount, sessionInfo, onSuccess }: {
         type="submit"
         size="lg"
         className="w-full gap-2"
-        disabled={!stripe || processing}
+        disabled={!tapReady || processing}
         data-testid="button-confirm-payment"
       >
         {processing ? (
@@ -189,20 +254,20 @@ function PaymentForm({ bookingId, amount, sessionInfo, onSuccess }: {
       </Button>
 
       <p className="text-xs text-muted-foreground text-center">
-        Payments are securely processed by Stripe.
+        Payments are securely processed by Tap Payments.
       </p>
     </form>
   );
 }
 
-function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'stripe' | 'cash') => void }) {
+function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'tap' | 'cash') => void }) {
   return (
     <div className="space-y-3">
       <h3 className="text-lg font-semibold">How would you like to pay?</h3>
       <div className="grid grid-cols-1 gap-3">
         <Card
           className="hover-elevate cursor-pointer"
-          onClick={() => onSelect('stripe')}
+          onClick={() => onSelect('tap')}
           data-testid="button-pay-card"
         >
           <CardContent className="p-4 flex items-center gap-4">
@@ -210,8 +275,8 @@ function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'stripe' | 'ca
               <CreditCard className="h-6 w-6 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-medium">Pay Online</p>
-              <p className="text-sm text-muted-foreground">Secure card payment via Stripe</p>
+              <p className="font-medium">Pay by Card</p>
+              <p className="text-sm text-muted-foreground">Secure card payment via Tap Payments</p>
             </div>
           </CardContent>
         </Card>
@@ -241,7 +306,7 @@ export default function Checkout() {
   const { isAuthenticated } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [paymentMethod, setPaymentMethod] = useState<'stripe' | 'cash' | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'tap' | 'cash' | null>(null);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -280,8 +345,13 @@ export default function Checkout() {
       });
   }, [sessionId, isAuthenticated, setLocation]);
 
-  const handlePaymentMethodSelect = async (method: 'stripe' | 'cash') => {
-    setPaymentMethod(method);
+  const handlePaymentMethodSelect = async (method: 'tap' | 'cash') => {
+    if (method === 'tap') {
+      setPaymentMethod('tap');
+      return;
+    }
+
+    setPaymentMethod('cash');
     setLoading(true);
     setError(null);
 
@@ -300,19 +370,15 @@ export default function Checkout() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ sessionId, paymentMethod: method }),
+        body: JSON.stringify({ sessionId, paymentMethod: 'cash' }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Booking failed');
 
-      if (method === 'cash') {
-        toast({ title: 'Booking confirmed', description: 'Please pay in cash when you arrive at the venue.' });
-        setConfirmed(true);
-        setBookingData(data);
-      } else {
-        setBookingData(data);
-      }
+      toast({ title: 'Booking confirmed', description: 'Please pay in cash when you arrive at the venue.' });
+      setConfirmed(true);
+      setBookingData(data);
       setLoading(false);
     } catch (err: any) {
       setError(err.message);
@@ -413,26 +479,13 @@ export default function Checkout() {
         </div>
       )}
 
-      {paymentMethod === 'stripe' && bookingData?.clientSecret && !loading && (
-        <Elements
-          stripe={getStripePromise()}
-          options={{
-            clientSecret: bookingData.clientSecret,
-            appearance: {
-              theme: 'stripe',
-              variables: {
-                colorPrimary: '#002C84',
-              },
-            },
-          }}
-        >
-          <PaymentForm
-            bookingId={bookingData.bookingId}
-            amount={bookingData.amount}
-            sessionInfo={bookingData.session}
-            onSuccess={() => setConfirmed(true)}
-          />
-        </Elements>
+      {paymentMethod === 'tap' && sessionInfo && !loading && (
+        <TapPaymentForm
+          bookingId={sessionId!}
+          amount={amount}
+          sessionInfo={sessionInfo}
+          onSuccess={() => setConfirmed(true)}
+        />
       )}
 
       {error && paymentMethod && (

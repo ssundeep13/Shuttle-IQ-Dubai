@@ -9,7 +9,7 @@ import {
   hashPassword,
   verifyRefreshToken,
 } from "./auth/utils";
-import { getUncachableStripeClient, getPublishableKey } from "./stripeClient";
+import { getTapPublicKey, createTapCharge, retrieveTapCharge } from "./tapClient";
 
 export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
@@ -296,15 +296,15 @@ export function registerMarketplaceRoutes(app: Express) {
   });
 
   // ============================================================
-  // STRIPE CONFIG
+  // TAP PAYMENTS CONFIG
   // ============================================================
 
-  app.get("/api/marketplace/stripe/config", async (_req, res) => {
+  app.get("/api/marketplace/tap/config", async (_req, res) => {
     try {
-      const publishableKey = await getPublishableKey();
-      res.json({ publishableKey });
+      const publicKey = getTapPublicKey();
+      res.json({ publicKey });
     } catch (error) {
-      res.status(500).json({ error: "Failed to get Stripe config" });
+      res.status(500).json({ error: "Tap Payments is not configured" });
     }
   });
 
@@ -315,10 +315,10 @@ export function registerMarketplaceRoutes(app: Express) {
   app.post("/api/marketplace/bookings", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const { sessionId, paymentMethod } = req.body;
+      const { sessionId, paymentMethod, tapToken } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
 
-      const method = paymentMethod === 'cash' ? 'cash' : 'stripe';
+      const method = paymentMethod === 'cash' ? 'cash' : 'tap';
 
       const existingBooking = await storage.getUserBookingForSession(req.user.userId, sessionId);
       if (existingBooking && existingBooking.status !== 'cancelled') {
@@ -336,8 +336,7 @@ export function registerMarketplaceRoutes(app: Express) {
           sessionId,
           status: "confirmed",
           paymentMethod: "cash",
-          paymentIntentId: null,
-          stripeCheckoutSessionId: null,
+          tapChargeId: null,
           amountAed: bookableSession.priceAed,
           cashPaid: false,
         });
@@ -358,33 +357,45 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      const stripe = await getUncachableStripeClient();
+      if (!tapToken) {
+        return res.status(400).json({ error: "Payment token required for card payment" });
+      }
 
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: bookableSession.priceAed * 100,
-        currency: 'aed',
+      const booking = await storage.createBooking({
+        userId: req.user.userId,
+        sessionId,
+        status: "pending",
+        paymentMethod: "tap",
+        tapChargeId: null,
+        amountAed: bookableSession.priceAed,
+        cashPaid: false,
+      });
+
+      const redirectUrl = `${process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 'http://localhost:5000'}/marketplace/checkout/success?booking_id=${booking.id}`;
+
+      const charge = await createTapCharge({
+        amount: bookableSession.priceAed,
+        currency: 'AED',
+        sourceId: tapToken,
+        description: `Booking for ${bookableSession.title}`,
+        reference: booking.id,
+        redirectUrl,
         metadata: {
+          bookingId: booking.id,
           sessionId,
           userId: req.user.userId,
           sessionTitle: bookableSession.title,
         },
       });
 
-      const booking = await storage.createBooking({
-        userId: req.user.userId,
-        sessionId,
-        status: "pending",
-        paymentMethod: "stripe",
-        paymentIntentId: paymentIntent.id,
-        stripeCheckoutSessionId: null,
-        amountAed: bookableSession.priceAed,
-        cashPaid: false,
-      });
+      await storage.updateBooking(booking.id, { tapChargeId: charge.id });
 
       res.json({
         bookingId: booking.id,
-        paymentMethod: "stripe",
-        clientSecret: paymentIntent.client_secret,
+        paymentMethod: "tap",
+        chargeId: charge.id,
+        chargeStatus: charge.status,
+        redirectUrl: charge.transaction?.url,
         amount: bookableSession.priceAed,
         session: {
           title: bookableSession.title,
@@ -396,7 +407,7 @@ export function registerMarketplaceRoutes(app: Express) {
       });
     } catch (error: any) {
       console.error('Booking error:', error);
-      res.status(500).json({ error: "Failed to create booking" });
+      res.status(500).json({ error: error.message || "Failed to create booking" });
     }
   });
 
@@ -412,37 +423,27 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.json({ confirmed: true, booking: bookingWithDetails });
       }
 
-      if (!booking.paymentIntentId) {
+      if (!booking.tapChargeId) {
         return res.status(400).json({ error: "No payment associated with this booking" });
       }
 
-      const stripe = await getUncachableStripeClient();
-      const paymentIntent = await stripe.paymentIntents.retrieve(booking.paymentIntentId);
+      const charge = await retrieveTapCharge(booking.tapChargeId);
 
-      if (paymentIntent.metadata?.userId !== req.user.userId) {
-        return res.status(400).json({ error: "Payment metadata mismatch" });
-      }
-
-      const expectedAmountCents = booking.amountAed * 100;
-      if (paymentIntent.amount !== expectedAmountCents) {
-        return res.status(400).json({ error: "Payment amount mismatch" });
-      }
-
-      if (paymentIntent.status === 'succeeded') {
+      if (charge.status === 'CAPTURED') {
         await storage.updateBooking(booking.id, { status: 'confirmed' });
 
         await storage.createPayment({
           bookingId: booking.id,
-          stripePaymentIntentId: paymentIntent.id,
+          tapChargeId: charge.id,
           amount: booking.amountAed,
-          currency: "aed",
-          status: "completed",
+          currency: 'aed',
+          status: 'completed',
         });
 
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
         return res.json({ confirmed: true, booking: bookingWithDetails });
       } else {
-        return res.json({ confirmed: false, status: paymentIntent.status });
+        return res.json({ confirmed: false, status: charge.status });
       }
     } catch (error: any) {
       console.error('Confirm error:', error);
@@ -473,8 +474,7 @@ export function registerMarketplaceRoutes(app: Express) {
         sessionId,
         status: "confirmed",
         paymentMethod: "cash",
-        paymentIntentId: null,
-        stripeCheckoutSessionId: null,
+        tapChargeId: null,
         amountAed: session.priceAed,
         cashPaid: false,
       });
