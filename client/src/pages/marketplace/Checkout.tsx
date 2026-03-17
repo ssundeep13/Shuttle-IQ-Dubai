@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info } from 'lucide-react';
+import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered } from 'lucide-react';
 
 interface BookingData {
   bookingId: string;
@@ -77,6 +77,7 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
 }) {
   const [processing, setProcessing] = useState(false);
   const [paymentOpened, setPaymentOpened] = useState(false);
+  const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -103,6 +104,13 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Booking failed');
 
+      // Race condition: session became full while user was on checkout
+      if (data.waitlisted) {
+        setWaitlisted({ position: data.waitlistPosition });
+        setProcessing(false);
+        return;
+      }
+
       if (!data.redirectUrl) {
         throw new Error('No payment URL received. Please try again.');
       }
@@ -122,6 +130,30 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
       setProcessing(false);
     }
   };
+
+  if (waitlisted) {
+    return (
+      <div className="space-y-6">
+        <OrderSummary sessionInfo={sessionInfo} amount={amount} />
+        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <ListOrdered className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                Session filled up — you're on the waitlist!
+              </p>
+            </div>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              The last spot was taken just before your booking. You've been added to the waitlist at position #{waitlisted.position}. No payment is required — we'll notify you if a spot opens up.
+            </p>
+          </CardContent>
+        </Card>
+        <Link href="/marketplace/my-bookings">
+          <Button className="w-full" data-testid="button-view-waitlist">View My Bookings</Button>
+        </Link>
+      </div>
+    );
+  }
 
   if (paymentOpened) {
     return (
