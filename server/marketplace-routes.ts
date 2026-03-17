@@ -9,7 +9,7 @@ import {
   hashPassword,
   verifyRefreshToken,
 } from "./auth/utils";
-import { getTapPublicKey, createTapCharge, retrieveTapCharge } from "./tapClient";
+import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaClient";
 
 export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
@@ -296,29 +296,16 @@ export function registerMarketplaceRoutes(app: Express) {
   });
 
   // ============================================================
-  // TAP PAYMENTS CONFIG
-  // ============================================================
-
-  app.get("/api/marketplace/tap/config", async (_req, res) => {
-    try {
-      const publicKey = getTapPublicKey();
-      res.json({ publicKey });
-    } catch (error) {
-      res.status(500).json({ error: "Tap Payments is not configured" });
-    }
-  });
-
-  // ============================================================
   // CHECKOUT
   // ============================================================
 
   app.post("/api/marketplace/bookings", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const { sessionId, paymentMethod, tapToken } = req.body;
+      const { sessionId, paymentMethod } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
 
-      const method = paymentMethod === 'cash' ? 'cash' : 'tap';
+      const method = paymentMethod === 'cash' ? 'cash' : 'ziina';
 
       const existingBooking = await storage.getUserBookingForSession(req.user.userId, sessionId);
       if (existingBooking && existingBooking.status !== 'cancelled') {
@@ -336,7 +323,7 @@ export function registerMarketplaceRoutes(app: Express) {
           sessionId,
           status: "confirmed",
           paymentMethod: "cash",
-          tapChargeId: null,
+          ziinaPaymentIntentId: null,
           amountAed: bookableSession.priceAed,
           cashPaid: false,
         });
@@ -357,53 +344,42 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      if (!tapToken) {
-        return res.status(400).json({ error: "Payment token required for card payment" });
-      }
-
       const booking = await storage.createBooking({
         userId: req.user.userId,
         sessionId,
         status: "pending",
-        paymentMethod: "tap",
-        tapChargeId: null,
+        paymentMethod: "ziina",
+        ziinaPaymentIntentId: null,
         amountAed: bookableSession.priceAed,
         cashPaid: false,
       });
 
-      let charge;
+      let paymentIntent;
       try {
-        const redirectUrl = `${process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 'http://localhost:5000'}/marketplace/checkout/success?booking_id=${booking.id}`;
+        const baseUrl = process.env.REPLIT_DOMAINS
+          ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+          : 'http://localhost:5000';
 
-        charge = await createTapCharge({
-          amount: bookableSession.priceAed,
-          currency: 'AED',
-          sourceId: tapToken,
-          description: `Booking for ${bookableSession.title}`,
-          reference: booking.id,
-          redirectUrl,
-          metadata: {
-            bookingId: booking.id,
-            sessionId,
-            userId: req.user.userId,
-            sessionTitle: bookableSession.title,
-          },
+        paymentIntent = await createZiinaPaymentIntent({
+          amountAed: bookableSession.priceAed,
+          message: `Booking for ${bookableSession.title}`,
+          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}`,
+          cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
+          failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
         });
-      } catch (chargeError: any) {
-        // Cancel the pending booking so the user can retry
+      } catch (intentError: any) {
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date() });
-        console.error('Tap charge creation failed — booking cancelled:', chargeError.message);
-        return res.status(502).json({ error: chargeError.message || 'Payment provider error. Please try again.' });
+        console.error('Ziina payment intent creation failed — booking cancelled:', intentError.message);
+        return res.status(502).json({ error: intentError.message || 'Payment provider error. Please try again.' });
       }
 
-      await storage.updateBooking(booking.id, { tapChargeId: charge.id });
+      await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
 
       res.json({
         bookingId: booking.id,
-        paymentMethod: "tap",
-        chargeId: charge.id,
-        chargeStatus: charge.status,
-        redirectUrl: charge.transaction?.url,
+        paymentMethod: "ziina",
+        paymentIntentId: paymentIntent.id,
+        redirectUrl: paymentIntent.redirect_url,
         amount: bookableSession.priceAed,
         session: {
           title: bookableSession.title,
@@ -431,22 +407,21 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.json({ confirmed: true, booking: bookingWithDetails });
       }
 
-      if (!booking.tapChargeId) {
+      if (!booking.ziinaPaymentIntentId) {
         return res.status(400).json({ error: "No payment associated with this booking" });
       }
 
-      const charge = await retrieveTapCharge(booking.tapChargeId);
+      const paymentIntent = await retrieveZiinaPaymentIntent(booking.ziinaPaymentIntentId);
 
-      if (charge.status === 'CAPTURED') {
+      if (isZiinaPaymentSuccessful(paymentIntent.status)) {
         await storage.updateBooking(booking.id, { status: 'confirmed' });
 
-        // Idempotency: only create payment record if one doesn't already exist for this charge
         const existingPayments = await storage.getPaymentsByBookingId(booking.id);
-        const alreadyRecorded = existingPayments.some(p => p.tapChargeId === charge.id);
+        const alreadyRecorded = existingPayments.some(p => p.ziinaPaymentIntentId === paymentIntent.id);
         if (!alreadyRecorded) {
           await storage.createPayment({
             bookingId: booking.id,
-            tapChargeId: charge.id,
+            ziinaPaymentIntentId: paymentIntent.id,
             amount: booking.amountAed,
             currency: 'aed',
             status: 'completed',
@@ -456,7 +431,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
         return res.json({ confirmed: true, booking: bookingWithDetails });
       } else {
-        return res.json({ confirmed: false, status: charge.status });
+        return res.json({ confirmed: false, status: paymentIntent.status });
       }
     } catch (error: any) {
       console.error('Confirm error:', error);
@@ -487,7 +462,7 @@ export function registerMarketplaceRoutes(app: Express) {
         sessionId,
         status: "confirmed",
         paymentMethod: "cash",
-        tapChargeId: null,
+        ziinaPaymentIntentId: null,
         amountAed: session.priceAed,
         cashPaid: false,
       });

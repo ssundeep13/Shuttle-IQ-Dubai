@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useLocation, Link } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,17 +7,9 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info } from 'lucide-react';
 
-declare global {
-  interface Window {
-    Tapjsli?: (publicKey: string) => any;
-  }
-}
-
 interface BookingData {
   bookingId: string;
-  paymentMethod: 'tap' | 'cash';
-  chargeId?: string;
-  chargeStatus?: string;
+  paymentMethod: 'ziina' | 'cash';
   redirectUrl?: string;
   amount: number;
   session: {
@@ -77,160 +69,54 @@ function OrderSummary({ sessionInfo, amount }: { sessionInfo: BookingData['sessi
   );
 }
 
-function TapPaymentForm({ bookingId, amount, sessionInfo, onSuccess }: {
-  bookingId: string;
+function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
+  sessionId: string;
   amount: number;
   sessionInfo: BookingData['session'];
-  onSuccess: () => void;
 }) {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tapReady, setTapReady] = useState(false);
-  const [publicKey, setPublicKey] = useState<string | null>(null);
-  const tapRef = useRef<any>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetch('/api/marketplace/tap/config')
-      .then(r => r.json())
-      .then(data => {
-        if (data.publicKey) setPublicKey(data.publicKey);
-        else setError('Payment provider not configured. Please contact support.');
-      })
-      .catch(() => setError('Could not load payment provider. Please try again.'));
-  }, []);
-
-  useEffect(() => {
-    if (!publicKey) return;
-
-    const loadTapSDK = () => {
-      if (window.Tapjsli) {
-        initTap(window.Tapjsli);
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = 'https://secure.gosell.io/js/sdk/tap.min.js';
-      script.async = true;
-      script.onload = () => {
-        if (window.Tapjsli) initTap(window.Tapjsli);
-      };
-      document.head.appendChild(script);
-    };
-
-    const initTap = (Tapjsli: any) => {
-      const tap = Tapjsli(publicKey);
-      const elements = tap.elements({});
-      const style = {
-        base: {
-          color: '#535353',
-          lineHeight: '18px',
-          fontFamily: 'sans-serif',
-          fontSmoothing: 'antialiased',
-          fontSize: '16px',
-          '::placeholder': { color: 'rgba(0, 0, 0, 0.26)', fontSize: '15px' },
-        },
-        invalid: { color: 'red', iconColor: '#fa755a' },
-      };
-      const card = elements.create('card', { style });
-      if (cardRef.current) {
-        card.mount(cardRef.current);
-        card.addEventListener('change', (event: any) => {
-          if (event.error) setError(event.error.message);
-          else setError(null);
-        });
-      }
-      tapRef.current = { tap, card };
-      setTapReady(true);
-    };
-
-    loadTapSDK();
-  }, [publicKey]);
-
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tapRef.current || !tapReady) return;
-
+  const handlePay = async () => {
     setProcessing(true);
     setError(null);
 
     const token = localStorage.getItem('mp_accessToken');
+    if (!token) {
+      setError('Not authenticated. Please log in again.');
+      setProcessing(false);
+      return;
+    }
 
     try {
-      const { tap, card } = tapRef.current;
-      const result = await tap.createToken(card);
-
-      if (result.error) {
-        setError(result.error.message || 'Card validation failed');
-        setProcessing(false);
-        return;
-      }
-
-      const tapToken = result.id;
-
       const res = await fetch('/api/marketplace/bookings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ sessionId: bookingId, paymentMethod: 'tap', tapToken }),
+        body: JSON.stringify({ sessionId, paymentMethod: 'ziina' }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Booking failed');
 
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl;
-        return;
+      if (!data.redirectUrl) {
+        throw new Error('No payment URL received. Please try again.');
       }
 
-      if (data.chargeStatus === 'CAPTURED') {
-        const confirmRes = await fetch(`/api/marketplace/bookings/${data.bookingId}/confirm`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        });
-        const confirmData = await confirmRes.json();
-        if (confirmRes.ok && confirmData.confirmed) {
-          toast({ title: 'Payment successful', description: 'Your booking has been confirmed!' });
-          onSuccess();
-        } else {
-          setError(confirmData.error || 'Failed to confirm booking. Please contact support.');
-        }
-      } else {
-        setError('Payment was not completed. Please try again.');
-      }
+      window.location.href = data.redirectUrl;
     } catch (err: any) {
       setError(err.message || 'Payment failed. Please try again.');
-    } finally {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
       setProcessing(false);
     }
-  }, [tapReady, bookingId, toast, onSuccess]);
+  };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <div className="space-y-6">
       <OrderSummary sessionInfo={sessionInfo} amount={amount} />
       <CancellationPolicy />
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <CreditCard className="h-5 w-5" /> Card Details
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {!publicKey && !error && (
-            <div className="flex items-center justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
-          <div ref={cardRef} id="tap-card-element" className={!publicKey ? 'hidden' : ''} />
-          {!tapReady && publicKey && (
-            <div className="flex items-center justify-center py-6">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       {error && (
         <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-payment-error">
@@ -240,34 +126,34 @@ function TapPaymentForm({ bookingId, amount, sessionInfo, onSuccess }: {
       )}
 
       <Button
-        type="submit"
         size="lg"
         className="w-full gap-2"
-        disabled={!tapReady || processing}
+        disabled={processing}
+        onClick={handlePay}
         data-testid="button-confirm-payment"
       >
         {processing ? (
-          <><Loader2 className="h-5 w-5 animate-spin" /> Processing...</>
+          <><Loader2 className="h-5 w-5 animate-spin" /> Redirecting to payment...</>
         ) : (
-          <><ShieldCheck className="h-5 w-5" /> Pay AED {amount}</>
+          <><ShieldCheck className="h-5 w-5" /> Pay AED {amount} — Secure Checkout</>
         )}
       </Button>
 
       <p className="text-xs text-muted-foreground text-center">
-        Payments are securely processed by Tap Payments.
+        Payments are securely processed by Ziina.
       </p>
-    </form>
+    </div>
   );
 }
 
-function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'tap' | 'cash') => void }) {
+function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'ziina' | 'cash') => void }) {
   return (
     <div className="space-y-3">
       <h3 className="text-lg font-semibold">How would you like to pay?</h3>
       <div className="grid grid-cols-1 gap-3">
         <Card
           className="hover-elevate cursor-pointer"
-          onClick={() => onSelect('tap')}
+          onClick={() => onSelect('ziina')}
           data-testid="button-pay-card"
         >
           <CardContent className="p-4 flex items-center gap-4">
@@ -276,7 +162,7 @@ function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'tap' | 'cash'
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-medium">Pay by Card</p>
-              <p className="text-sm text-muted-foreground">Secure card payment via Tap Payments</p>
+              <p className="text-sm text-muted-foreground">Secure card payment via Ziina</p>
             </div>
           </CardContent>
         </Card>
@@ -306,7 +192,7 @@ export default function Checkout() {
   const { isAuthenticated } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [paymentMethod, setPaymentMethod] = useState<'tap' | 'cash' | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'ziina' | 'cash' | null>(null);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -345,9 +231,9 @@ export default function Checkout() {
       });
   }, [sessionId, isAuthenticated, setLocation]);
 
-  const handlePaymentMethodSelect = async (method: 'tap' | 'cash') => {
-    if (method === 'tap') {
-      setPaymentMethod('tap');
+  const handlePaymentMethodSelect = async (method: 'ziina' | 'cash') => {
+    if (method === 'ziina') {
+      setPaymentMethod('ziina');
       return;
     }
 
@@ -479,12 +365,11 @@ export default function Checkout() {
         </div>
       )}
 
-      {paymentMethod === 'tap' && sessionInfo && !loading && (
-        <TapPaymentForm
-          bookingId={sessionId!}
+      {paymentMethod === 'ziina' && sessionInfo && !loading && (
+        <ZiinaPaymentForm
+          sessionId={sessionId!}
           amount={amount}
           sessionInfo={sessionInfo}
-          onSuccess={() => setConfirmed(true)}
         />
       )}
 

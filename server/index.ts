@@ -1,28 +1,8 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { TapWebhookHandlers, verifyTapWebhookSignature } from "./tapWebhookHandlers";
 
 const app = express();
-
-app.post('/api/marketplace/tap/webhook', express.raw({ type: 'application/json' }), async (req: Request, res: Response) => {
-  try {
-    const signature = req.headers['hashstring'] as string | undefined
-      || req.headers['tap-signature'] as string | undefined;
-
-    if (!verifyTapWebhookSignature(req.body, signature)) {
-      console.error('Tap webhook: invalid or missing signature');
-      return res.status(401).json({ error: 'Invalid webhook signature' });
-    }
-
-    const payload = JSON.parse(req.body.toString());
-    await TapWebhookHandlers.processWebhook(payload);
-    res.status(200).json({ received: true });
-  } catch (error: any) {
-    console.error('Tap webhook error:', error.message);
-    res.status(400).json({ error: 'Webhook processing error' });
-  }
-});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));

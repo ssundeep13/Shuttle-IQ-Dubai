@@ -39,10 +39,11 @@ export default function CheckoutSuccess() {
         if (data.confirmed) {
           setStatus('success');
           setBooking(data.booking);
-        } else if (data.status === 'INITIATED' || data.status === 'AUTHORIZED') {
-          // Tap interim states — payment is in progress
-          setStatus('success');
-          setBooking(null);
+        } else if (data.status && data.status !== 'requires_payment_instrument') {
+          setStatus('error');
+          setErrorMessage(
+            `Payment status: ${data.status}. Please contact support if you were charged.`
+          );
         } else {
           setStatus('error');
           setErrorMessage(
