@@ -82,7 +82,7 @@ Preferred communication style: Simple, everyday language.
 - **Ziina**: Payment processing via Ziina REST API (UAE-focused, redirect-based hosted checkout). Uses `ZIINA_API_TOKEN` env var. No frontend SDK required — backend creates payment intent and returns redirect URL.
 
 #### Email
-- **Resend**: Transactional email via Resend API. Uses `RESEND_API_KEY` secret. Client at `server/emailClient.ts`. Currently used for marketplace password reset emails. From address: `onboarding@resend.dev` (Resend's shared domain for testing; swap to a verified custom domain for production). `sendPasswordResetEmail(toEmail, resetUrl)` sends a branded HTML email with a 1-hour expiry reset link.
+- **Resend**: Transactional email via Resend API. Uses `RESEND_API_KEY` secret. Client at `server/emailClient.ts`. From address: `noreply@shuttleiq.org` (verified custom domain — shuttleiq.org DNS records confirmed in Resend). Sends: welcome on signup, booking confirmation (cash + Ziina), waitlist promotion, cancellation confirmation, 24h session reminder (via scheduler). `sendPasswordResetEmail(toEmail, resetUrl)` sends a branded HTML email with a 1-hour expiry reset link.
 
 #### Session & Utilities
 - **connect-pg-simple**: PostgreSQL session store.

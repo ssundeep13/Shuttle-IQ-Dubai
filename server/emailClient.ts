@@ -3,7 +3,7 @@ import type { BookableSession } from '../shared/schema';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM_ADDRESS = 'ShuttleIQ <onboarding@resend.dev>';
+const FROM_ADDRESS = 'ShuttleIQ <noreply@shuttleiq.org>';
 
 function emailWrapper(body: string): string {
   return `<!DOCTYPE html>
