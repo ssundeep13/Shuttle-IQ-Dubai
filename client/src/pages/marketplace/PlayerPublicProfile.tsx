@@ -64,7 +64,7 @@ function CustomDot(props: Record<string, unknown>) {
 }
 
 export default function PlayerPublicProfile() {
-  const { id: playerId } = useParams<{ id: string }>();
+  const { playerId } = useParams<{ playerId: string }>();
 
   const { data: stats, isLoading } = useQuery<PlayerStats>({
     queryKey: ['/api/players', playerId, 'stats'],

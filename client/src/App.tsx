@@ -106,7 +106,7 @@ function Router() {
       <Route path="/marketplace/profile">
         <MarketplaceAuthRoute component={Profile} />
       </Route>
-      <Route path="/marketplace/players/:id">
+      <Route path="/marketplace/players/:playerId">
         <MarketplaceRoute component={PlayerPublicProfile} />
       </Route>
 
