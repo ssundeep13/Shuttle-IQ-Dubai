@@ -2,7 +2,13 @@ import type { Express } from "express";
 import { storage } from "./storage";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { sendPasswordResetEmail } from "./emailClient";
+import {
+  sendPasswordResetEmail,
+  sendWelcomeEmail,
+  sendBookingConfirmationEmail,
+  sendWaitlistPromotionEmail,
+  sendCancellationEmail,
+} from "./emailClient";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import {
   generateAccessToken,
@@ -56,6 +62,12 @@ export function registerMarketplaceRoutes(app: Express) {
         refreshToken,
         user: { id: user.id, email: user.email, name: user.name, phone: user.phone, linkedPlayerId: user.linkedPlayerId },
       });
+
+      // Fire-and-forget welcome email
+      const marketplaceUrl = process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/marketplace`
+        : 'http://localhost:5000/marketplace';
+      sendWelcomeEmail(user.email, user.name, marketplaceUrl).catch(() => {});
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });
@@ -422,6 +434,12 @@ export function registerMarketplaceRoutes(app: Express) {
           cashPaid: false,
         });
 
+        // Fire-and-forget booking confirmation email
+        const cashUser = await storage.getMarketplaceUser(req.user.userId);
+        if (cashUser) {
+          sendBookingConfirmationEmail(cashUser.email, cashUser.name, bookableSession, 'cash', bookableSession.priceAed).catch(() => {});
+        }
+
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
         return res.json({
           bookingId: booking.id,
@@ -508,6 +526,7 @@ export function registerMarketplaceRoutes(app: Express) {
       const paymentIntent = await retrieveZiinaPaymentIntent(booking.ziinaPaymentIntentId);
 
       if (isZiinaPaymentSuccessful(paymentIntent.status)) {
+        const wasAlreadyConfirmed = booking.status === 'confirmed';
         await storage.updateBooking(booking.id, { status: 'confirmed' });
 
         const existingPayments = await storage.getPaymentsByBookingId(booking.id);
@@ -520,6 +539,15 @@ export function registerMarketplaceRoutes(app: Express) {
             currency: 'aed',
             status: 'completed',
           });
+        }
+
+        // Fire-and-forget booking confirmation email (only on first confirm)
+        if (!wasAlreadyConfirmed) {
+          const ziinaUser = await storage.getMarketplaceUser(booking.userId);
+          const ziinaSession = await storage.getBookableSession(booking.sessionId);
+          if (ziinaUser && ziinaSession) {
+            sendBookingConfirmationEmail(ziinaUser.email, ziinaUser.name, ziinaSession, 'ziina', booking.amountAed).catch(() => {});
+          }
         }
 
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
@@ -619,6 +647,12 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
+      // Send cancellation email to the cancelling user (fire-and-forget)
+      const cancellingUser = await storage.getMarketplaceUser(booking.userId);
+      if (cancellingUser && bookableSession) {
+        sendCancellationEmail(cancellingUser.email, cancellingUser.name, bookableSession, lateFeeApplied, booking.amountAed).catch(() => {});
+      }
+
       // If was a confirmed booking, promote first waitlisted user
       let promoted: { bookingId: string; userId: string } | null = null;
       if (wasConfirmed && bookableSession) {
@@ -636,6 +670,12 @@ export function registerMarketplaceRoutes(app: Express) {
             message: `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
             relatedBookingId: first.id,
           });
+
+          // Send waitlist promotion email (fire-and-forget)
+          const promotedUser = await storage.getMarketplaceUser(first.userId);
+          if (promotedUser) {
+            sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession).catch(() => {});
+          }
 
           // Re-number remaining waitlisted bookings (skip the promoted one)
           const remaining = waitlisted.slice(1);

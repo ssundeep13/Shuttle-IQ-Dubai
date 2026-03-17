@@ -145,6 +145,7 @@ export interface IStorage {
   getBookingCountForSession(sessionId: string): Promise<number>;
   getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]>;
   getWaitlistCountForSession(sessionId: string): Promise<number>;
+  getBookingsNeedingReminder(): Promise<BookingWithDetails[]>;
 
   // Notification operations
   createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string }): Promise<MarketplaceNotification>;
@@ -1092,6 +1093,32 @@ export class DatabaseStorage implements IStorage {
       .from(bookings)
       .where(and(eq(bookings.sessionId, sessionId), eq(bookings.status, 'waitlisted')));
     return waitlisted.length;
+  }
+
+  async getBookingsNeedingReminder(): Promise<BookingWithDetails[]> {
+    const now = new Date();
+    const windowStart = new Date(now.getTime() + 23 * 60 * 60 * 1000);
+    const windowEnd = new Date(now.getTime() + 25 * 60 * 60 * 1000);
+
+    const activeBookings = await db
+      .select()
+      .from(bookings)
+      .where(and(
+        sql`${bookings.status} IN ('confirmed', 'attended')`,
+        sql`${bookings.reminderSentAt} IS NULL`,
+      ));
+
+    const result: BookingWithDetails[] = [];
+    for (const booking of activeBookings) {
+      const session = await this.getBookableSession(booking.sessionId);
+      if (!session) continue;
+      const sessionDate = new Date(session.date);
+      if (sessionDate >= windowStart && sessionDate <= windowEnd) {
+        const user = await this.getMarketplaceUser(booking.userId);
+        result.push({ ...booking, session, user: user || undefined });
+      }
+    }
+    return result;
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {

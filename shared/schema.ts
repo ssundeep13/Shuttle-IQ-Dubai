@@ -297,6 +297,7 @@ export const bookings = pgTable("bookings", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   cancelledAt: timestamp("cancelled_at"),
   attendedAt: timestamp("attended_at"),
+  reminderSentAt: timestamp("reminder_sent_at"),
 });
 
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, cancelledAt: true, attendedAt: true });
