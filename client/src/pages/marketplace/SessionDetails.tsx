@@ -161,7 +161,7 @@ function GuestRow({
             {guest.marketplaceUserId ? (
               <Badge variant="secondary" className="text-[10px] shrink-0">Marketplace</Badge>
             ) : guest.siqPlayerId ? (
-              <Badge variant="outline" className="text-[10px] shrink-0">SIQ</Badge>
+              <Badge variant="outline" className="text-[10px] shrink-0">SIQ Player</Badge>
             ) : null}
             <button
               type="button"
@@ -243,7 +243,7 @@ function GuestRow({
                             {r.type === 'marketplace' ? (
                               <Badge variant="secondary" className="text-[10px]">Marketplace</Badge>
                             ) : (
-                              <Badge variant="outline" className="text-[10px]">SIQ</Badge>
+                              <Badge variant="outline" className="text-[10px]">SIQ Player</Badge>
                             )}
                           </div>
                         </button>

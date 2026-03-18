@@ -515,12 +515,12 @@ export function registerMarketplaceRoutes(app: Express) {
           let linkedUserId: string | null = null;
           let resolvedEmail: string | null = g.email ?? null;
 
-          // Resolve marketplace user by provided ID first
+          // Resolve marketplace user by provided ID first — authoritative email wins
           if (g.marketplaceUserId) {
             const mpUser = await storage.getMarketplaceUser(g.marketplaceUserId);
             if (mpUser) {
               linkedUserId = mpUser.id;
-              resolvedEmail = resolvedEmail || mpUser.email;
+              resolvedEmail = mpUser.email || resolvedEmail;
             }
           }
 
@@ -535,7 +535,7 @@ export function registerMarketplaceRoutes(app: Express) {
             const mpUserViaSiq = await storage.getMarketplaceUserByLinkedPlayerId(g.siqPlayerId);
             if (mpUserViaSiq) {
               linkedUserId = mpUserViaSiq.id;
-              resolvedEmail = resolvedEmail || mpUserViaSiq.email;
+              resolvedEmail = mpUserViaSiq.email || resolvedEmail;
             }
           }
 
