@@ -1,15 +1,19 @@
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { History, Link2, Users, TrendingUp, TrendingDown, Minus, Trophy } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { History, Link2, Users, TrendingUp, TrendingDown, Minus, Trophy, Flag } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import type { PlayerStats } from '@shared/schema';
+import type { PlayerStats, ScoreDispute } from '@shared/schema';
+import { useToast } from '@/hooks/use-toast';
+import { apiRequest } from '@/lib/queryClient';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -22,12 +26,42 @@ type Filter = 'all' | 'wins' | 'losses';
 export default function GameHistory() {
   const { user } = useMarketplaceAuth();
   const [filter, setFilter] = useState<Filter>('all');
+  const [flaggingGameId, setFlaggingGameId] = useState<string | null>(null);
+  const [flagNote, setFlagNote] = useState('');
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const linkedPlayerId = user?.linkedPlayerId;
 
   const { data: stats, isLoading } = useQuery<PlayerStats>({
     queryKey: ['/api/players', linkedPlayerId, 'stats'],
     enabled: !!linkedPlayerId,
+  });
+
+  const { data: myDisputes = [] } = useQuery<ScoreDispute[]>({
+    queryKey: ['/api/marketplace/my-disputes'],
+    enabled: !!user,
+  });
+
+  const flaggedGameIds = useMemo(
+    () => new Set(myDisputes.map(d => d.gameResultId)),
+    [myDisputes]
+  );
+
+  const fileMutation = useMutation({
+    mutationFn: ({ gameResultId, note }: { gameResultId: string; note: string }) =>
+      apiRequest('POST', `/api/marketplace/game-results/${gameResultId}/dispute`, {
+        note: note.trim() || undefined,
+      }),
+    onSuccess: () => {
+      toast({ title: 'Dispute Filed', description: "We've notified the admin to review this game." });
+      setFlaggingGameId(null);
+      setFlagNote('');
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/my-disputes'] });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error', description: err.message || 'Failed to file dispute', variant: 'destructive' });
+    },
   });
 
   const allGames = useMemo(() => {
@@ -73,6 +107,7 @@ export default function GameHistory() {
   }
 
   return (
+    <>
     <div className="max-w-3xl mx-auto px-4 py-8" data-testid="page-game-history">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         {/* Header */}
@@ -200,6 +235,28 @@ export default function GameHistory() {
                       → {game.skillScoreAfter}
                     </span>
                   )}
+
+                  {/* Flag button or Flagged badge */}
+                  {flaggedGameIds.has(game.gameId) ? (
+                    <Badge
+                      variant="outline"
+                      className="text-xs shrink-0 text-muted-foreground border-muted-foreground/30 no-default-hover-elevate no-default-active-elevate"
+                      data-testid={`badge-flagged-${game.gameId}`}
+                    >
+                      <Flag className="h-3 w-3 mr-1" /> Flagged
+                    </Badge>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0 text-muted-foreground/50"
+                      onClick={() => { setFlaggingGameId(game.gameId); setFlagNote(''); }}
+                      title="Flag incorrect score"
+                      data-testid={`button-flag-game-${game.gameId}`}
+                    >
+                      <Flag className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               );
             })}
@@ -207,5 +264,43 @@ export default function GameHistory() {
         )}
       </motion.div>
     </div>
+
+    {/* Flag / Dispute Dialog */}
+    <Dialog open={!!flaggingGameId} onOpenChange={(open) => { if (!open) setFlaggingGameId(null); }}>
+      <DialogContent data-testid="dialog-flag-game">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Flag className="h-4 w-4 text-amber-500" /> Flag Incorrect Score
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <p className="text-sm text-muted-foreground">
+            Tell us what was wrong with this score. An admin will review and correct it if needed.
+          </p>
+          <Textarea
+            placeholder="e.g. The score was 21-15, not 21-12."
+            value={flagNote}
+            onChange={(e) => setFlagNote(e.target.value)}
+            maxLength={500}
+            rows={3}
+            data-testid="textarea-flag-note"
+          />
+          <p className="text-xs text-muted-foreground text-right">{flagNote.length}/500</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setFlaggingGameId(null)} data-testid="button-flag-cancel">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => { if (flaggingGameId) fileMutation.mutate({ gameResultId: flaggingGameId, note: flagNote }); }}
+            disabled={fileMutation.isPending}
+            data-testid="button-flag-submit"
+          >
+            {fileMutation.isPending ? 'Submitting...' : 'Submit Dispute'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
