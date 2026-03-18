@@ -30,7 +30,10 @@ export default function GameHistory() {
     enabled: !!linkedPlayerId,
   });
 
-  const allGames = useMemo(() => stats?.recentGames ?? [], [stats]);
+  const allGames = useMemo(() => {
+    const games = stats?.recentGames ?? [];
+    return [...games].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [stats]);
 
   const filteredGames = useMemo(() => {
     if (filter === 'wins') return allGames.filter(g => g.won);
