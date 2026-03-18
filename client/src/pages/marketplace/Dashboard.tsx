@@ -6,10 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, Trophy, BarChart3, TrendingUp, ArrowRight, Medal, ChevronRight, Target, Bookmark } from 'lucide-react';
+import { Calendar, MapPin, Clock, Trophy, BarChart3, TrendingUp, ArrowRight, Medal, ChevronRight, Target, Bookmark, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, Player, PlayerStats } from '@shared/schema';
+import { useInstallPrompt } from '@/hooks/use-install-prompt';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -23,6 +24,7 @@ const stagger = {
 export default function Dashboard() {
   const { user } = useMarketplaceAuth();
   const linkedPlayerId = user?.linkedPlayerId;
+  const { canInstall, install } = useInstallPrompt();
 
   const { data: bookings, isLoading: bookingsLoading } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
@@ -265,6 +267,21 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
             </motion.div>
+
+            {canInstall && (
+              <motion.div variants={fadeInUp}>
+                <Card data-testid="card-install-app">
+                  <CardContent className="p-6 text-center">
+                    <Download className="h-8 w-8 text-secondary mx-auto mb-2" />
+                    <p className="font-medium mb-1">Get the App</p>
+                    <p className="text-sm text-muted-foreground mb-4">Install ShuttleIQ on your home screen for quick access</p>
+                    <Button size="sm" className="gap-1 w-full" onClick={install} data-testid="button-install-app-dashboard">
+                      Install Now <Download className="h-3.5 w-3.5" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
           </div>
         </div>
       </motion.div>
