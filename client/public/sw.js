@@ -1,4 +1,4 @@
-const CACHE_NAME = 'shuttleiq-v2';
+const CACHE_NAME = 'shuttleiq-v3';
 
 const PRECACHE_URLS = [
   '/',
@@ -37,6 +37,10 @@ self.addEventListener('fetch', (event) => {
 
   // Never intercept non-GET requests
   if (request.method !== 'GET') return;
+
+  // Never intercept Replit workspace / infrastructure paths
+  if (url.pathname.startsWith('/__replco')) return;
+  if (url.pathname.startsWith('/__repl')) return;
 
   // Never intercept API calls or Vite HMR source files
   if (url.pathname.startsWith('/api/')) return;
