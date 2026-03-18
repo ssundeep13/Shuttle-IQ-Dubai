@@ -1,9 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Link } from 'wouter';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,7 +19,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, UserCheck } from 'lucide-react';
+import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, UserCheck, Pencil, Check, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, BookingGuest } from '@shared/schema';
@@ -42,6 +44,108 @@ function isWithin5Hours(sessionDate: Date | string, startTime: string): boolean 
   sessionStartAt.setHours(hours, minutes, 0, 0);
   const cutoff = new Date(sessionStartAt.getTime() - 5 * 60 * 60 * 1000);
   return new Date() >= cutoff;
+}
+
+function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPending }: {
+  booking: BookingWithDetails;
+  canManage: boolean;
+  onCancelGuest: (guestId: string) => void;
+  onEditGuest: (guestId: string, name: string, email: string) => void;
+  isEditPending: boolean;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+
+  const confirmedGuests = (booking.guests ?? []).filter(g => g.status === 'confirmed');
+  if (confirmedGuests.length === 0) return null;
+
+  const startEdit = (guest: BookingGuest) => {
+    setEditingId(guest.id);
+    setEditName(guest.name);
+    setEditEmail(guest.email ?? '');
+  };
+
+  const saveEdit = (guestId: string) => {
+    if (!editName.trim()) return;
+    onEditGuest(guestId, editName.trim(), editEmail.trim());
+    setEditingId(null);
+  };
+
+  return (
+    <div className="mb-3 p-3 rounded-md bg-muted/40 space-y-1.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
+        <Users className="h-3.5 w-3.5" />
+        Guests ({confirmedGuests.length})
+      </div>
+      {confirmedGuests.map((guest: BookingGuest) => (
+        <div key={guest.id} data-testid={`text-guest-name-${guest.id}`}>
+          {editingId === guest.id ? (
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                placeholder="Guest name"
+                className="h-7 text-xs px-2 flex-1"
+                data-testid={`input-edit-guest-name-${guest.id}`}
+              />
+              <Input
+                value={editEmail}
+                onChange={e => setEditEmail(e.target.value)}
+                placeholder="Email (optional)"
+                className="h-7 text-xs px-2 flex-1"
+                data-testid={`input-edit-guest-email-${guest.id}`}
+              />
+              <Button size="icon" variant="ghost" disabled={isEditPending} onClick={() => saveEdit(guest.id)} data-testid={`button-save-guest-${guest.id}`}>
+                <Check className="h-3.5 w-3.5 text-secondary" />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} data-testid={`button-cancel-edit-guest-${guest.id}`}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5 text-xs min-w-0">
+                <UserCheck className={`h-3 w-3 shrink-0 ${guest.linkedUserId ? 'text-secondary' : 'text-muted-foreground'}`} />
+                <span className="truncate">{guest.name}</span>
+                {guest.linkedUserId && (
+                  <Badge variant="secondary" className="text-xs h-4 px-1" data-testid={`badge-guest-linked-${guest.id}`}>
+                    linked
+                  </Badge>
+                )}
+              </div>
+              {canManage && (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => startEdit(guest)} data-testid={`button-edit-guest-${guest.id}`}>
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button size="icon" variant="ghost" className="h-5 w-5" data-testid={`button-cancel-guest-${guest.id}`}>
+                        <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Cancel Guest Spot?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will remove <strong>{guest.name}</strong>'s spot from the booking. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep Spot</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => onCancelGuest(guest.id)}>Cancel Spot</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function MyBookings() {
@@ -88,6 +192,19 @@ export default function MyBookings() {
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to cancel guest spot', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const editGuestMutation = useMutation({
+    mutationFn: async ({ bookingId, guestId, name, email }: { bookingId: string; guestId: string; name: string; email: string }) => {
+      return apiRequest('PATCH', `/api/marketplace/bookings/${bookingId}/guests/${guestId}`, { name, email: email || null });
+    },
+    onSuccess: () => {
+      toast({ title: 'Guest details updated' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to update guest', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -157,50 +274,13 @@ export default function MyBookings() {
 
             {/* Guests section */}
             {!booking.isGuestBooking && booking.guests && booking.guests.filter(g => g.status === 'confirmed').length > 0 && (
-              <div className="mb-3 p-3 rounded-md bg-muted/40 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
-                  <Users className="h-3.5 w-3.5" />
-                  Guests ({booking.guests.filter(g => g.status === 'confirmed').length})
-                </div>
-                {booking.guests.filter(g => g.status === 'confirmed').map((guest: BookingGuest) => (
-                  <div key={guest.id} className="flex items-center justify-between gap-1.5" data-testid={`text-guest-name-${guest.id}`}>
-                    <div className="flex items-center gap-1.5 text-xs min-w-0">
-                      <UserCheck className={`h-3 w-3 shrink-0 ${guest.linkedUserId ? 'text-secondary' : 'text-muted-foreground'}`} />
-                      <span className="truncate">{guest.name}</span>
-                      {guest.linkedUserId && (
-                        <Badge variant="secondary" className="text-xs h-4 px-1 text-xs" data-testid={`badge-guest-linked-${guest.id}`}>
-                          linked
-                        </Badge>
-                      )}
-                    </div>
-                    {canCancel && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button size="icon" variant="ghost" className="h-5 w-5 shrink-0" data-testid={`button-cancel-guest-${guest.id}`}>
-                            <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Cancel Guest Spot?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will remove <strong>{guest.name}</strong>'s spot from the booking. This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Keep Spot</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => cancelGuestMutation.mutate({ bookingId: booking.id, guestId: guest.id })}
-                            >
-                              Cancel Spot
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <GuestList
+                booking={booking}
+                canManage={canCancel}
+                onCancelGuest={(guestId) => cancelGuestMutation.mutate({ bookingId: booking.id, guestId })}
+                onEditGuest={(guestId, name, email) => editGuestMutation.mutate({ bookingId: booking.id, guestId, name, email })}
+                isEditPending={editGuestMutation.isPending}
+              />
             )}
 
             <div className="flex items-center justify-between gap-2 pt-3 border-t flex-wrap">

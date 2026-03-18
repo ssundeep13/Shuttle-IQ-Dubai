@@ -762,13 +762,77 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
-      const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
-      await storage.updateBooking(booking.id, { spotsBooked: newSpots });
 
-      res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: newSpots });
+      // If primary booker cancelled this slot, notify the linked guest
+      if (isPrimaryBooker && isLinkedGuest === false && guest.linkedUserId) {
+        const bookableSession = await storage.getBookableSession(booking.sessionId);
+        await storage.createMarketplaceNotification({
+          userId: guest.linkedUserId,
+          type: 'guest_slot_cancelled',
+          title: 'Your spot has been cancelled',
+          message: bookableSession
+            ? `Your guest spot for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} has been cancelled by the booking organiser.`
+            : 'Your guest spot has been cancelled by the booking organiser.',
+          relatedBookingId: booking.id,
+        });
+      }
+
+      // Decrement spots; if this was the last remaining spot, cancel the parent booking
+      const newSpots = (booking.spotsBooked ?? 1) - 1;
+      if (newSpots <= 0) {
+        // Cancel parent booking (primary booker's spot is being removed)
+        await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 });
+        res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: 0, bookingCancelled: true });
+      } else {
+        await storage.updateBooking(booking.id, { spotsBooked: newSpots });
+        res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: newSpots });
+      }
     } catch (error) {
       console.error('Delete guest error:', error);
       res.status(500).json({ error: "Failed to cancel guest slot" });
+    }
+  });
+
+  // Authenticated: reassign a guest slot (primary booker only) — update name/email + re-resolve linkedUserId
+  app.patch("/api/marketplace/bookings/:bookingId/guests/:guestId", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const booking = await storage.getBooking(req.params.bookingId);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized — only primary booker can edit guest details" });
+      if (booking.status === 'cancelled') return res.status(400).json({ error: "Booking is cancelled" });
+
+      const guests = await storage.getBookingGuests(req.params.bookingId);
+      const guest = guests.find(g => g.id === req.params.guestId);
+      if (!guest) return res.status(404).json({ error: "Guest not found" });
+      if (guest.status === 'cancelled') return res.status(400).json({ error: "Cannot edit a cancelled guest slot" });
+
+      const { name, email } = req.body;
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return res.status(400).json({ error: "Guest name is required" });
+      }
+
+      // Re-resolve linked account if email changed
+      let linkedUserId = guest.linkedUserId;
+      if (email !== undefined && email !== guest.email) {
+        if (email) {
+          const existingUser = await storage.getMarketplaceUserByEmail(email.trim());
+          linkedUserId = existingUser ? existingUser.id : null;
+        } else {
+          linkedUserId = null;
+        }
+      }
+
+      const updated = await storage.updateBookingGuest(guest.id, {
+        name: name.trim(),
+        email: email !== undefined ? (email?.trim() || null) : guest.email,
+        linkedUserId,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Patch guest error:', error);
+      res.status(500).json({ error: "Failed to update guest details" });
     }
   });
 
@@ -886,36 +950,42 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       } catch (emailErr) { console.error('[Email] cancellation lookup failed:', emailErr); }
 
-      // If was a confirmed booking, promote first waitlisted user
+      // If was a confirmed booking, promote first waitlisted user that fits remaining capacity
       let promoted: { bookingId: string; userId: string } | null = null;
       if (wasConfirmed && bookableSession) {
         const waitlisted = await storage.getWaitlistedBookingsForSession(booking.sessionId);
         if (waitlisted.length > 0) {
-          const first = waitlisted[0];
-          await storage.updateBooking(first.id, { status: 'confirmed', waitlistPosition: null });
-          promoted = { bookingId: first.id, userId: first.userId };
+          // Get current available capacity after this cancellation
+          const currentCount = await storage.getBookingCountForSession(booking.sessionId);
+          const spotsAvailable = bookableSession.capacity - currentCount;
+          // Find first waitlisted booking that fits the available spots
+          const first = waitlisted.find(w => (w.spotsBooked ?? 1) <= spotsAvailable);
+          if (first) {
+            await storage.updateBooking(first.id, { status: 'confirmed', waitlistPosition: null });
+            promoted = { bookingId: first.id, userId: first.userId };
 
-          // Create notification for promoted user
-          await storage.createMarketplaceNotification({
-            userId: first.userId,
-            type: 'waitlist_promoted',
-            title: "You're confirmed!",
-            message: `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
-            relatedBookingId: first.id,
-          });
+            // Create notification for promoted user
+            await storage.createMarketplaceNotification({
+              userId: first.userId,
+              type: 'waitlist_promoted',
+              title: "You're confirmed!",
+              message: `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
+              relatedBookingId: first.id,
+            });
 
-          // Send waitlist promotion email (fully isolated)
-          try {
-            const promotedUser = await storage.getMarketplaceUser(first.userId);
-            if (promotedUser) {
-              sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession).catch(() => {});
+            // Send waitlist promotion email (fully isolated)
+            try {
+              const promotedUser = await storage.getMarketplaceUser(first.userId);
+              if (promotedUser) {
+                sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession).catch(() => {});
+              }
+            } catch (emailErr) { console.error('[Email] waitlist promotion lookup failed:', emailErr); }
+
+            // Re-number remaining waitlisted bookings (exclude the promoted one)
+            const remaining = waitlisted.filter(w => w.id !== first.id);
+            for (let i = 0; i < remaining.length; i++) {
+              await storage.updateBooking(remaining[i].id, { waitlistPosition: i + 1 });
             }
-          } catch (emailErr) { console.error('[Email] waitlist promotion lookup failed:', emailErr); }
-
-          // Re-number remaining waitlisted bookings (skip the promoted one)
-          const remaining = waitlisted.slice(1);
-          for (let i = 0; i < remaining.length; i++) {
-            await storage.updateBooking(remaining[i].id, { waitlistPosition: i + 1 });
           }
         }
       }
