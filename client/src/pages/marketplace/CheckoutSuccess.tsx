@@ -7,7 +7,7 @@ import type { BookingWithDetails } from '@shared/schema';
 
 const MAX_ATTEMPTS = 4;
 const RETRY_DELAY_MS = 2500;
-const REDIRECT_DELAY_S = 4;
+const REDIRECT_DELAY_S = 3;
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
