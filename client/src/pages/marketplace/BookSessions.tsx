@@ -133,7 +133,7 @@ export default function BookSessions() {
                         <h3 className="font-semibold text-lg truncate" data-testid={`text-session-title-${session.id}`}>
                           {session.title}
                         </h3>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-sm text-muted-foreground mt-0.5">
                           {format(new Date(session.date), 'EEEE, MMM d')}
                         </p>
                       </div>
