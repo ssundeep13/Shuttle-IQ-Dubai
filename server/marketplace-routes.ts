@@ -500,6 +500,20 @@ export function registerMarketplaceRoutes(app: Express) {
         const cashUser = await storage.getMarketplaceUser(req.user.userId);
         await createGuestsForBooking(booking.id, cashUser);
 
+        // Notify linked guests of their confirmed spot
+        const cashGuests = await storage.getBookingGuests(booking.id);
+        for (const g of cashGuests) {
+          if (g.linkedUserId) {
+            await storage.createMarketplaceNotification({
+              userId: g.linkedUserId,
+              type: 'guest_booking_confirmed',
+              title: 'You have a booking!',
+              message: `${cashUser?.name ?? 'Someone'} added you as a guest for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
+              relatedBookingId: booking.id,
+            });
+          }
+        }
+
         // Fire-and-forget booking confirmation email (fully isolated)
         try {
           if (cashUser) {
@@ -646,6 +660,16 @@ export function registerMarketplaceRoutes(app: Express) {
                     const signupUrl = `${guestBaseUrl}/marketplace/signup?email=${encodeURIComponent(guest.email)}`;
                     sendGuestBookingEmail(guest.email, guest.name, ziinaUser.name, ziinaSession, cancelGuestUrl, signupUrl).catch(() => {});
                   }
+                  // Notify linked user of their confirmed guest spot
+                  if (guest.linkedUserId) {
+                    await storage.createMarketplaceNotification({
+                      userId: guest.linkedUserId,
+                      type: 'guest_booking_confirmed',
+                      title: 'You have a booking!',
+                      message: `${ziinaUser.name} added you as a guest for "${ziinaSession.title}" on ${new Date(ziinaSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${ziinaSession.venueName}.`,
+                      relatedBookingId: booking.id,
+                    });
+                  }
                 }
               }
             }
@@ -679,6 +703,18 @@ export function registerMarketplaceRoutes(app: Express) {
 
       // Cancel the guest
       await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
+
+      // Flag Ziina booking for admin refund review
+      if (booking.paymentMethod === 'ziina' && booking.ziinaPaymentIntentId) {
+        const proratedAmount = booking.amountAed / (booking.spotsBooked ?? 1);
+        await storage.createMarketplaceNotification({
+          userId: booking.userId,
+          type: 'refund_required',
+          title: 'Partial refund required',
+          message: `Guest slot cancelled on Ziina booking. A prorated refund of approximately AED ${proratedAmount.toFixed(2)} may be owed. Please process via Ziina dashboard.`,
+          relatedBookingId: booking.id,
+        });
+      }
 
       // Decrement spotsBooked on the parent booking
       const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
@@ -731,6 +767,17 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === 'cancelled') return res.status(400).json({ error: "Parent booking is already cancelled" });
       await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
+      // Flag Ziina booking for admin refund review
+      if (booking.paymentMethod === 'ziina' && booking.ziinaPaymentIntentId) {
+        const proratedAmount = booking.amountAed / (booking.spotsBooked ?? 1);
+        await storage.createMarketplaceNotification({
+          userId: booking.userId,
+          type: 'refund_required',
+          title: 'Partial refund required',
+          message: `Guest slot cancelled on Ziina booking. A prorated refund of approximately AED ${proratedAmount.toFixed(2)} may be owed. Please process via Ziina dashboard.`,
+          relatedBookingId: booking.id,
+        });
+      }
       const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
       await storage.updateBooking(booking.id, { spotsBooked: newSpots });
       res.json({ cancelled: true, guestName: guest.name });
@@ -777,15 +824,30 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
+      // For Ziina bookings: flag the cancellation for admin review (prorated refund not supported via API)
+      let refundFlaggedForAdmin = false;
+      if (booking.paymentMethod === 'ziina' && booking.ziinaPaymentIntentId) {
+        const proratedAmount = booking.amountAed / (booking.spotsBooked ?? 1);
+        // Ziina does not have a refund API; create an admin notification for manual processing
+        await storage.createMarketplaceNotification({
+          userId: booking.userId,
+          type: 'refund_required',
+          title: 'Partial refund required',
+          message: `Guest slot cancelled on Ziina booking. A prorated refund of approximately AED ${proratedAmount.toFixed(2)} may be owed. Please process via Ziina dashboard.`,
+          relatedBookingId: booking.id,
+        });
+        refundFlaggedForAdmin = true;
+      }
+
       // Decrement spots; if this was the last remaining spot, cancel the parent booking
       const newSpots = (booking.spotsBooked ?? 1) - 1;
       if (newSpots <= 0) {
         // Cancel parent booking (primary booker's spot is being removed)
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 });
-        res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: 0, bookingCancelled: true });
+        res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: 0, bookingCancelled: true, refundFlaggedForAdmin });
       } else {
         await storage.updateBooking(booking.id, { spotsBooked: newSpots });
-        res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: newSpots });
+        res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: newSpots, refundFlaggedForAdmin });
       }
     } catch (error) {
       console.error('Delete guest error:', error);
