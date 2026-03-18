@@ -303,13 +303,23 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Admin endpoint — returns ALL bookable sessions including past ones (for admin management)
+  app.get("/api/marketplace/admin/sessions", requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const sessions = await storage.getAllBookableSessions();
+      res.json(sessions);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch sessions" });
+    }
+  });
+
   // ============================================================
   // BOOKABLE SESSIONS
   // ============================================================
 
   app.get("/api/marketplace/sessions", async (_req, res) => {
     try {
-      const sessions = await storage.getAllBookableSessions();
+      const sessions = await storage.getUpcomingBookableSessions();
       res.json(sessions);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch sessions" });

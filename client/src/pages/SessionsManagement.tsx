@@ -67,7 +67,7 @@ export default function SessionsManagement() {
   });
 
   const { data: bookableSessions = [] } = useQuery<BookableSessionWithAvailability[]>({
-    queryKey: ['/api/marketplace/sessions'],
+    queryKey: ['/api/marketplace/admin/sessions'],
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -91,6 +91,7 @@ export default function SessionsManagement() {
     mutationFn: async (id: string) => apiRequest('DELETE', `/api/sessions/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
       setSessionToDelete(null);
     },
@@ -126,6 +127,7 @@ export default function SessionsManagement() {
 
   const handleSessionCreated = () => {
     queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/sessions'] });
     queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
     setShowCreateSession(false);
   };
@@ -667,7 +669,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
   const queryClient = useQueryClient();
   
   const { data: bookableSessions = [] } = useQuery<BookableSessionWithAvailability[]>({
-    queryKey: ['/api/marketplace/sessions'],
+    queryKey: ['/api/marketplace/admin/sessions'],
   });
 
   const linkedBookable = session ? bookableSessions.find(bs => bs.linkedSessionId === session.id) : null;
