@@ -91,12 +91,8 @@ function Router() {
       <Route path="/marketplace/rankings">
         <MarketplaceRoute component={Rankings} />
       </Route>
-      <Route path="/marketplace/checkout/success">
-        <MarketplaceRoute component={CheckoutSuccess} />
-      </Route>
-      <Route path="/marketplace/checkout/cancel">
-        <MarketplaceRoute component={CheckoutCancel} />
-      </Route>
+      <Route path="/marketplace/checkout/success" component={CheckoutSuccess} />
+      <Route path="/marketplace/checkout/cancel" component={CheckoutCancel} />
       <Route path="/marketplace/checkout/:id">
         <MarketplaceRoute component={Checkout} />
       </Route>

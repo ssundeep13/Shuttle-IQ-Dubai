@@ -23,7 +23,8 @@ export default function CheckoutCancel() {
   }, []);
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-12">
+    <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
+      <div className="w-full max-w-lg">
       <Card>
         <CardHeader className="text-center">
           <XCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -43,6 +44,7 @@ export default function CheckoutCancel() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
