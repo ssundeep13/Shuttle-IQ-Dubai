@@ -1060,11 +1060,35 @@ export function registerMarketplaceRoutes(app: Express) {
               relatedBookingId: first.id,
             });
 
-            // Send waitlist promotion email (fully isolated)
+            // Send waitlist promotion email + notify/email non-primary guest slots (fully isolated)
             try {
               const promotedUser = await storage.getMarketplaceUser(first.userId);
               if (promotedUser) {
                 sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession).catch(() => {});
+
+                const promotionBaseUrl = process.env.REPLIT_DOMAINS
+                  ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+                  : 'http://localhost:5000';
+                // Send emails + in-app notifications to non-primary guest slots
+                const confirmedSlots = await storage.getBookingGuests(first.id);
+                for (const slot of confirmedSlots) {
+                  if (!slot.isPrimary && slot.status === 'confirmed') {
+                    if (slot.email && slot.cancellationToken) {
+                      const cancelGuestUrl = `${promotionBaseUrl}/marketplace/guests/cancel/${slot.cancellationToken}`;
+                      const signupUrl = `${promotionBaseUrl}/marketplace/signup?email=${encodeURIComponent(slot.email)}`;
+                      sendGuestBookingEmail(slot.email, slot.name, promotedUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
+                    }
+                    if (slot.linkedUserId) {
+                      await storage.createMarketplaceNotification({
+                        userId: slot.linkedUserId,
+                        type: 'guest_booking_confirmed',
+                        title: 'You have a booking!',
+                        message: `${promotedUser.name} has been confirmed for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} — your guest spot is also confirmed.`,
+                        relatedBookingId: first.id,
+                      });
+                    }
+                  }
+                }
               }
             } catch (emailErr) { console.error('[Email] waitlist promotion lookup failed:', emailErr); }
 
@@ -1181,12 +1205,38 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       }
 
-      // Send confirmation email (fully isolated)
+      // Confirm all pending guest slots and send guest emails/notifications
       try {
         const user = await storage.getMarketplaceUser(booking.userId);
         const session = await storage.getBookableSession(booking.sessionId);
         if (user && session) {
           sendBookingConfirmationEmail(user.email, user.name, session, 'ziina', booking.amountAed).catch(() => {});
+
+          const adminConfirmBaseUrl = process.env.REPLIT_DOMAINS
+            ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+            : 'http://localhost:5000';
+          const pendingSlots = await storage.getBookingGuests(booking.id);
+          for (const slot of pendingSlots) {
+            if (slot.status === 'pending') {
+              await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
+              // Send guest email for non-primary slots with a cancellation token
+              if (!slot.isPrimary && slot.email && slot.cancellationToken) {
+                const cancelGuestUrl = `${adminConfirmBaseUrl}/marketplace/guests/cancel/${slot.cancellationToken}`;
+                const signupUrl = `${adminConfirmBaseUrl}/marketplace/signup?email=${encodeURIComponent(slot.email)}`;
+                sendGuestBookingEmail(slot.email, slot.name, user.name, session, cancelGuestUrl, signupUrl).catch(() => {});
+              }
+              // Notify linked non-primary guests
+              if (!slot.isPrimary && slot.linkedUserId) {
+                await storage.createMarketplaceNotification({
+                  userId: slot.linkedUserId,
+                  type: 'guest_booking_confirmed',
+                  title: 'You have a booking!',
+                  message: `${user.name} added you as a guest for "${session.title}" on ${new Date(session.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${session.venueName}.`,
+                  relatedBookingId: booking.id,
+                });
+              }
+            }
+          }
         }
       } catch (emailErr) { console.error('[Email] admin-confirm email failed:', emailErr); }
 
