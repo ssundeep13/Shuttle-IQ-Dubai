@@ -166,6 +166,8 @@ export interface IStorage {
   getBookingGuestByToken(token: string): Promise<BookingGuest | undefined>;
   updateBookingGuest(id: string, updates: Partial<BookingGuest>): Promise<BookingGuest | undefined>;
   getActiveGuestCountForSession(sessionId: string): Promise<number>;
+  linkGuestsByEmail(email: string, userId: string): Promise<void>;
+  getGuestBookingsForUser(userId: string): Promise<BookingWithDetails[]>;
 
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
@@ -1186,14 +1188,35 @@ export class DatabaseStorage implements IStorage {
       ));
     if (activeBookingIds.length === 0) return 0;
     const ids = activeBookingIds.map(b => b.id);
-    const guests = await db
+    const guestRows = await db
       .select()
       .from(bookingGuests)
       .where(and(
         inArray(bookingGuests.bookingId, ids),
         eq(bookingGuests.status, 'confirmed')
       ));
-    return guests.length;
+    return guestRows.length;
+  }
+
+  async linkGuestsByEmail(email: string, userId: string): Promise<void> {
+    await db
+      .update(bookingGuests)
+      .set({ linkedUserId: userId })
+      .where(and(eq(bookingGuests.email, email), sql`${bookingGuests.linkedUserId} IS NULL`));
+  }
+
+  async getGuestBookingsForUser(userId: string): Promise<BookingWithDetails[]> {
+    // Find all confirmed booking_guests rows linked to this user
+    const guestRows = await db
+      .select()
+      .from(bookingGuests)
+      .where(and(eq(bookingGuests.linkedUserId, userId), eq(bookingGuests.status, 'confirmed')));
+    const result: BookingWithDetails[] = [];
+    for (const guest of guestRows) {
+      const booking = await this.getBookingWithDetails(guest.bookingId);
+      if (booking) result.push(booking);
+    }
+    return result;
   }
 
   async getBookingsNeedingReminder(): Promise<BookingWithDetails[]> {

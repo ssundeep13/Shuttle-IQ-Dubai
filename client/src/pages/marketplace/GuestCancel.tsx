@@ -215,7 +215,12 @@ export default function GuestCancel() {
 
       <p className="text-center text-xs text-muted-foreground mt-4">
         Want to join future sessions?{' '}
-        <a href="/marketplace/signup" className="text-primary hover:underline">Create a free account</a>
+        <a
+          href={guest?.email ? `/marketplace/signup?email=${encodeURIComponent(guest.email)}` : '/marketplace/signup'}
+          className="text-primary hover:underline"
+        >
+          Create a free account
+        </a>
       </p>
     </div>
   );

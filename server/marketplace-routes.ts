@@ -65,6 +65,9 @@ export function registerMarketplaceRoutes(app: Express) {
         user: { id: user.id, email: user.email, name: user.name, phone: user.phone, linkedPlayerId: user.linkedPlayerId },
       });
 
+      // Retroactive guest linking: link any prior guest records with this email to the new user
+      storage.linkGuestsByEmail(user.email, user.id).catch(() => {});
+
       // Fire-and-forget welcome email
       const marketplaceUrl = process.env.REPLIT_DOMAINS
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/marketplace`
@@ -454,17 +457,24 @@ export function registerMarketplaceRoutes(app: Express) {
       const createGuestsForBooking = async (bookingId: string, bookingUser: { name: string } | null) => {
         for (const g of guests) {
           const token = randomUUID();
-          const guest = await storage.createBookingGuest({
+          // Instant linking: check if guest email matches an existing marketplace user
+          let linkedUserId: string | null = null;
+          if (g.email) {
+            const existingUser = await storage.getMarketplaceUserByEmail(g.email);
+            if (existingUser) linkedUserId = existingUser.id;
+          }
+          await storage.createBookingGuest({
             bookingId,
             name: g.name,
             email: g.email ?? null,
-            linkedUserId: null,
+            linkedUserId,
             status: 'confirmed',
             cancellationToken: token,
           });
           if (g.email && bookingUser) {
             const cancelGuestUrl = `${baseUrl}/marketplace/guest-cancel?token=${token}`;
-            sendGuestBookingEmail(g.email, g.name, bookingUser.name, bookableSession, cancelGuestUrl).catch(() => {});
+            const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(g.email)}`;
+            sendGuestBookingEmail(g.email, g.name, bookingUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
           }
         }
       };
@@ -498,6 +508,7 @@ export function registerMarketplaceRoutes(app: Express) {
           bookingId: booking.id,
           paymentMethod: "cash",
           amount: totalAmount,
+          spotsBooked,
           booking: bookingWithDetails,
           session: {
             title: bookableSession.title,
@@ -727,8 +738,14 @@ export function registerMarketplaceRoutes(app: Express) {
   app.get("/api/marketplace/bookings/mine", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const bookings = await storage.getUserBookings(req.user.userId);
-      res.json(bookings);
+      const primaryBookings = await storage.getUserBookings(req.user.userId);
+      const guestBookings = await storage.getGuestBookingsForUser(req.user.userId);
+      // Merge, deduplicating by booking id (primary takes precedence)
+      const seen = new Set(primaryBookings.map(b => b.id));
+      const merged = [...primaryBookings, ...guestBookings.filter(b => !seen.has(b.id))];
+      // Sort by createdAt desc
+      merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json(merged);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bookings" });
     }

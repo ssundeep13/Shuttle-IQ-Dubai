@@ -184,7 +184,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   const spotsBooked = 1 + guests.length;
   const totalAmount = pricePerSpot * spotsBooked;
-  const maxGuests = Math.min(9, availableSpots - 1);
+  const maxGuests = Math.min(3, availableSpots - 1);
 
   const validateGuests = () => {
     for (const g of guests) {
@@ -362,7 +362,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   const spotsBooked = 1 + guests.length;
   const totalAmount = pricePerSpot * spotsBooked;
-  const maxGuests = Math.min(9, availableSpots - 1);
+  const maxGuests = Math.min(3, availableSpots - 1);
 
   const validateGuests = () => {
     for (const g of guests) {

@@ -246,7 +246,13 @@ export async function sendGuestBookingEmail(
   bookedByName: string,
   session: BookableSession,
   cancelUrl: string,
+  signupUrl?: string,
 ): Promise<void> {
+  const signupCta = signupUrl
+    ? `<hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+       <p style="margin:0 0 16px;font-size:13px;color:#718096;line-height:1.6;">Want to track your stats, manage your bookings, and join future sessions? Create a free ShuttleIQ account — your email is already pre-filled!</p>
+       <table cellpadding="0" cellspacing="0" style="margin-bottom:28px;"><tr><td style="background-color:#0e7490;border-radius:6px;"><a href="${signupUrl}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">Create Your ShuttleIQ Account</a></td></tr></table>`
+    : '';
   const body = `
     <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">You've been booked in!</h1>
     <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${guestName}, <strong>${bookedByName}</strong> has reserved a spot for you at an upcoming badminton session. Here are your details:</p>
@@ -255,7 +261,8 @@ export async function sendGuestBookingEmail(
     <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
     <p style="margin:0 0 16px;font-size:13px;color:#718096;line-height:1.6;">Can't make it? You can cancel your spot using the link below. Please cancel as soon as possible so another player can take your spot.</p>
     ${ctaButton(cancelUrl, 'Cancel My Spot')}
-    <p style="margin:0;font-size:12px;color:#a0aec0;line-height:1.6;">This link is unique to you. Please do not share it.</p>
+    <p style="margin:0 0 24px;font-size:12px;color:#a0aec0;line-height:1.6;">This link is unique to you. Please do not share it.</p>
+    ${signupCta}
   `;
   try {
     await sendEmail(toEmail, `You've been booked: ${session.title}`, emailWrapper(body));
