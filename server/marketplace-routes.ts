@@ -32,7 +32,7 @@ export function registerMarketplaceRoutes(app: Express) {
         email: z.string().email(),
         password: z.string().min(6),
         name: z.string().min(1),
-        phone: z.string().optional(),
+        phone: z.string().min(1, "Phone number is required"),
       });
       const { email, password, name, phone } = schema.parse(req.body);
 

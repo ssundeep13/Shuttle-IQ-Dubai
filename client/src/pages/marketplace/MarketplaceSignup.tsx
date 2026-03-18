@@ -27,7 +27,7 @@ export default function MarketplaceSignup() {
     e.preventDefault();
     setLoading(true);
     try {
-      await signup(email, password, name, phone || undefined);
+      await signup(email, password, name, phone);
       toast({ title: 'Account created!' });
       setLocation('/marketplace');
     } catch (err: any) {
@@ -68,12 +68,14 @@ export default function MarketplaceSignup() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="phone">Phone (optional)</Label>
+              <Label htmlFor="phone">Phone</Label>
               <Input
                 id="phone"
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                required
+                placeholder="+971 50 000 0000"
                 data-testid="input-phone"
               />
             </div>
