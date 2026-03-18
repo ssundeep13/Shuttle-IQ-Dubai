@@ -76,7 +76,6 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
   sessionInfo: BookingData['session'];
 }) {
   const [processing, setProcessing] = useState(false);
-  const [paymentOpened, setPaymentOpened] = useState(false);
   const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
@@ -115,15 +114,9 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
         throw new Error('No payment URL received. Please try again.');
       }
 
-      // Open in a new tab to avoid iframe embedding restrictions on pay.ziina.com
-      const newWindow = window.open(data.redirectUrl, '_blank', 'noopener,noreferrer');
-      if (!newWindow) {
-        // Fallback if popup was blocked — navigate in the same window
-        window.location.href = data.redirectUrl;
-      } else {
-        setPaymentOpened(true);
-      }
-      setProcessing(false);
+      // Navigate in the same window so the user returns to the same browser
+      // context (PWA or tab) after payment — preserving localStorage tokens.
+      window.location.href = data.redirectUrl;
     } catch (err: any) {
       setError(err.message || 'Payment failed. Please try again.');
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -150,30 +143,6 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
         </Card>
         <Link href="/marketplace/my-bookings">
           <Button className="w-full" data-testid="button-view-waitlist">View My Bookings</Button>
-        </Link>
-      </div>
-    );
-  }
-
-  if (paymentOpened) {
-    return (
-      <div className="space-y-6">
-        <OrderSummary sessionInfo={sessionInfo} amount={amount} />
-        <Card className="border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
-              <p className="text-sm font-medium text-green-800 dark:text-green-300">Payment page opened in a new tab</p>
-            </div>
-            <p className="text-xs text-green-700 dark:text-green-400">
-              Complete your payment in the Ziina tab. Once done, you'll see a confirmation page. You can also check your bookings from the menu.
-            </p>
-          </CardContent>
-        </Card>
-        <Link href="/marketplace/my-bookings">
-          <Button variant="outline" className="w-full" data-testid="button-view-bookings">
-            View My Bookings
-          </Button>
         </Link>
       </div>
     );
@@ -206,7 +175,7 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
       </Button>
 
       <p className="text-xs text-muted-foreground text-center">
-        Payments are securely processed by Ziina. You'll be redirected to complete payment.
+        Payments are securely processed by Ziina. You'll be redirected to complete payment and brought back automatically.
       </p>
     </div>
   );

@@ -520,12 +520,10 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
-  app.post("/api/marketplace/bookings/:id/confirm", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+  app.post("/api/marketplace/bookings/:id/confirm", async (req: AuthRequest, res) => {
     try {
-      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
-      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
 
       if (booking.status === 'confirmed') {
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);

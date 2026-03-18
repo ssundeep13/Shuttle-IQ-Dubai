@@ -28,17 +28,12 @@ export default function CheckoutSuccess() {
       return;
     }
 
-    const token = localStorage.getItem('mp_accessToken');
-    if (!token) {
-      setStatus('error');
-      setErrorMessage('Not authenticated');
-      return;
-    }
-
     // Poll the confirm endpoint up to MAX_ATTEMPTS times with a delay between each.
     // Ziina sometimes redirects before it finishes updating the payment status on
     // their side, so we give them a few seconds to settle before giving up.
+    // The confirm endpoint does not require auth — the UUID booking ID is sufficient.
     let cancelled = false;
+    const token = localStorage.getItem('mp_accessToken');
 
     async function pollConfirm() {
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -50,12 +45,11 @@ export default function CheckoutSuccess() {
         if (cancelled) return;
 
         try {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (token) headers['Authorization'] = `Bearer ${token}`;
           const res = await fetch(`/api/marketplace/bookings/${bookingId}/confirm`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
-            },
+            headers,
           });
           const data = await res.json();
 
