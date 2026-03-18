@@ -1226,10 +1226,10 @@ export function registerMarketplaceRoutes(app: Express) {
           linkedPlayerId: booking.user?.linkedPlayerId ?? null,
         });
 
-        // Guests (active only) — resolve linked player profile if available
+        // Additional guests only (exclude primary slot — already represented above by booking.user)
         const guestList = booking.guests ?? [];
         for (const guest of guestList) {
-          if (guest.status === 'confirmed') {
+          if (guest.status === 'confirmed' && !guest.isPrimary) {
             let guestLevel: string | null = null;
             let guestSkillScore: number | null = null;
             let guestLinkedPlayerId: string | null = null;
