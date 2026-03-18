@@ -18,10 +18,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Menu, User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, Download } from 'lucide-react';
+import { Menu, User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MarketplaceNotification } from '@shared/schema';
-import { useInstallPrompt } from '@/hooks/use-install-prompt';
 
 const navLinks = [
   { href: '/', label: 'Home', icon: Home },
@@ -155,7 +154,6 @@ export function MarketplaceNav() {
   const { isAuthenticated, user, logout } = useMarketplaceAuth();
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
-  const { canInstall, install } = useInstallPrompt();
 
   const isActive = (href: string) => {
     if (href === '/') return location === '/' || location === '/marketplace';
@@ -191,18 +189,6 @@ export function MarketplaceNav() {
         </nav>
 
         <div className="hidden md:flex items-center gap-2 ml-auto">
-          {canInstall && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={install}
-              data-testid="button-install-app"
-            >
-              <Download className="h-4 w-4" />
-              Install App
-            </Button>
-          )}
           {isAuthenticated ? (
             <>
               <NotificationBell />
@@ -299,21 +285,6 @@ export function MarketplaceNav() {
                   <div className="h-px bg-border my-2" />
                   <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => { logout(); setOpen(false); }} data-testid="button-mobile-logout">
                     <LogOut className="h-4 w-4" /> Log Out
-                  </Button>
-                </>
-              )}
-
-              {canInstall && (
-                <>
-                  <div className="h-px bg-border my-2" />
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start gap-2"
-                    onClick={() => { install(); setOpen(false); }}
-                    data-testid="button-mobile-install-app"
-                  >
-                    <Download className="h-4 w-4" />
-                    Install App
                   </Button>
                 </>
               )}
