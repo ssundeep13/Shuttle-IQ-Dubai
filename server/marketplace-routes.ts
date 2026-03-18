@@ -277,6 +277,69 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Unified guest search: marketplace users + SIQ players, deduped
+  app.get("/api/marketplace/search-guests", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const query = req.query.q as string;
+      if (!query || query.length < 2) return res.json([]);
+
+      // Search marketplace users and SIQ players in parallel
+      const [mpUsers, siqPlayers] = await Promise.all([
+        storage.searchMarketplaceUsersByName(query),
+        storage.searchPlayers(query),
+      ]);
+
+      type GuestResult = {
+        type: 'marketplace' | 'siq';
+        name: string;
+        email?: string;
+        level?: string | null;
+        marketplaceUserId?: string;
+        siqPlayerId?: string;
+      };
+
+      const results: GuestResult[] = [];
+      const usedSiqIds = new Set<string>();
+
+      // Marketplace users first (preferred — email is known)
+      for (const u of mpUsers) {
+        results.push({
+          type: 'marketplace',
+          name: u.name,
+          email: u.email,
+          marketplaceUserId: u.id,
+          siqPlayerId: u.linkedPlayerId ?? undefined,
+          level: undefined, // resolved below if linked
+        });
+        if (u.linkedPlayerId) usedSiqIds.add(u.linkedPlayerId);
+      }
+
+      // Add level info for marketplace users that are linked to SIQ players
+      for (const r of results) {
+        if (r.siqPlayerId) {
+          const linked = siqPlayers.find(p => p.id === r.siqPlayerId);
+          if (linked) r.level = linked.level;
+        }
+      }
+
+      // SIQ-only players (not already covered by a linked marketplace user)
+      for (const p of siqPlayers) {
+        if (!usedSiqIds.has(p.id)) {
+          results.push({
+            type: 'siq',
+            name: p.name,
+            level: p.level,
+            siqPlayerId: p.id,
+          });
+        }
+      }
+
+      res.json(results.slice(0, 10));
+    } catch (error) {
+      res.status(500).json({ error: "Search failed" });
+    }
+  });
+
   app.get("/api/marketplace/admin/search-players", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const query = req.query.q as string;
@@ -393,10 +456,12 @@ export function registerMarketplaceRoutes(app: Express) {
       const { sessionId, paymentMethod, guests: guestList } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
 
-      // Validate guest list (optional array of { name, email? })
+      // Validate guest list (optional array of { name, email?, marketplaceUserId?, siqPlayerId? })
       const guestSchema = z.array(z.object({
         name: z.string().min(1).max(100),
         email: z.string().email().optional().nullable(),
+        marketplaceUserId: z.string().optional().nullable(),
+        siqPlayerId: z.string().optional().nullable(),
       })).max(3).optional();
       const parsedGuests = guestSchema.safeParse(guestList);
       if (!parsedGuests.success) return res.status(400).json({ error: "Invalid guest list" });
@@ -448,23 +513,45 @@ export function registerMarketplaceRoutes(app: Express) {
         for (const g of guests) {
           const token = randomUUID();
           let linkedUserId: string | null = null;
-          if (g.email) {
-            const existingUser = await storage.getMarketplaceUserByEmail(g.email);
+          let resolvedEmail: string | null = g.email ?? null;
+
+          // Resolve marketplace user by provided ID first
+          if (g.marketplaceUserId) {
+            const mpUser = await storage.getMarketplaceUser(g.marketplaceUserId);
+            if (mpUser) {
+              linkedUserId = mpUser.id;
+              resolvedEmail = resolvedEmail || mpUser.email;
+            }
+          }
+
+          // Fallback: resolve by email if no marketplace user ID given
+          if (!linkedUserId && resolvedEmail) {
+            const existingUser = await storage.getMarketplaceUserByEmail(resolvedEmail);
             if (existingUser) linkedUserId = existingUser.id;
           }
+
+          // Fallback: resolve by SIQ player -> linked marketplace user
+          if (!linkedUserId && g.siqPlayerId) {
+            const mpUserViaSiq = await storage.getMarketplaceUserByLinkedPlayerId(g.siqPlayerId);
+            if (mpUserViaSiq) {
+              linkedUserId = mpUserViaSiq.id;
+              resolvedEmail = resolvedEmail || mpUserViaSiq.email;
+            }
+          }
+
           await storage.createBookingGuest({
             bookingId,
             name: g.name,
-            email: g.email ?? null,
+            email: resolvedEmail,
             linkedUserId,
             isPrimary: false,
             status: slotStatus,
             cancellationToken: token,
           });
-          if (sendGuestEmails && slotStatus === 'confirmed' && g.email && primaryUser) {
+          if (sendGuestEmails && slotStatus === 'confirmed' && resolvedEmail && primaryUser) {
             const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${token}`;
-            const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(g.email)}`;
-            sendGuestBookingEmail(g.email, g.name, primaryUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
+            const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(resolvedEmail)}`;
+            sendGuestBookingEmail(resolvedEmail, g.name, primaryUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
           }
         }
       };

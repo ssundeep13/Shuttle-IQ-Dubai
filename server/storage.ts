@@ -125,6 +125,8 @@ export interface IStorage {
   getMarketplaceUser(id: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined>;
+  getMarketplaceUserByLinkedPlayerId(playerId: string): Promise<MarketplaceUser | undefined>;
+  searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
   getAllMarketplaceUsers(): Promise<MarketplaceUser[]>;
   createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void>;
@@ -930,6 +932,24 @@ export class DatabaseStorage implements IStorage {
   async getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined> {
     const [user] = await db.select().from(marketplaceUsers).where(eq(marketplaceUsers.email, email));
     return user || undefined;
+  }
+
+  async getMarketplaceUserByLinkedPlayerId(playerId: string): Promise<MarketplaceUser | undefined> {
+    const [user] = await db
+      .select()
+      .from(marketplaceUsers)
+      .where(eq(marketplaceUsers.linkedPlayerId, playerId));
+    return user || undefined;
+  }
+
+  async searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]> {
+    const lowerQuery = `%${query.toLowerCase()}%`;
+    return await db
+      .select()
+      .from(marketplaceUsers)
+      .where(sql`LOWER(${marketplaceUsers.name}) LIKE ${lowerQuery}`)
+      .orderBy(asc(marketplaceUsers.name))
+      .limit(10);
   }
 
   async updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined> {
