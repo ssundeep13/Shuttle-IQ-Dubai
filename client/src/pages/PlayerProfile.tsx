@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -22,6 +23,8 @@ export default function PlayerProfile() {
     queryFn: () => apiRequest('GET', `/api/players/${id}/stats`),
     enabled: !!id,
   });
+
+  const [progressionFilter, setProgressionFilter] = useState<'last10' | 'monthly' | 'all'>('last10');
 
   if (isLoading) {
     return (
@@ -75,14 +78,21 @@ export default function PlayerProfile() {
     frequentPartners, rivals, favoriteOpponents
   } = stats;
 
-  // Build chart data from recent games showing skill score progression
-  // Filter out games with missing skill scores and add guards
+  // Build chart data from game history showing skill score progression
+  // Filter out games with missing skill scores
   const validGames = recentGames.filter(
     game => game.skillScoreBefore !== undefined && game.skillScoreAfter !== undefined
   );
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const filteredGames = progressionFilter === 'last10'
+    ? validGames.slice(0, 10)
+    : progressionFilter === 'monthly'
+    ? validGames.filter(g => new Date(g.date) >= thirtyDaysAgo)
+    : validGames;
   
-  const chartData = validGames.length > 0
-    ? validGames
+  const chartData = filteredGames.length > 0
+    ? filteredGames
         .slice()
         .reverse()
         .map((game, index) => ({
@@ -393,50 +403,71 @@ export default function PlayerProfile() {
         )}
 
         {/* Skill Score Progression Chart */}
-        {chartData.length > 0 && (
+        {(validGames.length > 0) && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Skill Score Progression
-              </CardTitle>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Skill Score Progression
+                </CardTitle>
+                <div className="flex gap-1" data-testid="filter-progression">
+                  {(['last10', 'monthly', 'all'] as const).map(f => (
+                    <Button
+                      key={f}
+                      size="sm"
+                      variant={progressionFilter === f ? 'default' : 'ghost'}
+                      onClick={() => setProgressionFilter(f)}
+                      data-testid={`filter-progression-${f}`}
+                    >
+                      {f === 'last10' ? 'Last 10' : f === 'monthly' ? 'This Month' : 'All Time'}
+                    </Button>
+                  ))}
+                </div>
+              </div>
               <CardDescription>
-                Points gained and lost over recent games
+                {progressionFilter === 'last10' ? 'Last 10 games' : progressionFilter === 'monthly' ? 'Last 30 days' : 'All games'}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="w-full h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 5, right: 30, left: -20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis 
-                      dataKey="gameNumber" 
-                      label={{ value: 'Game #', position: 'insideBottomRight', offset: -5 }}
-                      stroke="var(--muted-foreground)"
-                    />
-                    <YAxis 
-                      label={{ value: 'Skill Score', angle: -90, position: 'insideLeft' }}
-                      stroke="var(--muted-foreground)"
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'var(--card)',
-                        border: '1px solid var(--border)',
-                        borderRadius: '6px'
-                      }}
-                      formatter={(value: number) => `${value} pts`}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="skillScore" 
-                      stroke="var(--primary)" 
-                      dot={{ fill: 'var(--primary)', r: 4 }}
-                      activeDot={{ r: 6 }}
-                      strokeWidth={2}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
+              {chartData.length === 0 ? (
+                <div className="h-32 flex items-center justify-center text-muted-foreground text-sm">
+                  No games in this period
+                </div>
+              ) : (
+                <div className="w-full h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData} margin={{ top: 5, right: 30, left: -20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <XAxis 
+                        dataKey="gameNumber" 
+                        label={{ value: 'Game #', position: 'insideBottomRight', offset: -5 }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <YAxis 
+                        label={{ value: 'Skill Score', angle: -90, position: 'insideLeft' }}
+                        stroke="var(--muted-foreground)"
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: 'var(--card)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '6px'
+                        }}
+                        formatter={(value: number) => `${value} pts`}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="skillScore" 
+                        stroke="var(--primary)" 
+                        dot={{ fill: 'var(--primary)', r: 4 }}
+                        activeDot={{ r: 6 }}
+                        strokeWidth={2}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

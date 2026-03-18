@@ -644,8 +644,8 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => b.winRate - a.winRate)
       .slice(0, 3);
 
-    // Build recent games list (last 10)
-    const recentGames: PlayerStats['recentGames'] = games.slice(0, 10).map(game => {
+    // Build full game history list (all games, filtered on frontend by time range)
+    const recentGames: PlayerStats['recentGames'] = games.map(game => {
       const gameParticipantsList = allParticipants.filter(p => p.gameId === game.id);
       const playerInGame = gameParticipantsList.find(p => p.playerId === playerId)!;
       const playerTeam = playerInGame.team;

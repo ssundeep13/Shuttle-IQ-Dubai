@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, Link } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,6 +72,8 @@ export default function PlayerPublicProfile() {
     enabled: !!playerId,
   });
 
+  const [progressionFilter, setProgressionFilter] = useState<'last10' | 'monthly' | 'all'>('last10');
+
   if (isLoading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8">
@@ -117,7 +120,13 @@ export default function PlayerPublicProfile() {
     ? `${stats.currentStreak.count}${stats.currentStreak.type === 'win' ? 'W' : 'L'}`
     : '0';
 
-  const chartGames = stats.recentGames.slice(0, 10);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const allValidGames = stats.recentGames.filter(g => g.skillScoreAfter != null);
+  const chartGames = progressionFilter === 'last10'
+    ? allValidGames.slice(0, 10)
+    : progressionFilter === 'monthly'
+    ? allValidGames.filter(g => new Date(g.date) >= thirtyDaysAgo)
+    : allValidGames;
   const chartData = chartGames
     .slice()
     .reverse()
@@ -127,8 +136,8 @@ export default function PlayerPublicProfile() {
       won: g.won,
     }));
 
-  const startingScore = chartData.length > 0
-    ? (chartGames[chartGames.length - 1].skillScoreBefore ?? chartData[0].score)
+  const startingScore = chartGames.length > 0
+    ? (chartGames[chartGames.length - 1].skillScoreBefore ?? chartData[0]?.score ?? stats.player.skillScore)
     : stats.player.skillScore;
   const endingScore = chartData.length > 0
     ? chartData[chartData.length - 1].score
@@ -309,7 +318,7 @@ export default function PlayerPublicProfile() {
           </motion.div>
         )}
 
-        {chartData.length > 1 && (
+        {allValidGames.length > 0 && (
           <motion.div variants={fadeInUp}>
             <Card className="mb-6" data-testid="card-skill-progression">
               <CardHeader className="pb-1">
@@ -317,18 +326,41 @@ export default function PlayerPublicProfile() {
                   <CardTitle className="text-base flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-muted-foreground" /> Skill Score Progression
                   </CardTitle>
-                  {totalChange !== 0 && (
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${totalChange > 0 ? 'bg-green-500/10 text-green-600 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}
-                    >
-                      {totalChange > 0 ? '+' : ''}{totalChange} pts
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {totalChange !== 0 && chartData.length > 0 && (
+                      <Badge
+                        variant="outline"
+                        className={`text-xs ${totalChange > 0 ? 'bg-green-500/10 text-green-600 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}
+                      >
+                        {totalChange > 0 ? '+' : ''}{totalChange} pts
+                      </Badge>
+                    )}
+                    <div className="flex gap-1" data-testid="filter-progression">
+                      {(['last10', 'monthly', 'all'] as const).map(f => (
+                        <Button
+                          key={f}
+                          size="sm"
+                          variant={progressionFilter === f ? 'default' : 'ghost'}
+                          onClick={() => setProgressionFilter(f)}
+                          data-testid={`filter-progression-${f}`}
+                        >
+                          {f === 'last10' ? 'Last 10' : f === 'monthly' ? 'This Month' : 'All Time'}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground">Points gained and lost over recent games</p>
+                <p className="text-xs text-muted-foreground">
+                  {progressionFilter === 'last10' ? 'Last 10 games' : progressionFilter === 'monthly' ? 'Last 30 days' : 'All games'}
+                </p>
               </CardHeader>
               <CardContent className="pt-2">
+                {chartData.length === 0 ? (
+                  <div className="h-32 flex items-center justify-center text-muted-foreground text-sm">
+                    No games in this period
+                  </div>
+                ) : (
+                <>
                 <div className="h-52">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -379,6 +411,8 @@ export default function PlayerPublicProfile() {
                     <span className="w-6 border-t-2 border-dashed border-slate-400 inline-block" /> Starting Point
                   </span>
                 </div>
+                </>
+                )}
               </CardContent>
             </Card>
           </motion.div>
