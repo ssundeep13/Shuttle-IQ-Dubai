@@ -472,7 +472,7 @@ export function registerMarketplaceRoutes(app: Express) {
             cancellationToken: token,
           });
           if (g.email && bookingUser) {
-            const cancelGuestUrl = `${baseUrl}/marketplace/guest-cancel?token=${token}`;
+            const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${token}`;
             const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(g.email)}`;
             sendGuestBookingEmail(g.email, g.name, bookingUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
           }
@@ -672,7 +672,7 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
-  // Public: lookup guest by token (for the self-cancel page)
+  // Public: lookup guest by token (for the self-cancel page) — query-string form
   app.get("/api/marketplace/guests/by-token", async (req, res) => {
     try {
       const token = req.query.token as string;
@@ -684,6 +684,65 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({ guest, session });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch guest info" });
+    }
+  });
+
+  // Public: lookup guest by token — path-param form
+  app.get("/api/marketplace/guests/:token", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const guest = await storage.getBookingGuestByToken(token);
+      if (!guest) return res.status(404).json({ error: "Invalid token" });
+      const booking = await storage.getBooking(guest.bookingId);
+      const session = booking ? await storage.getBookableSession(booking.sessionId) : null;
+      res.json({ guest, session });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch guest info" });
+    }
+  });
+
+  // Public: guest self-cancel by token — path-param form
+  app.post("/api/marketplace/guests/:token/cancel", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const guest = await storage.getBookingGuestByToken(token);
+      if (!guest) return res.status(404).json({ error: "Invalid cancellation link" });
+      if (guest.status === 'cancelled') return res.json({ alreadyCancelled: true });
+      const booking = await storage.getBooking(guest.bookingId);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.status === 'cancelled') return res.status(400).json({ error: "Parent booking is already cancelled" });
+      await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
+      const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
+      await storage.updateBooking(booking.id, { spotsBooked: newSpots });
+      res.json({ cancelled: true, guestName: guest.name });
+    } catch (error) {
+      console.error('Guest cancel error:', error);
+      res.status(500).json({ error: "Failed to cancel guest spot" });
+    }
+  });
+
+  // Authenticated: delete (cancel) a specific guest slot (primary booker only)
+  app.delete("/api/marketplace/bookings/:bookingId/guests/:guestId", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const booking = await storage.getBooking(req.params.bookingId);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
+      if (booking.status === 'cancelled') return res.status(400).json({ error: "Booking is already cancelled" });
+
+      const guests = await storage.getBookingGuests(req.params.bookingId);
+      const guest = guests.find(g => g.id === req.params.guestId);
+      if (!guest) return res.status(404).json({ error: "Guest not found" });
+      if (guest.status === 'cancelled') return res.status(400).json({ error: "Guest slot already cancelled" });
+
+      await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
+      const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
+      await storage.updateBooking(booking.id, { spotsBooked: newSpots });
+
+      res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: newSpots });
+    } catch (error) {
+      console.error('Delete guest error:', error);
+      res.status(500).json({ error: "Failed to cancel guest slot" });
     }
   });
 

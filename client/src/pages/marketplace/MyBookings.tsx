@@ -77,6 +77,20 @@ export default function MyBookings() {
     },
   });
 
+  const cancelGuestMutation = useMutation({
+    mutationFn: async ({ bookingId, guestId }: { bookingId: string; guestId: string }) => {
+      return apiRequest('DELETE', `/api/marketplace/bookings/${bookingId}/guests/${guestId}`);
+    },
+    onSuccess: () => {
+      toast({ title: 'Guest spot cancelled' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to cancel guest spot', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const upcoming = bookings?.filter(b => b.status !== 'cancelled' && new Date(b.session.date) >= new Date()) || [];
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
   const active = upcoming.filter(b => b.status !== 'waitlisted');
@@ -85,7 +99,9 @@ export default function MyBookings() {
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
     const isWaitlisted = booking.status === 'waitlisted';
+    const isLinkedGuest = booking.isGuestBooking && !!booking.myGuestId;
     const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted') && new Date(booking.session.date) >= new Date();
+    const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && new Date(booking.session.date) >= new Date();
     const lateFee = !isWaitlisted && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
 
     const stripColor = isWaitlisted ? 'bg-amber-500'
@@ -140,17 +156,48 @@ export default function MyBookings() {
             </div>
 
             {/* Guests section */}
-            {booking.guests && booking.guests.filter(g => g.status === 'confirmed').length > 0 && (
+            {!booking.isGuestBooking && booking.guests && booking.guests.filter(g => g.status === 'confirmed').length > 0 && (
               <div className="mb-3 p-3 rounded-md bg-muted/40 space-y-1.5">
                 <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
                   <Users className="h-3.5 w-3.5" />
                   Guests ({booking.guests.filter(g => g.status === 'confirmed').length})
                 </div>
                 {booking.guests.filter(g => g.status === 'confirmed').map((guest: BookingGuest) => (
-                  <div key={guest.id} className="flex items-center gap-1.5 text-xs" data-testid={`text-guest-name-${guest.id}`}>
-                    <UserCheck className="h-3 w-3 text-muted-foreground shrink-0" />
-                    <span>{guest.name}</span>
-                    {guest.email && <span className="text-muted-foreground">({guest.email})</span>}
+                  <div key={guest.id} className="flex items-center justify-between gap-1.5" data-testid={`text-guest-name-${guest.id}`}>
+                    <div className="flex items-center gap-1.5 text-xs min-w-0">
+                      <UserCheck className={`h-3 w-3 shrink-0 ${guest.linkedUserId ? 'text-secondary' : 'text-muted-foreground'}`} />
+                      <span className="truncate">{guest.name}</span>
+                      {guest.linkedUserId && (
+                        <Badge variant="secondary" className="text-xs h-4 px-1 text-xs" data-testid={`badge-guest-linked-${guest.id}`}>
+                          linked
+                        </Badge>
+                      )}
+                    </div>
+                    {canCancel && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-5 w-5 shrink-0" data-testid={`button-cancel-guest-${guest.id}`}>
+                            <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Cancel Guest Spot?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will remove <strong>{guest.name}</strong>'s spot from the booking. This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Keep Spot</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => cancelGuestMutation.mutate({ bookingId: booking.id, guestId: guest.id })}
+                            >
+                              Cancel Spot
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
                 ))}
               </div>
@@ -182,6 +229,38 @@ export default function MyBookings() {
                   <span className="text-xs text-muted-foreground">No payment until confirmed</span>
                 )}
               </div>
+              {canCancelAsGuest && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      disabled={cancelGuestMutation.isPending}
+                      data-testid={`button-cancel-guest-spot-${booking.id}`}
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Cancel My Spot
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancel Your Guest Spot?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will remove your guest spot from "{booking.session.title}" on {format(new Date(booking.session.date), 'MMMM d')}. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep Spot</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => cancelGuestMutation.mutate({ bookingId: booking.id, guestId: booking.myGuestId! })}
+                      >
+                        Cancel Spot
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
               {canCancel && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>

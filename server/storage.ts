@@ -1216,7 +1216,7 @@ export class DatabaseStorage implements IStorage {
       const booking = await this.getBookingWithDetails(guest.bookingId);
       if (booking) {
         const primaryBooker = await this.getMarketplaceUser(booking.userId);
-        result.push({ ...booking, isGuestBooking: true, bookedByName: primaryBooker?.name });
+        result.push({ ...booking, isGuestBooking: true, bookedByName: primaryBooker?.name, myGuestId: guest.id });
       }
     }
     return result;

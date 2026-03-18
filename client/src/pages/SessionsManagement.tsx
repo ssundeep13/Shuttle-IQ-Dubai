@@ -772,12 +772,29 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             )}
           </div>
         </div>
-        {booking.guests && booking.guests.filter(g => g.status === 'confirmed').length > 0 && (
-          <div className="text-xs text-muted-foreground space-y-0.5 pl-1">
-            {booking.guests.filter(g => g.status === 'confirmed').map((guest: BookingGuest) => (
-              <div key={guest.id} className="flex items-center gap-1">
-                <UserCheck className="h-3 w-3 shrink-0" />
+        {booking.guests && booking.guests.length > 0 && (
+          <div className="text-xs space-y-0.5 pl-1">
+            {booking.guests.map((guest: BookingGuest) => (
+              <div
+                key={guest.id}
+                className={`flex items-center gap-1.5 ${guest.status === 'cancelled' ? 'opacity-50 line-through' : 'text-muted-foreground'}`}
+                data-testid={`text-admin-guest-${guest.id}`}
+              >
+                <UserCheck className={`h-3 w-3 shrink-0 ${guest.linkedUserId ? 'text-secondary' : 'text-muted-foreground'}`} />
                 <span>{guest.name}</span>
+                {guest.linkedUserId && guest.status !== 'cancelled' && (
+                  <Badge variant="secondary" className="text-xs h-4 px-1" data-testid={`badge-admin-guest-linked-${guest.id}`}>
+                    linked
+                  </Badge>
+                )}
+                {guest.status === 'cancelled' && (
+                  <Badge variant="destructive" className="text-xs h-4 px-1">
+                    cancelled
+                  </Badge>
+                )}
+                {guest.email && !guest.linkedUserId && guest.status !== 'cancelled' && (
+                  <span className="text-muted-foreground/60 truncate max-w-[100px]">{guest.email}</span>
+                )}
               </div>
             ))}
           </div>

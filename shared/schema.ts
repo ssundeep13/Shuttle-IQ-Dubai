@@ -390,4 +390,5 @@ export interface BookingWithDetails extends Booking {
   guests?: BookingGuest[];
   isGuestBooking?: boolean;
   bookedByName?: string;
+  myGuestId?: string;
 }

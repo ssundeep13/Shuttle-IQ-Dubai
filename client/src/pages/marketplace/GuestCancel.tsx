@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'wouter';
+import { useLocation, useParams } from 'wouter';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,8 @@ interface SessionInfo {
 
 export default function GuestCancel() {
   const [, setLocation] = useLocation();
-  const token = new URLSearchParams(window.location.search).get('token');
+  const params = useParams<{ token?: string }>();
+  const token = params.token || new URLSearchParams(window.location.search).get('token');
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

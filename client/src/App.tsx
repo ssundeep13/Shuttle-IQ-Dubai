@@ -100,6 +100,9 @@ function Router() {
       <Route path="/marketplace/guest-cancel">
         <MarketplaceRoute component={GuestCancel} />
       </Route>
+      <Route path="/marketplace/guests/cancel/:token">
+        <MarketplaceRoute component={GuestCancel} />
+      </Route>
 
       <Route path="/marketplace/my-bookings">
         <MarketplaceAuthRoute component={MyBookings} />
