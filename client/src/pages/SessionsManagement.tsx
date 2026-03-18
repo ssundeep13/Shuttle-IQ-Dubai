@@ -772,9 +772,9 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             )}
           </div>
         </div>
-        {booking.guests && booking.guests.length > 0 && (
+        {booking.guests && booking.guests.filter((g: BookingGuest) => !g.isPrimary).length > 0 && (
           <div className="text-xs space-y-0.5 pl-1">
-            {booking.guests.map((guest: BookingGuest) => (
+            {booking.guests.filter((g: BookingGuest) => !g.isPrimary).map((guest: BookingGuest) => (
               <div
                 key={guest.id}
                 className={`flex items-center gap-1.5 ${guest.status === 'cancelled' ? 'opacity-50 line-through' : 'text-muted-foreground'}`}

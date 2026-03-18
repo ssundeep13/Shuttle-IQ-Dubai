@@ -57,7 +57,8 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
 
-  const confirmedGuests = (booking.guests ?? []).filter(g => g.status === 'confirmed');
+  // Filter out primary booker slot — it's represented by the booking itself, not a guest row
+  const confirmedGuests = (booking.guests ?? []).filter(g => g.status === 'confirmed' && !g.isPrimary);
   if (confirmedGuests.length === 0) return null;
 
   const startEdit = (guest: BookingGuest) => {

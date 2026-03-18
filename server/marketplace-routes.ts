@@ -419,6 +419,56 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
       if (bookableSession.status === "cancelled") return res.status(400).json({ error: "Session is cancelled" });
 
+      const baseUrl = process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+
+      // Fetch primary user once — needed for waitlist path too
+      const primaryUser = await storage.getMarketplaceUser(req.user.userId);
+
+      // Helper: create per-slot booking_guest rows for ALL spots (primary + extras),
+      // making the per-slot model explicit. Primary booker gets isPrimary=true.
+      const createAllSlotsForBooking = async (
+        bookingId: string,
+        slotStatus: 'confirmed' | 'pending' = 'confirmed',
+        sendGuestEmails = true,
+      ) => {
+        // Primary booker slot (no cancellation token — they manage via booking cancel)
+        await storage.createBookingGuest({
+          bookingId,
+          name: primaryUser?.name ?? 'Booker',
+          email: primaryUser?.email ?? null,
+          linkedUserId: req.user!.userId,
+          isPrimary: true,
+          status: slotStatus,
+          cancellationToken: null,
+        });
+
+        // Additional guest slots
+        for (const g of guests) {
+          const token = randomUUID();
+          let linkedUserId: string | null = null;
+          if (g.email) {
+            const existingUser = await storage.getMarketplaceUserByEmail(g.email);
+            if (existingUser) linkedUserId = existingUser.id;
+          }
+          await storage.createBookingGuest({
+            bookingId,
+            name: g.name,
+            email: g.email ?? null,
+            linkedUserId,
+            isPrimary: false,
+            status: slotStatus,
+            cancellationToken: token,
+          });
+          if (sendGuestEmails && slotStatus === 'confirmed' && g.email && primaryUser) {
+            const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${token}`;
+            const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(g.email)}`;
+            sendGuestBookingEmail(g.email, g.name, primaryUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
+          }
+        }
+      };
+
       // Handle waitlist when session is full (or would exceed capacity with all spots)
       if (bookableSession.spotsRemaining < spotsBooked) {
         const waitlistCount = await storage.getWaitlistCountForSession(sessionId);
@@ -434,6 +484,8 @@ export function registerMarketplaceRoutes(app: Express) {
           lateFeeApplied: false,
           spotsBooked,
         });
+        // Persist all slot rows even for waitlisted bookings so guest metadata/tokens survive promotion
+        await createAllSlotsForBooking(booking.id, 'pending', false);
         return res.json({
           bookingId: booking.id,
           waitlisted: true,
@@ -449,40 +501,6 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      const baseUrl = process.env.REPLIT_DOMAINS
-        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-        : 'http://localhost:5000';
-
-      // Helper: create guest records, optionally sending emails immediately
-      const createGuestsForBooking = async (
-        bookingId: string,
-        bookingUser: { name: string } | null,
-        guestStatus: 'confirmed' | 'pending' = 'confirmed',
-        sendEmails = true,
-      ) => {
-        for (const g of guests) {
-          const token = randomUUID();
-          let linkedUserId: string | null = null;
-          if (g.email) {
-            const existingUser = await storage.getMarketplaceUserByEmail(g.email);
-            if (existingUser) linkedUserId = existingUser.id;
-          }
-          await storage.createBookingGuest({
-            bookingId,
-            name: g.name,
-            email: g.email ?? null,
-            linkedUserId,
-            status: guestStatus,
-            cancellationToken: token,
-          });
-          if (sendEmails && g.email && bookingUser) {
-            const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${token}`;
-            const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(g.email)}`;
-            sendGuestBookingEmail(g.email, g.name, bookingUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
-          }
-        }
-      };
-
       if (method === 'cash') {
         const totalAmount = bookableSession.priceAed * spotsBooked;
         const booking = await storage.createBooking({
@@ -496,19 +514,18 @@ export function registerMarketplaceRoutes(app: Express) {
           spotsBooked,
         });
 
-        // Create guests
-        const cashUser = await storage.getMarketplaceUser(req.user.userId);
-        await createGuestsForBooking(booking.id, cashUser);
+        // Create all slot rows (primary + guests) in booking_guests
+        await createAllSlotsForBooking(booking.id, 'confirmed', true);
 
-        // Notify linked guests of their confirmed spot
+        // Notify linked guests (non-primary) of their confirmed spot
         const cashGuests = await storage.getBookingGuests(booking.id);
         for (const g of cashGuests) {
-          if (g.linkedUserId) {
+          if (!g.isPrimary && g.linkedUserId) {
             await storage.createMarketplaceNotification({
               userId: g.linkedUserId,
               type: 'guest_booking_confirmed',
               title: 'You have a booking!',
-              message: `${cashUser?.name ?? 'Someone'} added you as a guest for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
+              message: `${primaryUser?.name ?? 'Someone'} added you as a guest for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
               relatedBookingId: booking.id,
             });
           }
@@ -516,8 +533,8 @@ export function registerMarketplaceRoutes(app: Express) {
 
         // Fire-and-forget booking confirmation email (fully isolated)
         try {
-          if (cashUser) {
-            sendBookingConfirmationEmail(cashUser.email, cashUser.name, bookableSession, 'cash', totalAmount).catch(() => {});
+          if (primaryUser) {
+            sendBookingConfirmationEmail(primaryUser.email, primaryUser.name, bookableSession, 'cash', totalAmount).catch(() => {});
           }
         } catch (emailErr) { console.error('[Email] cash booking confirm lookup failed:', emailErr); }
 
@@ -567,9 +584,8 @@ export function registerMarketplaceRoutes(app: Express) {
 
       await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
 
-      // Store guests as pending — emails are sent only upon Ziina payment confirmation
-      const ziinaUser = await storage.getMarketplaceUser(req.user.userId);
-      await createGuestsForBooking(booking.id, ziinaUser, 'pending', false);
+      // Store all slot rows as pending — emails sent only upon Ziina payment confirmation
+      await createAllSlotsForBooking(booking.id, 'pending', false);
 
       res.json({
         bookingId: booking.id,
@@ -647,21 +663,22 @@ export function registerMarketplaceRoutes(app: Express) {
             if (ziinaUser && ziinaSession) {
               sendBookingConfirmationEmail(ziinaUser.email, ziinaUser.name, ziinaSession, 'ziina', booking.amountAed).catch(() => {});
 
-              // Confirm pending guests and send their emails now that payment is confirmed
+              // Confirm all pending slot rows and send guest emails (non-primary only)
               const pendingGuests = await storage.getBookingGuests(booking.id);
+              const guestBaseUrl = process.env.REPLIT_DOMAINS
+                ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+                : 'http://localhost:5000';
               for (const guest of pendingGuests) {
                 if (guest.status === 'pending') {
                   await storage.updateBookingGuest(guest.id, { status: 'confirmed' });
-                  if (guest.email && guest.cancellationToken) {
-                    const guestBaseUrl = process.env.REPLIT_DOMAINS
-                      ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-                      : 'http://localhost:5000';
+                  // Primary booker slot — no guest email (they get the booking confirmation)
+                  if (!guest.isPrimary && guest.email && guest.cancellationToken) {
                     const cancelGuestUrl = `${guestBaseUrl}/marketplace/guests/cancel/${guest.cancellationToken}`;
                     const signupUrl = `${guestBaseUrl}/marketplace/signup?email=${encodeURIComponent(guest.email)}`;
                     sendGuestBookingEmail(guest.email, guest.name, ziinaUser.name, ziinaSession, cancelGuestUrl, signupUrl).catch(() => {});
                   }
-                  // Notify linked user of their confirmed guest spot
-                  if (guest.linkedUserId) {
+                  // Notify linked non-primary guest of their confirmed spot
+                  if (!guest.isPrimary && guest.linkedUserId) {
                     await storage.createMarketplaceNotification({
                       userId: guest.linkedUserId,
                       type: 'guest_booking_confirmed',
@@ -1025,6 +1042,14 @@ export function registerMarketplaceRoutes(app: Express) {
           if (first) {
             await storage.updateBooking(first.id, { status: 'confirmed', waitlistPosition: null });
             promoted = { bookingId: first.id, userId: first.userId };
+
+            // Confirm all pending slot rows for the promoted booking
+            const promotedSlots = await storage.getBookingGuests(first.id);
+            for (const slot of promotedSlots) {
+              if (slot.status === 'pending') {
+                await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
+              }
+            }
 
             // Create notification for promoted user
             await storage.createMarketplaceNotification({

@@ -1199,18 +1199,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async linkGuestsByEmail(email: string, userId: string): Promise<void> {
+    // Only link non-primary guest rows — primary rows are already owned by the booker
     await db
       .update(bookingGuests)
       .set({ linkedUserId: userId })
-      .where(and(eq(bookingGuests.email, email), sql`${bookingGuests.linkedUserId} IS NULL`));
+      .where(and(
+        eq(bookingGuests.email, email),
+        eq(bookingGuests.isPrimary, false),
+        sql`${bookingGuests.linkedUserId} IS NULL`,
+      ));
   }
 
   async getGuestBookingsForUser(userId: string): Promise<BookingWithDetails[]> {
-    // Find all confirmed booking_guests rows linked to this user
+    // Find confirmed non-primary booking_guests rows linked to this user
+    // isPrimary=true rows belong to the booking owner — shown via getUserBookings, not here
     const guestRows = await db
       .select()
       .from(bookingGuests)
-      .where(and(eq(bookingGuests.linkedUserId, userId), eq(bookingGuests.status, 'confirmed')));
+      .where(and(
+        eq(bookingGuests.linkedUserId, userId),
+        eq(bookingGuests.status, 'confirmed'),
+        eq(bookingGuests.isPrimary, false),
+      ));
     const result: BookingWithDetails[] = [];
     for (const guest of guestRows) {
       const booking = await this.getBookingWithDetails(guest.bookingId);

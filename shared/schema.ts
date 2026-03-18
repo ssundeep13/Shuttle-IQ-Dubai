@@ -314,7 +314,8 @@ export const bookingGuests = pgTable("booking_guests", {
   name: text("name").notNull(),
   email: text("email"),
   linkedUserId: varchar("linked_user_id"), // if they later sign up / match a marketplace account
-  status: text("status").notNull().default('confirmed'), // 'confirmed' | 'cancelled'
+  isPrimary: boolean("is_primary").notNull().default(false), // true for the primary booker slot
+  status: text("status").notNull().default('confirmed'), // 'confirmed' | 'cancelled' | 'pending'
   cancelledAt: timestamp("cancelled_at"),
   cancellationToken: text("cancellation_token").unique(), // for guest self-cancel via email link
   createdAt: timestamp("created_at").notNull().defaultNow(),
