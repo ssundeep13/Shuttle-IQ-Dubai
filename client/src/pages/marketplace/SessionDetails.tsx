@@ -136,13 +136,15 @@ function GuestRow({
   };
 
   const clearSelection = () => {
-    onChange({ name: '', email: '', linkedFromSearch: false });
+    const name = guest.name;
+    onChange({ name, email: '', linkedFromSearch: false });
     setSearchInput('');
-    setForceManual(false);
+    setForceManual(true);
     setDropdownOpen(false);
   };
 
-  const needsEmail = !guest.linkedFromSearch || (guest.linkedFromSearch && !guest.marketplaceUserId && !guest.email);
+  // Show email input for manual entries and SIQ-only linked guests (marketplace users have email auto-filled)
+  const needsEmail = !(guest.linkedFromSearch && !!guest.marketplaceUserId);
 
   return (
     <div className="flex items-start gap-2 p-3 rounded-md bg-muted/40" ref={containerRef}>
