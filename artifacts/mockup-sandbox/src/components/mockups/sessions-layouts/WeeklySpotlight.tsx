@@ -97,12 +97,20 @@ const MOCK_SESSIONS = [
 const TODAY_STR = "2026-03-26";
 const TODAY = new Date(TODAY_STR + "T00:00:00");
 
+/** Format a local Date as YYYY-MM-DD (no UTC shift). */
+const toLocalDateStr = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
 export default function WeeklySpotlight() {
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }).map((_, i) => {
       const d = new Date(TODAY);
       d.setDate(TODAY.getDate() + i);
-      const dateString = d.toISOString().split('T')[0];
+      const dateString = toLocalDateStr(d);
       const daySessions = MOCK_SESSIONS.filter(s => s.date === dateString);
       return {
         date: d,
@@ -121,9 +129,9 @@ export default function WeeklySpotlight() {
 
   const getDayLabel = (dateString: string) => {
     if (dateString === TODAY_STR) return "Today";
-    const d = new Date(TODAY);
-    d.setDate(d.getDate() + 1);
-    if (dateString === d.toISOString().split('T')[0]) return "Tomorrow";
+    const tomorrow = new Date(TODAY);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (dateString === toLocalDateStr(tomorrow)) return "Tomorrow";
     return new Date(dateString + "T00:00:00").toLocaleDateString('en-US', { weekday: 'long' });
   };
 
