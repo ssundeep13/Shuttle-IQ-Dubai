@@ -399,6 +399,8 @@ export default function BookSessions() {
                         'flex flex-col items-center justify-center rounded-md border px-3 py-2 min-w-[60px] shrink-0 transition-colors cursor-pointer',
                         isSelected
                           ? 'border-primary bg-primary/10'
+                          : tile.isToday
+                          ? 'border-secondary/60 bg-secondary/10 hover-elevate'
                           : 'border-border bg-background hover-elevate',
                         !tile.hasSession ? 'opacity-40' : '',
                       ].join(' ')}
