@@ -303,18 +303,6 @@ export function MarketplaceNav() {
                 </>
               )}
 
-              {!isAuthenticated && (
-                <>
-                  <div className="h-px bg-border my-2" />
-                  <Link href="/marketplace/login" onClick={() => setOpen(false)}>
-                    <Button variant="ghost" className="w-full justify-start" data-testid="button-mobile-login">Log In</Button>
-                  </Link>
-                  <Link href="/marketplace/signup" onClick={() => setOpen(false)}>
-                    <Button className="w-full justify-start" data-testid="button-mobile-signup">Sign Up</Button>
-                  </Link>
-                </>
-              )}
-
               {canInstall && (
                 <>
                   <div className="h-px bg-border my-2" />
@@ -327,6 +315,18 @@ export function MarketplaceNav() {
                     <Download className="h-4 w-4" />
                     Install App
                   </Button>
+                </>
+              )}
+
+              {!isAuthenticated && (
+                <>
+                  <div className="h-px bg-border my-2" />
+                  <Link href="/marketplace/login" onClick={() => setOpen(false)}>
+                    <Button variant="ghost" className="w-full justify-start" data-testid="button-mobile-login">Log In</Button>
+                  </Link>
+                  <Link href="/marketplace/signup" onClick={() => setOpen(false)}>
+                    <Button className="w-full justify-start" data-testid="button-mobile-signup">Sign Up</Button>
+                  </Link>
                 </>
               )}
             </div>

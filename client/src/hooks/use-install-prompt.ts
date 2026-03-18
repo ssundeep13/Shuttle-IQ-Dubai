@@ -38,8 +38,9 @@ export function useInstallPrompt() {
     if (!promptEvent) return;
     await promptEvent.prompt();
     const { outcome } = await promptEvent.userChoice;
+    // Always clear the deferred prompt — browser only allows it to be shown once
+    setPromptEvent(null);
     if (outcome === 'accepted') {
-      setPromptEvent(null);
       setIsInstalled(true);
     }
   };
