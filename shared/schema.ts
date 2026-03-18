@@ -388,4 +388,6 @@ export interface BookingWithDetails extends Booking {
   session: BookableSession;
   user?: MarketplaceUser;
   guests?: BookingGuest[];
+  isGuestBooking?: boolean;
+  bookedByName?: string;
 }

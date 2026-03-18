@@ -397,7 +397,7 @@ export function registerMarketplaceRoutes(app: Express) {
       const guestSchema = z.array(z.object({
         name: z.string().min(1).max(100),
         email: z.string().email().optional().nullable(),
-      })).max(9).optional();
+      })).max(3).optional();
       const parsedGuests = guestSchema.safeParse(guestList);
       if (!parsedGuests.success) return res.status(400).json({ error: "Invalid guest list" });
       const guests = parsedGuests.data ?? [];
@@ -598,7 +598,8 @@ export function registerMarketplaceRoutes(app: Express) {
         // count toward capacity, two users could race for the last spot).
         if (!wasAlreadyConfirmed) {
           const sessionForCapacity = await storage.getBookableSessionWithAvailability(booking.sessionId);
-          if (sessionForCapacity && sessionForCapacity.spotsRemaining <= 0) {
+          const neededSpots = booking.spotsBooked ?? 1;
+          if (sessionForCapacity && sessionForCapacity.spotsRemaining < neededSpots) {
             // Session is now full — move to waitlist instead
             const waitlistCount = await storage.getWaitlistCountForSession(booking.sessionId);
             await storage.updateBooking(booking.id, { status: 'waitlisted', waitlistPosition: waitlistCount + 1 });
@@ -983,15 +984,30 @@ export function registerMarketplaceRoutes(app: Express) {
           linkedPlayerId: booking.user?.linkedPlayerId ?? null,
         });
 
-        // Guests (active only)
+        // Guests (active only) — resolve linked player profile if available
         const guestList = booking.guests ?? [];
         for (const guest of guestList) {
           if (guest.status === 'confirmed') {
+            let guestLevel: string | null = null;
+            let guestSkillScore: number | null = null;
+            let guestLinkedPlayerId: string | null = null;
+            // If guest has a linked marketplace user, resolve their linked player
+            if (guest.linkedUserId) {
+              const guestUser = await storage.getMarketplaceUser(guest.linkedUserId);
+              if (guestUser?.linkedPlayerId) {
+                const guestPlayer = await storage.getPlayer(guestUser.linkedPlayerId);
+                if (guestPlayer) {
+                  guestLevel = guestPlayer.level ?? null;
+                  guestSkillScore = guestPlayer.skillScore ?? null;
+                  guestLinkedPlayerId = guestPlayer.id;
+                }
+              }
+            }
             playerEntries.push({
               name: guest.name,
-              level: null,
-              skillScore: null,
-              linkedPlayerId: null,
+              level: guestLevel,
+              skillScore: guestSkillScore,
+              linkedPlayerId: guestLinkedPlayerId,
               isGuest: true,
             });
           }

@@ -85,7 +85,7 @@ export default function MyBookings() {
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
     const isWaitlisted = booking.status === 'waitlisted';
-    const canCancel = (booking.status === 'confirmed' || booking.status === 'waitlisted') && new Date(booking.session.date) >= new Date();
+    const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted') && new Date(booking.session.date) >= new Date();
     const lateFee = !isWaitlisted && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
 
     const stripColor = isWaitlisted ? 'bg-amber-500'
@@ -105,7 +105,10 @@ export default function MyBookings() {
                   {booking.session.title}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Booked {format(new Date(booking.createdAt || Date.now()), 'MMM d, yyyy')}
+                  {booking.isGuestBooking && booking.bookedByName
+                    ? `Guest spot — booked by ${booking.bookedByName}`
+                    : `Booked ${format(new Date(booking.createdAt || Date.now()), 'MMM d, yyyy')}`
+                  }
                 </p>
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
