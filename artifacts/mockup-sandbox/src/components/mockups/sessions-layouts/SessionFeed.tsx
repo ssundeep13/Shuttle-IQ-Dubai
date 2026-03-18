@@ -118,7 +118,7 @@ const getSpotsBadge = (session: typeof MOCK_SESSIONS[0]) => {
     return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800"><CheckCircle2 className="w-3 h-3" /> Booked</span>;
   }
   if (session.spotsRemaining === 0) {
-    return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">Full</span>;
+    return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Full</span>;
   }
   if (session.spotsRemaining <= 3) {
     return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Only {session.spotsRemaining} spots left</span>;
@@ -258,18 +258,18 @@ export function SessionFeed() {
                             
                             <div className="w-full">
                               {session.userBooked ? (
-                                <button className="w-full py-2.5 px-4 bg-white border border-slate-200 text-slate-700 font-medium rounded-lg text-sm hover:bg-slate-50 transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-200">
+                                <a href={`/marketplace/sessions/${session.id}`} className="block w-full py-2.5 px-4 bg-white border border-slate-200 text-slate-700 font-medium rounded-lg text-sm text-center transition-colors shadow-sm">
                                   View Booking
-                                </button>
+                                </a>
                               ) : session.spotsRemaining === 0 ? (
-                                <button className="w-full py-2.5 px-4 bg-slate-100 text-slate-500 font-medium rounded-lg text-sm cursor-not-allowed">
+                                <button disabled className="w-full py-2.5 px-4 bg-slate-100 text-slate-400 font-medium rounded-lg text-sm cursor-not-allowed opacity-60">
                                   View Details
                                 </button>
                               ) : (
-                                <button className="w-full py-2.5 px-4 bg-indigo-600 text-white font-medium rounded-lg text-sm hover:bg-indigo-700 transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center justify-center group">
-                                  View & Book
-                                  <ArrowRight className="w-4 h-4 ml-1.5 opacity-70 group-hover:translate-x-0.5 transition-transform" />
-                                </button>
+                                <a href={`/marketplace/sessions/${session.id}`} className="block w-full py-2.5 px-4 bg-indigo-600 text-white font-medium rounded-lg text-sm text-center shadow-sm flex items-center justify-center gap-1.5">
+                                  View &amp; Book
+                                  <ArrowRight className="w-4 h-4 opacity-70" />
+                                </a>
                               )}
                             </div>
                           </div>

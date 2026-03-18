@@ -425,13 +425,24 @@ export default function TimelineList() {
                               <div className="text-xl font-black text-gray-900">
                                 AED {session.priceAed}
                               </div>
-                              <button
-                                className="flex items-center px-5 py-2.5 rounded-xl text-white font-medium text-sm transition-transform group-hover:-translate-y-0.5"
-                                style={{ background: "#0f2d5a" }}
-                              >
-                                {session.id === "s1" ? "View Booking" : "View & Book"}
-                                <ChevronRight size={16} className="ml-1" />
-                              </button>
+                              {session.spotsRemaining === 0 && session.id !== "s1" ? (
+                                <button
+                                  disabled
+                                  className="flex items-center px-5 py-2.5 rounded-xl bg-gray-100 text-gray-400 font-medium text-sm cursor-not-allowed opacity-60"
+                                >
+                                  View Details
+                                  <ChevronRight size={16} className="ml-1" />
+                                </button>
+                              ) : (
+                                <a
+                                  href={`/marketplace/sessions/${session.id}`}
+                                  className="flex items-center px-5 py-2.5 rounded-xl text-white font-medium text-sm"
+                                  style={{ background: "#0f2d5a" }}
+                                >
+                                  {session.id === "s1" ? "View Booking" : "View & Book"}
+                                  <ChevronRight size={16} className="ml-1" />
+                                </a>
+                              )}
                             </div>
                           </div>
                         </div>

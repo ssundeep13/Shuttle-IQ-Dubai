@@ -322,18 +322,18 @@ export default function WeeklySpotlight() {
                       </div>
                       
                       {isBooked ? (
-                        <button className="px-6 py-2.5 bg-slate-100 text-slate-700 font-medium rounded-xl hover:bg-slate-200 transition-colors">
-                          Manage Booking
-                        </button>
+                        <a href={`/marketplace/sessions/${session.id}`} className="px-6 py-2.5 bg-slate-100 text-slate-700 font-medium rounded-xl inline-flex items-center gap-2">
+                          View Booking
+                        </a>
                       ) : isFull ? (
-                        <button className="px-6 py-2.5 bg-slate-100 text-slate-400 font-medium rounded-xl cursor-not-allowed">
-                          Waitlist
+                        <button disabled className="px-6 py-2.5 bg-slate-100 text-slate-400 font-medium rounded-xl cursor-not-allowed opacity-60">
+                          View Details
                         </button>
                       ) : (
-                        <button className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 transition-colors shadow-sm shadow-blue-600/20 flex items-center gap-2 group">
-                          Book Now
-                          <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                        </button>
+                        <a href={`/marketplace/sessions/${session.id}`} className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-xl shadow-sm shadow-blue-600/20 inline-flex items-center gap-2">
+                          View &amp; Book
+                          <ArrowRight className="w-4 h-4" />
+                        </a>
                       )}
                     </div>
                   </div>
