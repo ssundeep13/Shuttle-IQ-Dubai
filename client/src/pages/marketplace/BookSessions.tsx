@@ -40,7 +40,13 @@ export default function BookSessions() {
     );
   }, [myBookings]);
 
-  const upcomingSessions = sessions?.filter(s => s.status === 'upcoming') || [];
+  const upcomingSessions = sessions?.filter(s => {
+    if (s.status !== 'upcoming') return false;
+    const sessionDate = new Date(s.date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return sessionDate >= today;
+  }) || [];
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
