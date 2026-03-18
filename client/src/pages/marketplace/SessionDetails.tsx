@@ -266,8 +266,20 @@ function GuestRow({
           </div>
         )}
 
-        {/* Manual / SIQ-only: show editable email field */}
-        {needsEmail && (
+        {/* Marketplace user: email is authoritative — show read-only */}
+        {guest.linkedFromSearch && guest.marketplaceUserId && guest.email ? (
+          <div className="relative">
+            <UserCheck className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-secondary pointer-events-none" />
+            <Input
+              className="pl-8 bg-muted/50 text-muted-foreground cursor-default"
+              value={guest.email}
+              readOnly
+              tabIndex={-1}
+              data-testid={`input-guest-email-${idx}`}
+            />
+          </div>
+        ) : needsEmail ? (
+          /* Manual / SIQ-only: show editable email field */
           <Input
             placeholder="Email (optional — for cancellation link)"
             type="email"
@@ -275,14 +287,7 @@ function GuestRow({
             onChange={e => onChange({ ...guest, email: e.target.value })}
             data-testid={`input-guest-email-${idx}`}
           />
-        )}
-        {/* Marketplace user: email is known — show confirmation note */}
-        {guest.linkedFromSearch && guest.marketplaceUserId && guest.email && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <UserCheck className="h-3.5 w-3.5 text-secondary shrink-0" />
-            <span className="truncate">Cancellation link will be sent to {guest.email}</span>
-          </div>
-        )}
+        ) : null}
       </div>
 
       <Button
