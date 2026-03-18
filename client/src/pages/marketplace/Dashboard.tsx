@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
@@ -6,11 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, Trophy, BarChart3, TrendingUp, ArrowRight, Medal, ChevronRight, Target, Bookmark, Download } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import type { BookingWithDetails, Player, PlayerStats } from '@shared/schema';
+import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
+import TagTrendingModal from '@/components/TagTrendingModal';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -21,10 +23,17 @@ const stagger = {
   visible: { transition: { staggerChildren: 0.06 } },
 };
 
+const CATEGORY_COLOR: Record<string, string> = {
+  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
+  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+};
+
 export default function Dashboard() {
   const { user } = useMarketplaceAuth();
   const linkedPlayerId = user?.linkedPlayerId;
   const { canInstall, install } = useInstallPrompt();
+  const [showTrendingModal, setShowTrendingModal] = useState(false);
 
   const { data: bookings, isLoading: bookingsLoading } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
@@ -36,8 +45,16 @@ export default function Dashboard() {
     enabled: !!linkedPlayerId,
   });
 
-  const { data: players } = useQuery<Player[]>({
-    queryKey: ['/api/players'],
+  const { data: trending = [], isLoading: trendingLoading } = useQuery<TrendingTag[]>({
+    queryKey: ['/api/tags/trending'],
+    staleTime: Infinity,
+  });
+
+  const { data: myTopTag } = useQuery<PlayerTopTag[]>({
+    queryKey: ['/api/tags/player', linkedPlayerId],
+    queryFn: () => fetch(`/api/tags/player/${linkedPlayerId}?limit=1`).then(r => r.json()),
+    enabled: !!linkedPlayerId,
+    staleTime: Infinity,
   });
 
   const upcomingBookings = (bookings || [])
@@ -45,10 +62,7 @@ export default function Dashboard() {
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
 
-  const ranked = (players || [])
-    .filter(p => p.gamesPlayed > 0)
-    .sort((a, b) => b.skillScore - a.skillScore)
-    .slice(0, 5);
+  const firstTopTag = myTopTag?.[0];
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -58,6 +72,7 @@ export default function Dashboard() {
   };
 
   return (
+    <>
     <div className="max-w-5xl mx-auto px-4 py-8">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-8">
@@ -217,38 +232,71 @@ export default function Dashboard() {
 
           <div className="space-y-6">
             <motion.div variants={fadeInUp}>
-              <Card data-testid="card-leaderboard-preview">
+              <Card data-testid="card-player-personalities">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-base flex items-center gap-2">
-                      <Trophy className="h-4 w-4 text-secondary" />
-                      Top Players
+                      <Users className="h-4 w-4 text-secondary" />
+                      Player Personalities
                     </CardTitle>
-                    <Link href="/marketplace/rankings">
-                      <Button variant="ghost" size="sm" className="gap-1 text-xs" data-testid="link-view-rankings">
-                        View All <ChevronRight className="h-3 w-3" />
-                      </Button>
-                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1 text-xs"
+                      onClick={() => setShowTrendingModal(true)}
+                      data-testid="button-explore-personalities"
+                    >
+                      Explore <ChevronRight className="h-3 w-3" />
+                    </Button>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  {ranked.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">No ranked players yet</p>
-                  ) : ranked.map((player, i) => (
-                    <div key={player.id} className="flex items-center gap-3 py-1.5" data-testid={`row-top-player-${player.id}`}>
-                      <div className="w-6 text-center shrink-0">
-                        {i < 3 ? (
-                          <Medal className={`h-4 w-4 mx-auto ${i === 0 ? 'text-yellow-500' : i === 1 ? 'text-gray-400' : 'text-amber-600'}`} />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">{i + 1}</span>
-                        )}
+                <CardContent className="space-y-4">
+                  {firstTopTag && (
+                    <div className="rounded-lg border p-3 bg-muted/30">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">Your Top Tag</p>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2.5 py-1 rounded-full text-sm font-medium border ${CATEGORY_COLOR[firstTopTag.tag.category]}`}>
+                          {firstTopTag.tag.emoji} {firstTopTag.tag.label}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Community Tag &middot; {firstTopTag.count}×
+                        </span>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{player.name}</p>
-                      </div>
-                      <span className="text-sm font-semibold shrink-0">{player.skillScore}</span>
                     </div>
-                  ))}
+                  )}
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2.5 font-medium">Trending This Week</p>
+                    {trendingLoading ? (
+                      <div className="flex flex-wrap gap-2">
+                        {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-7 w-24 rounded-full" />)}
+                      </div>
+                    ) : trending.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No tags yet. Tag players after your games!</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {trending.slice(0, 5).map(({ tag, count }) => (
+                          <button
+                            key={tag.id}
+                            onClick={() => setShowTrendingModal(true)}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border hover-elevate cursor-pointer ${CATEGORY_COLOR[tag.category]}`}
+                            data-testid={`btn-personality-tag-${tag.id}`}
+                          >
+                            {tag.emoji} {tag.label}
+                            <span className="opacity-60 ml-0.5">{count}×</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {!linkedPlayerId && (
+                    <div className="text-center pt-1">
+                      <Link href="/marketplace/profile">
+                        <Button variant="outline" size="sm" className="gap-1 text-xs" data-testid="button-link-for-tags">
+                          Link profile to earn tags <ArrowRight className="h-3 w-3" />
+                        </Button>
+                      </Link>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>
@@ -286,5 +334,12 @@ export default function Dashboard() {
         </div>
       </motion.div>
     </div>
+
+    <TagTrendingModal
+      open={showTrendingModal}
+      onOpenChange={setShowTrendingModal}
+      linkedPlayerId={linkedPlayerId}
+    />
+    </>
   );
 }

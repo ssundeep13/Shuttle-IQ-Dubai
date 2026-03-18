@@ -1,12 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, tags, playerTags } from "@shared/schema";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { sql, eq, inArray, and, desc } from "drizzle-orm";
-import { requireAuth, requireAdmin, type AuthRequest } from "./auth/middleware";
+import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import { 
   generateAccessToken, 
   generateRefreshToken, 
@@ -1934,6 +1934,138 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Game history error:', error);
       res.status(500).json({ error: "Failed to fetch game history" });
+    }
+  });
+
+  // ── Player Personality Tags ────────────────────────────────────────────────
+
+  // GET /api/tags/game/:gameResultId/participants – participants for a game
+  app.get("/api/tags/game/:gameResultId/participants", async (req, res) => {
+    try {
+      const info = await storage.getGameParticipantInfo(req.params.gameResultId);
+      res.json(info);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch participants" });
+    }
+  });
+
+  // GET /api/tags – list all active tags
+  app.get("/api/tags", async (_req, res) => {
+    try {
+      const allTags = await storage.getAllTags();
+      res.json(allTags);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch tags" });
+    }
+  });
+
+  // GET /api/tags/trending – top tags in last 7 days
+  app.get("/api/tags/trending", async (req, res) => {
+    try {
+      const limit = Number(req.query.limit) || 5;
+      const trending = await storage.getTrendingTags(limit);
+      res.json(trending);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch trending tags" });
+    }
+  });
+
+  // GET /api/tags/player/:playerId – top tags for a specific player
+  app.get("/api/tags/player/:playerId", async (req, res) => {
+    try {
+      const { playerId } = req.params;
+      const limit = Number(req.query.limit) || 3;
+      const topTags = await storage.getPlayerTopTags(playerId, limit);
+      res.json(topTags);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch player tags" });
+    }
+  });
+
+  // GET /api/tags/:tagId/players – players tagged with a specific tag
+  app.get("/api/tags/:tagId/players", async (req, res) => {
+    try {
+      const { tagId } = req.params;
+      const limit = Number(req.query.limit) || 10;
+      const tagged = await storage.getPlayersWithTag(tagId, limit);
+      res.json(tagged);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch players with tag" });
+    }
+  });
+
+  // GET /api/tags/game/:gameResultId/mine – tags already submitted by the caller for a game
+  app.get("/api/tags/game/:gameResultId/mine", requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.json([]);
+      const existing = await storage.getPlayerTagsForGame(req.params.gameResultId, mpUser.linkedPlayerId);
+      res.json(existing);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch tags for game" });
+    }
+  });
+
+  // GET /api/tags/tagged-games – game IDs the caller has already tagged (requires marketplace auth)
+  app.get("/api/tags/tagged-games", requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.json([]);
+      const gameIds = await storage.getTaggedGameIds(mpUser.linkedPlayerId);
+      res.json(gameIds);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch tagged game IDs" });
+    }
+  });
+
+  // POST /api/tags/game/:gameResultId – submit tags for teammates in a game
+  app.post("/api/tags/game/:gameResultId", requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "No linked player profile" });
+
+      const { gameResultId } = req.params;
+      // req.body.tags = [{ targetPlayerId, tagId }]
+      const schema = z.object({
+        tags: z.array(z.object({ targetPlayerId: z.string(), tagId: z.string() })).min(1).max(8),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+
+      const callerId = mpUser.linkedPlayerId;
+
+      // Validate: caller must be a participant in this game
+      const participants = await storage.getGameParticipantInfo(gameResultId);
+      const callerInGame = participants.some(p => p.id === callerId);
+      if (!callerInGame) return res.status(403).json({ error: "You are not a participant in this game" });
+
+      // Anti-abuse checks
+      const existingTags = await storage.getPlayerTagsForGame(gameResultId, callerId);
+      const existingTargetTagCounts: Record<string, number> = {};
+      for (const et of existingTags) {
+        existingTargetTagCounts[et.taggedPlayerId] = (existingTargetTagCounts[et.taggedPlayerId] || 0) + 1;
+      }
+
+      const entries: Array<{ taggedPlayerId: string; taggedByPlayerId: string; tagId: string; gameResultId: string }> = [];
+      for (const t of parsed.data.tags) {
+        // No self-tagging
+        if (t.targetPlayerId === callerId) continue;
+        // Target must be in same game
+        if (!participants.some(p => p.id === t.targetPlayerId)) continue;
+        // Max 2 tags per target per game (across all submissions)
+        const alreadyTagged = existingTargetTagCounts[t.targetPlayerId] || 0;
+        if (alreadyTagged >= 2) continue;
+        // No exact duplicate tag+target in this submission
+        if (existingTags.some(et => et.taggedPlayerId === t.targetPlayerId && et.tagId === t.tagId)) continue;
+        entries.push({ taggedPlayerId: t.targetPlayerId, taggedByPlayerId: callerId, tagId: t.tagId, gameResultId });
+        existingTargetTagCounts[t.targetPlayerId] = alreadyTagged + 1;
+      }
+
+      const created = await storage.createPlayerTags(entries);
+      res.json({ created: created.length });
+    } catch (err) {
+      console.error("Tag submission error:", err);
+      res.status(500).json({ error: "Failed to submit tags" });
     }
   });
 

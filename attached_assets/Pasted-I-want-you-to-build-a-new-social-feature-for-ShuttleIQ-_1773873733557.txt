@@ -1,0 +1,227 @@
+I want you to build a new social feature for ShuttleIQ called “Player Personalities” (tagging system) and integrate it into the existing dashboard and match flow.
+
+----------------------------------------
+CONTEXT
+----------------------------------------
+ShuttleIQ is a badminton queue and scoring platform where users:
+- Play matches
+- Track wins/losses
+- View rankings and stats
+
+Currently, on the dashboard (right-hand side), there is a card called:
+“Top Players”
+
+THIS MUST BE REMOVED AND REPLACED.
+
+----------------------------------------
+FEATURE GOAL
+----------------------------------------
+We want to make ShuttleIQ more community-driven and social by allowing players to tag each other with fun, skill-based, and personality-based labels.
+
+This feature should:
+- Build identity for players
+- Increase engagement and retention
+- Add a social/community layer to the platform
+
+----------------------------------------
+PLACEMENT (VERY IMPORTANT)
+----------------------------------------
+Replace the existing “Top Players” card on the dashboard with a new card called:
+
+“Player Personalities”
+
+This new card must sit in the exact same position and follow the same layout proportions and design language as the current dashboard cards.
+
+----------------------------------------
+DASHBOARD UI STRUCTURE
+----------------------------------------
+Create a card with:
+
+Title:
+Player Personalities
+
+Subtitle:
+See how the community describes players
+
+Inside the card, create TWO SECTIONS:
+
+----------------------------------------
+1. TRENDING TAGS (Community View)
+----------------------------------------
+- Show top 5 most-used tags in the last 7 days
+- Each tag should appear as a rounded pill (badge)
+
+Format:
+🔥 Smasher (18)
+😄 Ultra Friendly (22)
+
+Each tag shows:
+- Emoji
+- Label
+- Count of usage
+
+Interaction:
+- Clicking a tag opens a modal showing:
+  - Top players with that tag
+  - Player name + basic stats (if available)
+
+----------------------------------------
+2. YOUR TAGS (Personal View)
+----------------------------------------
+- Show top 3 tags for the logged-in user
+- Based on highest number of times the user has been tagged
+
+Display as pill badges:
+🧠 Tactical Player
+😄 Ultra Friendly
+🧱 The Wall
+
+Interaction:
+- Clicking a tag opens a modal showing:
+  - Total times received
+  - Optional: recent matches where it was assigned
+
+----------------------------------------
+TAG SET (FIXED FOR MVP)
+----------------------------------------
+
+Playing Style:
+🔥 Smasher
+🧱 The Wall
+🎯 Precision Player
+⚡ Speedster
+🧠 Tactical Player
+🎭 Deception Master
+🔁 Rally King/Queen
+🏹 Sharp Shooter
+🧨 Aggressor
+🎮 Control Player
+🪶 Soft Touch
+🚀 Power Player
+
+Social / Personality:
+😄 Ultra Friendly
+🎉 Vibe Creator
+🤝 Team Player
+😂 Funny One
+🧊 Calm & Composed
+🗣️ Talkative
+🧘 Chill Player
+🫡 Respectful
+🔥 High Energy
+👀 Silent Killer
+
+Reputation:
+🐐 MVP
+🔥 Clutch Player
+🧲 Crowd Favorite
+🎯 Consistent Performer
+🧗 Comeback King/Queen
+💎 Underrated
+🎖️ Most Improved
+👑 Game Changer
+
+----------------------------------------
+POST-MATCH TAGGING FLOW (CRITICAL)
+----------------------------------------
+After a match is completed:
+
+Show a section:
+“Tag the players you played with”
+
+For each player in the match:
+- Allow tagging (excluding self)
+- Max 2 tags per player per match
+
+UI:
+- Show tags grouped by category
+- Select via pill buttons
+- Fast and mobile-friendly
+
+Rules:
+- Cannot tag yourself
+- Cannot duplicate same tag for same player in same match
+- Only players in that match can be tagged
+
+----------------------------------------
+DATA MODEL (HIGH LEVEL)
+----------------------------------------
+Create tables:
+
+tags
+- id
+- label
+- emoji
+- category
+- is_active
+
+player_tags
+- id
+- tagged_player_id
+- tagged_by_player_id
+- tag_id
+- match_id
+- created_at
+
+player_tag_summary
+- player_id
+- tag_id
+- total_count
+- last_tagged_at
+
+----------------------------------------
+API REQUIREMENTS
+----------------------------------------
+
+GET /tags
+GET /tags/trending
+GET /players/me/top-tags
+POST /player-tags
+GET /tags/:id/players
+
+----------------------------------------
+DESIGN REQUIREMENTS
+----------------------------------------
+- Match ShuttleIQ’s current UI exactly
+- Use same color palette (beige, dark blue, green)
+- Rounded cards and clean spacing
+- Tag pills must be visually attractive and consistent
+
+Color coding:
+- Skill tags → blue tint
+- Social tags → green tint
+- Reputation tags → beige/gold tint
+
+----------------------------------------
+EMPTY STATES
+----------------------------------------
+If no tags exist:
+
+Show:
+“No tags yet — play more games and get tagged by the community.”
+
+----------------------------------------
+ANTI-ABUSE RULES
+----------------------------------------
+- No self tagging
+- No duplicate tagging per match
+- Max 2 tags per player per match
+
+----------------------------------------
+FINAL REQUIREMENT
+----------------------------------------
+Build this as a production-quality feature:
+- Fully integrated with existing dashboard
+- No UI breakages
+- Fully responsive
+- Clean, maintainable code
+
+Do not change existing functionality — only enhance.
+
+----------------------------------------
+OUTPUT EXPECTATION
+----------------------------------------
+After implementation:
+- Replace Top Players with Player Personalities
+- Add tagging flow after matches
+- Fully working backend + frontend integration

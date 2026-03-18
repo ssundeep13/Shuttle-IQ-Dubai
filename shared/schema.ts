@@ -393,3 +393,44 @@ export interface BookingWithDetails extends Booking {
   bookedByName?: string;
   myGuestId?: string;
 }
+
+// ============================================================
+// PLAYER PERSONALITY TAGS
+// ============================================================
+
+export const tags = pgTable("tags", {
+  id: varchar("id").primaryKey(),
+  label: text("label").notNull(),
+  emoji: text("emoji").notNull(),
+  category: text("category").notNull(), // 'playing_style' | 'social' | 'reputation'
+  isActive: boolean("is_active").notNull().default(true),
+});
+export const insertTagSchema = createInsertSchema(tags).omit({ id: true });
+export type InsertTag = z.infer<typeof insertTagSchema>;
+export type Tag = typeof tags.$inferSelect;
+
+export const playerTags = pgTable("player_tags", {
+  id: varchar("id").primaryKey(),
+  taggedPlayerId: varchar("tagged_player_id").notNull(),
+  taggedByPlayerId: varchar("tagged_by_player_id").notNull(),
+  tagId: varchar("tag_id").notNull(),
+  gameResultId: varchar("game_result_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export const insertPlayerTagSchema = createInsertSchema(playerTags).omit({ id: true, createdAt: true });
+export type InsertPlayerTag = z.infer<typeof insertPlayerTagSchema>;
+export type PlayerTag = typeof playerTags.$inferSelect;
+
+export interface TrendingTag {
+  tag: Tag;
+  count: number;
+}
+export interface PlayerTopTag {
+  tag: Tag;
+  count: number;
+}
+export interface GameParticipantInfo {
+  id: string;
+  name: string;
+  team: number;
+}

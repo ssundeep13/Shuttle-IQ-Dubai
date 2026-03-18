@@ -24,6 +24,12 @@ import {
   type MarketplaceNotification,
   type ScoreDispute,
   type ScoreDisputeWithDetails,
+  type Tag,
+  type InsertPlayerTag,
+  type PlayerTag,
+  type TrendingTag,
+  type PlayerTopTag,
+  type GameParticipantInfo,
   players,
   courts,
   courtPlayers as courtPlayersTable,
@@ -39,6 +45,8 @@ import {
   payments,
   marketplaceNotifications,
   scoreDisputes,
+  tags,
+  playerTags,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte } from "drizzle-orm";
@@ -185,6 +193,16 @@ export interface IStorage {
   getAllDisputesWithDetails(): Promise<ScoreDisputeWithDetails[]>;
   getDisputesByUser(userId: string): Promise<ScoreDispute[]>;
   updateScoreDispute(id: string, updates: Partial<ScoreDispute>): Promise<ScoreDispute | undefined>;
+
+  // Player personality tag operations
+  getAllTags(): Promise<Tag[]>;
+  getTrendingTags(limit?: number): Promise<TrendingTag[]>;
+  getPlayerTopTags(playerId: string, limit?: number): Promise<PlayerTopTag[]>;
+  getPlayersWithTag(tagId: string, limit?: number): Promise<Array<{ player: Player; count: number }>>;
+  createPlayerTags(entries: InsertPlayerTag[]): Promise<PlayerTag[]>;
+  getPlayerTagsForGame(gameResultId: string, taggedByPlayerId: string): Promise<PlayerTag[]>;
+  getTaggedGameIds(taggedByPlayerId: string): Promise<string[]>;
+  getGameParticipantInfo(gameResultId: string): Promise<GameParticipantInfo[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1408,6 +1426,100 @@ export class DatabaseStorage implements IStorage {
       .where(eq(scoreDisputes.id, id))
       .returning();
     return updated;
+  }
+
+  // ── Player Personality Tags ────────────────────────────────────────────────
+
+  async getAllTags(): Promise<Tag[]> {
+    return db.select().from(tags).where(eq(tags.isActive, true)).orderBy(asc(tags.category), asc(tags.label));
+  }
+
+  async getTrendingTags(limit = 5): Promise<TrendingTag[]> {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const rows = await db
+      .select({ tagId: playerTags.tagId, count: sql<number>`count(*)::int` })
+      .from(playerTags)
+      .where(gte(playerTags.createdAt, sevenDaysAgo))
+      .groupBy(playerTags.tagId)
+      .orderBy(desc(sql`count(*)`))
+      .limit(limit);
+    const result: TrendingTag[] = [];
+    for (const row of rows) {
+      const [tag] = await db.select().from(tags).where(eq(tags.id, row.tagId));
+      if (tag) result.push({ tag, count: row.count });
+    }
+    return result;
+  }
+
+  async getPlayerTopTags(playerId: string, limit = 3): Promise<PlayerTopTag[]> {
+    const rows = await db
+      .select({ tagId: playerTags.tagId, count: sql<number>`count(*)::int` })
+      .from(playerTags)
+      .where(eq(playerTags.taggedPlayerId, playerId))
+      .groupBy(playerTags.tagId)
+      .orderBy(desc(sql`count(*)`))
+      .limit(limit);
+    const result: PlayerTopTag[] = [];
+    for (const row of rows) {
+      const [tag] = await db.select().from(tags).where(eq(tags.id, row.tagId));
+      if (tag) result.push({ tag, count: row.count });
+    }
+    return result;
+  }
+
+  async getPlayersWithTag(tagId: string, limit = 10): Promise<Array<{ player: Player; count: number }>> {
+    const rows = await db
+      .select({ playerId: playerTags.taggedPlayerId, count: sql<number>`count(*)::int` })
+      .from(playerTags)
+      .where(eq(playerTags.tagId, tagId))
+      .groupBy(playerTags.taggedPlayerId)
+      .orderBy(desc(sql`count(*)`))
+      .limit(limit);
+    const result: Array<{ player: Player; count: number }> = [];
+    for (const row of rows) {
+      const [player] = await db.select().from(players).where(eq(players.id, row.playerId));
+      if (player) result.push({ player: addSkidToPlayer(player), count: row.count });
+    }
+    return result;
+  }
+
+  async createPlayerTags(entries: InsertPlayerTag[]): Promise<PlayerTag[]> {
+    if (entries.length === 0) return [];
+    const inserted = await db
+      .insert(playerTags)
+      .values(entries.map(e => ({ ...e, id: randomUUID() })))
+      .returning();
+    return inserted;
+  }
+
+  async getPlayerTagsForGame(gameResultId: string, taggedByPlayerId: string): Promise<PlayerTag[]> {
+    return db.select().from(playerTags).where(
+      and(
+        eq(playerTags.gameResultId, gameResultId),
+        eq(playerTags.taggedByPlayerId, taggedByPlayerId)
+      )
+    );
+  }
+
+  async getTaggedGameIds(taggedByPlayerId: string): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ gameResultId: playerTags.gameResultId })
+      .from(playerTags)
+      .where(eq(playerTags.taggedByPlayerId, taggedByPlayerId));
+    return rows.map(r => r.gameResultId);
+  }
+
+  async getGameParticipantInfo(gameResultId: string): Promise<GameParticipantInfo[]> {
+    const rows = await db
+      .select({
+        id: players.id,
+        name: players.name,
+        team: gameParticipants.team,
+      })
+      .from(gameParticipants)
+      .innerJoin(players, eq(gameParticipants.playerId, players.id))
+      .where(eq(gameParticipants.gameId, gameResultId));
+    return rows;
   }
 }
 

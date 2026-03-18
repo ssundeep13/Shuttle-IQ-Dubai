@@ -11,7 +11,7 @@ import { Link } from 'wouter';
 import {
   Trophy, TrendingUp, TrendingDown, Swords, ChevronDown,
   BarChart3, Target, Flame, Users, ArrowLeft, Share2,
-  CheckCircle2, XCircle, Zap, User, CalendarDays, Flag
+  CheckCircle2, XCircle, Zap, User, CalendarDays, Flag, Tag as TagIcon, Check
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
@@ -21,7 +21,8 @@ import {
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import type { PlayerStats, OpponentStats, PartnerStats, ScoreDispute } from '@shared/schema';
+import type { PlayerStats, OpponentStats, PartnerStats, ScoreDispute, PlayerTopTag } from '@shared/schema';
+import TagPlayersDialog from '@/components/TagPlayersDialog';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -83,6 +84,7 @@ export default function MyScores() {
   const [flaggingGameId, setFlaggingGameId] = useState<string | null>(null);
   const [flagNote, setFlagNote] = useState('');
   const [progressionFilter, setProgressionFilter] = useState<'last10' | 'monthly' | 'all'>('last10');
+  const [taggingGameId, setTaggingGameId] = useState<string | null>(null);
 
   const { data: stats, isLoading } = useQuery<PlayerStats>({
     queryKey: ['/api/players', linkedPlayerId, 'stats'],
@@ -98,6 +100,24 @@ export default function MyScores() {
     () => new Set(myDisputes.map(d => d.gameResultId)),
     [myDisputes]
   );
+
+  const { data: communityTopTags = [] } = useQuery<PlayerTopTag[]>({
+    queryKey: ['/api/tags/player', linkedPlayerId],
+    queryFn: () => fetch(`/api/tags/player/${linkedPlayerId}?limit=1`).then(r => r.json()),
+    enabled: !!linkedPlayerId,
+    staleTime: Infinity,
+  });
+
+  const { data: taggedGameIds = [] } = useQuery<string[]>({
+    queryKey: ['/api/tags/tagged-games'],
+    queryFn: () => apiRequest('GET', '/api/tags/tagged-games').then(r => r.json()),
+    enabled: !!user?.linkedPlayerId,
+    staleTime: 0,
+  });
+
+  const taggedGameSet = useMemo(() => new Set(taggedGameIds), [taggedGameIds]);
+  const sevenDaysAgo = useMemo(() => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), []);
+  const communityTopTag = communityTopTags[0] ?? null;
 
   const fileMutation = useMutation({
     mutationFn: async ({ gameResultId, note }: { gameResultId: string; note: string }) =>
@@ -351,7 +371,15 @@ export default function MyScores() {
                   <User className="h-4 w-4 text-muted-foreground" />
                 </div>
                 <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">{playerType}</div>
-                <div className="text-xs text-muted-foreground">Player Type</div>
+                <div className="text-xs text-muted-foreground mb-2">Player Type</div>
+                {communityTopTag && (
+                  <div className="mt-1">
+                    <div className="text-xs font-medium text-foreground leading-snug">
+                      {communityTopTag.tag.emoji} {communityTopTag.tag.label}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">Community Tag &middot; {communityTopTag.count}×</div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
@@ -639,6 +667,24 @@ export default function MyScores() {
                             </Badge>
                           )}
                         </div>
+                        {(() => {
+                          const gameDate = game.date ? new Date(game.date) : null;
+                          const canTag = !!linkedPlayerId && gameDate && gameDate >= sevenDaysAgo && !taggedGameSet.has(game.gameId);
+                          const alreadyTagged = taggedGameSet.has(game.gameId);
+                          return (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`shrink-0 ${alreadyTagged ? 'text-teal-500' : canTag ? 'text-muted-foreground/60' : 'invisible'}`}
+                              onClick={() => canTag && setTaggingGameId(game.gameId)}
+                              disabled={!canTag && !alreadyTagged}
+                              title={alreadyTagged ? 'Already tagged' : 'Tag players'}
+                              data-testid={`button-tag-game-${game.gameId}`}
+                            >
+                              {alreadyTagged ? <Check className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
+                            </Button>
+                          );
+                        })()}
                         {flaggedGameIds.has(game.gameId) ? (
                           <Badge
                             variant="outline"
@@ -708,6 +754,16 @@ export default function MyScores() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Tag Players Dialog */}
+    {taggingGameId && linkedPlayerId && (
+      <TagPlayersDialog
+        gameResultId={taggingGameId}
+        linkedPlayerId={linkedPlayerId}
+        open={!!taggingGameId}
+        onOpenChange={(open) => { if (!open) setTaggingGameId(null); }}
+      />
+    )}
     </>
   );
 }
