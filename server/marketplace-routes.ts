@@ -314,10 +314,22 @@ export function registerMarketplaceRoutes(app: Express) {
         if (u.linkedPlayerId) usedSiqIds.add(u.linkedPlayerId);
       }
 
-      // Add level info for marketplace users that are linked to SIQ players
+      // Add level info for marketplace users that are linked to SIQ players.
+      // Use name-matched search results first; fall back to direct ID lookup when names differ.
+      const missingLevelUserIds = results
+        .filter(r => r.siqPlayerId && !siqPlayers.find(p => p.id === r.siqPlayerId))
+        .map(r => r.siqPlayerId as string);
+
+      const directPlayerLookups = await Promise.all(
+        missingLevelUserIds.map(id => storage.getPlayer(id).catch(() => null))
+      );
+      const directPlayerMap = new Map(
+        directPlayerLookups.filter(Boolean).map((p: any) => [p.id, p])
+      );
+
       for (const r of results) {
         if (r.siqPlayerId) {
-          const linked = siqPlayers.find(p => p.id === r.siqPlayerId);
+          const linked = siqPlayers.find(p => p.id === r.siqPlayerId) ?? directPlayerMap.get(r.siqPlayerId);
           if (linked) r.level = linked.level;
         }
       }
