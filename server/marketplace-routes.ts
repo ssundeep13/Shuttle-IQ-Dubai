@@ -538,6 +538,20 @@ export function registerMarketplaceRoutes(app: Express) {
 
       if (isZiinaPaymentSuccessful(paymentIntent.status)) {
         const wasAlreadyConfirmed = booking.status === 'confirmed';
+
+        // Re-check capacity before confirming (since pending bookings no longer
+        // count toward capacity, two users could race for the last spot).
+        if (!wasAlreadyConfirmed) {
+          const sessionForCapacity = await storage.getBookableSessionWithAvailability(booking.sessionId);
+          if (sessionForCapacity && sessionForCapacity.spotsRemaining <= 0) {
+            // Session is now full — move to waitlist instead
+            const waitlistCount = await storage.getWaitlistCountForSession(booking.sessionId);
+            await storage.updateBooking(booking.id, { status: 'waitlisted', waitlistPosition: waitlistCount + 1 });
+            const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+            return res.json({ confirmed: false, waitlisted: true, booking: bookingWithDetails, status: 'session_full' });
+          }
+        }
+
         await storage.updateBooking(booking.id, { status: 'confirmed' });
 
         const existingPayments = await storage.getPaymentsByBookingId(booking.id);

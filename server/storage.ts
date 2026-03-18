@@ -1104,7 +1104,7 @@ export class DatabaseStorage implements IStorage {
       .from(bookings)
       .where(and(
         eq(bookings.sessionId, sessionId),
-        sql`${bookings.status} NOT IN ('cancelled', 'waitlisted')`
+        sql`${bookings.status} IN ('confirmed', 'attended')`
       ));
     return activeBookings.length;
   }

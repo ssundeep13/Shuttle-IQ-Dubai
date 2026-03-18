@@ -57,6 +57,8 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
   const { data: players, isLoading } = useQuery<SessionPlayer[]>({
     queryKey: ['/api/marketplace/sessions', sessionId, 'players'],
     enabled: !!isAuthenticated && !!sessionId,
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
   return (

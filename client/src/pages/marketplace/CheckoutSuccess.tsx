@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, Loader2, AlertCircle } from 'lucide-react';
+import { CheckCircle, Loader2, AlertCircle, ListOrdered } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
+import { queryClient } from '@/lib/queryClient';
 import type { BookingWithDetails } from '@shared/schema';
 
 const MAX_ATTEMPTS = 4;
@@ -14,7 +15,7 @@ function sleep(ms: number) {
 }
 
 export default function CheckoutSuccess() {
-  const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
+  const [status, setStatus] = useState<'verifying' | 'success' | 'waitlisted' | 'error'>('verifying');
   const [attempt, setAttempt] = useState(0);
   const [booking, setBooking] = useState<BookingWithDetails | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -58,6 +59,20 @@ export default function CheckoutSuccess() {
 
           if (data.confirmed) {
             setStatus('success');
+            setBooking(data.booking);
+            // Invalidate the session players list and session data so the
+            // "Who's Playing" section updates for anyone viewing that session.
+            if (data.booking?.sessionId) {
+              const sid = data.booking.sessionId;
+              queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', sid, 'players'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', sid] });
+            }
+            return;
+          }
+
+          // Session became full right as this user paid — they're now waitlisted
+          if (data.waitlisted) {
+            setStatus('waitlisted');
             setBooking(data.booking);
             return;
           }
@@ -122,6 +137,12 @@ export default function CheckoutSuccess() {
                 <CardTitle data-testid="text-booking-confirmed">Booking Confirmed!</CardTitle>
               </>
             )}
+            {status === 'waitlisted' && (
+              <>
+                <ListOrdered className="h-12 w-12 mx-auto text-amber-500 mb-4" />
+                <CardTitle>Added to Waitlist</CardTitle>
+              </>
+            )}
             {status === 'error' && (
               <>
                 <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
@@ -143,6 +164,11 @@ export default function CheckoutSuccess() {
             {status === 'success' && !booking && (
               <p className="text-muted-foreground">
                 Your payment is confirmed. Your booking has been reserved.
+              </p>
+            )}
+            {status === 'waitlisted' && (
+              <p className="text-muted-foreground">
+                Your payment went through, but the session filled up just as you completed it. You have been added to the waitlist and will be confirmed if a spot opens up.
               </p>
             )}
             {status === 'error' && (
