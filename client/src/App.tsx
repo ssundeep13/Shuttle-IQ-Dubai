@@ -31,6 +31,7 @@ import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
 import PlayerPublicProfile from "@/pages/marketplace/PlayerPublicProfile";
 import ResetPassword from "@/pages/marketplace/ResetPassword";
 import GuestCancel from "@/pages/marketplace/GuestCancel";
+import GameHistory from "@/pages/marketplace/GameHistory";
 
 function MarketplaceRoute({ component: Component, ...rest }: { component: React.ComponentType<any> } & Record<string, any>) {
   return (
@@ -109,6 +110,9 @@ function Router() {
       </Route>
       <Route path="/marketplace/my-scores">
         <MarketplaceAuthRoute component={MyScores} />
+      </Route>
+      <Route path="/marketplace/game-history">
+        <MarketplaceAuthRoute component={GameHistory} />
       </Route>
       <Route path="/marketplace/profile">
         <MarketplaceAuthRoute component={Profile} />
