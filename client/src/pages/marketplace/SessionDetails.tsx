@@ -1,13 +1,19 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useParams, useLocation, Link } from 'wouter';
+import { useParams, Link } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info, Banknote, ShieldCheck, ListOrdered, CheckCircle2 } from 'lucide-react';
+import {
+  Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info,
+  Banknote, ShieldCheck, ListOrdered, CheckCircle2, UserPlus, X, Loader2,
+  AlertCircle, Minus, Plus,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import { apiRequest } from '@/lib/queryClient';
@@ -35,6 +41,11 @@ interface SessionPlayer {
   linkedPlayerId: string | null;
 }
 
+interface Guest {
+  name: string;
+  email: string;
+}
+
 const LEVEL_COLORS: Record<string, string> = {
   novice: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   beginner: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
@@ -44,12 +55,7 @@ const LEVEL_COLORS: Record<string, string> = {
 };
 
 function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .map(n => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 }
 
 function WhosPlaying({ sessionId }: { sessionId: string }) {
@@ -67,9 +73,7 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
         <Users className="h-4 w-4 text-secondary" />
         Who's Playing
         {players && players.length > 0 && (
-          <Badge variant="secondary" className="text-xs">
-            {players.length}
-          </Badge>
+          <Badge variant="secondary" className="text-xs">{players.length}</Badge>
         )}
       </h3>
 
@@ -111,19 +115,12 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
             );
             return player.linkedPlayerId ? (
               <Link key={idx} href={`/marketplace/players/${player.linkedPlayerId}`}>
-                <div
-                  className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50 hover-elevate cursor-pointer"
-                  data-testid={`card-player-${idx}`}
-                >
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50 hover-elevate cursor-pointer" data-testid={`card-player-${idx}`}>
                   {cardContent}
                 </div>
               </Link>
             ) : (
-              <div
-                key={idx}
-                className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50"
-                data-testid={`card-player-${idx}`}
-              >
+              <div key={idx} className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50" data-testid={`card-player-${idx}`}>
                 {cardContent}
               </div>
             );
@@ -140,10 +137,287 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
   );
 }
 
+function InlineBookingPanel({
+  session,
+  onBooked,
+}: {
+  session: BookableSessionWithAvailability;
+  onBooked: () => void;
+}) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number } | null>(null);
+
+  const maxGuests = Math.min(3, session.spotsRemaining - 1);
+  const spotsBooked = 1 + guests.length;
+  const totalAmount = session.priceAed * spotsBooked;
+
+  const addGuest = () => {
+    if (guests.length < maxGuests) setGuests(g => [...g, { name: '', email: '' }]);
+  };
+
+  const removeGuest = (idx: number) => setGuests(g => g.filter((_, i) => i !== idx));
+
+  const updateGuest = (idx: number, field: keyof Guest, value: string) => {
+    setGuests(g => g.map((guest, i) => i === idx ? { ...guest, [field]: value } : guest));
+  };
+
+  const validateGuests = () => {
+    for (const g of guests) {
+      if (!g.name.trim()) return 'All guest names are required';
+      if (g.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) return 'Invalid guest email address';
+    }
+    return null;
+  };
+
+  const makeBooking = async (method: 'cash' | 'ziina') => {
+    const guestError = validateGuests();
+    if (guestError) { setError(guestError); return; }
+
+    setProcessing(true);
+    setError(null);
+
+    const token = localStorage.getItem('mp_accessToken');
+    if (!token) {
+      setError('Not authenticated. Please log in again.');
+      setProcessing(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/marketplace/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          sessionId: session.id,
+          paymentMethod: method,
+          guests: guests.map(g => ({ name: g.name.trim(), email: g.email.trim() || null })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Booking failed');
+
+      if (data.waitlisted) {
+        toast({
+          title: "You're on the waitlist!",
+          description: `You are #${data.waitlistPosition} on the waitlist. We'll notify you if a spot opens up.`,
+        });
+        onBooked();
+        return;
+      }
+
+      if (method === 'ziina') {
+        if (!data.redirectUrl) throw new Error('No payment URL received. Please try again.');
+        window.location.href = data.redirectUrl;
+        return;
+      }
+
+      // Cash — confirmed immediately
+      setCashConfirmed({ spots: spotsBooked, total: totalAmount });
+      onBooked();
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  if (cashConfirmed) {
+    return (
+      <div className="border-t pt-6 space-y-4" data-testid="section-cash-confirmed">
+        <div className="flex flex-col items-center gap-3 py-6 text-center rounded-lg bg-green-500/5 border border-green-500/20">
+          <CheckCircle2 className="h-10 w-10 text-green-500" />
+          <div>
+            <p className="font-semibold text-green-700 dark:text-green-400" data-testid="text-cash-confirmed">
+              Booking Confirmed!
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {cashConfirmed.spots > 1
+                ? `${cashConfirmed.spots} spots reserved — pay AED ${cashConfirmed.total} in cash at the venue.`
+                : `Your spot is reserved — pay AED ${cashConfirmed.total} in cash at the venue.`}
+            </p>
+          </div>
+        </div>
+        <Link href="/marketplace/my-bookings">
+          <Button variant="outline" className="w-full" data-testid="button-view-my-bookings">
+            View My Bookings
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <div className="border-t pt-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-xs text-muted-foreground">Price per player</div>
+            <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
+          </div>
+          <Button
+            size="lg"
+            className="gap-2"
+            onClick={() => setOpen(true)}
+            data-testid="button-book-now"
+          >
+            <Users className="h-5 w-5" />
+            Book Now
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t pt-6 space-y-5" data-testid="section-booking-panel">
+      {/* Spots selector */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <p className="font-semibold">How many spots?</p>
+            <p className="text-xs text-muted-foreground mt-0.5">AED {session.priceAed} per player</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              disabled={guests.length === 0}
+              onClick={() => removeGuest(guests.length - 1)}
+              data-testid="button-decrease-spots"
+            >
+              <Minus className="h-4 w-4" />
+            </Button>
+            <span className="text-xl font-bold w-6 text-center" data-testid="text-spots-count">{spotsBooked}</span>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              disabled={guests.length >= maxGuests}
+              onClick={addGuest}
+              data-testid="button-increase-spots"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Live total */}
+        <div className="flex items-center justify-between px-3 py-2 rounded-md bg-muted/50 text-sm">
+          <span className="text-muted-foreground">
+            {spotsBooked === 1 ? 'Just you' : `You + ${guests.length} guest${guests.length > 1 ? 's' : ''}`}
+          </span>
+          <span className="font-bold text-base" data-testid="text-inline-total">AED {totalAmount}</span>
+        </div>
+      </div>
+
+      {/* Guest name/email rows */}
+      {guests.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium flex items-center gap-1.5">
+            <UserPlus className="h-4 w-4 text-secondary" />
+            Guest details
+          </p>
+          {guests.map((guest, idx) => (
+            <div key={idx} className="flex items-start gap-2 p-3 rounded-md bg-muted/40">
+              <div className="flex-1 space-y-2">
+                <Input
+                  placeholder={`Guest ${idx + 1} name *`}
+                  value={guest.name}
+                  onChange={e => updateGuest(idx, 'name', e.target.value)}
+                  data-testid={`input-guest-name-${idx}`}
+                />
+                <Input
+                  placeholder="Email (optional — for cancellation link)"
+                  type="email"
+                  value={guest.email}
+                  onChange={e => updateGuest(idx, 'email', e.target.value)}
+                  data-testid={`input-guest-email-${idx}`}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => removeGuest(idx)}
+                data-testid={`button-remove-guest-${idx}`}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-booking-error">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {/* Payment method buttons */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">How would you like to pay?</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Card
+            className="hover-elevate cursor-pointer"
+            onClick={() => !processing && makeBooking('cash')}
+            data-testid="button-pay-cash"
+          >
+            <CardContent className="p-4 flex items-center gap-3">
+              {processing ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+              ) : (
+                <Banknote className="h-5 w-5 text-chart-2 shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p className="font-medium text-sm">Pay at Venue</p>
+                <p className="text-xs text-muted-foreground">Pay cash when you arrive</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card
+            className="hover-elevate cursor-pointer"
+            onClick={() => !processing && makeBooking('ziina')}
+            data-testid="button-pay-card"
+          >
+            <CardContent className="p-4 flex items-center gap-3">
+              {processing ? (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+              ) : (
+                <CreditCard className="h-5 w-5 text-primary shrink-0" />
+              )}
+              <div className="min-w-0">
+                <p className="font-medium text-sm">Pay by Card</p>
+                <p className="text-xs text-muted-foreground">Secure checkout via Ziina</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => { setOpen(false); setGuests([]); setError(null); }}
+        data-testid="button-cancel-booking"
+      >
+        Cancel
+      </Button>
+    </div>
+  );
+}
+
 export default function SessionDetails() {
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useMarketplaceAuth();
-  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -162,6 +436,20 @@ export default function SessionDetails() {
   const isWaitlisted = myBookingForSession?.status === 'waitlisted';
   const isConfirmed = myBookingForSession?.status === 'confirmed' || myBookingForSession?.status === 'attended';
 
+  const cancelWaitlistMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`);
+    },
+    onSuccess: () => {
+      toast({ title: 'Removed from waitlist' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to leave waitlist', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const waitlistMutation = useMutation({
     mutationFn: async () => {
       return apiRequest('POST', '/api/marketplace/bookings', { sessionId: id, paymentMethod: 'cash' });
@@ -178,22 +466,10 @@ export default function SessionDetails() {
     },
   });
 
-  const cancelWaitlistMutation = useMutation({
-    mutationFn: async (bookingId: string) => {
-      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`);
-    },
-    onSuccess: () => {
-      toast({ title: 'Removed from waitlist' });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id] });
-    },
-    onError: (error: Error) => {
-      toast({ title: 'Failed to leave waitlist', description: error.message, variant: 'destructive' });
-    },
-  });
-
-  const handleBookNow = () => {
-    setLocation(`/marketplace/checkout/${id}`);
+  const handleBooked = () => {
+    queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id] });
+    queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id, 'players'] });
   };
 
   if (isLoading) {
@@ -220,75 +496,91 @@ export default function SessionDetails() {
     ? Math.round((session.totalBookings / session.capacity) * 100)
     : 0;
 
-  const renderBookingButton = () => {
+  const renderBottomSection = () => {
     if (!isAuthenticated) {
       return (
-        <Link href="/marketplace/login">
-          <Button size="lg" className="gap-2" data-testid="button-login-to-book">
-            Log in to book
-          </Button>
-        </Link>
+        <div className="border-t pt-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <div className="text-xs text-muted-foreground">Price per player</div>
+              <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
+            </div>
+            <Link href="/marketplace/login">
+              <Button size="lg" className="gap-2" data-testid="button-login-to-book">
+                Log in to book
+              </Button>
+            </Link>
+          </div>
+        </div>
       );
     }
 
     if (isConfirmed) {
       return (
-        <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-green-500/10 border border-green-500/20" data-testid="status-confirmed">
-          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
-          <span className="text-sm font-medium text-green-700 dark:text-green-400">You're booked!</span>
+        <div className="border-t pt-6 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-xs text-muted-foreground">Price per player</div>
+            <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
+          </div>
+          <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-green-500/10 border border-green-500/20" data-testid="status-confirmed">
+            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
+            <span className="text-sm font-medium text-green-700 dark:text-green-400">You're booked!</span>
+          </div>
         </div>
       );
     }
 
     if (isWaitlisted && myBookingForSession) {
       return (
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-500/10 border border-amber-500/20" data-testid="status-waitlisted">
-            <ListOrdered className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
-            <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
-              Waitlist #{myBookingForSession.waitlistPosition}
-            </span>
+        <div className="border-t pt-6 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-xs text-muted-foreground">Price per player</div>
+            <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => cancelWaitlistMutation.mutate(myBookingForSession.id)}
-            disabled={cancelWaitlistMutation.isPending}
-            data-testid="button-leave-waitlist"
-          >
-            Leave Waitlist
-          </Button>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-500/10 border border-amber-500/20" data-testid="status-waitlisted">
+              <ListOrdered className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                Waitlist #{myBookingForSession.waitlistPosition}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => cancelWaitlistMutation.mutate(myBookingForSession.id)}
+              disabled={cancelWaitlistMutation.isPending}
+              data-testid="button-leave-waitlist"
+            >
+              Leave Waitlist
+            </Button>
+          </div>
         </div>
       );
     }
 
     if (session.spotsRemaining <= 0) {
       return (
-        <Button
-          size="lg"
-          variant="outline"
-          className="gap-2"
-          onClick={() => waitlistMutation.mutate()}
-          disabled={waitlistMutation.isPending}
-          data-testid="button-join-waitlist"
-        >
-          <ListOrdered className="h-5 w-5" />
-          {waitlistMutation.isPending ? 'Joining...' : 'Join Waitlist'}
-        </Button>
+        <div className="border-t pt-6 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-xs text-muted-foreground">Price per player</div>
+            <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
+          </div>
+          <Button
+            size="lg"
+            variant="outline"
+            className="gap-2"
+            onClick={() => waitlistMutation.mutate()}
+            disabled={waitlistMutation.isPending}
+            data-testid="button-join-waitlist"
+          >
+            <ListOrdered className="h-5 w-5" />
+            {waitlistMutation.isPending ? 'Joining...' : 'Join Waitlist'}
+          </Button>
+        </div>
       );
     }
 
-    return (
-      <Button
-        size="lg"
-        className="gap-2"
-        onClick={handleBookNow}
-        data-testid="button-book-now"
-      >
-        <CreditCard className="h-5 w-5" />
-        Book & Pay Now
-      </Button>
-    );
+    return <InlineBookingPanel session={session} onBooked={handleBooked} />;
   };
 
   return (
@@ -391,15 +683,7 @@ export default function SessionDetails() {
                 </div>
               </div>
 
-              <div className="border-t pt-6">
-                <div className="flex items-center justify-between gap-4 flex-wrap">
-                  <div>
-                    <div className="text-xs text-muted-foreground">Price per player</div>
-                    <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
-                  </div>
-                  {renderBookingButton()}
-                </div>
-              </div>
+              {renderBottomSection()}
             </CardContent>
           </Card>
         </motion.div>
