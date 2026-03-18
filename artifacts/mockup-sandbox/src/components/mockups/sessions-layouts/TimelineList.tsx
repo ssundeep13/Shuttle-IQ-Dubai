@@ -1,13 +1,5 @@
 import React, { useState } from "react";
-import {
-  CalendarDays,
-  Search,
-  Clock,
-  MapPin,
-  Users,
-  ChevronRight,
-  Filter
-} from "lucide-react";
+import { CalendarDays, Search, Clock, MapPin, Users, ChevronRight, Filter, CheckCircle } from "lucide-react";
 
 const MOCK_SESSIONS = [
   {
@@ -24,10 +16,9 @@ const MOCK_SESSIONS = [
     totalBookings: 0,
     spotsRemaining: 18,
     priceAed: 40,
-    description:
-      "All levels welcome. Seamless payment available online or via Careem Pay at the venue.",
+    description: "All levels welcome. Seamless payment available online or via Careem Pay at the venue. Waitlisted players will receive notifications.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: true,
   },
   {
     id: "s2",
@@ -43,10 +34,9 @@ const MOCK_SESSIONS = [
     totalBookings: 6,
     spotsRemaining: 12,
     priceAed: 40,
-    description:
-      "All levels welcome. Seamless payment available online or via Careem Pay at the venue.",
+    description: "All levels welcome. Seamless payment available online or via Careem Pay at the venue.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: false,
   },
   {
     id: "s3",
@@ -62,10 +52,9 @@ const MOCK_SESSIONS = [
     totalBookings: 18,
     spotsRemaining: 2,
     priceAed: 55,
-    description:
-      "Intermediate to advanced players only. High-intensity matches.",
+    description: "Intermediate to advanced players only. High-intensity matches.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: false,
   },
   {
     id: "s4",
@@ -83,7 +72,7 @@ const MOCK_SESSIONS = [
     priceAed: 45,
     description: "Regular intermediate session with rotation system.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: false,
   },
   {
     id: "s5",
@@ -99,25 +88,19 @@ const MOCK_SESSIONS = [
     totalBookings: 8,
     spotsRemaining: 16,
     priceAed: 35,
-    description:
-      "Weekend open play. All skill levels, beginners especially welcome.",
+    description: "Weekend open play. All skill levels, beginners especially welcome.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: false,
   },
 ];
 
-// Helper functions for dates
 const formatDateHeader = (dateStr: string) => {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  const date = new Date(dateStr + "T00:00:00");
+  return date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 };
 
-const getLeftPanelDateInfo = (dateStr: string) => {
-  const date = new Date(dateStr);
+const getLeftPanelInfo = (dateStr: string) => {
+  const date = new Date(dateStr + "T00:00:00");
   return {
     dayAbbrev: date.toLocaleDateString("en-US", { weekday: "short" }),
     dayNumber: date.getDate(),
@@ -126,20 +109,18 @@ const getLeftPanelDateInfo = (dateStr: string) => {
 };
 
 const generateDateStrip = () => {
-  // Simple generator for dates (using the dates present in our mock data for convenience)
-  const uniqueDates = Array.from(
-    new Set(MOCK_SESSIONS.map((s) => s.date))
-  ).sort();
+  const uniqueDates = Array.from(new Set(MOCK_SESSIONS.map((s) => s.date))).sort();
   return uniqueDates.map((dateStr) => {
-    const d = new Date(dateStr);
+    const d = new Date(dateStr + "T00:00:00");
     return {
       dateStr,
       dayAbbrev: d.toLocaleDateString("en-US", { weekday: "short" }),
       dayNumber: d.getDate(),
-      isToday: dateStr === "2026-03-26", // Mock today
     };
   });
 };
+
+const TODAY_DATE = "2026-03-26";
 
 export default function TimelineList() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -147,7 +128,6 @@ export default function TimelineList() {
 
   const dateStrip = generateDateStrip();
 
-  // Filter sessions
   const filteredSessions = MOCK_SESSIONS.filter((s) => {
     if (s.status !== "upcoming") return false;
     if (selectedDate && s.date !== selectedDate) return false;
@@ -155,73 +135,57 @@ export default function TimelineList() {
       searchQuery &&
       !s.venueName.toLowerCase().includes(searchQuery.toLowerCase()) &&
       !s.venueLocation.toLowerCase().includes(searchQuery.toLowerCase())
-    ) {
-      return false;
-    }
+    ) return false;
     return true;
   });
 
-  // Group by date
   const groupedSessions = filteredSessions.reduce((acc, session) => {
-    if (!acc[session.date]) {
-      acc[session.date] = [];
-    }
+    if (!acc[session.date]) acc[session.date] = [];
     acc[session.date].push(session);
     return acc;
   }, {} as Record<string, typeof MOCK_SESSIONS>);
 
-  // Sort dates
   const sortedDates = Object.keys(groupedSessions).sort();
 
   return (
-    <div className="min-h-screen bg-[#f5f0e8] text-gray-900 pb-20 font-sans">
+    <div className="min-h-screen bg-background text-foreground pb-20 font-sans">
       {/* Header */}
-      <div className="bg-white px-4 pt-12 pb-6 shadow-sm border-b border-gray-200">
+      <div className="bg-card border-b border-border px-4 pt-10 pb-5 shadow-sm">
         <div className="max-w-3xl mx-auto">
-          <div className="flex items-center gap-3 mb-2">
-            <div
-              className="p-2 rounded-xl text-white flex items-center justify-center"
-              style={{ background: "#0f2d5a" }}
-            >
-              <CalendarDays size={24} />
+          <div className="flex items-center gap-3 mb-1">
+            <div className="p-2 rounded-xl bg-primary text-primary-foreground flex items-center justify-center">
+              <CalendarDays size={22} />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-              Sessions
-            </h1>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground">Sessions</h1>
           </div>
-          <p className="text-gray-500 mb-6">
+          <p className="text-muted-foreground mb-5 ml-1">
             Browse and book upcoming badminton sessions across Dubai
           </p>
 
           {/* Search Bar */}
           <div className="relative">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              size={20}
-            />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
             <input
               type="text"
               placeholder="Search venues or locations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-300 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0f2d5a]/20 focus:border-[#0f2d5a] transition-all"
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
             />
           </div>
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 mt-6">
+      <div className="max-w-3xl mx-auto px-4 mt-5">
         {/* Date Strip Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-            Filter by Date
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Select Date
           </h2>
           <button
             onClick={() => setSelectedDate(null)}
             className={`text-sm font-medium transition-colors ${
-              selectedDate === null
-                ? "text-[#0f2d5a] font-bold"
-                : "text-gray-500 hover:text-gray-900"
+              selectedDate === null ? "text-primary font-semibold" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             All Dates
@@ -229,34 +193,26 @@ export default function TimelineList() {
         </div>
 
         {/* Horizontal Date Strip */}
-        <div className="flex overflow-x-auto pb-4 -mx-4 px-4 gap-3 no-scrollbar snap-x">
+        <div className="flex overflow-x-auto pb-3 -mx-4 px-4 gap-2">
           {dateStrip.map((d) => {
             const isSelected = selectedDate === d.dateStr;
-            const isToday = d.isToday;
+            const isToday = d.dateStr === TODAY_DATE;
             return (
               <button
                 key={d.dateStr}
                 onClick={() => setSelectedDate(d.dateStr)}
-                className={`snap-start flex flex-col items-center justify-center min-w-[70px] py-3 rounded-2xl border transition-all ${
+                className={`shrink-0 flex flex-col items-center justify-center w-16 py-3 rounded-xl border transition-all ${
                   isSelected
-                    ? "bg-[#0f2d5a] border-[#0f2d5a] text-white shadow-md transform scale-105"
-                    : "bg-white border-gray-200 text-gray-700 hover:border-gray-300 hover:bg-gray-50"
+                    ? "bg-primary border-primary text-primary-foreground shadow-md"
+                    : "bg-card border-border text-foreground hover:border-primary/40"
                 }`}
               >
-                <span
-                  className={`text-xs font-medium mb-1 ${
-                    isSelected
-                      ? "text-blue-200"
-                      : isToday
-                      ? "text-[#0f2d5a] font-bold"
-                      : "text-gray-500"
-                  }`}
-                >
+                <span className={`text-[11px] font-medium mb-0.5 ${isSelected ? "text-primary-foreground/70" : isToday ? "text-primary font-bold" : "text-muted-foreground"}`}>
                   {isToday ? "Today" : d.dayAbbrev}
                 </span>
                 <span className="text-xl font-bold">{d.dayNumber}</span>
                 {isToday && !isSelected && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#0f2d5a] mt-1"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1" />
                 )}
               </button>
             );
@@ -264,24 +220,17 @@ export default function TimelineList() {
         </div>
 
         {/* Sessions List */}
-        <div className="mt-6 space-y-10">
+        <div className="mt-5 space-y-8">
           {sortedDates.length === 0 ? (
-            <div className="bg-white rounded-2xl p-10 text-center shadow-sm border border-gray-100">
-              <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Filter size={24} className="text-gray-400" />
+            <div className="bg-card rounded-xl p-10 text-center border border-border">
+              <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+                <Filter size={22} className="text-muted-foreground" />
               </div>
-              <h3 className="text-lg font-bold text-gray-900 mb-2">
-                No sessions found
-              </h3>
-              <p className="text-gray-500">
-                Try adjusting your search or date filters.
-              </p>
+              <h3 className="text-base font-semibold text-foreground mb-1">No sessions found</h3>
+              <p className="text-muted-foreground text-sm">Try adjusting your search or date filters.</p>
               <button
-                onClick={() => {
-                  setSelectedDate(null);
-                  setSearchQuery("");
-                }}
-                className="mt-6 text-[#0f2d5a] font-medium hover:underline"
+                onClick={() => { setSelectedDate(null); setSearchQuery(""); }}
+                className="mt-4 text-sm text-primary font-medium hover:underline"
               >
                 Clear all filters
               </button>
@@ -290,157 +239,118 @@ export default function TimelineList() {
             sortedDates.map((dateStr) => {
               const sessions = groupedSessions[dateStr];
               return (
-                <div key={dateStr} className="space-y-4">
-                  {/* Date Header */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white shadow-sm border border-gray-200 text-gray-500">
-                      <CalendarDays size={16} />
+                <div key={dateStr} className="space-y-3">
+                  {/* Date Group Header */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center w-7 h-7 rounded-full bg-muted text-muted-foreground border border-border">
+                      <CalendarDays size={14} />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900">
+                    <h3 className="text-base font-bold text-foreground">
                       {formatDateHeader(dateStr)}
                     </h3>
-                    <span className="ml-auto bg-gray-200 text-gray-700 text-xs font-semibold px-2.5 py-1 rounded-full">
+                    <span className="ml-auto bg-muted text-muted-foreground text-xs font-semibold px-2 py-0.5 rounded-full">
                       {sessions.length} session{sessions.length !== 1 && "s"}
                     </span>
                   </div>
 
-                  {/* Sessions for this date */}
-                  <div className="space-y-4 pl-4 border-l-2 border-gray-200 ml-4">
+                  {/* Session Cards */}
+                  <div className="space-y-3 pl-3 border-l-2 border-border ml-3">
                     {sessions.map((session) => {
-                      const dateInfo = getLeftPanelDateInfo(session.date);
+                      const panelInfo = getLeftPanelInfo(session.date);
+                      const isFull = session.spotsRemaining === 0;
+                      const isBooked = session.userBooked;
+                      const spotsLow = !isFull && session.spotsRemaining <= 3;
+                      const progressPct = session.capacity > 0 ? (session.totalBookings / session.capacity) * 100 : 0;
 
-                      // Determine Badge logic
                       let badgeText = `${session.spotsRemaining} spots`;
-                      let badgeClass = "bg-gray-100 text-gray-700";
-
-                      if (session.id === "s1") {
-                        badgeText = "Booked";
-                        badgeClass = "bg-green-100 text-green-700";
-                      } else if (session.spotsRemaining === 0) {
-                        badgeText = "Full";
-                        badgeClass = "bg-red-100 text-red-700";
-                      } else if (session.spotsRemaining <= 5) {
-                        badgeText = `${session.spotsRemaining} left`;
-                        badgeClass = "bg-orange-100 text-orange-700";
-                      }
-
-                      const progressPercentage =
-                        session.capacity > 0
-                          ? (session.totalBookings / session.capacity) * 100
-                          : 0;
+                      let badgeCls = "bg-muted text-muted-foreground";
+                      if (isBooked) { badgeText = "Booked"; badgeCls = "bg-green-100 text-green-700"; }
+                      else if (isFull) { badgeText = "Full"; badgeCls = "bg-red-100 text-red-700"; }
+                      else if (spotsLow) { badgeText = `${session.spotsRemaining} left`; badgeCls = "bg-orange-100 text-orange-700"; }
 
                       return (
                         <div
                           key={session.id}
-                          className="flex flex-col sm:flex-row rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow border border-gray-100 bg-white group cursor-pointer"
+                          className="flex flex-col sm:flex-row rounded-xl overflow-hidden border border-border bg-card shadow-sm"
+                          data-testid={`card-session-${session.id}`}
                         >
-                          {/* Left Panel - Date */}
-                          <div
-                            className="sm:w-28 flex sm:flex-col items-center justify-center p-4 sm:p-0 flex-row gap-4 sm:gap-1"
-                            style={{ background: "#0f2d5a" }}
-                          >
-                            <span className="text-blue-200 text-sm font-medium uppercase tracking-widest">
-                              {dateInfo.dayAbbrev}
+                          {/* Left Panel — Primary color date block */}
+                          <div className="sm:w-24 flex sm:flex-col items-center justify-center p-3 sm:p-0 flex-row gap-3 sm:gap-1 bg-primary text-primary-foreground">
+                            <span className="text-primary-foreground/60 text-xs font-medium uppercase tracking-widest">
+                              {panelInfo.dayAbbrev}
                             </span>
-                            <span className="text-white text-3xl sm:text-4xl font-black leading-none">
-                              {dateInfo.dayNumber}
+                            <span className="text-3xl sm:text-4xl font-black leading-none">
+                              {panelInfo.dayNumber}
                             </span>
-                            <span className="text-blue-100 text-sm font-medium">
-                              {dateInfo.monthAbbrev}
+                            <span className="text-primary-foreground/80 text-xs font-medium">
+                              {panelInfo.monthAbbrev}
                             </span>
                           </div>
 
-                          {/* Right Panel - Details */}
-                          <div className="flex-1 p-5">
-                            <div className="flex justify-between items-start mb-2 gap-4">
-                              <h4 className="text-lg font-bold text-gray-900 leading-tight">
+                          {/* Right Panel — Details */}
+                          <div className="flex-1 p-4">
+                            <div className="flex justify-between items-start mb-3 gap-3">
+                              <h4 className="text-base font-semibold text-foreground leading-tight">
                                 {session.title}
                               </h4>
-                              <span
-                                className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-full ${badgeClass}`}
-                              >
+                              <span className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${badgeCls}`}>
+                                {isBooked && <CheckCircle className="inline h-3 w-3 mr-1 -mt-0.5" />}
                                 {badgeText}
                               </span>
                             </div>
 
-                            <div className="space-y-2 mt-4">
-                              <div className="flex items-center text-gray-600 text-sm">
-                                <Clock size={16} className="mr-2 text-gray-400 shrink-0" />
-                                <span className="font-medium">
-                                  {session.startTime} - {session.endTime}
-                                </span>
+                            <div className="space-y-1.5 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                <Clock size={14} className="shrink-0" />
+                                <span className="text-foreground font-medium">{session.startTime} - {session.endTime}</span>
                               </div>
-
-                              <div className="flex items-start text-gray-600 text-sm">
-                                <MapPin size={16} className="mr-2 mt-0.5 text-gray-400 shrink-0" />
-                                <div className="flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-x-1">
+                              <div className="flex items-start gap-2">
+                                <MapPin size={14} className="shrink-0 mt-0.5" />
+                                <div>
                                   <span>{session.venueName}</span>
-                                  <span className="hidden sm:inline text-gray-300">·</span>
-                                  <span className="text-gray-500">{session.venueLocation}</span>
-                                  <a
-                                    href={session.venueMapUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-teal-600 hover:text-teal-700 font-medium ml-0 sm:ml-1 mt-1 sm:mt-0"
-                                  >
-                                    View on Map
-                                  </a>
+                                  {session.venueLocation && <span> · {session.venueLocation}</span>}
+                                  {session.venueMapUrl && (
+                                    <a href={session.venueMapUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="block text-secondary font-medium text-xs mt-0.5">
+                                      View on Map
+                                    </a>
+                                  )}
                                 </div>
                               </div>
-
-                              <div className="flex items-center text-gray-600 text-sm">
-                                <Users size={16} className="mr-2 text-gray-400 shrink-0" />
+                              <div className="flex items-center gap-2">
+                                <Users size={14} className="shrink-0" />
                                 <span>{session.courtCount} courts</span>
                               </div>
                             </div>
 
-                            {/* Progress bar */}
-                            <div className="mt-4">
-                              <div className="flex justify-between text-xs font-medium text-gray-500 mb-1.5">
-                                <span>
-                                  {session.totalBookings} / {session.capacity} booked
-                                </span>
-                                <span>{Math.round(progressPercentage)}%</span>
+                            {/* Capacity bar */}
+                            <div className="mt-3">
+                              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                                <span>{session.totalBookings} / {session.capacity} booked</span>
+                                <span>{Math.round(progressPct)}%</span>
                               </div>
-                              <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                              <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                                 <div
-                                  className={`h-1.5 rounded-full ${
-                                    progressPercentage >= 100
-                                      ? "bg-red-500"
-                                      : session.id === "s1"
-                                      ? "bg-green-500"
-                                      : "bg-[#0f2d5a]"
-                                  }`}
-                                  style={{ width: `${progressPercentage}%` }}
-                                ></div>
+                                  className={`h-full rounded-full ${isFull ? "bg-destructive" : isBooked ? "bg-green-500" : "bg-primary"}`}
+                                  style={{ width: `${progressPct}%` }}
+                                />
                               </div>
                             </div>
 
-                            <p className="mt-4 text-sm text-gray-500 line-clamp-2">
-                              {session.description}
-                            </p>
+                            <p className="mt-2 text-xs text-muted-foreground line-clamp-2">{session.description}</p>
 
-                            <div className="mt-5 pt-5 border-t border-gray-100 flex items-center justify-between">
-                              <div className="text-xl font-black text-gray-900">
-                                AED {session.priceAed}
-                              </div>
-                              {session.spotsRemaining === 0 && session.id !== "s1" ? (
-                                <button
-                                  disabled
-                                  className="flex items-center px-5 py-2.5 rounded-xl bg-gray-100 text-gray-400 font-medium text-sm cursor-not-allowed opacity-60"
-                                >
-                                  View Details
-                                  <ChevronRight size={16} className="ml-1" />
+                            <div className="mt-4 pt-3 border-t border-border flex items-center justify-between gap-2">
+                              <span className="text-base font-bold text-foreground">AED {session.priceAed}</span>
+                              {isFull && !isBooked ? (
+                                <button disabled className="flex items-center px-4 py-2 rounded-lg bg-muted text-muted-foreground text-sm font-medium cursor-not-allowed opacity-60">
+                                  View Details <ChevronRight size={14} className="ml-1" />
                                 </button>
                               ) : (
                                 <a
                                   href={`/marketplace/sessions/${session.id}`}
-                                  className="flex items-center px-5 py-2.5 rounded-xl text-white font-medium text-sm"
-                                  style={{ background: "#0f2d5a" }}
+                                  className="flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground"
                                 >
-                                  {session.id === "s1" ? "View Booking" : "View & Book"}
-                                  <ChevronRight size={16} className="ml-1" />
+                                  {isBooked ? "View Booking" : "View & Book"}
+                                  <ChevronRight size={14} className="ml-1" />
                                 </a>
                               )}
                             </div>

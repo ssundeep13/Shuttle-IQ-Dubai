@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Search, Clock, MapPin, Users, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Calendar, Search, Clock, MapPin, Users, ArrowRight, CheckCircle } from 'lucide-react';
 
 const MOCK_SESSIONS = [
   {
@@ -18,7 +18,7 @@ const MOCK_SESSIONS = [
     priceAed: 40,
     description: "All levels welcome. Seamless payment available online or via Careem Pay at the venue.",
     status: "upcoming",
-    userBooked: true, // Special state for s1
+    userBooked: true,
     level: "beginner",
   },
   {
@@ -99,49 +99,32 @@ const MOCK_SESSIONS = [
   },
 ];
 
-const formatDate = (dateStr: string) => {
-  const date = new Date(dateStr);
+const formatDateChip = (dateStr: string) => {
+  const date = new Date(dateStr + "T00:00:00");
   return date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
 };
 
-const getLevelColor = (level?: string) => {
+// Left accent border color based on skill level (semantic skill-level indicator)
+const getLevelBorderColor = (level?: string) => {
   switch (level) {
-    case 'advanced': return 'border-purple-500';
-    case 'intermediate': return 'border-blue-500';
-    case 'beginner': return 'border-green-500';
-    default: return 'border-teal-500';
+    case 'advanced':     return 'border-l-purple-500';
+    case 'intermediate': return 'border-l-blue-500';
+    case 'beginner':     return 'border-l-green-500';
+    default:             return 'border-l-secondary';
   }
 };
 
-const getSpotsBadge = (session: typeof MOCK_SESSIONS[0]) => {
-  if (session.userBooked) {
-    return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800"><CheckCircle2 className="w-3 h-3" /> Booked</span>;
-  }
-  if (session.spotsRemaining === 0) {
-    return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Full</span>;
-  }
-  if (session.spotsRemaining <= 3) {
-    return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Only {session.spotsRemaining} spots left</span>;
-  }
-  if (session.spotsRemaining <= 8) {
-    return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">{session.spotsRemaining} spots left</span>;
-  }
-  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">{session.spotsRemaining} spots left</span>;
-};
-
-export function SessionFeed() {
+export default function SessionFeed() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const filteredSessions = MOCK_SESSIONS.filter(session => {
     const q = searchQuery.toLowerCase();
-    return session.venueName.toLowerCase().includes(q) || session.venueLocation.toLowerCase().includes(q);
+    return !q || session.venueName.toLowerCase().includes(q) || session.venueLocation.toLowerCase().includes(q);
   });
 
   // Group by date
   const groupedSessions = filteredSessions.reduce((acc, session) => {
-    if (!acc[session.date]) {
-      acc[session.date] = [];
-    }
+    if (!acc[session.date]) acc[session.date] = [];
     acc[session.date].push(session);
     return acc;
   }, {} as Record<string, typeof MOCK_SESSIONS>);
@@ -149,28 +132,24 @@ export function SessionFeed() {
   const sortedDates = Object.keys(groupedSessions).sort();
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20">
+    <div className="min-h-screen bg-background text-foreground font-sans pb-16">
       <div className="max-w-3xl mx-auto px-4 py-8">
-        
+
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
-              <Calendar className="w-6 h-6" />
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Sessions</h1>
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-1">
+            <Calendar className="w-6 h-6 text-secondary" />
+            <h1 className="text-2xl font-bold text-foreground">Sessions</h1>
           </div>
-          <p className="text-slate-500">Find and book your next badminton match.</p>
+          <p className="text-muted-foreground text-sm">Browse and book upcoming badminton sessions across Dubai</p>
         </div>
 
         {/* Search */}
         <div className="relative mb-8">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-5 w-5 text-slate-400" />
-          </div>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={17} />
           <input
             type="text"
-            className="block w-full pl-10 pr-3 py-3 border border-slate-200 rounded-xl leading-5 bg-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm shadow-sm transition-all"
+            className="block w-full pl-10 pr-3 py-2.5 border border-border rounded-lg bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring text-sm"
             placeholder="Search venues or locations..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -178,100 +157,115 @@ export function SessionFeed() {
         </div>
 
         {/* Feed */}
-        <div className="space-y-6">
+        <div className="space-y-7">
           {sortedDates.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-xl border border-slate-200 border-dashed">
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-100 text-slate-400 mb-4">
-                <Search className="w-6 h-6" />
+            <div className="text-center py-10 bg-card rounded-xl border border-border">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-muted text-muted-foreground mb-4">
+                <Search className="w-5 h-5" />
               </div>
-              <h3 className="text-lg font-medium text-slate-900">No sessions found</h3>
-              <p className="mt-1 text-slate-500">Try adjusting your search terms.</p>
+              <h3 className="text-base font-semibold text-foreground">No sessions found</h3>
+              <p className="mt-1 text-sm text-muted-foreground">Try adjusting your search terms.</p>
             </div>
           ) : (
             sortedDates.map((date) => {
               const dateSessions = groupedSessions[date];
               return (
-                <div key={date} className="space-y-4">
-                  
-                  {/* Date Chip */}
-                  <div className="flex items-center justify-center">
-                    <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-slate-200/50 text-slate-600 text-sm font-medium shadow-sm border border-slate-200/50 backdrop-blur-sm">
-                      {formatDate(date)} <span className="mx-2 text-slate-400">&middot;</span> {dateSessions.length} session{dateSessions.length !== 1 ? 's' : ''}
-                    </div>
+                <div key={date} className="space-y-3">
+
+                  {/* Inline Date Chip Separator */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground font-medium bg-muted px-3 py-1 rounded-full border border-border whitespace-nowrap">
+                      {formatDateChip(date)} · {dateSessions.length} session{dateSessions.length !== 1 ? 's' : ''}
+                    </span>
+                    <div className="flex-1 h-px bg-border" />
                   </div>
 
                   {/* Session Cards */}
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {dateSessions.map(session => {
-                      const percentageBooked = (session.totalBookings / session.capacity) * 100;
-                      
+                      const isFull = session.spotsRemaining === 0;
+                      const isBooked = session.userBooked;
+                      const spotsLow = !isFull && session.spotsRemaining <= 3;
+                      const percentBooked = (session.totalBookings / session.capacity) * 100;
+
+                      let badgeText = `${session.spotsRemaining} spots`;
+                      let badgeCls = "bg-muted text-muted-foreground";
+                      if (isBooked)    { badgeText = "Booked"; badgeCls = "bg-green-100 text-green-700"; }
+                      else if (isFull) { badgeText = "Full";   badgeCls = "bg-red-100 text-red-700"; }
+                      else if (spotsLow) { badgeText = `${session.spotsRemaining} left`; badgeCls = "bg-orange-100 text-orange-700"; }
+
                       return (
-                        <div 
-                          key={session.id} 
-                          className={`bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col sm:flex-row transition-all hover:shadow-md border-l-[3px] ${getLevelColor(session.level)}`}
+                        <div
+                          key={session.id}
+                          className={`bg-card rounded-lg border border-border border-l-[3px] ${getLevelBorderColor(session.level)} flex flex-col sm:flex-row overflow-hidden`}
+                          data-testid={`card-session-${session.id}`}
                         >
-                          {/* Left Side */}
-                          <div className="flex-1 p-5">
-                            <h3 className="font-semibold text-lg text-slate-900 truncate mb-3">{session.title}</h3>
-                            
-                            <div className="space-y-2 mb-4">
-                              <div className="flex items-center text-slate-600 text-sm">
-                                <Clock className="w-4 h-4 mr-2 text-slate-400 shrink-0" />
-                                <span className="font-medium text-slate-800">{session.startTime} - {session.endTime}</span>
+                          {/* Left — Details */}
+                          <div className="flex-1 p-4 min-w-0">
+                            <h3 className="font-semibold text-foreground truncate mb-2">{session.title}</h3>
+
+                            <div className="space-y-1.5 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-3.5 h-3.5 shrink-0" />
+                                <span className="text-foreground">{session.startTime} - {session.endTime}</span>
                               </div>
-                              <div className="flex items-start text-slate-600 text-sm">
-                                <MapPin className="w-4 h-4 mr-2 text-slate-400 shrink-0 mt-0.5" />
-                                <span className="line-clamp-1">{session.venueName} <span className="text-slate-400">&middot;</span> {session.venueLocation}</span>
+                              <div className="flex items-start gap-2">
+                                <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                <span className="line-clamp-1">{session.venueName} · {session.venueLocation}</span>
                               </div>
-                              <div className="flex items-center text-slate-600 text-sm">
-                                <Users className="w-4 h-4 mr-2 text-slate-400 shrink-0" />
+                              {session.venueMapUrl && (
+                                <a href={session.venueMapUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="ml-5 text-xs text-secondary font-medium hover:underline">
+                                  View on Map
+                                </a>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <Users className="w-3.5 h-3.5 shrink-0" />
                                 <span>{session.courtCount} courts</span>
                               </div>
                             </div>
 
-                            {/* Capacity Bar */}
-                            <div className="mb-4">
-                              <div className="flex justify-between text-xs text-slate-500 mb-1 font-medium">
-                                <span>{session.totalBookings} / {session.capacity} joined</span>
+                            {/* Capacity bar */}
+                            <div className="mt-3">
+                              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                                <span>{session.totalBookings} / {session.capacity} booked</span>
                               </div>
-                              <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                                <div 
-                                  className={`h-full rounded-full ${session.spotsRemaining === 0 ? 'bg-slate-400' : 'bg-indigo-500'}`} 
-                                  style={{ width: \`\${Math.min(100, percentageBooked)}%\` }}
-                                ></div>
+                              <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${isFull ? 'bg-destructive' : 'bg-secondary'}`}
+                                  style={{ width: `${Math.min(100, percentBooked)}%` }}
+                                />
                               </div>
                             </div>
 
-                            <p className="text-sm text-slate-500 line-clamp-1">{session.description}</p>
+                            <p className="text-xs text-muted-foreground mt-2 line-clamp-1">{session.description}</p>
                           </div>
 
-                          {/* Right Side */}
-                          <div className="shrink-0 sm:w-[180px] bg-slate-50/50 sm:border-l border-slate-100 p-5 flex flex-col justify-between items-center sm:items-stretch gap-4 border-t sm:border-t-0">
-                            <div className="flex flex-col items-center justify-center flex-1">
-                              <div className="mb-3 w-full text-center">
-                                {getSpotsBadge(session)}
-                              </div>
-                              <div className="text-2xl font-bold text-slate-900 text-center">
-                                {session.priceAed} <span className="text-sm font-normal text-slate-500">AED</span>
-                              </div>
+                          {/* Right — Price + CTA */}
+                          <div className="shrink-0 sm:w-44 bg-muted/30 sm:border-l border-border border-t sm:border-t-0 p-4 flex flex-col justify-between items-center sm:items-stretch gap-3">
+                            <div className="text-center">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badgeCls}`}>
+                                {isBooked && <CheckCircle className="w-3 h-3" />}
+                                {badgeText}
+                              </span>
                             </div>
-                            
-                            <div className="w-full">
-                              {session.userBooked ? (
-                                <a href={`/marketplace/sessions/${session.id}`} className="block w-full py-2.5 px-4 bg-white border border-slate-200 text-slate-700 font-medium rounded-lg text-sm text-center transition-colors shadow-sm">
-                                  View Booking
-                                </a>
-                              ) : session.spotsRemaining === 0 ? (
-                                <button disabled className="w-full py-2.5 px-4 bg-slate-100 text-slate-400 font-medium rounded-lg text-sm cursor-not-allowed opacity-60">
-                                  View Details
-                                </button>
-                              ) : (
-                                <a href={`/marketplace/sessions/${session.id}`} className="block w-full py-2.5 px-4 bg-indigo-600 text-white font-medium rounded-lg text-sm text-center shadow-sm flex items-center justify-center gap-1.5">
-                                  View &amp; Book
-                                  <ArrowRight className="w-4 h-4 opacity-70" />
-                                </a>
-                              )}
+                            <div className="text-center">
+                              <span className="text-2xl font-bold text-foreground">{session.priceAed}</span>
+                              <span className="text-xs text-muted-foreground ml-1">AED</span>
                             </div>
+                            {isBooked ? (
+                              <a href={`/marketplace/sessions/${session.id}`} className="block w-full py-2 px-3 bg-card border border-border text-foreground font-medium rounded-lg text-sm text-center">
+                                View Booking
+                              </a>
+                            ) : isFull ? (
+                              <button disabled className="w-full py-2 px-3 bg-muted text-muted-foreground font-medium rounded-lg text-sm cursor-not-allowed opacity-60">
+                                View Details
+                              </button>
+                            ) : (
+                              <a href={`/marketplace/sessions/${session.id}`} className="block w-full py-2 px-3 bg-primary text-primary-foreground font-medium rounded-lg text-sm text-center flex items-center justify-center gap-1.5">
+                                View &amp; Book <ArrowRight className="w-3.5 h-3.5" />
+                              </a>
+                            )}
                           </div>
                         </div>
                       );
@@ -282,10 +276,7 @@ export function SessionFeed() {
             })
           )}
         </div>
-
       </div>
     </div>
   );
 }
-
-export default SessionFeed;

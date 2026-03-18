@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Calendar, Clock, MapPin, Users, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Calendar, Clock, MapPin, Users, ArrowRight, CheckCircle } from 'lucide-react';
 
 const MOCK_SESSIONS = [
   {
@@ -18,7 +18,7 @@ const MOCK_SESSIONS = [
     priceAed: 40,
     description: "All levels welcome. Seamless payment available online or via Careem Pay at the venue.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: true,
   },
   {
     id: "s2",
@@ -36,7 +36,7 @@ const MOCK_SESSIONS = [
     priceAed: 40,
     description: "All levels welcome. Seamless payment available online or via Careem Pay at the venue.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: false,
   },
   {
     id: "s3",
@@ -54,7 +54,7 @@ const MOCK_SESSIONS = [
     priceAed: 55,
     description: "Intermediate to advanced players only. High-intensity matches.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: false,
   },
   {
     id: "s4",
@@ -72,7 +72,7 @@ const MOCK_SESSIONS = [
     priceAed: 45,
     description: "Regular intermediate session with rotation system.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: false,
   },
   {
     id: "s5",
@@ -90,102 +90,83 @@ const MOCK_SESSIONS = [
     priceAed: 35,
     description: "Weekend open play. All skill levels, beginners especially welcome.",
     status: "upcoming",
-    imageUrl: null,
+    userBooked: false,
   },
 ];
 
-// Mocking "today" to be March 26, 2026 based on the data provided and the requirement
 const TODAY_STR = "2026-03-26";
-const TODAY = new Date(TODAY_STR);
+const TODAY = new Date(TODAY_STR + "T00:00:00");
 
 export default function WeeklySpotlight() {
-  // Generate the next 7 days
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }).map((_, i) => {
       const d = new Date(TODAY);
       d.setDate(TODAY.getDate() + i);
       const dateString = d.toISOString().split('T')[0];
-      
       const daySessions = MOCK_SESSIONS.filter(s => s.date === dateString);
-      
       return {
         date: d,
         dateString,
         dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
         dayNumber: d.getDate(),
-        sessionCount: daySessions.length
+        sessionCount: daySessions.length,
       };
     });
   }, []);
 
   const [selectedDate, setSelectedDate] = useState<string>(weekDays[0].dateString);
 
-  const selectedSessions = useMemo(() => {
-    return MOCK_SESSIONS.filter(s => s.date === selectedDate);
-  }, [selectedDate]);
-
-  const selectedDayInfo = useMemo(() => {
-    return weekDays.find(d => d.dateString === selectedDate);
-  }, [selectedDate, weekDays]);
+  const selectedSessions = useMemo(() => MOCK_SESSIONS.filter(s => s.date === selectedDate), [selectedDate]);
+  const selectedDayInfo = useMemo(() => weekDays.find(d => d.dateString === selectedDate), [selectedDate, weekDays]);
 
   const getDayLabel = (dateString: string) => {
     if (dateString === TODAY_STR) return "Today";
-    const d = new Date(dateString);
-    const tomorrow = new Date(TODAY);
-    tomorrow.setDate(TODAY.getDate() + 1);
-    if (dateString === tomorrow.toISOString().split('T')[0]) return "Tomorrow";
-    return new Date(dateString).toLocaleDateString('en-US', { weekday: 'long' });
+    const d = new Date(TODAY);
+    d.setDate(d.getDate() + 1);
+    if (dateString === d.toISOString().split('T')[0]) return "Tomorrow";
+    return new Date(dateString + "T00:00:00").toLocaleDateString('en-US', { weekday: 'long' });
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
+    <div className="min-h-screen bg-background text-foreground font-sans">
       <div className="max-w-5xl mx-auto px-4 py-8">
-        
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Find a Session</h1>
-          <p className="text-slate-500">Book your next game at top venues across Dubai.</p>
+        <div className="mb-7">
+          <div className="flex items-center gap-2 mb-1">
+            <Calendar className="w-6 h-6 text-secondary" />
+            <h1 className="text-2xl font-bold text-foreground">Sessions</h1>
+          </div>
+          <p className="text-muted-foreground">Book your next game at top venues across Dubai.</p>
         </div>
 
         {/* Week Strip */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-8 overflow-x-auto no-scrollbar">
-          <div className="flex justify-between md:justify-start gap-2 md:gap-4 min-w-max">
+        <div className="bg-card rounded-xl border border-border p-3 mb-7 overflow-x-auto">
+          <div className="flex gap-2 min-w-max">
             {weekDays.map((day) => {
               const isSelected = day.dateString === selectedDate;
               const hasSessions = day.sessionCount > 0;
-              
+              const isToday = day.dateString === TODAY_STR;
+
               return (
                 <button
                   key={day.dateString}
                   onClick={() => setSelectedDate(day.dateString)}
-                  className={`
-                    flex flex-col items-center justify-center w-16 md:w-20 py-3 rounded-xl transition-all relative
-                    ${isSelected 
-                      ? 'bg-blue-900 text-white shadow-md ring-2 ring-blue-900 ring-offset-2' 
+                  className={`relative flex flex-col items-center justify-center w-16 py-3 rounded-lg border transition-all ${
+                    isSelected
+                      ? 'bg-primary border-primary text-primary-foreground shadow-sm'
                       : hasSessions
-                        ? 'bg-slate-50 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                        : 'bg-transparent text-slate-400 hover:bg-slate-50'}
-                  `}
+                        ? 'bg-background border-border text-foreground hover:border-primary/40'
+                        : 'bg-background border-border text-muted-foreground'
+                  }`}
                 >
-                  <span className={`text-xs font-medium uppercase tracking-wider mb-1 ${isSelected ? 'text-blue-200' : ''}`}>
-                    {day.dayName}
+                  <span className={`text-[10px] font-medium uppercase tracking-wider mb-0.5 ${isSelected ? 'text-primary-foreground/70' : isToday ? 'text-primary font-bold' : ''}`}>
+                    {isToday ? "Today" : day.dayName}
                   </span>
-                  <span className={`text-2xl font-bold ${isSelected ? 'text-white' : ''}`}>
-                    {day.dayNumber}
-                  </span>
-                  
-                  {/* Session Badge */}
+                  <span className="text-xl font-bold">{day.dayNumber}</span>
                   {hasSessions && (
-                    <span className={`
-                      absolute -top-2 -right-1 w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold border-2 border-white
-                      ${isSelected ? 'bg-teal-500 text-white' : 'bg-blue-600 text-white'}
-                    `}>
+                    <span className={`absolute -top-1.5 -right-1 w-4 h-4 flex items-center justify-center rounded-full text-[9px] font-bold border border-background ${isSelected ? 'bg-secondary text-secondary-foreground' : 'bg-primary text-primary-foreground'}`}>
                       {day.sessionCount}
                     </span>
-                  )}
-                  
-                  {day.dateString === TODAY_STR && (
-                    <div className={`w-1 h-1 rounded-full mt-1 ${isSelected ? 'bg-blue-300' : 'bg-blue-600'}`} />
                   )}
                 </button>
               );
@@ -194,145 +175,126 @@ export default function WeeklySpotlight() {
         </div>
 
         {/* Selected Day Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-slate-800 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-blue-600" />
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-secondary" />
             {getDayLabel(selectedDate)}, {selectedDayInfo?.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </h2>
-          <span className="text-sm font-medium text-slate-500">
+          <span className="text-sm text-muted-foreground">
             {selectedSessions.length} {selectedSessions.length === 1 ? 'session' : 'sessions'} available
           </span>
         </div>
 
         {/* Sessions Grid */}
         {selectedSessions.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {selectedSessions.map((session) => {
-              const isBooked = session.id === "s1";
+              const isBooked = session.userBooked;
               const isFull = session.spotsRemaining === 0;
+              const spotsLow = !isFull && session.spotsRemaining <= 3;
               const capacityPercent = (session.totalBookings / session.capacity) * 100;
-              
+
               return (
-                <div 
+                <div
                   key={session.id}
-                  className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 flex flex-col transition-transform hover:-translate-y-1 hover:shadow-md duration-300"
+                  className="bg-card rounded-xl overflow-hidden border border-border shadow-sm flex flex-col"
+                  data-testid={`card-session-${session.id}`}
                 >
-                  {/* Card Header (Gradient) */}
-                  <div className="bg-gradient-to-r from-blue-900 to-teal-800 p-6 relative">
+                  {/* Gradient Header — Primary (navy) to Secondary (teal) */}
+                  <div className="bg-gradient-to-r from-primary to-secondary p-5 relative">
                     <div className="relative z-10 flex justify-between items-start">
                       <div>
-                        <div className="text-blue-100 text-sm font-medium mb-1">
-                          {new Date(session.date).toLocaleDateString('en-US', { weekday: 'long' })}
+                        <div className="text-primary-foreground/60 text-xs font-medium mb-1">
+                          {new Date(session.date + "T00:00:00").toLocaleDateString('en-US', { weekday: 'long' })}
                         </div>
-                        <div className="text-white text-3xl font-bold tracking-tight">
-                          {new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        <div className="text-primary-foreground text-2xl font-bold">
+                          {new Date(session.date + "T00:00:00").toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </div>
                       </div>
-                      
-                      {/* Status Badge */}
                       {isBooked ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-sm font-medium backdrop-blur-sm">
-                          <CheckCircle2 className="w-4 h-4" />
-                          Booked
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/20 text-primary-foreground border border-white/30 text-xs font-medium">
+                          <CheckCircle className="w-3 h-3" /> Booked
                         </span>
                       ) : isFull ? (
-                        <span className="inline-flex items-center px-3 py-1 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 text-sm font-medium backdrop-blur-sm">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-destructive/20 text-destructive-foreground border border-destructive/30 text-xs font-medium">
                           Full
                         </span>
+                      ) : spotsLow ? (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-white/20 text-primary-foreground border border-white/30 text-xs font-medium">
+                          {session.spotsRemaining} left
+                        </span>
                       ) : (
-                        <span className="inline-flex items-center px-3 py-1 rounded-full bg-white/20 text-white border border-white/30 text-sm font-medium backdrop-blur-sm">
-                          {session.spotsRemaining} spots left
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-white/20 text-primary-foreground border border-white/30 text-xs font-medium">
+                          {session.spotsRemaining} spots
                         </span>
                       )}
                     </div>
-                    
-                    {/* Decorative pattern */}
-                    <div className="absolute right-0 bottom-0 opacity-10">
-                      <svg width="120" height="120" viewBox="0 0 100 100">
-                        <circle cx="80" cy="80" r="40" fill="currentColor" />
-                        <circle cx="80" cy="80" r="60" fill="none" stroke="currentColor" strokeWidth="2" />
-                        <circle cx="80" cy="80" r="80" fill="none" stroke="currentColor" strokeWidth="2" />
+                    {/* Decorative rings */}
+                    <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none">
+                      <svg width="100" height="100" viewBox="0 0 100 100">
+                        <circle cx="80" cy="80" r="40" fill="white" />
+                        <circle cx="80" cy="80" r="60" fill="none" stroke="white" strokeWidth="2" />
                       </svg>
                     </div>
                   </div>
 
                   {/* Card Body */}
-                  <div className="p-6 flex-grow flex flex-col">
-                    <h3 className="text-xl font-bold text-slate-900 mb-4 line-clamp-2">
-                      {session.title}
-                    </h3>
+                  <div className="p-5 flex-grow flex flex-col">
+                    <h3 className="text-base font-semibold text-foreground mb-4 line-clamp-2">{session.title}</h3>
 
-                    <div className="space-y-3 mb-6 flex-grow">
-                      <div className="flex items-start gap-3 text-slate-600">
-                        <Clock className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-medium text-slate-900">{session.startTime} - {session.endTime}</p>
-                          <p className="text-sm text-slate-500">2 hours duration</p>
-                        </div>
+                    <div className="space-y-2.5 mb-4 flex-grow text-sm text-muted-foreground">
+                      <div className="flex items-start gap-2.5">
+                        <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span className="text-foreground font-medium">{session.startTime} - {session.endTime}</span>
                       </div>
-
-                      <div className="flex items-start gap-3 text-slate-600">
-                        <MapPin className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+                      <div className="flex items-start gap-2.5">
+                        <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
                         <div>
-                          <p className="font-medium text-slate-900">{session.venueName}</p>
-                          <p className="text-sm text-slate-500">{session.venueLocation}</p>
-                          <a 
-                            href={session.venueMapUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-blue-600 text-sm font-medium hover:underline inline-flex items-center gap-1 mt-1"
-                          >
-                            View on map
+                          <span className="text-foreground font-medium">{session.venueName}</span>
+                          <span className="block text-sm">{session.venueLocation}</span>
+                          <a href={session.venueMapUrl} target="_blank" rel="noopener noreferrer" className="text-secondary text-xs font-medium hover:underline mt-0.5 inline-block">
+                            View on Map
                           </a>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-3 text-slate-600 pt-1">
-                        <Users className="w-5 h-5 text-slate-400 shrink-0" />
-                        <span className="font-medium">{session.courtCount} Courts</span>
+                      <div className="flex items-center gap-2.5">
+                        <Users className="w-4 h-4 shrink-0" />
+                        <span>{session.courtCount} courts</span>
                       </div>
                     </div>
 
-                    {/* Capacity Progress */}
-                    <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="font-medium text-slate-700">Capacity</span>
-                        <span className="text-slate-500">
-                          {session.totalBookings} / {session.capacity} players
-                        </span>
+                    {/* Capacity */}
+                    <div className="mb-4 bg-muted/50 rounded-lg p-3 border border-border">
+                      <div className="flex justify-between text-xs text-muted-foreground mb-2">
+                        <span>Capacity</span>
+                        <span>{session.totalBookings} / {session.capacity} booked</span>
                       </div>
-                      <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
-                        <div 
-                          className={`h-2 rounded-full ${isFull ? 'bg-red-500' : 'bg-teal-500'}`} 
+                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${isFull ? 'bg-destructive' : 'bg-secondary'}`}
                           style={{ width: `${capacityPercent}%` }}
                         />
                       </div>
-                      <p className="text-sm text-slate-500 mt-3 line-clamp-2">
-                        {session.description}
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{session.description}</p>
                     </div>
 
-                    {/* Card Footer */}
-                    <div className="flex items-center justify-between mt-auto pt-4 border-t border-slate-100">
+                    {/* Footer */}
+                    <div className="flex items-center justify-between pt-3 border-t border-border mt-auto">
                       <div>
-                        <span className="text-sm text-slate-500">Price</span>
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-2xl font-bold text-slate-900">AED {session.priceAed}</span>
-                        </div>
+                        <span className="text-xs text-muted-foreground block">Price</span>
+                        <span className="text-xl font-bold text-foreground">AED {session.priceAed}</span>
                       </div>
-                      
                       {isBooked ? (
-                        <a href={`/marketplace/sessions/${session.id}`} className="px-6 py-2.5 bg-slate-100 text-slate-700 font-medium rounded-xl inline-flex items-center gap-2">
+                        <a href={`/marketplace/sessions/${session.id}`} className="px-4 py-2 bg-muted text-foreground font-medium rounded-lg text-sm inline-flex items-center gap-1.5">
                           View Booking
                         </a>
                       ) : isFull ? (
-                        <button disabled className="px-6 py-2.5 bg-slate-100 text-slate-400 font-medium rounded-xl cursor-not-allowed opacity-60">
+                        <button disabled className="px-4 py-2 bg-muted text-muted-foreground font-medium rounded-lg text-sm cursor-not-allowed opacity-60">
                           View Details
                         </button>
                       ) : (
-                        <a href={`/marketplace/sessions/${session.id}`} className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-xl shadow-sm shadow-blue-600/20 inline-flex items-center gap-2">
-                          View &amp; Book
-                          <ArrowRight className="w-4 h-4" />
+                        <a href={`/marketplace/sessions/${session.id}`} className="px-4 py-2 bg-primary text-primary-foreground font-medium rounded-lg text-sm inline-flex items-center gap-1.5 shadow-sm">
+                          View & Book <ArrowRight className="w-3.5 h-3.5" />
                         </a>
                       )}
                     </div>
@@ -343,25 +305,23 @@ export default function WeeklySpotlight() {
           </div>
         ) : (
           /* Empty State */
-          <div className="bg-white rounded-2xl p-12 shadow-sm border border-slate-100 text-center flex flex-col items-center">
-            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-              <Calendar className="w-8 h-8 text-slate-400" />
+          <div className="bg-card rounded-xl p-10 border border-border text-center flex flex-col items-center">
+            <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-4">
+              <Calendar className="w-7 h-7 text-muted-foreground" />
             </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">
-              No sessions scheduled
-            </h3>
-            <p className="text-slate-500 max-w-md mb-6">
-              There are no badminton sessions scheduled for {getDayLabel(selectedDate).toLowerCase()}. 
-              Check other days in the week above to find available games.
+            <h3 className="text-base font-semibold text-foreground mb-2">No sessions scheduled</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mb-5">
+              There are no badminton sessions on {getDayLabel(selectedDate).toLowerCase()}. 
+              Try checking other days in the week above.
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {weekDays.filter(d => d.sessionCount > 0).slice(0, 3).map(day => (
                 <button
                   key={day.dateString}
                   onClick={() => setSelectedDate(day.dateString)}
-                  className="px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-sm font-medium transition-colors"
+                  className="px-3 py-1.5 bg-muted text-foreground rounded-lg text-sm font-medium border border-border hover:border-primary/40 transition-colors"
                 >
-                  View {day.dayName}, {day.dayNumber}
+                  {day.dayName} {day.dayNumber}
                 </button>
               ))}
             </div>
