@@ -5,6 +5,7 @@ import { CheckCircle, Loader2, AlertCircle, ListOrdered } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { queryClient } from '@/lib/queryClient';
 import type { BookingWithDetails } from '@shared/schema';
+import { InstallAppBar } from '@/components/InstallAppBar';
 
 const MAX_ATTEMPTS = 4;
 const RETRY_DELAY_MS = 2500;
@@ -122,6 +123,7 @@ export default function CheckoutSuccess() {
     : 'Verifying your payment…';
 
   return (
+    <>
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-lg">
         <Card>
@@ -194,5 +196,7 @@ export default function CheckoutSuccess() {
         </Card>
       </div>
     </div>
+    <InstallAppBar />
+    </>
   );
 }
