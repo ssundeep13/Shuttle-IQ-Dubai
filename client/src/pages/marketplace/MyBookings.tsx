@@ -17,10 +17,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered } from 'lucide-react';
+import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, UserCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import type { BookingWithDetails } from '@shared/schema';
+import type { BookingWithDetails, BookingGuest } from '@shared/schema';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -50,6 +50,8 @@ export default function MyBookings() {
 
   const { data: bookings, isLoading } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
   const cancelMutation = useMutation({
@@ -134,12 +136,35 @@ export default function MyBookings() {
               </div>
             </div>
 
+            {/* Guests section */}
+            {booking.guests && booking.guests.filter(g => g.status === 'confirmed').length > 0 && (
+              <div className="mb-3 p-3 rounded-md bg-muted/40 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
+                  <Users className="h-3.5 w-3.5" />
+                  Guests ({booking.guests.filter(g => g.status === 'confirmed').length})
+                </div>
+                {booking.guests.filter(g => g.status === 'confirmed').map((guest: BookingGuest) => (
+                  <div key={guest.id} className="flex items-center gap-1.5 text-xs" data-testid={`text-guest-name-${guest.id}`}>
+                    <UserCheck className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span>{guest.name}</span>
+                    {guest.email && <span className="text-muted-foreground">({guest.email})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center justify-between gap-2 pt-3 border-t flex-wrap">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 {!isWaitlisted && (
                   <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
                     AED {booking.amountAed}
                   </span>
+                )}
+                {!isWaitlisted && booking.spotsBooked > 1 && (
+                  <Badge variant="outline" className="text-xs gap-1">
+                    <Users className="h-3 w-3" />
+                    {booking.spotsBooked} spots
+                  </Badge>
                 )}
                 {!isWaitlisted && (
                   <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>

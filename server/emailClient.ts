@@ -238,6 +238,33 @@ export async function sendSessionReminderEmail(
   console.log(`[Email] Reminder sent to ${toEmail}`);
 }
 
+// ─── Guest Booking Notification ───────────────────────────────────────────────
+
+export async function sendGuestBookingEmail(
+  toEmail: string,
+  guestName: string,
+  bookedByName: string,
+  session: BookableSession,
+  cancelUrl: string,
+): Promise<void> {
+  const body = `
+    <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">You've been booked in!</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${guestName}, <strong>${bookedByName}</strong> has reserved a spot for you at an upcoming badminton session. Here are your details:</p>
+    ${sessionBlock(session)}
+    <p style="margin:0 0 28px;font-size:14px;color:#4a5568;line-height:1.6;">Please arrive a few minutes early. Don't forget your racket and non-marking shoes.</p>
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+    <p style="margin:0 0 16px;font-size:13px;color:#718096;line-height:1.6;">Can't make it? You can cancel your spot using the link below. Please cancel as soon as possible so another player can take your spot.</p>
+    ${ctaButton(cancelUrl, 'Cancel My Spot')}
+    <p style="margin:0;font-size:12px;color:#a0aec0;line-height:1.6;">This link is unique to you. Please do not share it.</p>
+  `;
+  try {
+    await sendEmail(toEmail, `You've been booked: ${session.title}`, emailWrapper(body));
+    console.log(`[Email] Guest booking notification sent to ${toEmail}`);
+  } catch (err) {
+    console.error('[Email] sendGuestBookingEmail failed:', err);
+  }
+}
+
 export async function sendDisputeResolutionEmail(
   toEmail: string,
   params: {

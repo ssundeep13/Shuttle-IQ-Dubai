@@ -30,6 +30,7 @@ import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
 import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
 import PlayerPublicProfile from "@/pages/marketplace/PlayerPublicProfile";
 import ResetPassword from "@/pages/marketplace/ResetPassword";
+import GuestCancel from "@/pages/marketplace/GuestCancel";
 
 function MarketplaceRoute({ component: Component, ...rest }: { component: React.ComponentType<any> } & Record<string, any>) {
   return (
@@ -95,6 +96,9 @@ function Router() {
       <Route path="/marketplace/checkout/cancel" component={CheckoutCancel} />
       <Route path="/marketplace/checkout/:id">
         <MarketplaceRoute component={Checkout} />
+      </Route>
+      <Route path="/marketplace/guest-cancel">
+        <MarketplaceRoute component={GuestCancel} />
       </Route>
 
       <Route path="/marketplace/my-bookings">

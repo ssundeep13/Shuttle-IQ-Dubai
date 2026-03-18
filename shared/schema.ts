@@ -296,6 +296,7 @@ export const bookings = pgTable("bookings", {
   cashPaid: boolean("cash_paid").notNull().default(false),
   waitlistPosition: integer("waitlist_position"),
   lateFeeApplied: boolean("late_fee_applied").notNull().default(false),
+  spotsBooked: integer("spots_booked").notNull().default(1), // how many spots this booking covers (1 = self only, 2+ = self + guests)
   createdAt: timestamp("created_at").notNull().defaultNow(),
   cancelledAt: timestamp("cancelled_at"),
   attendedAt: timestamp("attended_at"),
@@ -305,6 +306,23 @@ export const bookings = pgTable("bookings", {
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, cancelledAt: true, attendedAt: true });
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookings.$inferSelect;
+
+// Booking Guests (additional players covered by a single booking)
+export const bookingGuests = pgTable("booking_guests", {
+  id: varchar("id").primaryKey(),
+  bookingId: varchar("booking_id").notNull().references(() => bookings.id),
+  name: text("name").notNull(),
+  email: text("email"),
+  linkedUserId: varchar("linked_user_id"), // if they later sign up / match a marketplace account
+  status: text("status").notNull().default('confirmed'), // 'confirmed' | 'cancelled'
+  cancelledAt: timestamp("cancelled_at"),
+  cancellationToken: text("cancellation_token").unique(), // for guest self-cancel via email link
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertBookingGuestSchema = createInsertSchema(bookingGuests).omit({ id: true, createdAt: true, cancelledAt: true });
+export type InsertBookingGuest = z.infer<typeof insertBookingGuestSchema>;
+export type BookingGuest = typeof bookingGuests.$inferSelect;
 
 // Payments
 export const payments = pgTable("payments", {
@@ -369,4 +387,5 @@ export interface BookableSessionWithAvailability extends BookableSession {
 export interface BookingWithDetails extends Booking {
   session: BookableSession;
   user?: MarketplaceUser;
+  guests?: BookingGuest[];
 }

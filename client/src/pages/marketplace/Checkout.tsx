@@ -3,16 +3,24 @@ import { useParams, useLocation, Link } from 'wouter';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered } from 'lucide-react';
+import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users } from 'lucide-react';
+import { queryClient } from '@/lib/queryClient';
+
+interface Guest {
+  name: string;
+  email: string;
+}
 
 interface BookingData {
   bookingId: string;
   paymentMethod: 'ziina' | 'cash';
   redirectUrl?: string;
   amount: number;
+  spotsBooked?: number;
   session: {
     title: string;
     venueName: string;
@@ -31,9 +39,8 @@ function CancellationPolicy() {
           <div className="space-y-1.5">
             <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Cancellation Policy</p>
             <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-disc pl-4">
-              <li>Cancellations within <span className="font-medium">12 hours</span> of the session are subject to full payment</li>
-              <li>Last-hour cancellations are subject to <span className="font-medium">full payment</span></li>
-              <li><span className="font-medium">No-shows</span> are charged 150% of the session price</li>
+              <li>Cancellations within <span className="font-medium">5 hours</span> of the session are subject to full payment</li>
+              <li><span className="font-medium">No-shows</span> may be charged the full session price</li>
             </ul>
           </div>
         </div>
@@ -42,7 +49,94 @@ function CancellationPolicy() {
   );
 }
 
-function OrderSummary({ sessionInfo, amount }: { sessionInfo: BookingData['session']; amount: number }) {
+function GuestForm({ guests, onChange, maxGuests }: {
+  guests: Guest[];
+  onChange: (guests: Guest[]) => void;
+  maxGuests: number;
+}) {
+  const addGuest = () => {
+    if (guests.length < maxGuests) {
+      onChange([...guests, { name: '', email: '' }]);
+    }
+  };
+
+  const removeGuest = (idx: number) => {
+    onChange(guests.filter((_, i) => i !== idx));
+  };
+
+  const updateGuest = (idx: number, field: keyof Guest, value: string) => {
+    const updated = guests.map((g, i) => i === idx ? { ...g, [field]: value } : g);
+    onChange(updated);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-secondary" />
+          <span className="text-sm font-medium">Additional Guests</span>
+          {guests.length > 0 && (
+            <span className="text-xs text-muted-foreground">({guests.length} added)</span>
+          )}
+        </div>
+        {guests.length < maxGuests && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={addGuest}
+            data-testid="button-add-guest"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Add Guest
+          </Button>
+        )}
+      </div>
+
+      {guests.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          Bringing friends? Add their names so they show up in the player list.
+        </p>
+      )}
+
+      {guests.map((guest, idx) => (
+        <div key={idx} className="flex items-start gap-2 p-3 rounded-md bg-muted/40">
+          <div className="flex-1 space-y-2">
+            <Input
+              placeholder="Guest name *"
+              value={guest.name}
+              onChange={e => updateGuest(idx, 'name', e.target.value)}
+              data-testid={`input-guest-name-${idx}`}
+            />
+            <Input
+              placeholder="Guest email (optional — for cancellation link)"
+              type="email"
+              value={guest.email}
+              onChange={e => updateGuest(idx, 'email', e.target.value)}
+              data-testid={`input-guest-email-${idx}`}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => removeGuest(idx)}
+            data-testid={`button-remove-guest-${idx}`}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OrderSummary({ sessionInfo, amount, spotsBooked }: {
+  sessionInfo: BookingData['session'];
+  amount: number;
+  spotsBooked: number;
+}) {
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -61,6 +155,12 @@ function OrderSummary({ sessionInfo, amount }: { sessionInfo: BookingData['sessi
           <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
           <span>{sessionInfo.venueName}</span>
         </div>
+        {spotsBooked > 1 && (
+          <div className="flex items-center gap-2 text-sm">
+            <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span>{spotsBooked} spots (you + {spotsBooked - 1} guest{spotsBooked > 2 ? 's' : ''})</span>
+          </div>
+        )}
         <div className="border-t pt-3 flex items-center justify-between gap-2">
           <span className="font-medium">Total</span>
           <span className="text-xl font-bold" data-testid="text-checkout-amount">AED {amount}</span>
@@ -70,17 +170,37 @@ function OrderSummary({ sessionInfo, amount }: { sessionInfo: BookingData['sessi
   );
 }
 
-function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
+function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots }: {
   sessionId: string;
-  amount: number;
+  pricePerSpot: number;
   sessionInfo: BookingData['session'];
+  availableSpots: number;
 }) {
   const [processing, setProcessing] = useState(false);
   const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [guests, setGuests] = useState<Guest[]>([]);
   const { toast } = useToast();
 
+  const spotsBooked = 1 + guests.length;
+  const totalAmount = pricePerSpot * spotsBooked;
+  const maxGuests = Math.min(9, availableSpots - 1);
+
+  const validateGuests = () => {
+    for (const g of guests) {
+      if (!g.name.trim()) return 'All guest names are required';
+      if (g.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) return 'Invalid guest email address';
+    }
+    return null;
+  };
+
   const handlePay = async () => {
+    const guestError = validateGuests();
+    if (guestError) {
+      setError(guestError);
+      return;
+    }
+
     setProcessing(true);
     setError(null);
 
@@ -98,12 +218,15 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ sessionId, paymentMethod: 'ziina' }),
+        body: JSON.stringify({
+          sessionId,
+          paymentMethod: 'ziina',
+          guests: guests.map(g => ({ name: g.name.trim(), email: g.email.trim() || null })),
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Booking failed');
 
-      // Race condition: session became full while user was on checkout
       if (data.waitlisted) {
         setWaitlisted({ position: data.waitlistPosition });
         setProcessing(false);
@@ -114,8 +237,6 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
         throw new Error('No payment URL received. Please try again.');
       }
 
-      // Navigate in the same window so the user returns to the same browser
-      // context (PWA or tab) after payment — preserving localStorage tokens.
       window.location.href = data.redirectUrl;
     } catch (err: any) {
       setError(err.message || 'Payment failed. Please try again.');
@@ -127,7 +248,7 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
   if (waitlisted) {
     return (
       <div className="space-y-6">
-        <OrderSummary sessionInfo={sessionInfo} amount={amount} />
+        <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} />
         <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center gap-2">
@@ -150,7 +271,12 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
 
   return (
     <div className="space-y-6">
-      <OrderSummary sessionInfo={sessionInfo} amount={amount} />
+      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} />
+
+      {maxGuests > 0 && (
+        <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />
+      )}
+
       <CancellationPolicy />
 
       {error && (
@@ -170,7 +296,7 @@ function ZiinaPaymentForm({ sessionId, amount, sessionInfo }: {
         {processing ? (
           <><Loader2 className="h-5 w-5 animate-spin" /> Preparing payment...</>
         ) : (
-          <><ShieldCheck className="h-5 w-5" /> Pay AED {amount} — Secure Checkout</>
+          <><ShieldCheck className="h-5 w-5" /> Pay AED {totalAmount} — Secure Checkout</>
         )}
       </Button>
 
@@ -222,18 +348,119 @@ function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'ziina' | 'cas
   );
 }
 
+function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots, onSuccess }: {
+  sessionId: string;
+  pricePerSpot: number;
+  sessionInfo: BookingData['session'];
+  availableSpots: number;
+  onSuccess: (data: BookingData) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [guests, setGuests] = useState<Guest[]>([]);
+  const { toast } = useToast();
+
+  const spotsBooked = 1 + guests.length;
+  const totalAmount = pricePerSpot * spotsBooked;
+  const maxGuests = Math.min(9, availableSpots - 1);
+
+  const validateGuests = () => {
+    for (const g of guests) {
+      if (!g.name.trim()) return 'All guest names are required';
+      if (g.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) return 'Invalid guest email address';
+    }
+    return null;
+  };
+
+  const handleConfirm = async () => {
+    const guestError = validateGuests();
+    if (guestError) {
+      setError(guestError);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const token = localStorage.getItem('mp_accessToken');
+    if (!token) {
+      setLoading(false);
+      setError('Session not found or not authenticated');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/marketplace/bookings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          sessionId,
+          paymentMethod: 'cash',
+          guests: guests.map(g => ({ name: g.name.trim(), email: g.email.trim() || null })),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Booking failed');
+
+      toast({ title: 'Booking confirmed', description: 'Please pay in cash when you arrive at the venue.' });
+      onSuccess(data);
+    } catch (err: any) {
+      setError(err.message);
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} />
+
+      {maxGuests > 0 && (
+        <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />
+      )}
+
+      <CancellationPolicy />
+
+      {error && (
+        <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-payment-error">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      <Button
+        size="lg"
+        className="w-full gap-2"
+        disabled={loading}
+        onClick={handleConfirm}
+        data-testid="button-confirm-cash"
+      >
+        {loading ? (
+          <><Loader2 className="h-5 w-5 animate-spin" /> Confirming...</>
+        ) : (
+          <><Banknote className="h-5 w-5" /> Confirm Booking — Pay AED {totalAmount} at Venue</>
+        )}
+      </Button>
+    </div>
+  );
+}
+
 export default function Checkout() {
   const { id: sessionId } = useParams<{ id: string }>();
   const { isAuthenticated } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
   const [paymentMethod, setPaymentMethod] = useState<'ziina' | 'cash' | null>(null);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<BookingData['session'] | null>(null);
-  const [amount, setAmount] = useState<number>(0);
+  const [pricePerSpot, setPricePerSpot] = useState<number>(0);
+  const [availableSpots, setAvailableSpots] = useState<number>(99);
+  const [error, setError] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
 
   useEffect(() => {
@@ -257,7 +484,8 @@ export default function Checkout() {
           startTime: data.startTime,
           endTime: data.endTime,
         });
-        setAmount(data.priceAed);
+        setPricePerSpot(data.priceAed);
+        setAvailableSpots(data.spotsRemaining ?? 99);
         setSessionLoading(false);
       })
       .catch(err => {
@@ -266,47 +494,8 @@ export default function Checkout() {
       });
   }, [sessionId, isAuthenticated, setLocation]);
 
-  const handlePaymentMethodSelect = async (method: 'ziina' | 'cash') => {
-    if (method === 'ziina') {
-      setPaymentMethod('ziina');
-      return;
-    }
-
-    setPaymentMethod('cash');
-    setLoading(true);
-    setError(null);
-
-    const token = localStorage.getItem('mp_accessToken');
-    if (!token || !sessionId) {
-      setLoading(false);
-      setPaymentMethod(null);
-      setError('Session not found or not authenticated');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/marketplace/bookings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ sessionId, paymentMethod: 'cash' }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Booking failed');
-
-      toast({ title: 'Booking confirmed', description: 'Please pay in cash when you arrive at the venue.' });
-      setConfirmed(true);
-      setBookingData(data);
-      setLoading(false);
-    } catch (err: any) {
-      setError(err.message);
-      setLoading(false);
-      setPaymentMethod(null);
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
-    }
+  const handlePaymentMethodSelect = (method: 'ziina' | 'cash') => {
+    setPaymentMethod(method);
   };
 
   if (sessionLoading) {
@@ -321,6 +510,7 @@ export default function Checkout() {
 
   if (confirmed) {
     const isCash = bookingData?.paymentMethod === 'cash';
+    const spots = bookingData?.spotsBooked ?? 1;
     return (
       <div className="max-w-lg mx-auto px-4 py-12">
         <Card>
@@ -330,17 +520,23 @@ export default function Checkout() {
           </CardHeader>
           <CardContent className="text-center space-y-4">
             <p className="text-muted-foreground">
-              Your spot for <span className="font-semibold text-foreground">{sessionInfo?.title || bookingData?.session.title}</span> has been reserved.
+              Your spot{spots > 1 ? 's' : ''} for <span className="font-semibold text-foreground">{sessionInfo?.title || bookingData?.session.title}</span> {spots > 1 ? 'have' : 'has'} been reserved.
             </p>
+            {spots > 1 && (
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/10 text-secondary text-sm">
+                <Users className="h-4 w-4" />
+                {spots} spots booked (you + {spots - 1} guest{spots > 2 ? 's' : ''})
+              </div>
+            )}
             {isCash ? (
               <div className="space-y-2">
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 text-sm">
                   <Banknote className="h-4 w-4" />
-                  Pay AED {bookingData?.amount || amount} in cash at the venue
+                  Pay AED {bookingData?.amount || pricePerSpot * spots} in cash at the venue
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Amount paid: AED {bookingData?.amount || amount}</p>
+              <p className="text-sm text-muted-foreground">Amount paid: AED {bookingData?.amount || pricePerSpot * spots}</p>
             )}
             <div className="flex gap-3 justify-center flex-wrap pt-2">
               <Link href="/marketplace/my-bookings">
@@ -387,47 +583,33 @@ export default function Checkout() {
 
       {!paymentMethod && sessionInfo && (
         <div className="space-y-6">
-          <OrderSummary sessionInfo={sessionInfo} amount={amount} />
+          <OrderSummary sessionInfo={sessionInfo} amount={pricePerSpot} spotsBooked={1} />
           <CancellationPolicy />
           <PaymentMethodSelector onSelect={handlePaymentMethodSelect} />
         </div>
       )}
 
-      {loading && (
-        <div className="flex flex-col items-center gap-3 py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Setting up your booking...</p>
-        </div>
-      )}
-
-      {paymentMethod === 'ziina' && sessionInfo && !loading && (
+      {paymentMethod === 'ziina' && sessionInfo && (
         <ZiinaPaymentForm
           sessionId={sessionId!}
-          amount={amount}
+          pricePerSpot={pricePerSpot}
           sessionInfo={sessionInfo}
+          availableSpots={availableSpots}
         />
       )}
 
-      {error && paymentMethod && (
-        <div className="mt-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-checkout-error">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                {error}
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3"
-                onClick={() => { setPaymentMethod(null); setError(null); }}
-                data-testid="button-try-again"
-              >
-                Try again
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+      {paymentMethod === 'cash' && sessionInfo && (
+        <CashCheckoutForm
+          sessionId={sessionId!}
+          pricePerSpot={pricePerSpot}
+          sessionInfo={sessionInfo}
+          availableSpots={availableSpots}
+          onSuccess={(data) => {
+            setBookingData(data);
+            setConfirmed(true);
+            queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+          }}
+        />
       )}
     </div>
   );

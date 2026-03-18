@@ -31,7 +31,8 @@ import { EditSessionModal } from '@/components/EditSessionModal';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails } from '@shared/schema';
+import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest } from '@shared/schema';
+import { UserCheck } from 'lucide-react';
 
 interface MarketplaceUserWithLinkedPlayer extends MarketplaceUser {
   linkedPlayer: { id: string; name: string; shuttleIqId: string } | null;
@@ -764,8 +765,23 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             <div className="font-medium text-sm">{booking.user?.name || 'Unknown'}</div>
             <div className="text-xs text-muted-foreground">{booking.user?.email}</div>
           </div>
-          <span className="text-sm font-medium">AED {booking.amountAed}</span>
+          <div className="text-right">
+            <span className="text-sm font-medium">AED {booking.amountAed}</span>
+            {booking.spotsBooked > 1 && (
+              <div className="text-xs text-muted-foreground">{booking.spotsBooked} spots</div>
+            )}
+          </div>
         </div>
+        {booking.guests && booking.guests.filter(g => g.status === 'confirmed').length > 0 && (
+          <div className="text-xs text-muted-foreground space-y-0.5 pl-1">
+            {booking.guests.filter(g => g.status === 'confirmed').map((guest: BookingGuest) => (
+              <div key={guest.id} className="flex items-center gap-1">
+                <UserCheck className="h-3 w-3 shrink-0" />
+                <span>{guest.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-2 flex-wrap">
           <Badge
             variant={booking.paymentMethod === 'cash' ? 'secondary' : 'outline'}

@@ -9,6 +9,7 @@ import {
   sendWaitlistPromotionEmail,
   sendCancellationEmail,
   sendDisputeResolutionEmail,
+  sendGuestBookingEmail,
 } from "./emailClient";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import {
@@ -386,8 +387,18 @@ export function registerMarketplaceRoutes(app: Express) {
   app.post("/api/marketplace/bookings", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const { sessionId, paymentMethod } = req.body;
+      const { sessionId, paymentMethod, guests: guestList } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
+
+      // Validate guest list (optional array of { name, email? })
+      const guestSchema = z.array(z.object({
+        name: z.string().min(1).max(100),
+        email: z.string().email().optional().nullable(),
+      })).max(9).optional();
+      const parsedGuests = guestSchema.safeParse(guestList);
+      if (!parsedGuests.success) return res.status(400).json({ error: "Invalid guest list" });
+      const guests = parsedGuests.data ?? [];
+      const spotsBooked = 1 + guests.length; // booker + guests
 
       const method = paymentMethod === 'cash' ? 'cash' : 'ziina';
 
@@ -405,8 +416,8 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
       if (bookableSession.status === "cancelled") return res.status(400).json({ error: "Session is cancelled" });
 
-      // Handle waitlist when session is full
-      if (bookableSession.spotsRemaining <= 0) {
+      // Handle waitlist when session is full (or would exceed capacity with all spots)
+      if (bookableSession.spotsRemaining < spotsBooked) {
         const waitlistCount = await storage.getWaitlistCountForSession(sessionId);
         const booking = await storage.createBooking({
           userId: req.user.userId,
@@ -414,16 +425,17 @@ export function registerMarketplaceRoutes(app: Express) {
           status: 'waitlisted',
           paymentMethod: 'cash',
           ziinaPaymentIntentId: null,
-          amountAed: bookableSession.priceAed,
+          amountAed: bookableSession.priceAed * spotsBooked,
           cashPaid: false,
           waitlistPosition: waitlistCount + 1,
           lateFeeApplied: false,
+          spotsBooked,
         });
         return res.json({
           bookingId: booking.id,
           waitlisted: true,
           waitlistPosition: booking.waitlistPosition,
-          amount: bookableSession.priceAed,
+          amount: bookableSession.priceAed * spotsBooked,
           session: {
             title: bookableSession.title,
             venueName: bookableSession.venueName,
@@ -434,22 +446,50 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
+      const baseUrl = process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+
+      // Helper: create guest records and send guest emails (fire-and-forget)
+      const createGuestsForBooking = async (bookingId: string, bookingUser: { name: string } | null) => {
+        for (const g of guests) {
+          const token = randomUUID();
+          const guest = await storage.createBookingGuest({
+            bookingId,
+            name: g.name,
+            email: g.email ?? null,
+            linkedUserId: null,
+            status: 'confirmed',
+            cancellationToken: token,
+          });
+          if (g.email && bookingUser) {
+            const cancelGuestUrl = `${baseUrl}/marketplace/guest-cancel?token=${token}`;
+            sendGuestBookingEmail(g.email, g.name, bookingUser.name, bookableSession, cancelGuestUrl).catch(() => {});
+          }
+        }
+      };
+
       if (method === 'cash') {
+        const totalAmount = bookableSession.priceAed * spotsBooked;
         const booking = await storage.createBooking({
           userId: req.user.userId,
           sessionId,
           status: "confirmed",
           paymentMethod: "cash",
           ziinaPaymentIntentId: null,
-          amountAed: bookableSession.priceAed,
+          amountAed: totalAmount,
           cashPaid: false,
+          spotsBooked,
         });
+
+        // Create guests
+        const cashUser = await storage.getMarketplaceUser(req.user.userId);
+        await createGuestsForBooking(booking.id, cashUser);
 
         // Fire-and-forget booking confirmation email (fully isolated)
         try {
-          const cashUser = await storage.getMarketplaceUser(req.user.userId);
           if (cashUser) {
-            sendBookingConfirmationEmail(cashUser.email, cashUser.name, bookableSession, 'cash', bookableSession.priceAed).catch(() => {});
+            sendBookingConfirmationEmail(cashUser.email, cashUser.name, bookableSession, 'cash', totalAmount).catch(() => {});
           }
         } catch (emailErr) { console.error('[Email] cash booking confirm lookup failed:', emailErr); }
 
@@ -457,7 +497,7 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.json({
           bookingId: booking.id,
           paymentMethod: "cash",
-          amount: bookableSession.priceAed,
+          amount: totalAmount,
           booking: bookingWithDetails,
           session: {
             title: bookableSession.title,
@@ -469,25 +509,23 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
+      const totalAmount = bookableSession.priceAed * spotsBooked;
       const booking = await storage.createBooking({
         userId: req.user.userId,
         sessionId,
         status: "pending",
         paymentMethod: "ziina",
         ziinaPaymentIntentId: null,
-        amountAed: bookableSession.priceAed,
+        amountAed: totalAmount,
         cashPaid: false,
+        spotsBooked,
       });
 
       let paymentIntent;
       try {
-        const baseUrl = process.env.REPLIT_DOMAINS
-          ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-          : 'http://localhost:5000';
-
         paymentIntent = await createZiinaPaymentIntent({
-          amountAed: bookableSession.priceAed,
-          message: `Booking for ${bookableSession.title}`,
+          amountAed: totalAmount,
+          message: `Booking for ${bookableSession.title}${spotsBooked > 1 ? ` (${spotsBooked} spots)` : ''}`,
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
@@ -500,12 +538,18 @@ export function registerMarketplaceRoutes(app: Express) {
 
       await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
 
+      // Store guests as pending (will be fully created upon payment confirmation)
+      // We store them now so they're not lost if the user closes the tab
+      const ziinaUser = await storage.getMarketplaceUser(req.user.userId);
+      await createGuestsForBooking(booking.id, ziinaUser);
+
       res.json({
         bookingId: booking.id,
         paymentMethod: "ziina",
         paymentIntentId: paymentIntent.id,
         redirectUrl: paymentIntent.redirect_url,
-        amount: bookableSession.priceAed,
+        amount: totalAmount,
+        spotsBooked,
         session: {
           title: bookableSession.title,
           venueName: bookableSession.venueName,
@@ -585,6 +629,63 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error: any) {
       console.error('Confirm error:', error);
       res.status(500).json({ error: "Failed to confirm booking" });
+    }
+  });
+
+  // Public: guest self-cancel via unique token (no auth required)
+  app.post("/api/marketplace/guests/cancel", async (req, res) => {
+    try {
+      const { token } = req.body;
+      if (!token) return res.status(400).json({ error: "Cancellation token required" });
+
+      const guest = await storage.getBookingGuestByToken(token);
+      if (!guest) return res.status(404).json({ error: "Invalid cancellation link" });
+      if (guest.status === 'cancelled') return res.json({ alreadyCancelled: true });
+
+      const booking = await storage.getBooking(guest.bookingId);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.status === 'cancelled') return res.status(400).json({ error: "Parent booking is already cancelled" });
+
+      // Cancel the guest
+      await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
+
+      // Decrement spotsBooked on the parent booking
+      const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
+      await storage.updateBooking(booking.id, { spotsBooked: newSpots });
+
+      res.json({ cancelled: true, guestName: guest.name });
+    } catch (error: any) {
+      console.error('Guest cancel error:', error);
+      res.status(500).json({ error: "Failed to cancel guest spot" });
+    }
+  });
+
+  // Public: lookup guest by token (for the self-cancel page)
+  app.get("/api/marketplace/guests/by-token", async (req, res) => {
+    try {
+      const token = req.query.token as string;
+      if (!token) return res.status(400).json({ error: "Token required" });
+      const guest = await storage.getBookingGuestByToken(token);
+      if (!guest) return res.status(404).json({ error: "Invalid token" });
+      const booking = await storage.getBooking(guest.bookingId);
+      const session = booking ? await storage.getBookableSession(booking.sessionId) : null;
+      res.json({ guest, session });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch guest info" });
+    }
+  });
+
+  // Authenticated: get guests for a specific booking (owner only)
+  app.get("/api/marketplace/bookings/:id/guests", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
+      const guests = await storage.getBookingGuests(req.params.id);
+      res.json(guests);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch guests" });
     }
   });
 
@@ -843,29 +944,44 @@ export function registerMarketplaceRoutes(app: Express) {
       const sessionBookings = await storage.getSessionBookings(req.params.id);
       const confirmedBookings = sessionBookings.filter(b => b.status === 'confirmed' || b.status === 'attended');
 
-      const players = await Promise.all(
-        confirmedBookings.map(async (booking) => {
-          let level: string | null = null;
-          let skillScore: number | null = null;
+      const playerEntries: Array<{ name: string; level: string | null; skillScore: number | null; linkedPlayerId: string | null; isGuest?: boolean }> = [];
 
-          if (booking.user?.linkedPlayerId) {
-            const player = await storage.getPlayer(booking.user.linkedPlayerId);
-            if (player) {
-              level = player.level ?? null;
-              skillScore = player.skillScore ?? null;
-            }
+      for (const booking of confirmedBookings) {
+        let level: string | null = null;
+        let skillScore: number | null = null;
+
+        if (booking.user?.linkedPlayerId) {
+          const player = await storage.getPlayer(booking.user.linkedPlayerId);
+          if (player) {
+            level = player.level ?? null;
+            skillScore = player.skillScore ?? null;
           }
+        }
 
-          return {
-            name: booking.user?.name ?? 'Player',
-            level,
-            skillScore,
-            linkedPlayerId: booking.user?.linkedPlayerId ?? null,
-          };
-        })
-      );
+        // Main booker
+        playerEntries.push({
+          name: booking.user?.name ?? 'Player',
+          level,
+          skillScore,
+          linkedPlayerId: booking.user?.linkedPlayerId ?? null,
+        });
 
-      res.json(players);
+        // Guests (active only)
+        const guestList = booking.guests ?? [];
+        for (const guest of guestList) {
+          if (guest.status === 'confirmed') {
+            playerEntries.push({
+              name: guest.name,
+              level: null,
+              skillScore: null,
+              linkedPlayerId: null,
+              isGuest: true,
+            });
+          }
+        }
+      }
+
+      res.json(playerEntries);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch players" });
     }

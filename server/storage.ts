@@ -17,6 +17,8 @@ import {
   type Booking,
   type InsertBooking,
   type BookingWithDetails,
+  type BookingGuest,
+  type InsertBookingGuest,
   type Payment,
   type InsertPayment,
   type MarketplaceNotification,
@@ -33,6 +35,7 @@ import {
   marketplaceAuthSessions,
   bookableSessions,
   bookings,
+  bookingGuests,
   payments,
   marketplaceNotifications,
   scoreDisputes,
@@ -156,6 +159,13 @@ export interface IStorage {
   getNotificationsForUser(userId: string): Promise<MarketplaceNotification[]>;
   markNotificationRead(id: string): Promise<void>;
   markAllNotificationsRead(userId: string): Promise<void>;
+
+  // Booking Guest operations
+  createBookingGuest(guest: InsertBookingGuest): Promise<BookingGuest>;
+  getBookingGuests(bookingId: string): Promise<BookingGuest[]>;
+  getBookingGuestByToken(token: string): Promise<BookingGuest | undefined>;
+  updateBookingGuest(id: string, updates: Partial<BookingGuest>): Promise<BookingGuest | undefined>;
+  getActiveGuestCountForSession(sessionId: string): Promise<number>;
 
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
@@ -1047,7 +1057,8 @@ export class DatabaseStorage implements IStorage {
     const session = await this.getBookableSession(booking.sessionId);
     if (!session) return undefined;
     const user = await this.getMarketplaceUser(booking.userId);
-    return { ...booking, session, user: user || undefined };
+    const guests = await this.getBookingGuests(id);
+    return { ...booking, session, user: user || undefined, guests };
   }
 
   async getUserBookings(userId: string): Promise<BookingWithDetails[]> {
@@ -1059,7 +1070,10 @@ export class DatabaseStorage implements IStorage {
     const result: BookingWithDetails[] = [];
     for (const booking of userBookings) {
       const session = await this.getBookableSession(booking.sessionId);
-      if (session) result.push({ ...booking, session });
+      if (session) {
+        const guests = await this.getBookingGuests(booking.id);
+        result.push({ ...booking, session, guests });
+      }
     }
     return result;
   }
@@ -1084,7 +1098,8 @@ export class DatabaseStorage implements IStorage {
     for (const booking of sessionBookings) {
       const session = await this.getBookableSession(booking.sessionId);
       const user = await this.getMarketplaceUser(booking.userId);
-      if (session) result.push({ ...booking, session, user: user || undefined });
+      const guests = await this.getBookingGuests(booking.id);
+      if (session) result.push({ ...booking, session, user: user || undefined, guests });
     }
     return result;
   }
@@ -1099,14 +1114,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getBookingCountForSession(sessionId: string): Promise<number> {
+    // Count total spots across all confirmed/attended bookings (each booking may cover 1+ spots)
     const activeBookings = await db
-      .select()
+      .select({ spotsBooked: bookings.spotsBooked })
       .from(bookings)
       .where(and(
         eq(bookings.sessionId, sessionId),
         sql`${bookings.status} IN ('confirmed', 'attended')`
       ));
-    return activeBookings.length;
+    return activeBookings.reduce((sum, b) => sum + (b.spotsBooked ?? 1), 0);
   }
 
   async getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]> {
@@ -1123,6 +1139,61 @@ export class DatabaseStorage implements IStorage {
       .from(bookings)
       .where(and(eq(bookings.sessionId, sessionId), eq(bookings.status, 'waitlisted')));
     return waitlisted.length;
+  }
+
+  async createBookingGuest(guest: InsertBookingGuest): Promise<BookingGuest> {
+    const id = randomUUID();
+    const [created] = await db
+      .insert(bookingGuests)
+      .values({ ...guest, id })
+      .returning();
+    return created;
+  }
+
+  async getBookingGuests(bookingId: string): Promise<BookingGuest[]> {
+    return db
+      .select()
+      .from(bookingGuests)
+      .where(eq(bookingGuests.bookingId, bookingId))
+      .orderBy(asc(bookingGuests.createdAt));
+  }
+
+  async getBookingGuestByToken(token: string): Promise<BookingGuest | undefined> {
+    const [guest] = await db
+      .select()
+      .from(bookingGuests)
+      .where(eq(bookingGuests.cancellationToken, token));
+    return guest || undefined;
+  }
+
+  async updateBookingGuest(id: string, updates: Partial<BookingGuest>): Promise<BookingGuest | undefined> {
+    const [updated] = await db
+      .update(bookingGuests)
+      .set(updates)
+      .where(eq(bookingGuests.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getActiveGuestCountForSession(sessionId: string): Promise<number> {
+    // Count active guests linked to confirmed/attended bookings for this session
+    const activeBookingIds = await db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(and(
+        eq(bookings.sessionId, sessionId),
+        sql`${bookings.status} IN ('confirmed', 'attended')`
+      ));
+    if (activeBookingIds.length === 0) return 0;
+    const ids = activeBookingIds.map(b => b.id);
+    const guests = await db
+      .select()
+      .from(bookingGuests)
+      .where(and(
+        inArray(bookingGuests.bookingId, ids),
+        eq(bookingGuests.status, 'confirmed')
+      ));
+    return guests.length;
   }
 
   async getBookingsNeedingReminder(): Promise<BookingWithDetails[]> {
