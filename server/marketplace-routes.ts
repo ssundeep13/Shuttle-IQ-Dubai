@@ -453,11 +453,15 @@ export function registerMarketplaceRoutes(app: Express) {
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
         : 'http://localhost:5000';
 
-      // Helper: create guest records and send guest emails (fire-and-forget)
-      const createGuestsForBooking = async (bookingId: string, bookingUser: { name: string } | null) => {
+      // Helper: create guest records, optionally sending emails immediately
+      const createGuestsForBooking = async (
+        bookingId: string,
+        bookingUser: { name: string } | null,
+        guestStatus: 'confirmed' | 'pending' = 'confirmed',
+        sendEmails = true,
+      ) => {
         for (const g of guests) {
           const token = randomUUID();
-          // Instant linking: check if guest email matches an existing marketplace user
           let linkedUserId: string | null = null;
           if (g.email) {
             const existingUser = await storage.getMarketplaceUserByEmail(g.email);
@@ -468,10 +472,10 @@ export function registerMarketplaceRoutes(app: Express) {
             name: g.name,
             email: g.email ?? null,
             linkedUserId,
-            status: 'confirmed',
+            status: guestStatus,
             cancellationToken: token,
           });
-          if (g.email && bookingUser) {
+          if (sendEmails && g.email && bookingUser) {
             const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${token}`;
             const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(g.email)}`;
             sendGuestBookingEmail(g.email, g.name, bookingUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
@@ -549,10 +553,9 @@ export function registerMarketplaceRoutes(app: Express) {
 
       await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
 
-      // Store guests as pending (will be fully created upon payment confirmation)
-      // We store them now so they're not lost if the user closes the tab
+      // Store guests as pending — emails are sent only upon Ziina payment confirmation
       const ziinaUser = await storage.getMarketplaceUser(req.user.userId);
-      await createGuestsForBooking(booking.id, ziinaUser);
+      await createGuestsForBooking(booking.id, ziinaUser, 'pending', false);
 
       res.json({
         bookingId: booking.id,
@@ -629,6 +632,22 @@ export function registerMarketplaceRoutes(app: Express) {
             const ziinaSession = await storage.getBookableSession(booking.sessionId);
             if (ziinaUser && ziinaSession) {
               sendBookingConfirmationEmail(ziinaUser.email, ziinaUser.name, ziinaSession, 'ziina', booking.amountAed).catch(() => {});
+
+              // Confirm pending guests and send their emails now that payment is confirmed
+              const pendingGuests = await storage.getBookingGuests(booking.id);
+              for (const guest of pendingGuests) {
+                if (guest.status === 'pending') {
+                  await storage.updateBookingGuest(guest.id, { status: 'confirmed' });
+                  if (guest.email && guest.cancellationToken) {
+                    const guestBaseUrl = process.env.REPLIT_DOMAINS
+                      ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+                      : 'http://localhost:5000';
+                    const cancelGuestUrl = `${guestBaseUrl}/marketplace/guests/cancel/${guest.cancellationToken}`;
+                    const signupUrl = `${guestBaseUrl}/marketplace/signup?email=${encodeURIComponent(guest.email)}`;
+                    sendGuestBookingEmail(guest.email, guest.name, ziinaUser.name, ziinaSession, cancelGuestUrl, signupUrl).catch(() => {});
+                  }
+                }
+              }
             }
           } catch (emailErr) { console.error('[Email] ziina booking confirm lookup failed:', emailErr); }
         }
@@ -721,19 +740,26 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
-  // Authenticated: delete (cancel) a specific guest slot (primary booker only)
+  // Authenticated: delete (cancel) a specific guest slot
+  // Allowed for: primary booker (booking.userId) OR linked guest (guest.linkedUserId)
   app.delete("/api/marketplace/bookings/:bookingId/guests/:guestId", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
       const booking = await storage.getBooking(req.params.bookingId);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
-      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
       if (booking.status === 'cancelled') return res.status(400).json({ error: "Booking is already cancelled" });
 
       const guests = await storage.getBookingGuests(req.params.bookingId);
       const guest = guests.find(g => g.id === req.params.guestId);
       if (!guest) return res.status(404).json({ error: "Guest not found" });
       if (guest.status === 'cancelled') return res.status(400).json({ error: "Guest slot already cancelled" });
+
+      // Authorization: primary booker OR the linked guest themselves
+      const isPrimaryBooker = booking.userId === req.user.userId;
+      const isLinkedGuest = guest.linkedUserId === req.user.userId;
+      if (!isPrimaryBooker && !isLinkedGuest) {
+        return res.status(403).json({ error: "Not authorized" });
+      }
 
       await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
       const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
