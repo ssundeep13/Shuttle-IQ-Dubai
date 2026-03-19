@@ -8,14 +8,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Trophy, TrendingUp, TrendingDown, Swords,
   BarChart3, Target, Flame, Users, ArrowLeft,
-  CheckCircle2, XCircle, Zap, User,
+  CheckCircle2, XCircle, Zap, Tag as TagIcon,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine,
   ResponsiveContainer
 } from 'recharts';
-import type { PlayerStats, OpponentStats, PartnerStats } from '@shared/schema';
+import type { PlayerStats, OpponentStats, PartnerStats, PlayerTopTag } from '@shared/schema';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -23,11 +23,14 @@ const fadeInUp = {
 };
 const stagger = { visible: { transition: { staggerChildren: 0.06 } } };
 
-function getPlayerType(winRate: number): string {
-  if (winRate >= 70) return 'Ace';
-  if (winRate >= 55) return 'Winner';
-  if (winRate >= 45) return 'Balanced';
-  return 'Grinder';
+const CATEGORY_COLOR: Record<string, string> = {
+  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
+  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+  _default: 'bg-muted text-muted-foreground border-border',
+};
+function tagCategoryClass(category: string): string {
+  return CATEGORY_COLOR[category] ?? CATEGORY_COLOR._default;
 }
 
 function getTeamChemistry(winRate: number): { label: string; color: string } {
@@ -69,6 +72,12 @@ export default function PlayerPublicProfile() {
 
   const { data: stats, isLoading } = useQuery<PlayerStats>({
     queryKey: ['/api/players', playerId, 'stats'],
+    enabled: !!playerId,
+  });
+
+  const { data: communityTags = [] } = useQuery<PlayerTopTag[]>({
+    queryKey: ['/api/tags/player', playerId],
+    queryFn: () => fetch(`/api/tags/player/${playerId}?limit=30`).then(r => r.json()),
     enabled: !!playerId,
   });
 
@@ -115,7 +124,6 @@ export default function PlayerPublicProfile() {
     : 'bg-white/20 text-white/80';
 
   const recentWinPct = Math.round(stats.recentWinRate);
-  const playerType = getPlayerType(stats.winRate);
   const streakDisplay = stats.currentStreak.count > 0
     ? `${stats.currentStreak.count}${stats.currentStreak.type === 'win' ? 'W' : 'L'}`
     : '0';
@@ -287,13 +295,29 @@ export default function PlayerPublicProfile() {
           </motion.div>
 
           <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-playertype">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">{playerType}</div>
-                <div className="text-xs text-muted-foreground">Player Type</div>
+            <Card className="h-full" data-testid="card-stat-tags-received">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <TagIcon className="h-4 w-4 text-muted-foreground" /> Tags Received
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                {communityTags.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No tags yet — play more games!</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {communityTags.map(({ tag, count }) => (
+                      <span
+                        key={tag.id}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
+                        data-testid={`pill-tag-${tag.id}`}
+                      >
+                        {tag.emoji} {tag.label}
+                        <span className="opacity-60">{count}×</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
