@@ -2,7 +2,7 @@ import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight } from 'lucide-react';
+import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight, Users2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const fadeInUp = {
@@ -87,6 +87,28 @@ export default function MarketplaceHome() {
             ))}
           </div>
         </motion.div>
+      </section>
+
+      {/* Hiring CTA Banner */}
+      <section className="px-4 py-4 border-b bg-secondary/5">
+        <div className="max-w-5xl mx-auto">
+          <div className="flex flex-wrap items-center justify-between gap-3 py-2">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-secondary/15 flex items-center justify-center shrink-0">
+                <Users2 className="h-4 w-4 text-secondary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">We're Hiring — Join the Crew</p>
+                <p className="text-xs text-muted-foreground">Court Captain (Part-Time) · Dubai · AED 100/session</p>
+              </div>
+            </div>
+            <Link href="/marketplace/join-the-crew">
+              <Button size="sm" variant="secondary" className="gap-1.5 shrink-0" data-testid="button-hiring-banner">
+                Learn More <ArrowRight className="h-3.5 w-3.5" />
+              </Button>
+            </Link>
+          </div>
+        </div>
       </section>
 
       <section className="py-16 md:py-20 px-4">

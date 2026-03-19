@@ -32,6 +32,7 @@ import PlayerPublicProfile from "@/pages/marketplace/PlayerPublicProfile";
 import ResetPassword from "@/pages/marketplace/ResetPassword";
 import GuestCancel from "@/pages/marketplace/GuestCancel";
 import GameHistory from "@/pages/marketplace/GameHistory";
+import JoinTheCrew from "@/pages/marketplace/JoinTheCrew";
 
 function MarketplaceRoute({ component: Component, ...rest }: { component: React.ComponentType<any> } & Record<string, any>) {
   return (
@@ -119,6 +120,9 @@ function Router() {
       </Route>
       <Route path="/marketplace/players/:playerId">
         <MarketplaceRoute component={PlayerPublicProfile} />
+      </Route>
+      <Route path="/marketplace/join-the-crew">
+        <MarketplaceRoute component={JoinTheCrew} />
       </Route>
 
       <Route component={NotFound} />
