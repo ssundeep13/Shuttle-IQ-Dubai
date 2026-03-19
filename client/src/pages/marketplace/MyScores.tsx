@@ -11,7 +11,7 @@ import { Link } from 'wouter';
 import {
   Trophy, TrendingUp, TrendingDown, Swords, ChevronDown,
   BarChart3, Target, Flame, Users, ArrowLeft, Share2,
-  CheckCircle2, XCircle, Zap, User, CalendarDays, Flag, Tag as TagIcon, Check
+  CheckCircle2, XCircle, Zap, CalendarDays, Flag, Tag as TagIcon, Check
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
@@ -30,12 +30,11 @@ const fadeInUp = {
 };
 const stagger = { visible: { transition: { staggerChildren: 0.06 } } };
 
-function getPlayerType(winRate: number): string {
-  if (winRate >= 70) return 'Ace';
-  if (winRate >= 55) return 'Winner';
-  if (winRate >= 45) return 'Balanced';
-  return 'Grinder';
-}
+const CATEGORY_COLOR: Record<string, string> = {
+  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
+  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+};
 
 function getTeamChemistry(winRate: number): { label: string; color: string } {
   if (winRate >= 65) return { label: 'Great', color: 'text-green-600' };
@@ -103,7 +102,7 @@ export default function MyScores() {
 
   const { data: communityTopTags = [] } = useQuery<PlayerTopTag[]>({
     queryKey: ['/api/tags/player', linkedPlayerId],
-    queryFn: () => fetch(`/api/tags/player/${linkedPlayerId}?limit=1`).then(r => r.json()),
+    queryFn: () => fetch(`/api/tags/player/${linkedPlayerId}?limit=30`).then(r => r.json()),
     enabled: !!linkedPlayerId,
     staleTime: Infinity,
   });
@@ -116,7 +115,6 @@ export default function MyScores() {
 
   const taggedGameSet = useMemo(() => new Set(taggedGameIds), [taggedGameIds]);
   const sevenDaysAgo = useMemo(() => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), []);
-  const communityTopTag = communityTopTags[0] ?? null;
 
   const fileMutation = useMutation({
     mutationFn: async ({ gameResultId, note }: { gameResultId: string; note: string }) =>
@@ -186,8 +184,6 @@ export default function MyScores() {
     : 'bg-white/20 text-white/80';
 
   const recentWinPct = Math.round(stats.recentWinRate);
-
-  const playerType = getPlayerType(stats.winRate);
 
   const streakDisplay = stats.currentStreak.count > 0
     ? `${stats.currentStreak.count}${stats.currentStreak.type === 'win' ? 'W' : 'L'}`
@@ -364,19 +360,26 @@ export default function MyScores() {
           </motion.div>
 
           <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-playertype">
+            <Card className="h-full" data-testid="card-stat-tags-received">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                  <User className="h-4 w-4 text-muted-foreground" />
+                  <TagIcon className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">{playerType}</div>
-                <div className="text-xs text-muted-foreground mb-2">Player Type</div>
-                {communityTopTag && (
-                  <div className="mt-1">
-                    <div className="text-xs font-medium text-foreground leading-snug">
-                      {communityTopTag.tag.emoji} {communityTopTag.tag.label}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground">Community Tag &middot; {communityTopTag.count}×</div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Tags Received</div>
+                {communityTopTags.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground leading-snug">Play games and get tagged by teammates!</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {communityTopTags.map(({ tag, count }) => (
+                      <span
+                        key={tag.id}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${CATEGORY_COLOR[tag.category]}`}
+                        data-testid={`pill-tag-${tag.id}`}
+                      >
+                        {tag.emoji} {tag.label}
+                        <span className="opacity-60">{count}×</span>
+                      </span>
+                    ))}
                   </div>
                 )}
               </CardContent>
