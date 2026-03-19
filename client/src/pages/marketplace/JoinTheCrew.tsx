@@ -1,9 +1,8 @@
-import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Users, DollarSign, Zap, Heart, MapPin, CheckCircle2,
-  ArrowRight, Briefcase, Star, ShieldCheck, Car, BadgeCheck,
+  ArrowRight, Star, ShieldCheck,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -54,14 +53,15 @@ export default function JoinTheCrew() {
           variants={stagger}
         >
           <motion.p variants={fadeInUp} className="text-xs font-semibold uppercase tracking-widest text-primary-foreground/60 mb-4">
-            We're Hiring · Limited Slots
+            We're Hiring
           </motion.p>
           <motion.h1
             variants={fadeInUp}
             className="text-3xl md:text-5xl font-extrabold text-primary-foreground mb-5 leading-tight tracking-tight"
             data-testid="text-hiring-hero-title"
           >
-            Join the ShuttleIQ Crew
+            Join the ShuttleIQ Crew{' '}
+            <span className="text-secondary text-2xl md:text-3xl font-semibold">(Limited Slots)</span>
           </motion.h1>
           <motion.p
             variants={fadeInUp}
