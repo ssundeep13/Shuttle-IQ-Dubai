@@ -26,14 +26,12 @@ const navLinks = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
   { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
-  { href: '/marketplace/join-the-crew', label: 'Join the Crew', icon: Users2 },
 ];
 
 const authNavLinks = [
   { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
   { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
-  { href: '/marketplace/join-the-crew', label: 'Join the Crew', icon: Users2 },
 ];
 
 const authMenuLinks = [
@@ -192,6 +190,17 @@ export function MarketplaceNav() {
         </nav>
 
         <div className="hidden md:flex items-center gap-2 ml-auto">
+          <Link href="/marketplace/join-the-crew">
+            <Button
+              variant={isActive('/marketplace/join-the-crew') ? 'secondary' : 'ghost'}
+              size="sm"
+              className={`gap-2 ${isActive('/marketplace/join-the-crew') ? 'font-semibold' : 'text-muted-foreground'}`}
+              data-testid="link-nav-join-the-crew"
+            >
+              <Users2 className="h-4 w-4" />
+              Join the Crew
+            </Button>
+          </Link>
           {isAuthenticated ? (
             <>
               <NotificationBell />
@@ -269,6 +278,17 @@ export function MarketplaceNav() {
                   </Button>
                 </Link>
               ))}
+
+              <Link href="/marketplace/join-the-crew" onClick={() => setOpen(false)}>
+                <Button
+                  variant={isActive('/marketplace/join-the-crew') ? 'secondary' : 'ghost'}
+                  className="w-full justify-start gap-2"
+                  data-testid="link-mobile-join-the-crew"
+                >
+                  <Users2 className="h-4 w-4" />
+                  Join the Crew
+                </Button>
+              </Link>
 
               {isAuthenticated && (
                 <>
