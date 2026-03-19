@@ -34,7 +34,11 @@ const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
   social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
   reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+  _default: 'bg-muted text-muted-foreground border-border',
 };
+function tagCategoryClass(category: string): string {
+  return CATEGORY_COLOR[category] ?? CATEGORY_COLOR._default;
+}
 
 function getTeamChemistry(winRate: number): { label: string; color: string } {
   if (winRate >= 65) return { label: 'Great', color: 'text-green-600' };
@@ -373,7 +377,7 @@ export default function MyScores() {
                     {communityTopTags.map(({ tag, count }) => (
                       <span
                         key={tag.id}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${CATEGORY_COLOR[tag.category]}`}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
                         data-testid={`pill-tag-${tag.id}`}
                       >
                         {tag.emoji} {tag.label}
