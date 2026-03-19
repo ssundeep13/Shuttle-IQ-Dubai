@@ -39,6 +39,7 @@ const TAG_DATA: Array<{ label: string; emoji: string; category: string }> = [
   { label: 'Game Changer',         emoji: '👑', category: 'reputation' },
   // Women-centric
   { label: 'Queen of the Court',   emoji: '👑', category: 'reputation' },
+  { label: 'Iron Grace',           emoji: '🪬', category: 'playing_style' },
   { label: 'Newbie',               emoji: '🌱', category: 'social' },
   { label: 'Fearless',             emoji: '🦁', category: 'reputation' },
   { label: 'Trailblazer',          emoji: '🔥', category: 'social' },
