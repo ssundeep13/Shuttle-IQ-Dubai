@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag } from '@shared/schema';
@@ -57,6 +57,18 @@ export default function Dashboard() {
     staleTime: Infinity,
   });
 
+  const { data: taggedGameIds = [] } = useQuery<string[]>({
+    queryKey: ['/api/tags/tagged-games'],
+    enabled: !!linkedPlayerId,
+    staleTime: 0,
+  });
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const taggedSet = new Set(taggedGameIds);
+  const untaggedCount = (stats?.recentGames ?? [])
+    .filter(g => g.date && new Date(g.date) >= sevenDaysAgo && !taggedSet.has(g.gameId))
+    .length;
+
   const upcomingBookings = (bookings || [])
     .filter(b => b.status === 'confirmed' && new Date(b.session.date) >= new Date())
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
@@ -93,6 +105,30 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
+            {linkedPlayerId && untaggedCount > 0 && (
+              <motion.div variants={fadeInUp}>
+                <Link href="/marketplace/my-scores">
+                  <div
+                    className="flex items-center gap-3 rounded-lg border border-secondary/40 bg-secondary/10 px-4 py-3 hover-elevate cursor-pointer"
+                    data-testid="card-tag-nudge"
+                  >
+                    <div className="flex-shrink-0 flex items-center justify-center h-9 w-9 rounded-full bg-secondary/20">
+                      <TagIcon className="h-4 w-4 text-secondary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold leading-snug">
+                        {untaggedCount === 1
+                          ? '1 recent game waiting'
+                          : `${untaggedCount} recent games waiting`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Tag your teammates and recognise great play</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  </div>
+                </Link>
+              </motion.div>
+            )}
+
             <motion.div variants={fadeInUp}>
               <Card data-testid="card-next-session">
                 <CardHeader className="pb-3">
