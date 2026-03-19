@@ -37,14 +37,22 @@ const TAG_DATA: Array<{ label: string; emoji: string; category: string }> = [
   { label: 'Underrated',           emoji: '💎', category: 'reputation' },
   { label: 'Most Improved',        emoji: '📈', category: 'reputation' },
   { label: 'Game Changer',         emoji: '👑', category: 'reputation' },
+  // Women-centric
+  { label: 'Queen of the Court',   emoji: '👸', category: 'reputation' },
+  { label: 'Newbie',               emoji: '🌱', category: 'social' },
+  { label: 'Fearless',             emoji: '🦁', category: 'reputation' },
+  { label: 'Trailblazer',          emoji: '✨', category: 'social' },
+  { label: 'Court Diva',           emoji: '💅', category: 'social' },
 ];
 
 export async function seedTags(): Promise<void> {
   try {
-    const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(tags);
-    if (Number(row.count) > 0) return;
-    await db.insert(tags).values(TAG_DATA.map(t => ({ id: nanoid(), ...t, isActive: true })));
-    console.log(`[Seed] Inserted ${TAG_DATA.length} player personality tags`);
+    const existing = await db.select({ label: tags.label }).from(tags);
+    const existingLabels = new Set(existing.map(r => r.label));
+    const missing = TAG_DATA.filter(t => !existingLabels.has(t.label));
+    if (missing.length === 0) return;
+    await db.insert(tags).values(missing.map(t => ({ id: nanoid(), ...t, isActive: true })));
+    console.log(`[Seed] Inserted ${missing.length} new player personality tags`);
   } catch (err) {
     console.error('[Seed] Failed to seed tags:', err);
   }
