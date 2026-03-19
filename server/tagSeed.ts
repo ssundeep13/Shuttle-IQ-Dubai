@@ -38,10 +38,10 @@ const TAG_DATA: Array<{ label: string; emoji: string; category: string }> = [
   { label: 'Most Improved',        emoji: '📈', category: 'reputation' },
   { label: 'Game Changer',         emoji: '👑', category: 'reputation' },
   // Women-centric
-  { label: 'Queen of the Court',   emoji: '👸', category: 'reputation' },
+  { label: 'Queen of the Court',   emoji: '👑', category: 'reputation' },
   { label: 'Newbie',               emoji: '🌱', category: 'social' },
   { label: 'Fearless',             emoji: '🦁', category: 'reputation' },
-  { label: 'Trailblazer',          emoji: '✨', category: 'social' },
+  { label: 'Trailblazer',          emoji: '🔥', category: 'social' },
   { label: 'Court Diva',           emoji: '💅', category: 'social' },
 ];
 
