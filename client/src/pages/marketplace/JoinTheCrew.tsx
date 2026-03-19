@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-const APPLY_URL = 'https://forms.gle/PLACEHOLDER';
+const APPLY_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSccGm5-cpPDJ_495b_k8Wg9bc98SEHu0JrGktKAYkfUO_2Ezg/viewform?usp=header';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
