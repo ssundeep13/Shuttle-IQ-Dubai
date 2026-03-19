@@ -118,10 +118,10 @@ export default function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold leading-snug">
                         {untaggedCount === 1
-                          ? '1 recent game waiting'
-                          : `${untaggedCount} recent games waiting`}
+                          ? '1 game waiting — tag your teammates!'
+                          : `${untaggedCount} games waiting — tag your teammates!`}
                       </p>
-                      <p className="text-xs text-muted-foreground">Tag your teammates and recognise great play</p>
+                      <p className="text-xs text-muted-foreground">Recognise great play from your recent games</p>
                     </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                   </div>
