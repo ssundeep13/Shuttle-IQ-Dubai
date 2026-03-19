@@ -110,7 +110,6 @@ export default function MyScores() {
 
   const { data: taggedGameIds = [] } = useQuery<string[]>({
     queryKey: ['/api/tags/tagged-games'],
-    queryFn: () => apiRequest('GET', '/api/tags/tagged-games').then(r => r.json()),
     enabled: !!user?.linkedPlayerId,
     staleTime: 0,
   });

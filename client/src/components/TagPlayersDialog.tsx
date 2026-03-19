@@ -40,7 +40,7 @@ export default function TagPlayersDialog({ gameResultId, linkedPlayerId, open, o
 
   const { data: existingTags = [], isLoading: existingLoading } = useQuery<PlayerTag[]>({
     queryKey: ['/api/tags/game', gameResultId, 'mine'],
-    queryFn: () => apiRequest('GET', `/api/tags/game/${gameResultId}/mine`).then(r => r.json()),
+    queryFn: () => apiRequest('GET', `/api/tags/game/${gameResultId}/mine`),
     enabled: open,
     staleTime: 0,
   });
@@ -98,8 +98,7 @@ export default function TagPlayersDialog({ gameResultId, linkedPlayerId, open, o
           tags.push({ targetPlayerId: playerId, tagId });
         }
       }
-      const res = await apiRequest('POST', `/api/tags/game/${gameResultId}`, { tags });
-      return res.json();
+      return apiRequest('POST', `/api/tags/game/${gameResultId}`, { tags });
     },
     onSuccess: (data) => {
       toast({ title: 'Tags submitted!', description: `${data.created} tag${data.created !== 1 ? 's' : ''} recorded.` });

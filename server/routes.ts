@@ -1995,7 +1995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/tags/game/:gameResultId/mine – tags already submitted by the caller for a game
-  app.get("/api/tags/game/:gameResultId/mine", requireMarketplaceAuth, async (req: AuthRequest, res) => {
+  app.get("/api/tags/game/:gameResultId/mine", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       const mpUser = await storage.getMarketplaceUser(req.user!.userId);
       if (!mpUser?.linkedPlayerId) return res.json([]);
@@ -2007,7 +2007,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/tags/tagged-games – game IDs the caller has already tagged (requires marketplace auth)
-  app.get("/api/tags/tagged-games", requireMarketplaceAuth, async (req: AuthRequest, res) => {
+  app.get("/api/tags/tagged-games", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       const mpUser = await storage.getMarketplaceUser(req.user!.userId);
       if (!mpUser?.linkedPlayerId) return res.json([]);
@@ -2019,7 +2019,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/tags/game/:gameResultId – submit tags for teammates in a game
-  app.post("/api/tags/game/:gameResultId", requireMarketplaceAuth, async (req: AuthRequest, res) => {
+  app.post("/api/tags/game/:gameResultId", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       const mpUser = await storage.getMarketplaceUser(req.user!.userId);
       if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "No linked player profile" });
