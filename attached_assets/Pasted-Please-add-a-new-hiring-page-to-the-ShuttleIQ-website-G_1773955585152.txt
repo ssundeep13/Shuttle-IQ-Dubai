@@ -1,0 +1,119 @@
+Please add a new hiring page to the ShuttleIQ website.
+
+Goal:
+Create a simple new page for hiring, focused only on one role:
+“Court Captain (Part-Time)”
+
+What I want:
+1. Add a new page/route called:
+   /hiring
+   or
+   /join-the-crew
+
+2. Add this page to the website navigation/menu with the label:
+   Join the Crew
+
+3. The page should match the existing ShuttleIQ brand style:
+   - sporty
+   - clean
+   - modern
+   - community-driven
+   - mobile-friendly
+   - easy to read
+
+4. The page should include these sections in this order:
+
+Section 1: Hero
+Title:
+Join the ShuttleIQ Crew (Limited Slots) 🏸
+
+Subtitle:
+Love badminton? Love people?
+Get paid to be part of the game.
+
+Short supporting text:
+We’re building Dubai’s most fun badminton community — and we’re looking for a few high-energy individuals to lead our sessions.
+
+Section 2: Why Join ShuttleIQ
+Include a simple bullet section with:
+- Be part of a fast-growing badminton community in Dubai
+- Meet amazing people every week
+- Get paid while staying active
+- Free / discounted games
+- Be a key part of building something exciting
+
+Section 3: Role
+Heading:
+Court Captain (Session Host – Part-Time)
+
+Include a short intro:
+You are the heartbeat of the session. You don’t just manage games — you create the experience.
+
+Then add responsibilities:
+- Manage player queues and rotations using ShuttleIQ
+- Ensure smooth flow of games across courts
+- Welcome players and help new members settle in
+- Keep the energy fun, fair, and inclusive
+- Resolve small conflicts or confusion during games
+- Represent the ShuttleIQ vibe on court
+
+Section 4: Who This Is For
+- Female badminton player (upper-intermediate+)
+- Confident and people-friendly
+- Naturally takes charge in group situations
+- Loves badminton and plays regularly
+- Reliable and always on time
+- Positive attitude and high energy
+
+Section 5: Requirements
+- Own visa (mandatory)
+- Valid UAE driving license
+- Access to a car
+
+Section 6: Compensation
+- AED 100 per session
+- Approx. AED 2,400–2,600 per month
+- Growth opportunity into a Community Manager role
+
+Section 7: Locations
+- Al Barsha
+- Silicon Oasis
+
+Section 8: How to Apply
+Text:
+Apply through our Google Form.
+
+Add one clear CTA button:
+Apply Now
+
+Make the button link open an external Google Form in a new tab.
+Use a placeholder link for now:
+https://forms.gle/PLACEHOLDER
+
+Below the button add this small note:
+Shortlisted candidates will be invited for a trial session.
+
+Section 9: Closing line
+If you’ve ever been on court and thought,
+“I can run this better…”
+This is your chance.
+
+5. Design requirements:
+- Keep the layout visually attractive but simple
+- Use clear section spacing
+- Use responsive design for mobile and desktop
+- Use cards or clean content blocks if helpful
+- CTA button should stand out
+- Do not make it look corporate or boring
+
+6. Technical requirements:
+- Reuse the existing site header and footer
+- Ensure the route works properly
+- Ensure the navigation link is added without breaking existing pages
+- Make the Google Form link easy for me to update later
+- Keep the code clean and modular
+
+7. Extra:
+Please also add a small CTA banner or button on the homepage that says:
+We’re Hiring – Join the Crew
+and link it to the new hiring page.
