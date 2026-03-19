@@ -18,7 +18,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Menu, User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History, Users2 } from 'lucide-react';
+import { Menu, User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MarketplaceNotification } from '@shared/schema';
 
@@ -190,17 +190,6 @@ export function MarketplaceNav() {
         </nav>
 
         <div className="hidden md:flex items-center gap-2 ml-auto">
-          <Link href="/marketplace/join-the-crew">
-            <Button
-              variant={isActive('/marketplace/join-the-crew') ? 'secondary' : 'ghost'}
-              size="sm"
-              className={`gap-2 ${isActive('/marketplace/join-the-crew') ? 'font-semibold' : 'text-muted-foreground'}`}
-              data-testid="link-nav-join-the-crew"
-            >
-              <Users2 className="h-4 w-4" />
-              Join the Crew
-            </Button>
-          </Link>
           {isAuthenticated ? (
             <>
               <NotificationBell />
@@ -278,17 +267,6 @@ export function MarketplaceNav() {
                   </Button>
                 </Link>
               ))}
-
-              <Link href="/marketplace/join-the-crew" onClick={() => setOpen(false)}>
-                <Button
-                  variant={isActive('/marketplace/join-the-crew') ? 'secondary' : 'ghost'}
-                  className="w-full justify-start gap-2"
-                  data-testid="link-mobile-join-the-crew"
-                >
-                  <Users2 className="h-4 w-4" />
-                  Join the Crew
-                </Button>
-              </Link>
 
               {isAuthenticated && (
                 <>
