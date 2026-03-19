@@ -1949,7 +1949,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // GET /api/tags – list all active tags
+  // GET /api/tags – list all active tags (flat array for frontend grouping)
   app.get("/api/tags", async (_req, res) => {
     try {
       const allTags = await storage.getAllTags();
@@ -2022,10 +2022,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tags/game/:gameResultId", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       const mpUser = await storage.getMarketplaceUser(req.user!.userId);
-      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "No linked player profile" });
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
 
       const { gameResultId } = req.params;
-      // req.body.tags = [{ targetPlayerId, tagId }]
       const schema = z.object({
         tags: z.array(z.object({ targetPlayerId: z.string(), tagId: z.string() })).min(1).max(8),
       });
@@ -2036,33 +2035,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate: caller must be a participant in this game
       const participants = await storage.getGameParticipantInfo(gameResultId);
-      const callerInGame = participants.some(p => p.id === callerId);
-      if (!callerInGame) return res.status(403).json({ error: "You are not a participant in this game" });
+      if (participants.length === 0) return res.status(400).json({ error: "Game not found" });
+      if (!participants.some(p => p.id === callerId)) {
+        return res.status(403).json({ error: "You were not in this game" });
+      }
 
-      // Anti-abuse checks
+      const participantIds = new Set(participants.map(p => p.id));
+
+      // Validate all tag IDs exist in the catalog
+      const requestedTagIds = [...new Set(parsed.data.tags.map(t => t.tagId))];
+      const validTagRows = await db.select({ id: tags.id }).from(tags).where(inArray(tags.id, requestedTagIds));
+      const validTagIds = new Set(validTagRows.map(r => r.id));
+      const invalidTagId = requestedTagIds.find(id => !validTagIds.has(id));
+      if (invalidTagId) return res.status(400).json({ error: `Unknown tag: ${invalidTagId}` });
+
+      // Anti-abuse: validate each entry strictly
       const existingTags = await storage.getPlayerTagsForGame(gameResultId, callerId);
-      const existingTargetTagCounts: Record<string, number> = {};
+      const existingTargetCounts: Record<string, number> = {};
       for (const et of existingTags) {
-        existingTargetTagCounts[et.taggedPlayerId] = (existingTargetTagCounts[et.taggedPlayerId] || 0) + 1;
+        existingTargetCounts[et.taggedPlayerId] = (existingTargetCounts[et.taggedPlayerId] || 0) + 1;
       }
 
-      const entries: Array<{ taggedPlayerId: string; taggedByPlayerId: string; tagId: string; gameResultId: string }> = [];
+      // Check for self-tagging
+      const selfTag = parsed.data.tags.find(t => t.targetPlayerId === callerId);
+      if (selfTag) return res.status(400).json({ error: "You cannot tag yourself" });
+
+      // Check all targets are valid game participants
+      const invalidTarget = parsed.data.tags.find(t => !participantIds.has(t.targetPlayerId));
+      if (invalidTarget) return res.status(400).json({ error: `Player ${invalidTarget.targetPlayerId} was not in this game` });
+
+      // Check max 2 tags per target across new submission (count new tags per target)
+      const newTargetCounts: Record<string, number> = {};
       for (const t of parsed.data.tags) {
-        // No self-tagging
-        if (t.targetPlayerId === callerId) continue;
-        // Target must be in same game
-        if (!participants.some(p => p.id === t.targetPlayerId)) continue;
-        // Max 2 tags per target per game (across all submissions)
-        const alreadyTagged = existingTargetTagCounts[t.targetPlayerId] || 0;
-        if (alreadyTagged >= 2) continue;
-        // No exact duplicate tag+target in this submission
-        if (existingTags.some(et => et.taggedPlayerId === t.targetPlayerId && et.tagId === t.tagId)) continue;
-        entries.push({ taggedPlayerId: t.targetPlayerId, taggedByPlayerId: callerId, tagId: t.tagId, gameResultId });
-        existingTargetTagCounts[t.targetPlayerId] = alreadyTagged + 1;
+        newTargetCounts[t.targetPlayerId] = (newTargetCounts[t.targetPlayerId] || 0) + 1;
       }
+      for (const [targetId, newCount] of Object.entries(newTargetCounts)) {
+        const existing = existingTargetCounts[targetId] || 0;
+        if (existing + newCount > 2) {
+          return res.status(409).json({ error: `Maximum 2 tags per player per game (player ${targetId})` });
+        }
+      }
+
+      // Check exact duplicate tag+target for existing records
+      for (const t of parsed.data.tags) {
+        const dup = existingTags.find(et => et.taggedPlayerId === t.targetPlayerId && et.tagId === t.tagId);
+        if (dup) return res.status(409).json({ error: "Duplicate tag: you already gave this tag to this player in this game" });
+      }
+
+      // Check duplicates within this submission (same target+tag twice)
+      const submissionKeys = parsed.data.tags.map(t => `${t.targetPlayerId}:${t.tagId}`);
+      if (new Set(submissionKeys).size !== submissionKeys.length) {
+        return res.status(409).json({ error: "Duplicate tag in submission" });
+      }
+
+      const entries = parsed.data.tags.map(t => ({
+        taggedPlayerId: t.targetPlayerId,
+        taggedByPlayerId: callerId,
+        tagId: t.tagId,
+        gameResultId,
+      }));
 
       const created = await storage.createPlayerTags(entries);
-      res.json({ created: created.length });
+      res.status(201).json({ created: created.length });
     } catch (err) {
       console.error("Tag submission error:", err);
       res.status(500).json({ error: "Failed to submit tags" });
