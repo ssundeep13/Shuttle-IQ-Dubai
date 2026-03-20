@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy } from 'lucide-react';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
@@ -770,11 +770,48 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     onError: () => toast({ title: 'Failed to confirm booking', variant: 'destructive' }),
   });
 
+  const { data: allPlayers = [] } = useQuery<Player[]>({ queryKey: ['/api/players'] });
+  const playerSiqMap = Object.fromEntries(
+    allPlayers.filter(p => p.shuttleIqId).map(p => [p.id, p.shuttleIqId!])
+  );
+
   const sessionRevenue = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended').reduce((sum, b) => sum + b.amountAed, 0) || 0;
 
-  const confirmedBookings = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended' || b.status === 'cancelled') || [];
+  const activeBookings = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended') || [];
   const pendingBookings = bookings?.filter(b => b.status === 'pending') || [];
   const waitlistedBookings = bookings?.filter(b => b.status === 'waitlisted') || [];
+  const cancelledBookings = bookings?.filter(b => b.status === 'cancelled') || [];
+
+  const copyForWhatsApp = () => {
+    if (!linkedBookable) return;
+    const dateStr = linkedBookable.date ? format(new Date(linkedBookable.date), 'EEE d MMM yyyy') : '';
+    const lines: string[] = [];
+    lines.push(`*${linkedBookable.title} — ${dateStr}*`);
+    lines.push(`Confirmed: ${activeBookings.length}`);
+    lines.push('');
+    activeBookings.forEach((b, i) => {
+      const name = b.user?.name || 'Unknown';
+      const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
+      const siqPart = siq ? ` (${siq})` : '';
+      const status = b.status === 'attended' ? 'Attended' : 'Confirmed';
+      lines.push(`${i + 1}. ${name}${siqPart} - ${status}`);
+    });
+    if (cancelledBookings.length > 0) {
+      lines.push('');
+      lines.push(`Cancelled: ${cancelledBookings.length}`);
+      cancelledBookings.forEach((b, i) => {
+        const name = b.user?.name || 'Unknown';
+        const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
+        const siqPart = siq ? ` (${siq})` : '';
+        lines.push(`${i + 1}. ${name}${siqPart} - Cancelled`);
+      });
+    }
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      toast({ title: 'Copied', description: 'Booking list copied to clipboard' });
+    }).catch(() => {
+      toast({ title: 'Copy failed', description: 'Could not access clipboard', variant: 'destructive' });
+    });
+  };
 
   const BookingRow = ({ booking }: { booking: BookingWithDetails }) => (
     <Card key={booking.id} data-testid={`card-sheet-booking-${booking.id}`}>
@@ -915,9 +952,21 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
           <div className="mt-4 space-y-4">
             <div className="flex items-center justify-between gap-2 flex-wrap text-sm">
               <span className="text-muted-foreground">{linkedBookable.title}</span>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <span data-testid="text-sheet-revenue">AED {sessionRevenue}</span>
                 <Badge variant="outline">{bookings?.filter(b => b.status === 'attended').length || 0} attended</Badge>
+                {bookings && bookings.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={copyForWhatsApp}
+                    data-testid="button-copy-whatsapp"
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copy List
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -927,6 +976,20 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
               <div className="py-8 text-center text-muted-foreground text-sm">No bookings yet</div>
             ) : (
               <div className="space-y-5">
+                {activeBookings.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Confirmed / Attended
+                      </p>
+                      <Badge variant="secondary" className="text-xs">{activeBookings.length}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {activeBookings.map(b => <BookingRow key={b.id} booking={b} />)}
+                    </div>
+                  </div>
+                )}
+
                 {pendingBookings.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-2">
@@ -937,20 +1000,6 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                     </div>
                     <div className="space-y-2">
                       {pendingBookings.map(b => <BookingRow key={b.id} booking={b} />)}
-                    </div>
-                  </div>
-                )}
-
-                {confirmedBookings.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Confirmed / Attended
-                      </p>
-                      <Badge variant="secondary" className="text-xs">{confirmedBookings.filter(b => b.status !== 'cancelled').length}</Badge>
-                    </div>
-                    <div className="space-y-2">
-                      {confirmedBookings.map(b => <BookingRow key={b.id} booking={b} />)}
                     </div>
                   </div>
                 )}
@@ -980,6 +1029,20 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                           </CardContent>
                         </Card>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {cancelledBookings.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-destructive/70">
+                        Cancelled
+                      </p>
+                      <Badge variant="destructive" className="text-xs opacity-70">{cancelledBookings.length}</Badge>
+                    </div>
+                    <div className="space-y-2 opacity-70">
+                      {cancelledBookings.map(b => <BookingRow key={b.id} booking={b} />)}
                     </div>
                   </div>
                 )}
