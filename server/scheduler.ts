@@ -121,12 +121,35 @@ async function runInactivityDecayJob(): Promise<void> {
   }
 }
 
+/**
+ * One-time startup migration: ensures every player has a skillScoreBaseline.
+ * Newly created players always get one (set in storage.createPlayer).
+ * This backfills legacy/existing rows that predate the column.
+ */
+async function backfillSkillScoreBaseline(): Promise<void> {
+  try {
+    const result = await db
+      .update(players)
+      .set({ skillScoreBaseline: sql`${players.skillScore}` })
+      .where(sql`${players.skillScoreBaseline} IS NULL`);
+    const count = (result as any).rowCount ?? 0;
+    if (count > 0) {
+      console.log(`[Scheduler] Backfilled skillScoreBaseline for ${count} legacy player(s).`);
+    }
+  } catch (err) {
+    console.error('[Scheduler] skillScoreBaseline backfill error:', err);
+  }
+}
+
 export function startScheduler(): void {
   console.log('[Scheduler] Session reminder scheduler started (runs every 30 min)');
   setInterval(runReminderJob, REMINDER_INTERVAL_MS);
   runReminderJob();
 
   console.log('[Scheduler] Inactivity decay scheduler started (runs every 24 h)');
+  // Backfill first, then run the decay job (backfill is fast and idempotent)
+  backfillSkillScoreBaseline().then(() => {
+    runInactivityDecayJob();
+  });
   setInterval(runInactivityDecayJob, DECAY_INTERVAL_MS);
-  runInactivityDecayJob();
 }
