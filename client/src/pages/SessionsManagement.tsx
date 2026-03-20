@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle } from 'lucide-react';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
@@ -1219,6 +1219,43 @@ function PlayersTabContent({ players, onResetStats, onClearAllPlayers }: {
   );
 }
 
+function LastActiveIndicator({ lastPlayedAt }: { lastPlayedAt: Date | string | null }) {
+  if (!lastPlayedAt) {
+    return <span className="text-muted-foreground/60 text-xs">never played</span>;
+  }
+  const date = new Date(lastPlayedAt);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const isInactive = diffDays >= 14;
+
+  let label: string;
+  if (diffDays === 0) {
+    label = 'today';
+  } else if (diffDays === 1) {
+    label = '1d ago';
+  } else if (diffDays < 14) {
+    label = `${diffDays}d ago`;
+  } else if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    label = `${weeks}w ago`;
+  } else {
+    const months = Math.floor(diffDays / 30);
+    label = `${months}mo ago`;
+  }
+
+  if (isInactive) {
+    return (
+      <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400" data-testid="last-active-indicator-inactive">
+        <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+        {label}
+      </span>
+    );
+  }
+
+  return <span className="text-xs text-muted-foreground" data-testid="last-active-indicator">{label}</span>;
+}
+
 function PlayerRegistrySubTab({ players }: { players: Player[] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1292,6 +1329,7 @@ function PlayerRegistrySubTab({ players }: { players: Player[] }) {
                       <span>{player.level}</span>
                       <span>{player.gamesPlayed} games</span>
                       <span>{player.wins} wins</span>
+                      <LastActiveIndicator lastPlayedAt={player.lastPlayedAt ?? null} />
                     </div>
                   </div>
                   <div className="flex items-center gap-1">

@@ -1462,6 +1462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           skillScore: skillAfter,
           level: newLevel,
           status: 'waiting',
+          lastPlayedAt: new Date(),
         });
       }
 

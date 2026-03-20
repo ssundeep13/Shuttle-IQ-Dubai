@@ -35,6 +35,7 @@ export const players = pgTable("players", {
   wins: integer("wins").notNull().default(0),
   status: text("status").notNull().default('waiting'), // 'waiting', 'playing'
   createdAt: timestamp("created_at").notNull().defaultNow(), // When player was first registered
+  lastPlayedAt: timestamp("last_played_at"), // When player last participated in a game (null = never)
 });
 
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, shuttleIqId: true, createdAt: true });
