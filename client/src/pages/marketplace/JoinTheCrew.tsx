@@ -225,7 +225,7 @@ export default function JoinTheCrew() {
                   </div>
                   <ul className="space-y-3">
                     <BulletItem>AED 100 per session</BulletItem>
-                    <BulletItem>Approx. AED 2,400–2,600 per month</BulletItem>
+                    <BulletItem>AED 2,400 - AED 3,000 per month</BulletItem>
                     <BulletItem>Growth opportunity into a Community Manager role</BulletItem>
                   </ul>
                 </CardContent>
