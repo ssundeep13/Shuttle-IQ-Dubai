@@ -31,7 +31,7 @@ import { EditSessionModal } from '@/components/EditSessionModal';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, RefundNotificationWithDetails } from '@shared/schema';
+import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails } from '@shared/schema';
 import { UserCheck } from 'lucide-react';
 
 interface MarketplaceUserWithLinkedPlayer extends MarketplaceUser {
@@ -787,17 +787,32 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     const dateStr = linkedBookable.date ? format(new Date(linkedBookable.date), 'EEE d MMM yyyy') : '';
     const lines: string[] = [];
 
-    // Count total confirmed slots (primary bookers + non-cancelled non-primary guests)
-    const confirmedSlots = activeBookings.reduce((sum, b) => {
-      const activeGuests = (b.guests || []).filter((g: BookingGuest) => !g.isPrimary && g.status !== 'cancelled').length;
-      return sum + 1 + activeGuests;
+    // Helper to get SIQ label for any participant (primary or guest)
+    const guestSiqPart = (g: BookingGuestWithLinked) => {
+      const siq = g.linkedPlayerId ? playerSiqMap[g.linkedPlayerId] : null;
+      return siq ? ` (${siq})` : '';
+    };
+
+    // Collect fully-cancelled bookings + individually cancelled guests from active bookings
+    const fullyConfirmedBookings = activeBookings; // status confirmed/attended
+    const individualCancelledGuests: { bookingUser: string; guest: BookingGuestWithLinked }[] = [];
+    activeBookings.forEach(b => {
+      (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled').forEach((g: BookingGuestWithLinked) => {
+        individualCancelledGuests.push({ bookingUser: b.user?.name || 'Unknown', guest: g });
+      });
+    });
+
+    // Count total active slots (primary + non-cancelled non-primary guests across active bookings)
+    const confirmedSlots = fullyConfirmedBookings.reduce((sum, b) => {
+      const activeGuestCount = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled').length;
+      return sum + 1 + activeGuestCount;
     }, 0);
 
     lines.push(`*${linkedBookable.title} — ${dateStr}*`);
     lines.push(`✅ Confirmed: ${confirmedSlots}`);
 
     let lineNum = 1;
-    activeBookings.forEach((b) => {
+    fullyConfirmedBookings.forEach((b) => {
       const name = b.user?.name || 'Unknown';
       const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
       const siqPart = siq ? ` (${siq})` : '';
@@ -805,37 +820,43 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
       lines.push(`${lineNum}. ${name}${siqPart} ${status}`);
       lineNum++;
 
-      // Add non-primary, non-cancelled guests as indented sub-lines
-      const activeGuests = (b.guests || []).filter((g: BookingGuest) => !g.isPrimary && g.status !== 'cancelled');
-      activeGuests.forEach((g: BookingGuest) => {
-        lines.push(`   └ ${g.name} (guest)`);
-        lineNum++;
+      // Sub-lines for non-primary, non-cancelled guests — do NOT increment lineNum
+      const activeGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled');
+      activeGuests.forEach((g: BookingGuestWithLinked) => {
+        lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest) ✓ Confirmed`);
       });
     });
 
-    if (cancelledBookings.length > 0) {
-      // Count cancelled slots
-      const cancelledSlots = cancelledBookings.reduce((sum, b) => {
-        const cancelledGuests = (b.guests || []).filter((g: BookingGuest) => !g.isPrimary).length;
-        return sum + 1 + cancelledGuests;
-      }, 0);
+    // ❌ Cancelled section: fully-cancelled bookings + individually-cancelled guests
+    const hasCancellations = cancelledBookings.length > 0 || individualCancelledGuests.length > 0;
+    if (hasCancellations) {
+      const cancelledSlots =
+        cancelledBookings.reduce((sum, b) => {
+          const nonPrimaryGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary).length;
+          return sum + 1 + nonPrimaryGuests;
+        }, 0) + individualCancelledGuests.length;
 
       lines.push('');
       lines.push(`❌ Cancelled: ${cancelledSlots}`);
       let cNum = 1;
+
+      // Fully cancelled bookings
       cancelledBookings.forEach((b) => {
         const name = b.user?.name || 'Unknown';
         const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
         const siqPart = siq ? ` (${siq})` : '';
         lines.push(`${cNum}. ${name}${siqPart} Cancelled`);
         cNum++;
-
-        // Add all non-primary guests (regardless of their individual status) since whole booking is cancelled
-        const guestList = (b.guests || []).filter((g: BookingGuest) => !g.isPrimary);
-        guestList.forEach((g: BookingGuest) => {
-          lines.push(`   └ ${g.name} (guest)`);
-          cNum++;
+        const guestList = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary);
+        guestList.forEach((g: BookingGuestWithLinked) => {
+          lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest)`);
         });
+      });
+
+      // Individually cancelled guests from non-cancelled bookings
+      individualCancelledGuests.forEach(({ bookingUser, guest }) => {
+        lines.push(`${cNum}. ${guest.name}${guestSiqPart(guest)} (guest of ${bookingUser}) Cancelled`);
+        cNum++;
       });
     }
 

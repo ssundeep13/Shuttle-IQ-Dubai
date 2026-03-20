@@ -390,10 +390,12 @@ export interface BookableSessionWithAvailability extends BookableSession {
   waitlistCount: number;
 }
 
+export type BookingGuestWithLinked = BookingGuest & { linkedPlayerId?: string | null };
+
 export interface BookingWithDetails extends Booking {
   session: BookableSession;
   user?: MarketplaceUser;
-  guests?: BookingGuest[];
+  guests?: BookingGuestWithLinked[];
   isGuestBooking?: boolean;
   bookedByName?: string;
   myGuestId?: string;

@@ -175,7 +175,7 @@ export interface IStorage {
 
   // Booking Guest operations
   createBookingGuest(guest: InsertBookingGuest): Promise<BookingGuest>;
-  getBookingGuests(bookingId: string): Promise<BookingGuest[]>;
+  getBookingGuests(bookingId: string): Promise<import("@shared/schema").BookingGuestWithLinked[]>;
   getBookingGuestByToken(token: string): Promise<BookingGuest | undefined>;
   updateBookingGuest(id: string, updates: Partial<BookingGuest>): Promise<BookingGuest | undefined>;
   getActiveGuestCountForSession(sessionId: string): Promise<number>;
@@ -1193,12 +1193,26 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getBookingGuests(bookingId: string): Promise<BookingGuest[]> {
-    return db
-      .select()
+  async getBookingGuests(bookingId: string): Promise<import("@shared/schema").BookingGuestWithLinked[]> {
+    const rows = await db
+      .select({
+        id: bookingGuests.id,
+        bookingId: bookingGuests.bookingId,
+        name: bookingGuests.name,
+        email: bookingGuests.email,
+        linkedUserId: bookingGuests.linkedUserId,
+        isPrimary: bookingGuests.isPrimary,
+        status: bookingGuests.status,
+        cancelledAt: bookingGuests.cancelledAt,
+        cancellationToken: bookingGuests.cancellationToken,
+        createdAt: bookingGuests.createdAt,
+        linkedPlayerId: marketplaceUsers.linkedPlayerId,
+      })
       .from(bookingGuests)
+      .leftJoin(marketplaceUsers, eq(bookingGuests.linkedUserId, marketplaceUsers.id))
       .where(eq(bookingGuests.bookingId, bookingId))
       .orderBy(asc(bookingGuests.createdAt));
+    return rows;
   }
 
   async getBookingGuestByToken(token: string): Promise<BookingGuest | undefined> {
