@@ -640,7 +640,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/players/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const player = await storage.updatePlayer(req.params.id, req.body);
+      const updates = { ...req.body };
+      // Keep skillScoreBaseline in sync when an admin manually edits skillScore,
+      // so inactivity decay continues to use the correct anchor going forward.
+      if (typeof updates.skillScore === 'number' && updates.skillScoreBaseline === undefined) {
+        updates.skillScoreBaseline = updates.skillScore;
+      }
+      const player = await storage.updatePlayer(req.params.id, updates);
       if (!player) {
         return res.status(404).json({ error: "Player not found" });
       }
