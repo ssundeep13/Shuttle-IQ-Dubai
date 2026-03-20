@@ -679,11 +679,31 @@ export default function MyScores() {
                           const canTag = withinWindow && !taggedGameSet.has(game.gameId);
                           const alreadyTagged = taggedGameSet.has(game.gameId);
                           const expired = !!linkedPlayerId && gameDate && gameDate < thirtyDaysAgo && !alreadyTagged;
-                          const btn = (
+                          if (expired) {
+                            return (
+                              <UITooltip>
+                                <UITooltipTrigger asChild>
+                                  <span className="shrink-0 inline-flex" data-testid={`button-tag-game-${game.gameId}`}>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="text-muted-foreground/30 pointer-events-none"
+                                      tabIndex={-1}
+                                      aria-disabled="true"
+                                    >
+                                      <TagIcon className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </span>
+                                </UITooltipTrigger>
+                                <UITooltipContent side="left">Tagging closed after 30 days</UITooltipContent>
+                              </UITooltip>
+                            );
+                          }
+                          return (
                             <Button
                               variant="ghost"
                               size="icon"
-                              className={`shrink-0 ${alreadyTagged ? 'text-teal-500' : canTag ? 'text-muted-foreground/60' : expired ? 'text-muted-foreground/30' : 'invisible'}`}
+                              className={`shrink-0 ${alreadyTagged ? 'text-teal-500' : canTag ? 'text-muted-foreground/60' : 'invisible'}`}
                               onClick={() => canTag && setTaggingGameId(game.gameId)}
                               disabled={!canTag && !alreadyTagged}
                               data-testid={`button-tag-game-${game.gameId}`}
@@ -691,15 +711,6 @@ export default function MyScores() {
                               {alreadyTagged ? <Check className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
                             </Button>
                           );
-                          if (expired) {
-                            return (
-                              <UITooltip>
-                                <UITooltipTrigger asChild>{btn}</UITooltipTrigger>
-                                <UITooltipContent side="left">Tagging closed after 30 days</UITooltipContent>
-                              </UITooltip>
-                            );
-                          }
-                          return btn;
                         })()}
                         {flaggedGameIds.has(game.gameId) ? (
                           <Badge
