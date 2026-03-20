@@ -150,6 +150,9 @@ export function SuggestedLineups({
           {!isLoading && suggestions.map((suggestion, idx) => {
             const balance = getBalanceIndicator(suggestion.skillGap);
             const BalanceIcon = balance.icon;
+            // tierDispersion > 0 means at least 2 different skill tiers in this group.
+            // Even adjacent tiers (e.g. Beginner + Intermediate) are flagged as Mixed Levels
+            // since the whole point of tier grouping is same-level games.
             const isMixedTier = suggestion.tierDispersion > 0;
 
             return (
