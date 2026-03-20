@@ -787,23 +787,22 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     const dateStr = linkedBookable.date ? format(new Date(linkedBookable.date), 'EEE d MMM yyyy') : '';
     const lines: string[] = [];
     lines.push(`*${linkedBookable.title} — ${dateStr}*`);
-    lines.push(`Confirmed: ${activeBookings.length}`);
-    lines.push('');
+    lines.push(`✅ Confirmed: ${activeBookings.length}`);
     activeBookings.forEach((b, i) => {
       const name = b.user?.name || 'Unknown';
       const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
       const siqPart = siq ? ` (${siq})` : '';
-      const status = b.status === 'attended' ? 'Attended' : 'Confirmed';
-      lines.push(`${i + 1}. ${name}${siqPart} - ${status}`);
+      const status = b.status === 'attended' ? '✓ Attended' : '✓ Confirmed';
+      lines.push(`${i + 1}. ${name}${siqPart} ${status}`);
     });
     if (cancelledBookings.length > 0) {
       lines.push('');
-      lines.push(`Cancelled: ${cancelledBookings.length}`);
+      lines.push(`❌ Cancelled: ${cancelledBookings.length}`);
       cancelledBookings.forEach((b, i) => {
         const name = b.user?.name || 'Unknown';
         const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
         const siqPart = siq ? ` (${siq})` : '';
-        lines.push(`${i + 1}. ${name}${siqPart} - Cancelled`);
+        lines.push(`${i + 1}. ${name}${siqPart} Cancelled`);
       });
     }
     navigator.clipboard.writeText(lines.join('\n')).then(() => {
@@ -964,7 +963,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                     data-testid="button-copy-whatsapp"
                   >
                     <Copy className="h-3 w-3" />
-                    Copy List
+                    Copy for WhatsApp
                   </Button>
                 )}
               </div>
