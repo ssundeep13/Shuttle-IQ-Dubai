@@ -786,25 +786,59 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     if (!linkedBookable) return;
     const dateStr = linkedBookable.date ? format(new Date(linkedBookable.date), 'EEE d MMM yyyy') : '';
     const lines: string[] = [];
+
+    // Count total confirmed slots (primary bookers + non-cancelled non-primary guests)
+    const confirmedSlots = activeBookings.reduce((sum, b) => {
+      const activeGuests = (b.guests || []).filter((g: BookingGuest) => !g.isPrimary && g.status !== 'cancelled').length;
+      return sum + 1 + activeGuests;
+    }, 0);
+
     lines.push(`*${linkedBookable.title} — ${dateStr}*`);
-    lines.push(`✅ Confirmed: ${activeBookings.length}`);
-    activeBookings.forEach((b, i) => {
+    lines.push(`✅ Confirmed: ${confirmedSlots}`);
+
+    let lineNum = 1;
+    activeBookings.forEach((b) => {
       const name = b.user?.name || 'Unknown';
       const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
       const siqPart = siq ? ` (${siq})` : '';
       const status = b.status === 'attended' ? '✓ Attended' : '✓ Confirmed';
-      lines.push(`${i + 1}. ${name}${siqPart} ${status}`);
+      lines.push(`${lineNum}. ${name}${siqPart} ${status}`);
+      lineNum++;
+
+      // Add non-primary, non-cancelled guests as indented sub-lines
+      const activeGuests = (b.guests || []).filter((g: BookingGuest) => !g.isPrimary && g.status !== 'cancelled');
+      activeGuests.forEach((g: BookingGuest) => {
+        lines.push(`   └ ${g.name} (guest)`);
+        lineNum++;
+      });
     });
+
     if (cancelledBookings.length > 0) {
+      // Count cancelled slots
+      const cancelledSlots = cancelledBookings.reduce((sum, b) => {
+        const cancelledGuests = (b.guests || []).filter((g: BookingGuest) => !g.isPrimary).length;
+        return sum + 1 + cancelledGuests;
+      }, 0);
+
       lines.push('');
-      lines.push(`❌ Cancelled: ${cancelledBookings.length}`);
-      cancelledBookings.forEach((b, i) => {
+      lines.push(`❌ Cancelled: ${cancelledSlots}`);
+      let cNum = 1;
+      cancelledBookings.forEach((b) => {
         const name = b.user?.name || 'Unknown';
         const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
         const siqPart = siq ? ` (${siq})` : '';
-        lines.push(`${i + 1}. ${name}${siqPart} Cancelled`);
+        lines.push(`${cNum}. ${name}${siqPart} Cancelled`);
+        cNum++;
+
+        // Add all non-primary guests (regardless of their individual status) since whole booking is cancelled
+        const guestList = (b.guests || []).filter((g: BookingGuest) => !g.isPrimary);
+        guestList.forEach((g: BookingGuest) => {
+          lines.push(`   └ ${g.name} (guest)`);
+          cNum++;
+        });
       });
     }
+
     navigator.clipboard.writeText(lines.join('\n')).then(() => {
       toast({ title: 'Copied', description: 'Booking list copied to clipboard' });
     }).catch(() => {
