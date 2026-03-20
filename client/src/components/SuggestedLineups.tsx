@@ -33,11 +33,20 @@ interface SuggestedLineupsProps {
   queuePlayerIds: string[];
   isActiveSession?: boolean;
   sessionId?: string;
+  groupByTier: boolean;
+  onGroupByTierChange: (value: boolean) => void;
 }
 
-export function SuggestedLineups({ onAssign, availableCourts, queuePlayerIds, isActiveSession = true, sessionId }: SuggestedLineupsProps) {
+export function SuggestedLineups({
+  onAssign,
+  availableCourts,
+  queuePlayerIds,
+  isActiveSession = true,
+  sessionId,
+  groupByTier,
+  onGroupByTierChange,
+}: SuggestedLineupsProps) {
   const [isExpanded, setIsExpanded] = useState(true);
-  const [groupByTier, setGroupByTier] = useState(true);
 
   const { data, isLoading, error } = useQuery<SuggestionsResponse>({
     queryKey: ['/api/matchmaking/suggestions', sessionId, queuePlayerIds.join(','), groupByTier],
@@ -82,7 +91,7 @@ export function SuggestedLineups({ onAssign, availableCourts, queuePlayerIds, is
             <Switch
               id="group-by-tier"
               checked={groupByTier}
-              onCheckedChange={setGroupByTier}
+              onCheckedChange={onGroupByTierChange}
               data-testid="switch-group-by-tier"
             />
             <Label htmlFor="group-by-tier" className="text-sm text-muted-foreground cursor-pointer select-none">

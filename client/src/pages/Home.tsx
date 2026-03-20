@@ -81,6 +81,7 @@ export default function Home() {
     currentCombinationIndex: number;
   } | null>(null);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
+  const [groupByTier, setGroupByTier] = useState(true);
 
   // Fetch courts with players (only when session exists)
   const { data: courts = [], isLoading: courtsLoading } = useQuery<CourtWithPlayers[]>({
@@ -544,7 +545,7 @@ export default function Home() {
 
     try {
       // Call matchmaking API to get optimal team combinations
-      const response = await fetch('/api/matchmaking/optimal-teams');
+      const response = await fetch(`/api/matchmaking/optimal-teams?groupByTier=${groupByTier}`);
       
       if (!response.ok) {
         const error = await response.json();
@@ -894,6 +895,8 @@ export default function Home() {
                 onAssign={handleSuggestionAssign}
                 isActiveSession={!urlSessionId || session?.status === 'active'}
                 sessionId={session?.id}
+                groupByTier={groupByTier}
+                onGroupByTierChange={setGroupByTier}
               />
               <CourtManagement
                 courts={courts}

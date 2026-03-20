@@ -353,6 +353,7 @@ export function selectOptimalPlayers(
 
   let selected = scoredCandidates.slice(0, 4);
   let isMixedTier = false;
+  let tierGroupFound = false;
 
   if (groupByTier && scoredCandidates.length >= 4) {
     const leadTier = scoredCandidates[0].tierIndex;
@@ -366,12 +367,13 @@ export function selectOptimalPlayers(
         selected = tierCandidates.slice(0, 4);
         const tiers = selected.map(c => c.tierIndex);
         isMixedTier = Math.max(...tiers) - Math.min(...tiers) > 0;
+        tierGroupFound = true;
         break;
       }
     }
 
-    // If we still couldn't find a tier group, fall back to top-4 and flag as mixed
-    if (selected === scoredCandidates.slice(0, 4)) {
+    // If we couldn't find a tier group, fall back to top-4 and flag as mixed
+    if (!tierGroupFound) {
       const tiers = selected.map(c => c.tierIndex);
       isMixedTier = Math.max(...tiers) - Math.min(...tiers) > 0;
     }
