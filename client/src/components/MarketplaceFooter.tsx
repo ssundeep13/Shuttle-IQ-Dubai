@@ -25,6 +25,7 @@ export function MarketplaceFooter() {
               <li><Link href="/marketplace/book" className="hover:text-foreground transition-colors" data-testid="link-footer-sessions">Browse Sessions</Link></li>
               <li><Link href="/marketplace/rankings" className="hover:text-foreground transition-colors" data-testid="link-footer-rankings">Rankings</Link></li>
               <li><Link href="/marketplace/signup" className="hover:text-foreground transition-colors" data-testid="link-footer-signup">Create Account</Link></li>
+              <li><Link href="/marketplace/join-the-crew" className="hover:text-foreground transition-colors" data-testid="link-footer-careers">Join our Tribe</Link></li>
             </ul>
           </div>
 
