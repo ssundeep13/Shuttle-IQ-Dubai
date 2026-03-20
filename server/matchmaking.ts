@@ -123,7 +123,12 @@ export function clearSessionRestStates(sessionId: string): void {
 
 /**
  * Build rest states from game history.
- * Also tracks gamesWaited for fairness bonuses.
+ * This function is IDEMPOTENT — it always resets the in-memory state for all
+ * provided players before replaying history, so repeated calls produce the same
+ * result regardless of the previous in-memory state.
+ *
+ * Also tracks gamesWaited (games sat out since last playing) for the waiting
+ * bonus in priority scoring.
  */
 export function buildRestStatesFromHistory(
   sessionId: string,
@@ -144,17 +149,16 @@ export function buildRestStatesFromHistory(
 
   const orderedGameIds = Array.from(new Set(sortedGames.map(p => p.gameId)));
 
+  // RESET all player states before replaying — ensures idempotency on repeated calls
   const states = getSessionRestStates(sessionId);
   for (const playerId of allPlayerIds) {
-    if (!states.has(playerId)) {
-      states.set(playerId, {
-        playerId,
-        consecutiveGames: 0,
-        gamesWaited: 0,
-        lastGameEndedAt: null,
-        needsRest: false,
-      });
-    }
+    states.set(playerId, {
+      playerId,
+      consecutiveGames: 0,
+      gamesWaited: 0,
+      lastGameEndedAt: null,
+      needsRest: false,
+    });
   }
 
   for (const gameId of orderedGameIds) {
