@@ -30,6 +30,7 @@ import {
   type TrendingTag,
   type PlayerTopTag,
   type GameParticipantInfo,
+  type RefundNotificationWithDetails,
   players,
   courts,
   courtPlayers as courtPlayersTable,
@@ -169,6 +170,8 @@ export interface IStorage {
   getNotificationsForUser(userId: string): Promise<MarketplaceNotification[]>;
   markNotificationRead(id: string): Promise<void>;
   markAllNotificationsRead(userId: string): Promise<void>;
+  getRefundNotifications(): Promise<RefundNotificationWithDetails[]>;
+  resolveRefundNotification(id: string): Promise<void>;
 
   // Booking Guest operations
   createBookingGuest(guest: InsertBookingGuest): Promise<BookingGuest>;
@@ -1363,6 +1366,53 @@ export class DatabaseStorage implements IStorage {
       .update(marketplaceNotifications)
       .set({ read: true })
       .where(eq(marketplaceNotifications.userId, userId));
+  }
+
+  async getRefundNotifications(): Promise<RefundNotificationWithDetails[]> {
+    const notifications = await db
+      .select()
+      .from(marketplaceNotifications)
+      .where(eq(marketplaceNotifications.type, 'refund_required'))
+      .orderBy(desc(marketplaceNotifications.createdAt));
+
+    const result: RefundNotificationWithDetails[] = [];
+    for (const n of notifications) {
+      let booking = null;
+      let user = null;
+      let session = null;
+      if (n.relatedBookingId) {
+        booking = await this.getBooking(n.relatedBookingId);
+        if (booking) {
+          user = await this.getMarketplaceUser(booking.userId);
+          session = await this.getBookableSession(booking.sessionId);
+        }
+      }
+      result.push({
+        id: n.id,
+        message: n.message,
+        createdAt: n.createdAt,
+        read: n.read,
+        relatedBookingId: n.relatedBookingId ?? null,
+        amountAed: booking?.amountAed ?? null,
+        spotsBooked: booking?.spotsBooked ?? null,
+        paymentMethod: booking?.paymentMethod ?? null,
+        ziinaPaymentIntentId: booking?.ziinaPaymentIntentId ?? null,
+        bookingSessionId: booking?.sessionId ?? null,
+        playerName: user?.name ?? null,
+        playerEmail: user?.email ?? null,
+        sessionTitle: session?.title ?? null,
+        sessionDate: session?.date ?? null,
+        sessionVenueName: session?.venueName ?? null,
+      });
+    }
+    return result;
+  }
+
+  async resolveRefundNotification(id: string): Promise<void> {
+    await db
+      .update(marketplaceNotifications)
+      .set({ read: true })
+      .where(eq(marketplaceNotifications.id, id));
   }
 
   // Score dispute operations

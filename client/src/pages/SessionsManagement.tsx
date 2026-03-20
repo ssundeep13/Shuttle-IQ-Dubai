@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink } from 'lucide-react';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
@@ -31,7 +31,7 @@ import { EditSessionModal } from '@/components/EditSessionModal';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest } from '@shared/schema';
+import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, RefundNotificationWithDetails } from '@shared/schema';
 import { UserCheck } from 'lucide-react';
 
 interface MarketplaceUserWithLinkedPlayer extends MarketplaceUser {
@@ -78,7 +78,13 @@ export default function SessionsManagement() {
     refetchOnMount: 'always',
   });
 
+  const { data: refunds = [] } = useQuery<RefundNotificationWithDetails[]>({
+    queryKey: ['/api/marketplace/admin/refunds'],
+    refetchOnMount: 'always',
+  });
+
   const openDisputeCount = disputes.filter(d => d.status === 'open').length;
+  const pendingRefundCount = refunds.filter(r => !r.read).length;
 
   useEffect(() => {
     if (!showCreateSession) {
@@ -231,6 +237,15 @@ export default function SessionsManagement() {
                   </Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="refunds" data-testid="tab-refunds" className="flex items-center gap-2">
+                <ReceiptText className="w-4 h-4" />
+                Refunds
+                {pendingRefundCount > 0 && (
+                  <Badge className="ml-1 h-5 min-w-5 px-1 text-xs bg-destructive text-destructive-foreground border-0 no-default-hover-elevate no-default-active-elevate">
+                    {pendingRefundCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
             </TabsList>
 
             {activeTab === 'sessions' && (
@@ -276,6 +291,10 @@ export default function SessionsManagement() {
 
           <TabsContent value="disputes" className="mt-6">
             <DisputesTabContent disputes={disputes} />
+          </TabsContent>
+
+          <TabsContent value="refunds" className="mt-6">
+            <RefundsTabContent refunds={refunds} />
           </TabsContent>
         </Tabs>
       </main>
@@ -1540,6 +1559,133 @@ function DisputesTabContent({ disputes }: { disputes: ScoreDisputeWithDetails[] 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails[] }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const resolveMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest('PATCH', `/api/marketplace/admin/refunds/${id}/resolve`),
+    onSuccess: () => {
+      toast({ title: 'Marked as resolved', description: 'Refund has been marked as processed.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/refunds'] });
+    },
+    onError: () => toast({ title: 'Error', description: 'Failed to resolve refund', variant: 'destructive' }),
+  });
+
+  const pending = refunds.filter(r => !r.read);
+  const resolved = refunds.filter(r => r.read);
+
+  const formatDate = (d: Date | string | null) => {
+    if (!d) return '—';
+    return format(new Date(d), 'dd MMM yyyy');
+  };
+
+  const RefundRow = ({ r, showAction }: { r: RefundNotificationWithDetails; showAction: boolean }) => (
+    <div
+      className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-md border ${showAction ? 'bg-card' : 'bg-muted/30 opacity-70'}`}
+      data-testid={`refund-row-${r.id}`}
+    >
+      <div className="flex-1 min-w-0 space-y-0.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium text-sm" data-testid={`text-refund-player-${r.id}`}>
+            {r.playerName ?? 'Unknown player'}
+          </span>
+          {r.playerEmail && (
+            <span className="text-xs text-muted-foreground">{r.playerEmail}</span>
+          )}
+        </div>
+        <div className="text-sm text-muted-foreground">
+          {r.sessionTitle ?? 'Unknown session'}
+          {r.sessionDate && <span> · {formatDate(r.sessionDate)}</span>}
+          {r.sessionVenueName && <span> · {r.sessionVenueName}</span>}
+        </div>
+        <div className="text-xs text-muted-foreground flex flex-wrap gap-3 pt-0.5">
+          {r.amountAed != null && (
+            <span className="font-medium text-foreground">AED {r.amountAed.toFixed(2)}</span>
+          )}
+          {r.spotsBooked != null && r.spotsBooked > 1 && (
+            <span>{r.spotsBooked} spots</span>
+          )}
+          <span>Flagged {formatDate(r.createdAt)}</span>
+          {r.relatedBookingId && (
+            <span className="font-mono">#{r.relatedBookingId.slice(-8)}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          asChild
+          data-testid={`button-ziina-dashboard-${r.id}`}
+        >
+          <a href="https://app.ziina.com" target="_blank" rel="noopener noreferrer">
+            <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+            Ziina Dashboard
+          </a>
+        </Button>
+        {showAction && (
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => resolveMutation.mutate(r.id)}
+            disabled={resolveMutation.isPending}
+            data-testid={`button-resolve-refund-${r.id}`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+            Mark Resolved
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+          <ReceiptText className="h-4 w-4 text-destructive" />
+          Pending Refunds
+          {pending.length > 0 && (
+            <Badge className="bg-destructive text-destructive-foreground border-0 no-default-hover-elevate no-default-active-elevate">
+              {pending.length}
+            </Badge>
+          )}
+        </h3>
+        {pending.length === 0 ? (
+          <Card>
+            <CardContent className="p-8 text-center text-muted-foreground">
+              <CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-green-500 opacity-60" />
+              <p className="font-medium">No pending refunds</p>
+              <p className="text-sm mt-1">All Ziina refunds have been processed.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {pending.map(r => (
+              <RefundRow key={r.id} r={r} showAction={true} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {resolved.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <CheckCircle className="h-4 w-4" />
+            Resolved
+          </h3>
+          <div className="space-y-2">
+            {resolved.map(r => (
+              <RefundRow key={r.id} r={r} showAction={false} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

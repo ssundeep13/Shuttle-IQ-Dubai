@@ -439,3 +439,21 @@ export interface GameParticipantInfo {
   name: string;
   team: number;
 }
+
+export interface RefundNotificationWithDetails {
+  id: string;
+  message: string;
+  createdAt: Date;
+  read: boolean;
+  relatedBookingId: string | null;
+  amountAed: number | null;
+  spotsBooked: number | null;
+  paymentMethod: string | null;
+  ziinaPaymentIntentId: string | null;
+  bookingSessionId: string | null;
+  playerName: string | null;
+  playerEmail: string | null;
+  sessionTitle: string | null;
+  sessionDate: Date | null;
+  sessionVenueName: string | null;
+}

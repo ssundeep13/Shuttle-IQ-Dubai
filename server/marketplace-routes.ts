@@ -1585,6 +1585,31 @@ export function registerMarketplaceRoutes(app: Express) {
   });
 
   // ============================================================
+  // ADMIN: REFUNDS
+  // ============================================================
+
+  app.get("/api/marketplace/admin/refunds", requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const refunds = await storage.getRefundNotifications();
+      res.json(refunds);
+    } catch (error) {
+      console.error('Failed to fetch refund notifications:', error);
+      res.status(500).json({ error: "Failed to fetch refunds" });
+    }
+  });
+
+  app.patch("/api/marketplace/admin/refunds/:id/resolve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await storage.resolveRefundNotification(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Failed to resolve refund notification:', error);
+      res.status(500).json({ error: "Failed to resolve refund" });
+    }
+  });
+
+  // ============================================================
   // SEED DATA
   // ============================================================
 
