@@ -128,13 +128,13 @@ async function runInactivityDecayJob(): Promise<void> {
  */
 async function backfillSkillScoreBaseline(): Promise<void> {
   try {
-    const result = await db
+    const updated = await db
       .update(players)
       .set({ skillScoreBaseline: sql`${players.skillScore}` })
-      .where(sql`${players.skillScoreBaseline} IS NULL`);
-    const count = (result as any).rowCount ?? 0;
-    if (count > 0) {
-      console.log(`[Scheduler] Backfilled skillScoreBaseline for ${count} legacy player(s).`);
+      .where(sql`${players.skillScoreBaseline} IS NULL`)
+      .returning({ id: players.id });
+    if (updated.length > 0) {
+      console.log(`[Scheduler] Backfilled skillScoreBaseline for ${updated.length} legacy player(s).`);
     }
   } catch (err) {
     console.error('[Scheduler] skillScoreBaseline backfill error:', err);
