@@ -1463,6 +1463,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           level: newLevel,
           status: 'waiting',
           lastPlayedAt: new Date(),
+          skillScoreBaseline: skillAfter, // Anchor for inactivity decay; decay is relative to this score
         });
       }
 

@@ -36,6 +36,7 @@ export const players = pgTable("players", {
   status: text("status").notNull().default('waiting'), // 'waiting', 'playing'
   createdAt: timestamp("created_at").notNull().defaultNow(), // When player was first registered
   lastPlayedAt: timestamp("last_played_at"), // When player last participated in a game (null = never)
+  skillScoreBaseline: integer("skill_score_baseline"), // Score at time of last game — anchor for inactivity decay (null = never played)
 });
 
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, shuttleIqId: true, createdAt: true });

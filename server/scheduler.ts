@@ -41,19 +41,31 @@ async function runReminderJob(): Promise<void> {
   }
 }
 
+/**
+ * Inactivity decay rule:
+ *   - 14+ days inactive: -5 pts from skillScoreBaseline (the score at last game)
+ *   - 21+ days: -10 pts from baseline
+ *   - 28+ days: -15 pts from baseline
+ *   - etc. (weeksOverThreshold × 5 pts, always relative to baseline)
+ *
+ * Using skillScoreBaseline as the anchor makes this idempotent — each daily
+ * run computes the same target score for a given inactivity duration, so running
+ * multiple times per day has no extra effect.
+ */
 async function runInactivityDecayJob(): Promise<void> {
   try {
     const now = new Date();
+    // Inclusive: players inactive for >= 14 days (use strictly-less-than threshold date)
     const thresholdDate = new Date(now.getTime() - INACTIVITY_THRESHOLD_DAYS * 24 * 60 * 60 * 1000);
 
-    // Fetch players where lastPlayedAt is older than the threshold,
-    // OR lastPlayedAt is null and createdAt is older than the threshold.
+    // Fetch players where lastPlayedAt >= 14 days ago,
+    // OR lastPlayedAt is null and createdAt >= 14 days ago (never played).
     const inactivePlayers = await db
       .select()
       .from(players)
       .where(
-        sql`(${players.lastPlayedAt} IS NOT NULL AND ${players.lastPlayedAt} < ${thresholdDate})
-            OR (${players.lastPlayedAt} IS NULL AND ${players.createdAt} < ${thresholdDate})`
+        sql`(${players.lastPlayedAt} IS NOT NULL AND ${players.lastPlayedAt} <= ${thresholdDate})
+            OR (${players.lastPlayedAt} IS NULL AND ${players.createdAt} <= ${thresholdDate})`
       );
 
     if (inactivePlayers.length === 0) return;
@@ -66,26 +78,35 @@ async function runInactivityDecayJob(): Promise<void> {
       const msInactive = now.getTime() - referenceDate.getTime();
       const daysInactive = msInactive / (24 * 60 * 60 * 1000);
 
-      // How many full weeks beyond the 14-day mark (at week 2, 3, 4, …)
+      // Full weeks beyond the 14-day mark:
+      //   14 days → weeksOver = 1 → -5 pts
+      //   21 days → weeksOver = 2 → -10 pts
+      //   28 days → weeksOver = 3 → -15 pts
       const weeksOverThreshold = Math.floor((daysInactive - INACTIVITY_THRESHOLD_DAYS) / 7) + 1;
       if (weeksOverThreshold < 1) continue;
 
-      const decay = weeksOverThreshold * DECAY_POINTS_PER_WEEK;
-      const newScore = Math.max(MIN_SKILL_SCORE, player.skillScore - decay);
+      // Baseline is the score the player had at their last game (or their current score
+      // if they never played — skillScoreBaseline is null for players who've never played).
+      // For players who never played, use their current skillScore as the baseline.
+      const baseline = player.skillScoreBaseline ?? player.skillScore;
+      const totalDecay = weeksOverThreshold * DECAY_POINTS_PER_WEEK;
+      const targetScore = Math.max(MIN_SKILL_SCORE, baseline - totalDecay);
 
-      if (newScore === player.skillScore) continue; // already at floor, no update needed
+      // Only update if the player's current score is above the target.
+      // This makes the job idempotent — running again won't further reduce an already-decayed score.
+      if (player.skillScore <= targetScore) continue;
 
-      const newLevel = getSkillTierFromScore(newScore);
+      const newLevel = getSkillTierFromScore(targetScore);
       const tierChanged = newLevel !== player.level;
 
       await db
         .update(players)
-        .set({ skillScore: newScore, level: newLevel })
+        .set({ skillScore: targetScore, level: newLevel })
         .where(sql`${players.id} = ${player.id}`);
 
       console.log(
         `[Scheduler] Decay applied — ${player.name} (${player.shuttleIqId ?? player.id}): ` +
-        `${player.skillScore} → ${newScore} (${Math.round(daysInactive)}d inactive, -${decay}pts)` +
+        `${player.skillScore} → ${targetScore} (${Math.round(daysInactive)}d inactive, baseline ${baseline}, -${baseline - targetScore}pts total)` +
         (tierChanged ? ` | tier: ${player.level} → ${newLevel}` : '')
       );
       decayCount++;
