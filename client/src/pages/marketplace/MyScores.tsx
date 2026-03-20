@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from 'wouter';
 import {
   Trophy, TrendingUp, TrendingDown, Swords, ChevronDown,
@@ -118,7 +119,6 @@ export default function MyScores() {
   });
 
   const taggedGameSet = useMemo(() => new Set(taggedGameIds), [taggedGameIds]);
-  const sevenDaysAgo = useMemo(() => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), []);
 
   const fileMutation = useMutation({
     mutationFn: async ({ gameResultId, note }: { gameResultId: string; note: string }) =>
@@ -675,21 +675,31 @@ export default function MyScores() {
                         </div>
                         {(() => {
                           const gameDate = game.date ? new Date(game.date) : null;
-                          const canTag = !!linkedPlayerId && gameDate && gameDate >= sevenDaysAgo && !taggedGameSet.has(game.gameId);
+                          const withinWindow = !!linkedPlayerId && gameDate && gameDate >= thirtyDaysAgo;
+                          const canTag = withinWindow && !taggedGameSet.has(game.gameId);
                           const alreadyTagged = taggedGameSet.has(game.gameId);
-                          return (
+                          const expired = !!linkedPlayerId && gameDate && gameDate < thirtyDaysAgo && !alreadyTagged;
+                          const btn = (
                             <Button
                               variant="ghost"
                               size="icon"
-                              className={`shrink-0 ${alreadyTagged ? 'text-teal-500' : canTag ? 'text-muted-foreground/60' : 'invisible'}`}
+                              className={`shrink-0 ${alreadyTagged ? 'text-teal-500' : canTag ? 'text-muted-foreground/60' : expired ? 'text-muted-foreground/30' : 'invisible'}`}
                               onClick={() => canTag && setTaggingGameId(game.gameId)}
                               disabled={!canTag && !alreadyTagged}
-                              title={alreadyTagged ? 'Already tagged' : 'Tag players'}
                               data-testid={`button-tag-game-${game.gameId}`}
                             >
                               {alreadyTagged ? <Check className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
                             </Button>
                           );
+                          if (expired) {
+                            return (
+                              <UITooltip>
+                                <UITooltipTrigger asChild>{btn}</UITooltipTrigger>
+                                <UITooltipContent side="left">Tagging closed after 30 days</UITooltipContent>
+                              </UITooltip>
+                            );
+                          }
+                          return btn;
                         })()}
                         {flaggedGameIds.has(game.gameId) ? (
                           <Badge

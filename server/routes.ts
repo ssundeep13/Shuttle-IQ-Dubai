@@ -2036,6 +2036,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate: caller must be a participant in this game
       const participants = await storage.getGameParticipantInfo(gameResultId);
       if (participants.length === 0) return res.status(400).json({ error: "Game not found" });
+
+      // Enforce 30-day tagging window
+      const [gameRow] = await db.select({ createdAt: gameResults.createdAt }).from(gameResults).where(eq(gameResults.id, gameResultId));
+      if (gameRow) {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        if (gameRow.createdAt < thirtyDaysAgo) {
+          return res.status(400).json({ error: "Tagging window has closed (30 days after the game)" });
+        }
+      }
       if (!participants.some(p => p.id === callerId)) {
         return res.status(403).json({ error: "You were not in this game" });
       }
