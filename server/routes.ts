@@ -1130,12 +1130,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gameParticipants = await storage.getSessionGameParticipants(activeSession.id);
       buildRestStatesFromHistory(activeSession.id, gameParticipants, queue);
 
+      const groupByTier = req.query.groupByTier !== 'false';
+
       // Generate multiple matchup options with different player sets
       const { allCombinations, restWarnings } = generateAllMatchupOptions(
         activeSession.id,
         queue,
         allPlayers,
-        15 // Return top 15 balanced options
+        15, // Return top 15 balanced options
+        groupByTier
       );
 
       if (allCombinations.length === 0) {
@@ -1190,12 +1193,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gameParticipants = await storage.getSessionGameParticipants(session.id);
       buildRestStatesFromHistory(session.id, gameParticipants, queue);
 
+      const groupByTier = req.query.groupByTier !== 'false';
+
       // Generate top 5 matchup options
       const { allCombinations, restWarnings } = generateAllMatchupOptions(
         session.id,
         queue,
         allPlayers,
-        5 // Return top 5 suggestions
+        5, // Return top 5 suggestions
+        groupByTier
       );
 
       res.json({

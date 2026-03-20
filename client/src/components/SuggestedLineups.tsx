@@ -3,9 +3,11 @@ import { Player } from "@shared/schema";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { formatSkillLevel } from "@shared/utils/skillUtils";
 import { apiRequest } from "@/lib/queryClient";
-import { ChevronDown, ChevronUp, Zap, Scale } from "lucide-react";
+import { ChevronDown, ChevronUp, Zap, Scale, Layers } from "lucide-react";
 import { useState } from "react";
 
 interface TeamCombination {
@@ -15,6 +17,7 @@ interface TeamCombination {
   team2Avg: number;
   skillGap: number;
   variance: number;
+  tierDispersion: number;
   rank: number;
 }
 
@@ -34,20 +37,20 @@ interface SuggestedLineupsProps {
 
 export function SuggestedLineups({ onAssign, availableCourts, queuePlayerIds, isActiveSession = true, sessionId }: SuggestedLineupsProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [groupByTier, setGroupByTier] = useState(true);
 
   const { data, isLoading, error } = useQuery<SuggestionsResponse>({
-    queryKey: ['/api/matchmaking/suggestions', sessionId, queuePlayerIds.join(',')],
+    queryKey: ['/api/matchmaking/suggestions', sessionId, queuePlayerIds.join(','), groupByTier],
     queryFn: async () => {
-      const url = sessionId 
-        ? `/api/matchmaking/suggestions?sessionId=${sessionId}`
-        : '/api/matchmaking/suggestions';
-      return await apiRequest('GET', url);
+      const params = new URLSearchParams();
+      if (sessionId) params.set('sessionId', sessionId);
+      params.set('groupByTier', String(groupByTier));
+      return await apiRequest('GET', `/api/matchmaking/suggestions?${params.toString()}`);
     },
     enabled: queuePlayerIds.length >= 4,
     refetchOnWindowFocus: false,
   });
 
-  // Don't show the section if not enough players
   if (queuePlayerIds.length < 4) {
     return null;
   }
@@ -67,21 +70,34 @@ export function SuggestedLineups({ onAssign, availableCourts, queuePlayerIds, is
 
   return (
     <div className="space-y-4" data-testid="section-suggested-lineups">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h2 className="text-lg font-semibold">Smart Suggestions</h2>
           <p className="text-sm text-muted-foreground">
             AI-powered lineup recommendations
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setIsExpanded(!isExpanded)}
-          data-testid="button-toggle-suggestions"
-        >
-          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="group-by-tier"
+              checked={groupByTier}
+              onCheckedChange={setGroupByTier}
+              data-testid="switch-group-by-tier"
+            />
+            <Label htmlFor="group-by-tier" className="text-sm text-muted-foreground cursor-pointer select-none">
+              Group by level
+            </Label>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsExpanded(!isExpanded)}
+            data-testid="button-toggle-suggestions"
+          >
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
 
       {isExpanded && (
@@ -125,17 +141,28 @@ export function SuggestedLineups({ onAssign, availableCourts, queuePlayerIds, is
           {!isLoading && suggestions.map((suggestion, idx) => {
             const balance = getBalanceIndicator(suggestion.skillGap);
             const BalanceIcon = balance.icon;
-            
+            const isMixedTier = suggestion.tierDispersion > 0;
+
             return (
               <Card key={idx} className="hover-elevate" data-testid={`suggestion-${idx}`}>
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <CardTitle className="text-sm">Option {idx + 1}</CardTitle>
                       <Badge variant="outline" className={balance.color} data-testid={`badge-balance-${idx}`}>
                         <BalanceIcon className="h-3 w-3 mr-1" />
                         {balance.label}
                       </Badge>
+                      {isMixedTier && (
+                        <Badge
+                          variant="outline"
+                          className="text-muted-foreground border-muted-foreground/40"
+                          data-testid={`badge-mixed-tier-${idx}`}
+                        >
+                          <Layers className="h-3 w-3 mr-1" />
+                          Mixed Levels
+                        </Badge>
+                      )}
                     </div>
                     <CardDescription className="text-xs" data-testid={`skill-gap-${idx}`}>
                       Gap: {suggestion.skillGap.toFixed(1)}
