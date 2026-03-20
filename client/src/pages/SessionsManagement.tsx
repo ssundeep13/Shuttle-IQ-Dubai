@@ -816,7 +816,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
       // Sub-lines for non-primary, non-cancelled guests — do NOT increment lineNum
       const activeGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled');
       activeGuests.forEach((g: BookingGuestWithLinked) => {
-        lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest) ✓ Confirmed`);
+        lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest)`);
       });
     });
 
@@ -859,7 +859,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
         const name = b.user?.name || 'Unknown';
         const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
         const siqPart = siq ? ` (${siq})` : '';
-        lines.push(`${cNum}. ${name}${siqPart} (partial cancellation)`);
+        lines.push(`${cNum}. ${name}${siqPart} ✓ Confirmed`);
         cNum++;
         (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled').forEach((g: BookingGuestWithLinked) => {
           lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest) Cancelled`);
