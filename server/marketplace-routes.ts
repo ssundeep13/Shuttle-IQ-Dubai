@@ -1601,7 +1601,8 @@ export function registerMarketplaceRoutes(app: Express) {
   app.patch("/api/marketplace/admin/refunds/:id/resolve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      await storage.resolveRefundNotification(id);
+      const updated = await storage.resolveRefundNotification(id);
+      if (!updated) return res.status(404).json({ error: "Refund notification not found" });
       res.json({ success: true });
     } catch (error) {
       console.error('Failed to resolve refund notification:', error);

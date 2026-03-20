@@ -171,7 +171,7 @@ export interface IStorage {
   markNotificationRead(id: string): Promise<void>;
   markAllNotificationsRead(userId: string): Promise<void>;
   getRefundNotifications(): Promise<RefundNotificationWithDetails[]>;
-  resolveRefundNotification(id: string): Promise<void>;
+  resolveRefundNotification(id: string): Promise<boolean>;
 
   // Booking Guest operations
   createBookingGuest(guest: InsertBookingGuest): Promise<BookingGuest>;
@@ -1369,50 +1369,57 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRefundNotifications(): Promise<RefundNotificationWithDetails[]> {
-    const notifications = await db
-      .select()
+    const rows = await db
+      .select({
+        id: marketplaceNotifications.id,
+        message: marketplaceNotifications.message,
+        createdAt: marketplaceNotifications.createdAt,
+        read: marketplaceNotifications.read,
+        relatedBookingId: marketplaceNotifications.relatedBookingId,
+        amountAed: bookings.amountAed,
+        spotsBooked: bookings.spotsBooked,
+        paymentMethod: bookings.paymentMethod,
+        ziinaPaymentIntentId: bookings.ziinaPaymentIntentId,
+        bookingSessionId: bookings.sessionId,
+        playerName: marketplaceUsers.name,
+        playerEmail: marketplaceUsers.email,
+        sessionTitle: bookableSessions.title,
+        sessionDate: bookableSessions.date,
+        sessionVenueName: bookableSessions.venueName,
+      })
       .from(marketplaceNotifications)
+      .leftJoin(bookings, eq(marketplaceNotifications.relatedBookingId, bookings.id))
+      .leftJoin(marketplaceUsers, eq(bookings.userId, marketplaceUsers.id))
+      .leftJoin(bookableSessions, eq(bookings.sessionId, bookableSessions.id))
       .where(eq(marketplaceNotifications.type, 'refund_required'))
       .orderBy(desc(marketplaceNotifications.createdAt));
 
-    const result: RefundNotificationWithDetails[] = [];
-    for (const n of notifications) {
-      let booking = null;
-      let user = null;
-      let session = null;
-      if (n.relatedBookingId) {
-        booking = await this.getBooking(n.relatedBookingId);
-        if (booking) {
-          user = await this.getMarketplaceUser(booking.userId);
-          session = await this.getBookableSession(booking.sessionId);
-        }
-      }
-      result.push({
-        id: n.id,
-        message: n.message,
-        createdAt: n.createdAt,
-        read: n.read,
-        relatedBookingId: n.relatedBookingId ?? null,
-        amountAed: booking?.amountAed ?? null,
-        spotsBooked: booking?.spotsBooked ?? null,
-        paymentMethod: booking?.paymentMethod ?? null,
-        ziinaPaymentIntentId: booking?.ziinaPaymentIntentId ?? null,
-        bookingSessionId: booking?.sessionId ?? null,
-        playerName: user?.name ?? null,
-        playerEmail: user?.email ?? null,
-        sessionTitle: session?.title ?? null,
-        sessionDate: session?.date ?? null,
-        sessionVenueName: session?.venueName ?? null,
-      });
-    }
-    return result;
+    return rows.map(row => ({
+      id: row.id,
+      message: row.message,
+      createdAt: row.createdAt,
+      read: row.read,
+      relatedBookingId: row.relatedBookingId ?? null,
+      amountAed: row.amountAed ?? null,
+      spotsBooked: row.spotsBooked ?? null,
+      paymentMethod: row.paymentMethod ?? null,
+      ziinaPaymentIntentId: row.ziinaPaymentIntentId ?? null,
+      bookingSessionId: row.bookingSessionId ?? null,
+      playerName: row.playerName ?? null,
+      playerEmail: row.playerEmail ?? null,
+      sessionTitle: row.sessionTitle ?? null,
+      sessionDate: row.sessionDate ?? null,
+      sessionVenueName: row.sessionVenueName ?? null,
+    }));
   }
 
-  async resolveRefundNotification(id: string): Promise<void> {
-    await db
+  async resolveRefundNotification(id: string): Promise<boolean> {
+    const [updated] = await db
       .update(marketplaceNotifications)
       .set({ read: true })
-      .where(eq(marketplaceNotifications.id, id));
+      .where(and(eq(marketplaceNotifications.id, id), eq(marketplaceNotifications.type, 'refund_required')))
+      .returning({ id: marketplaceNotifications.id });
+    return !!updated;
   }
 
   // Score dispute operations
