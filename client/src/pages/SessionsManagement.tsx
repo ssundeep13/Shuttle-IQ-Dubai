@@ -793,14 +793,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
       return siq ? ` (${siq})` : '';
     };
 
-    // Collect fully-cancelled bookings + individually cancelled guests from active bookings
     const fullyConfirmedBookings = activeBookings; // status confirmed/attended
-    const individualCancelledGuests: { bookingUser: string; guest: BookingGuestWithLinked }[] = [];
-    activeBookings.forEach(b => {
-      (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled').forEach((g: BookingGuestWithLinked) => {
-        individualCancelledGuests.push({ bookingUser: b.user?.name || 'Unknown', guest: g });
-      });
-    });
 
     // Count total active slots (primary + non-cancelled non-primary guests across active bookings)
     const confirmedSlots = fullyConfirmedBookings.reduce((sum, b) => {
@@ -827,36 +820,50 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
       });
     });
 
-    // ❌ Cancelled section: fully-cancelled bookings + individually-cancelled guests
-    const hasCancellations = cancelledBookings.length > 0 || individualCancelledGuests.length > 0;
+    // ❌ Cancelled section: fully-cancelled bookings + active bookings that have cancelled guests
+    // Build list of active bookings that have at least one individually-cancelled guest
+    const activeBookingsWithCancelledGuests = activeBookings.filter(b =>
+      (b.guests || []).some((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled')
+    );
+
+    const hasCancellations = cancelledBookings.length > 0 || activeBookingsWithCancelledGuests.length > 0;
     if (hasCancellations) {
+      // Slot count: fully-cancelled (primary + all non-primary guests) + individually-cancelled guests only
       const cancelledSlots =
         cancelledBookings.reduce((sum, b) => {
           const nonPrimaryGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary).length;
           return sum + 1 + nonPrimaryGuests;
-        }, 0) + individualCancelledGuests.length;
+        }, 0) +
+        activeBookingsWithCancelledGuests.reduce((sum, b) => {
+          return sum + (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled').length;
+        }, 0);
 
       lines.push('');
       lines.push(`❌ Cancelled: ${cancelledSlots}`);
       let cNum = 1;
 
-      // Fully cancelled bookings
+      // Fully cancelled bookings: primary line + all non-primary guests as sub-lines
       cancelledBookings.forEach((b) => {
         const name = b.user?.name || 'Unknown';
         const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
         const siqPart = siq ? ` (${siq})` : '';
         lines.push(`${cNum}. ${name}${siqPart} Cancelled`);
         cNum++;
-        const guestList = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary);
-        guestList.forEach((g: BookingGuestWithLinked) => {
+        (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary).forEach((g: BookingGuestWithLinked) => {
           lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest)`);
         });
       });
 
-      // Individually cancelled guests from non-cancelled bookings
-      individualCancelledGuests.forEach(({ bookingUser, guest }) => {
-        lines.push(`${cNum}. ${guest.name}${guestSiqPart(guest)} (guest of ${bookingUser}) Cancelled`);
+      // Active bookings with individually-cancelled guests: primary line + cancelled guest sub-lines only
+      activeBookingsWithCancelledGuests.forEach((b) => {
+        const name = b.user?.name || 'Unknown';
+        const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
+        const siqPart = siq ? ` (${siq})` : '';
+        lines.push(`${cNum}. ${name}${siqPart} (partial cancellation)`);
         cNum++;
+        (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled').forEach((g: BookingGuestWithLinked) => {
+          lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest) Cancelled`);
+        });
       });
     }
 
