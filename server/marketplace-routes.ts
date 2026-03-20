@@ -485,7 +485,19 @@ export function registerMarketplaceRoutes(app: Express) {
       const existingBooking = await storage.getUserBookingForSession(req.user.userId, sessionId);
       if (existingBooking) {
         if (existingBooking.status === 'pending') {
-          // Previous payment was never completed — cancel it and allow retry
+          // Check if the Ziina payment already completed before cancelling — avoids a race
+          // where the user retries while the first payment is still being processed
+          if (existingBooking.ziinaPaymentIntentId) {
+            try {
+              const ziinaStatus = await retrieveZiinaPaymentIntent(existingBooking.ziinaPaymentIntentId);
+              if (isZiinaPaymentSuccessful(ziinaStatus.status)) {
+                return res.status(400).json({ error: "Your payment is being processed. Please wait a moment and refresh." });
+              }
+            } catch (_) {
+              // Ziina check failed — proceed with cancellation so user can retry
+            }
+          }
+          // Payment not completed — cancel the stale pending booking and allow retry
           await storage.updateBooking(existingBooking.id, { status: 'cancelled', cancelledAt: new Date() });
         } else if (existingBooking.status !== 'cancelled') {
           return res.status(400).json({ error: "You already have a booking for this session" });
@@ -702,6 +714,10 @@ export function registerMarketplaceRoutes(app: Express) {
         },
       });
     } catch (error: any) {
+      // Postgres unique constraint violation — duplicate active booking
+      if (error?.code === '23505' && error?.constraint === 'unique_active_booking_per_session') {
+        return res.status(400).json({ error: "You already have a booking for this session" });
+      }
       console.error('Booking error:', error);
       res.status(500).json({ error: error.message || "Failed to create booking" });
     }

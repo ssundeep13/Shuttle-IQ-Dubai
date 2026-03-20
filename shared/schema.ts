@@ -1,4 +1,5 @@
-import { pgTable, text, varchar, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -301,7 +302,11 @@ export const bookings = pgTable("bookings", {
   cancelledAt: timestamp("cancelled_at"),
   attendedAt: timestamp("attended_at"),
   reminderSentAt: timestamp("reminder_sent_at"),
-});
+}, (table) => [
+  uniqueIndex('unique_active_booking_per_session')
+    .on(table.userId, table.sessionId)
+    .where(sql`${table.status} != 'cancelled'`),
+]);
 
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, cancelledAt: true, attendedAt: true });
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
