@@ -408,7 +408,11 @@ export class DatabaseStorage implements IStorage {
         shuttleIqId,
         status: insertPlayer.status || 'waiting',
         gamesPlayed: insertPlayer.gamesPlayed || 0,
-        wins: insertPlayer.wins || 0
+        wins: insertPlayer.wins || 0,
+        // Initialize the decay baseline to the player's starting score.
+        // This ensures the inactivity decay scheduler always has a stable anchor
+        // and never falls back to the (already-decayed) current skillScore.
+        skillScoreBaseline: insertPlayer.skillScore ?? 90,
       })
       .returning();
     return addSkidToPlayer(player);

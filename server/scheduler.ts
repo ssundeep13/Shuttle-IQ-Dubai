@@ -85,10 +85,11 @@ async function runInactivityDecayJob(): Promise<void> {
       const weeksOverThreshold = Math.floor((daysInactive - INACTIVITY_THRESHOLD_DAYS) / 7) + 1;
       if (weeksOverThreshold < 1) continue;
 
-      // Baseline is the score the player had at their last game (or their current score
-      // if they never played — skillScoreBaseline is null for players who've never played).
-      // For players who never played, use their current skillScore as the baseline.
-      const baseline = player.skillScoreBaseline ?? player.skillScore;
+      // Use the stored skillScoreBaseline as the decay anchor.
+      // This is always set at player creation and updated on each game end.
+      // If somehow still null (legacy data), skip this player to avoid compounding decay.
+      if (player.skillScoreBaseline === null || player.skillScoreBaseline === undefined) continue;
+      const baseline = player.skillScoreBaseline;
       const totalDecay = weeksOverThreshold * DECAY_POINTS_PER_WEEK;
       const targetScore = Math.max(MIN_SKILL_SCORE, baseline - totalDecay);
 
