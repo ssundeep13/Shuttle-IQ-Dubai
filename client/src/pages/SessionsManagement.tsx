@@ -54,6 +54,7 @@ export default function SessionsManagement() {
   const [showCreateSession, setShowCreateSession] = useState(false);
   const [wizardKey, setWizardKey] = useState(0);
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
+  const [sessionToActivate, setSessionToActivate] = useState<Session | null>(null);
   const [bookingsSession, setBookingsSession] = useState<Session | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
 
@@ -270,7 +271,7 @@ export default function SessionsManagement() {
               onView={(session) => navigate(`/session/${session.id}`)}
               onDelete={(session) => setSessionToDelete(session)}
               onViewBookings={(session) => setBookingsSession(session)}
-              onActivate={handleActivateSession}
+              onActivate={(session) => setSessionToActivate(session)}
               onEdit={(session) => setEditingSession(session)}
               totalBookings={totalBookings}
               totalRevenue={totalRevenue}
@@ -334,6 +335,32 @@ export default function SessionsManagement() {
               data-testid="button-confirm-delete"
             >
               Delete Session
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!sessionToActivate} onOpenChange={(open) => !open && setSessionToActivate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Activate Session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to activate "{sessionToActivate?.venueName}"?
+              This will open the queue and make it the live session for court management.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-activate">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (sessionToActivate) {
+                  await handleActivateSession(sessionToActivate);
+                  setSessionToActivate(null);
+                }
+              }}
+              data-testid="button-confirm-activate"
+            >
+              Activate Session
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
