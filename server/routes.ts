@@ -27,10 +27,12 @@ import {
 } from "./auth/storage";
 import {
   buildRestStatesFromHistory,
+  buildPartnerHistoryFromHistory,
   selectOptimalPlayers,
   findBalancedTeams,
   generateAllMatchupOptions,
   updatePlayerRestState,
+  updatePartnerHistory,
   clearPlayerRestState,
   clearSessionRestStates,
   type TeamCombination
@@ -1136,9 +1138,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Build rest states from game history
+      // Build rest states and partner history from game history
       const gameParticipants = await storage.getSessionGameParticipants(activeSession.id);
       buildRestStatesFromHistory(activeSession.id, gameParticipants, queue);
+      buildPartnerHistoryFromHistory(activeSession.id, gameParticipants);
 
       const groupByTier = req.query.groupByTier !== 'false';
 
@@ -1199,9 +1202,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Build rest states from game history
+      // Build rest states and partner history from game history
       const gameParticipants = await storage.getSessionGameParticipants(session.id);
       buildRestStatesFromHistory(session.id, gameParticipants, queue);
+      buildPartnerHistoryFromHistory(session.id, gameParticipants);
 
       const groupByTier = req.query.groupByTier !== 'false';
 
@@ -1534,6 +1538,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const participant of participantData) {
         updatePlayerRestState(activeSession.id, participant.playerId, true);
       }
+      
+      // Fix 3: Record partner pairings for split-penalty calculation
+      updatePartnerHistory(activeSession.id, team1, team2);
       
       // Update rest states for players who were waiting (reset their consecutive count)
       const currentQueue = await storage.getQueue(activeSession.id);

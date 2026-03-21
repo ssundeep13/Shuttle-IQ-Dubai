@@ -39,15 +39,20 @@ export interface TeamCombination {
   skillGap: number;
   variance: number;
   tierDispersion: number; // max tier index - min tier index across all 4 players (0 = same tier)
+  splitPenalty: number;   // Fix 3: partner repetition penalty (0 = novel pairing, up to 60 = both pairs repeated)
   rank: number;
 }
 
-// In-memory store for player rest states per session
+// ─── In-memory state stores ──────────────────────────────────────────────────
+
+// Rest state: sessionId → playerId → PlayerRestState
 const sessionRestStates = new Map<string, Map<string, PlayerRestState>>();
 
-/**
- * Initialize or get rest state for a session
- */
+// Fix 3: Partner history: sessionId → "lowerId:higherId" → times played together
+const sessionPartnerHistory = new Map<string, Map<string, number>>();
+
+// ─── Rest state helpers ───────────────────────────────────────────────────────
+
 function getSessionRestStates(sessionId: string): Map<string, PlayerRestState> {
   if (!sessionRestStates.has(sessionId)) {
     sessionRestStates.set(sessionId, new Map());
@@ -56,7 +61,9 @@ function getSessionRestStates(sessionId: string): Map<string, PlayerRestState> {
 }
 
 /**
- * Update player rest state after a game ends
+ * Update player rest state after a game ends.
+ * Fix 4: Graduated reset — sitting out 1 game halves consecutiveGames instead of zeroing it;
+ * only 2+ games out produces a full reset.
  */
 export function updatePlayerRestState(
   sessionId: string,
@@ -78,18 +85,21 @@ export function updatePlayerRestState(
     current.lastGameEndedAt = new Date();
     current.needsRest = current.consecutiveGames >= 2;
   } else {
-    // Player sat out a game — reset consecutive count, increment waited
-    current.consecutiveGames = 0;
+    // Fix 4: graduated reset
     current.gamesWaited += 1;
-    current.needsRest = false;
+    if (current.gamesWaited === 1) {
+      // First game out: halve the consecutive count (lingering penalty)
+      current.consecutiveGames = Math.floor(current.consecutiveGames / 2);
+    } else {
+      // Two or more games out: full reset
+      current.consecutiveGames = 0;
+    }
+    current.needsRest = current.consecutiveGames >= 2;
   }
 
   states.set(playerId, current);
 }
 
-/**
- * Get rest state for a player
- */
 export function getPlayerRestState(sessionId: string, playerId: string): PlayerRestState {
   const states = getSessionRestStates(sessionId);
   return states.get(playerId) || {
@@ -101,34 +111,22 @@ export function getPlayerRestState(sessionId: string, playerId: string): PlayerR
   };
 }
 
-/**
- * Clear rest state for a specific player (called when player leaves queue or session)
- */
 export function clearPlayerRestState(sessionId: string, playerId: string): void {
   const sessionMap = sessionRestStates.get(sessionId);
   if (sessionMap) {
     sessionMap.delete(playerId);
-    if (sessionMap.size === 0) {
-      sessionRestStates.delete(sessionId);
-    }
+    if (sessionMap.size === 0) sessionRestStates.delete(sessionId);
   }
 }
 
-/**
- * Clear all rest states for a session (called when session ends)
- */
 export function clearSessionRestStates(sessionId: string): void {
   sessionRestStates.delete(sessionId);
+  sessionPartnerHistory.delete(sessionId); // Also clear partner history on session end
 }
 
 /**
- * Build rest states from game history.
- * This function is IDEMPOTENT — it always resets the in-memory state for all
- * provided players before replaying history, so repeated calls produce the same
- * result regardless of the previous in-memory state.
- *
- * Also tracks gamesWaited (games sat out since last playing) for the waiting
- * bonus in priority scoring.
+ * Build rest states from game history (idempotent).
+ * Fix 4: Replays the same graduated-reset logic used in updatePlayerRestState.
  */
 export function buildRestStatesFromHistory(
   sessionId: string,
@@ -141,9 +139,7 @@ export function buildRestStatesFromHistory(
 
   const gameGroups = new Map<string, (GameParticipant & { createdAt: Date })[]>();
   for (const participant of sortedGames) {
-    if (!gameGroups.has(participant.gameId)) {
-      gameGroups.set(participant.gameId, []);
-    }
+    if (!gameGroups.has(participant.gameId)) gameGroups.set(participant.gameId, []);
     gameGroups.get(participant.gameId)!.push(participant);
   }
 
@@ -173,8 +169,13 @@ export function buildRestStatesFromHistory(
         current.gamesWaited = 0;
         current.lastGameEndedAt = participants[0].createdAt;
       } else {
-        current.consecutiveGames = 0;
+        // Fix 4: graduated reset (same logic as updatePlayerRestState)
         current.gamesWaited += 1;
+        if (current.gamesWaited === 1) {
+          current.consecutiveGames = Math.floor(current.consecutiveGames / 2);
+        } else {
+          current.consecutiveGames = 0;
+        }
       }
 
       current.needsRest = current.consecutiveGames >= 2;
@@ -183,10 +184,113 @@ export function buildRestStatesFromHistory(
   }
 }
 
+// ─── Fix 3: Partner history helpers ──────────────────────────────────────────
+
+function partnerKey(a: string, b: string): string {
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+function getSessionPartnerHistory(sessionId: string): Map<string, number> {
+  if (!sessionPartnerHistory.has(sessionId)) {
+    sessionPartnerHistory.set(sessionId, new Map());
+  }
+  return sessionPartnerHistory.get(sessionId)!;
+}
+
 /**
- * Calculate all possible 2v2 team combinations from 4 players.
- * There are only 3 unique ways to split 4 players into 2 teams of 2.
+ * Record the two pairs who played together after a game ends.
+ * Called from the game-end handler in routes.ts.
  */
+export function updatePartnerHistory(
+  sessionId: string,
+  team1: Player[],
+  team2: Player[]
+): void {
+  const history = getSessionPartnerHistory(sessionId);
+  if (team1.length >= 2) {
+    const key = partnerKey(team1[0].id, team1[1].id);
+    history.set(key, (history.get(key) ?? 0) + 1);
+  }
+  if (team2.length >= 2) {
+    const key = partnerKey(team2[0].id, team2[1].id);
+    history.set(key, (history.get(key) ?? 0) + 1);
+  }
+}
+
+/**
+ * Rebuild partner history from game history on server restart (idempotent).
+ * Called alongside buildRestStatesFromHistory in the session resume/hydration path.
+ */
+export function buildPartnerHistoryFromHistory(
+  sessionId: string,
+  gameParticipants: (GameParticipant & { createdAt: Date })[]
+): void {
+  const history = new Map<string, number>();
+
+  const gameGroups = new Map<string, typeof gameParticipants>();
+  for (const p of gameParticipants) {
+    if (!gameGroups.has(p.gameId)) gameGroups.set(p.gameId, []);
+    gameGroups.get(p.gameId)!.push(p);
+  }
+
+  for (const participants of gameGroups.values()) {
+    const team1Ids = participants.filter(p => p.team === 1).map(p => p.playerId);
+    const team2Ids = participants.filter(p => p.team === 2).map(p => p.playerId);
+
+    if (team1Ids.length >= 2) {
+      const key = partnerKey(team1Ids[0], team1Ids[1]);
+      history.set(key, (history.get(key) ?? 0) + 1);
+    }
+    if (team2Ids.length >= 2) {
+      const key = partnerKey(team2Ids[0], team2Ids[1]);
+      history.set(key, (history.get(key) ?? 0) + 1);
+    }
+  }
+
+  sessionPartnerHistory.set(sessionId, history);
+}
+
+/**
+ * Calculate split penalty for a proposed pairing.
+ * +15 per repeated pair, capped at 30 per pair, max 60 total.
+ */
+function calculateSplitPenalty(
+  team1: Player[],
+  team2: Player[],
+  sessionId: string
+): number {
+  const history = getSessionPartnerHistory(sessionId);
+  let total = 0;
+
+  if (team1.length >= 2) {
+    const times = history.get(partnerKey(team1[0].id, team1[1].id)) ?? 0;
+    total += Math.min(30, times * 15);
+  }
+  if (team2.length >= 2) {
+    const times = history.get(partnerKey(team2[0].id, team2[1].id)) ?? 0;
+    total += Math.min(30, times * 15);
+  }
+
+  return Math.min(60, total);
+}
+
+// ─── Fix 5: Dynamic window sizing ────────────────────────────────────────────
+
+/**
+ * Calculate candidate window sizes based on the live queue length.
+ * Auto-assign: 35% of queue length, clamped to [6, 16].
+ * Suggestions:  50% of queue length, clamped to [8, 24].
+ *
+ * Examples: 8 players → 6/8, 28 players → 9/14, 40 players → 14/20.
+ */
+export function getWindowSizes(queueLength: number): { autoWindow: number; suggestWindow: number } {
+  const autoWindow   = Math.max(6, Math.min(16, Math.round(queueLength * 0.35)));
+  const suggestWindow = Math.max(8, Math.min(24, Math.round(queueLength * 0.50)));
+  return { autoWindow, suggestWindow };
+}
+
+// ─── Team permutations & balance metrics ─────────────────────────────────────
+
 function getAllTeamPermutations(players: Player[]): [Player[], Player[]][] {
   if (players.length !== 4) return [];
   const [p0, p1, p2, p3] = players;
@@ -197,10 +301,6 @@ function getAllTeamPermutations(players: Player[]): [Player[], Player[]][] {
   ];
 }
 
-/**
- * Calculate balance metrics for a team combination.
- * Now also computes tierDispersion (0 = all same tier, 4 = max cross-tier span).
- */
 function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   team1Avg: number;
   team2Avg: number;
@@ -208,8 +308,8 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   variance: number;
   tierDispersion: number;
 } {
-  const team1Skills = team1.map(p => p.skillScore || 90);
-  const team2Skills = team2.map(p => p.skillScore || 90);
+  const team1Skills = team1.map(p => p.skillScore || 50);
+  const team2Skills = team2.map(p => p.skillScore || 50);
 
   const team1Avg = team1Skills.reduce((a, b) => a + b, 0) / team1Skills.length;
   const team2Avg = team2Skills.reduce((a, b) => a + b, 0) / team2Skills.length;
@@ -217,7 +317,7 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
 
   const allSkills = [...team1Skills, ...team2Skills];
   const mean = (team1Avg + team2Avg) / 2;
-  const variance = allSkills.reduce((sum, skill) => sum + Math.pow(skill - mean, 2), 0) / allSkills.length;
+  const variance = allSkills.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / allSkills.length;
 
   const allTierIndices = allSkills.map(s => getTierIndex(s));
   const tierDispersion = Math.max(...allTierIndices) - Math.min(...allTierIndices);
@@ -227,13 +327,14 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
 
 /**
  * Find the best balanced team combinations from a set of 4 players.
- * Returns top N combinations ranked by balance quality.
- * When groupByTier is true, tier homogeneity is the primary sort key.
+ * Sort order: tierDispersion → skillGap → splitPenalty (tie-break) → variance.
+ * Fix 3: splitPenalty breaks near-equal skill-gap ties, never overrides balance.
  */
 export function findBalancedTeams(
   players: Player[],
   topN: number = 5,
-  groupByTier: boolean = false
+  groupByTier: boolean = false,
+  sessionId?: string
 ): TeamCombination[] {
   if (players.length !== 4) {
     throw new Error('Exactly 4 players required for team assignment');
@@ -244,7 +345,8 @@ export function findBalancedTeams(
 
   for (const [team1, team2] of permutations) {
     const metrics = calculateTeamMetrics(team1, team2);
-    combinations.push({ team1, team2, ...metrics, rank: 0 });
+    const splitPenalty = sessionId ? calculateSplitPenalty(team1, team2, sessionId) : 0;
+    combinations.push({ team1, team2, ...metrics, splitPenalty, rank: 0 });
   }
 
   combinations.sort((a, b) => {
@@ -252,19 +354,21 @@ export function findBalancedTeams(
       const tierDiff = a.tierDispersion - b.tierDispersion;
       if (tierDiff !== 0) return tierDiff;
     }
-    if (Math.abs(a.skillGap - b.skillGap) < 0.01) {
-      return a.variance - b.variance;
-    }
-    return a.skillGap - b.skillGap;
+    // Primary: skill gap
+    if (Math.abs(a.skillGap - b.skillGap) >= 0.01) return a.skillGap - b.skillGap;
+    // Tie-break: split penalty (partner repetition)
+    const penaltyDiff = a.splitPenalty - b.splitPenalty;
+    if (penaltyDiff !== 0) return penaltyDiff;
+    // Final tie-break: within-team variance
+    return a.variance - b.variance;
   });
 
   combinations.forEach((combo, index) => { combo.rank = index + 1; });
   return combinations.slice(0, topN);
 }
 
-/**
- * Filter eligible players based on rest requirements.
- */
+// ─── Player priority & selection ─────────────────────────────────────────────
+
 export function filterEligiblePlayers(
   sessionId: string,
   playerIds: string[],
@@ -276,8 +380,7 @@ export function filterEligiblePlayers(
   for (const playerId of playerIds) {
     const player = allPlayers.find(p => p.id === playerId);
     if (!player) continue;
-    const restState = getPlayerRestState(sessionId, playerId);
-    if (restState.needsRest) {
+    if (getPlayerRestState(sessionId, playerId).needsRest) {
       needingRest.push(player);
     } else {
       eligible.push(player);
@@ -287,19 +390,6 @@ export function filterEligiblePlayers(
   return { eligible, needingRest };
 }
 
-/**
- * Calculate player priority score for assignment.
- * Lower score = higher priority.
- *
- * Priority factors:
- * 1. Queue position (DOMINANT) — ensures FIFO behavior
- * 2. Games played (tiebreaker) — prefer fewer games among similar positions
- * 3. Rest requirement (penalty) — discourage consecutive games
- * 4. Waiting bonus — reward players who have been sitting out (reduces their score)
- *
- * The waiting bonus partially counteracts the rest penalty and ensures
- * resting/waiting players are not permanently overlooked by tier filtering.
- */
 function calculatePlayerPriority(
   player: Player,
   queuePosition: number,
@@ -312,28 +402,19 @@ function calculatePlayerPriority(
   const positionScore = queuePosition * queueWeight;
   const restPenalty = restState.needsRest ? restState.consecutiveGames * restWeight : 0;
   const gamesPlayedPenalty = (player.gamesPlayed || 0) * gamesPlayedWeight;
-  // Waiting bonus: each game sat out reduces the player's priority score,
-  // meaning they bubble up toward the front within their position bucket.
   const waitingBonus = restState.gamesWaited * waitingBonusWeight;
-
   return positionScore + restPenalty + gamesPlayedPenalty - waitingBonus;
 }
 
 /**
- * Select the best 4 players for auto-assign, considering rest, queue order,
- * waiting bonuses, and (optionally) skill-tier grouping.
- *
- * When groupByTier is true:
- *   1. Score all candidates as normal.
- *   2. Identify the tier of the highest-priority candidate.
- *   3. Try to select 4 from that tier (or adjacent tiers ±1).
- *   4. Fall back to the normal top-4 if no same/adjacent-tier group is possible.
+ * Select the best 4 players for auto-assign.
+ * Fix 5: windowSize defaults to the dynamic autoWindow (35% of queue, clamped 6–16).
  */
 export function selectOptimalPlayers(
   sessionId: string,
   queuePlayerIds: string[],
   allPlayers: Player[],
-  windowSize: number = 8,
+  windowSize?: number,
   groupByTier: boolean = false
 ): {
   selectedPlayers: Player[];
@@ -342,14 +423,17 @@ export function selectOptimalPlayers(
 } {
   const restWarnings: string[] = [];
 
-  const candidateIds = queuePlayerIds.slice(0, Math.min(windowSize, queuePlayerIds.length));
+  // Fix 5: use dynamic window if not explicitly specified
+  const { autoWindow } = getWindowSizes(queuePlayerIds.length);
+  const effectiveWindow = windowSize ?? autoWindow;
+  const candidateIds = queuePlayerIds.slice(0, Math.min(effectiveWindow, queuePlayerIds.length));
 
   const scoredCandidates = candidateIds.map((playerId, index) => {
     const player = allPlayers.find(p => p.id === playerId);
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
     const priority = calculatePlayerPriority(player, index, restState);
-    const tierIndex = getTierIndex(player.skillScore || 90);
+    const tierIndex = getTierIndex(player.skillScore || 50);
     return { player, priority, restState, queuePosition: index, tierIndex };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
 
@@ -362,7 +446,6 @@ export function selectOptimalPlayers(
   if (groupByTier && scoredCandidates.length >= 4) {
     const leadTier = scoredCandidates[0].tierIndex;
 
-    // Try exact tier match first, then allow ±1 adjacent tier
     for (const tierTolerance of [0, 1]) {
       const tierCandidates = scoredCandidates.filter(
         c => Math.abs(c.tierIndex - leadTier) <= tierTolerance
@@ -376,7 +459,6 @@ export function selectOptimalPlayers(
       }
     }
 
-    // If we couldn't find a tier group, fall back to top-4 and flag as mixed
     if (!tierGroupFound) {
       const tiers = selected.map(c => c.tierIndex);
       isMixedTier = Math.max(...tiers) - Math.min(...tiers) > 0;
@@ -400,16 +482,9 @@ export function selectOptimalPlayers(
 }
 
 /**
- * Generate multiple different sets of 4 players and their team combinations.
- * Returns many balanced options by considering different player groups.
- *
- * When groupByTier is true, tier homogeneity is the primary sort criterion —
- * combinations where all 4 players share the same tier appear first, followed
- * by cross-tier combinations (labelled as "mixed levels" in the UI).
- *
- * Players in the rest/waiting queue are fully included in the candidate pool.
- * Their accumulated gamesWaited gives them a priority bonus that counteracts
- * the rest penalty, ensuring long-waiting players are never permanently skipped.
+ * Generate multiple sets of 4 players and their team combinations for the suggestions UI.
+ * Fix 3: passes sessionId to findBalancedTeams() so split penalty influences ranking.
+ * Fix 5: candidate window is 50% of queue length, clamped to [8, 24].
  */
 export function generateAllMatchupOptions(
   sessionId: string,
@@ -425,15 +500,16 @@ export function generateAllMatchupOptions(
   const allCombinations: TeamCombination[] = [];
   const processedPlayerSets = new Set<string>();
 
-  const windowSize = Math.min(12, queuePlayerIds.length);
-  const candidateIds = queuePlayerIds.slice(0, windowSize);
+  // Fix 5: dynamic suggest window
+  const { suggestWindow } = getWindowSizes(queuePlayerIds.length);
+  const candidateIds = queuePlayerIds.slice(0, suggestWindow);
 
   const scoredCandidates = candidateIds.map((playerId, index) => {
     const player = allPlayers.find(p => p.id === playerId);
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
     const priority = calculatePlayerPriority(player, index, restState);
-    const tierIndex = getTierIndex(player.skillScore || 90);
+    const tierIndex = getTierIndex(player.skillScore || 50);
     return { player, priority, restState, queuePosition: index, tierIndex };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
 
@@ -469,31 +545,30 @@ export function generateAllMatchupOptions(
     if (processedPlayerSets.has(setKey)) continue;
     processedPlayerSets.add(setKey);
 
-    const combinations = findBalancedTeams(playerSet, 3, groupByTier);
+    // Fix 3: pass sessionId so split penalty is factored into ranking
+    const combinations = findBalancedTeams(playerSet, 3, groupByTier, sessionId);
 
     for (const player of playerSet) {
       const restState = getPlayerRestState(sessionId, player.id);
       if (restState.needsRest) {
         const warningMsg = `${player.name} has played ${restState.consecutiveGames} consecutive games`;
-        if (!restWarnings.includes(warningMsg)) {
-          restWarnings.push(warningMsg);
-        }
+        if (!restWarnings.includes(warningMsg)) restWarnings.push(warningMsg);
       }
     }
 
     allCombinations.push(...combinations);
   }
 
-  // Sort: when groupByTier, tier homogeneity is primary; otherwise pure skill-gap/variance sort
+  // Sort: tier homogeneity → skill gap → split penalty → variance
   allCombinations.sort((a, b) => {
     if (groupByTier) {
       const tierDiff = a.tierDispersion - b.tierDispersion;
       if (tierDiff !== 0) return tierDiff;
     }
-    if (Math.abs(a.skillGap - b.skillGap) < 0.01) {
-      return a.variance - b.variance;
-    }
-    return a.skillGap - b.skillGap;
+    if (Math.abs(a.skillGap - b.skillGap) >= 0.01) return a.skillGap - b.skillGap;
+    const penaltyDiff = a.splitPenalty - b.splitPenalty;
+    if (penaltyDiff !== 0) return penaltyDiff;
+    return a.variance - b.variance;
   });
 
   allCombinations.forEach((combo, index) => { combo.rank = index + 1; });
