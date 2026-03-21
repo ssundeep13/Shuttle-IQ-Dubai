@@ -35,6 +35,8 @@ import {
   updatePartnerHistory,
   clearPlayerRestState,
   clearSessionRestStates,
+  toggleSittingOut,
+  getSittingOutPlayers,
   type TeamCombination
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
@@ -1116,6 +1118,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to remove from queue" });
+    }
+  });
+
+  // Sit-out toggle routes
+  app.post("/api/sessions/:sessionId/queue/players/:playerId/sit-out", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId, playerId } = req.params;
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      const queue = await storage.getQueue(sessionId);
+      if (!queue.includes(playerId)) {
+        return res.status(404).json({ error: "Player not in queue" });
+      }
+      const nowSittingOut = toggleSittingOut(sessionId, playerId);
+      res.json({ playerId, sittingOut: nowSittingOut });
+    } catch (error) {
+      console.error("Sit-out toggle error:", error);
+      res.status(500).json({ error: "Failed to toggle sit-out" });
+    }
+  });
+
+  app.get("/api/sessions/:sessionId/queue/sitting-out", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json({ sittingOut: getSittingOutPlayers(sessionId) });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch sitting-out players" });
     }
   });
 

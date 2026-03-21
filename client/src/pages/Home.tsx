@@ -920,6 +920,7 @@ export default function Home() {
               onAddPlayer={() => setShowAddPlayer(true)}
               onRemoveFromQueue={handleRemoveFromQueue}
               onClearQueue={handleClearQueue}
+              sessionId={session?.id}
             />
           )}
 

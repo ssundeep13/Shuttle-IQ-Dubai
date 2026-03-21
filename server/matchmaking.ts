@@ -51,6 +51,9 @@ const sessionRestStates = new Map<string, Map<string, PlayerRestState>>();
 // Fix 3: Partner history: sessionId → "lowerId:higherId" → times played together
 const sessionPartnerHistory = new Map<string, Map<string, number>>();
 
+// Voluntary sit-out: sessionId → Set of player IDs currently sitting out
+const sessionSittingOut = new Map<string, Set<string>>();
+
 // ─── Rest state helpers ───────────────────────────────────────────────────────
 
 function getSessionRestStates(sessionId: string): Map<string, PlayerRestState> {
@@ -95,6 +98,8 @@ export function updatePlayerRestState(
       current.consecutiveGames = 0;
     }
     current.needsRest = current.consecutiveGames >= 2;
+    // Auto-clear voluntary sit-out after one game passes
+    clearSittingOutPlayer(sessionId, playerId);
   }
 
   states.set(playerId, current);
@@ -121,7 +126,42 @@ export function clearPlayerRestState(sessionId: string, playerId: string): void 
 
 export function clearSessionRestStates(sessionId: string): void {
   sessionRestStates.delete(sessionId);
-  sessionPartnerHistory.delete(sessionId); // Also clear partner history on session end
+  sessionPartnerHistory.delete(sessionId);
+  sessionSittingOut.delete(sessionId);
+}
+
+// ─── Sit-out helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Toggle a player's voluntary sit-out status for the current round.
+ * Returns the new state (true = now sitting out, false = no longer sitting out).
+ */
+export function toggleSittingOut(sessionId: string, playerId: string): boolean {
+  if (!sessionSittingOut.has(sessionId)) {
+    sessionSittingOut.set(sessionId, new Set());
+  }
+  const set = sessionSittingOut.get(sessionId)!;
+  if (set.has(playerId)) {
+    set.delete(playerId);
+    return false;
+  }
+  set.add(playerId);
+  return true;
+}
+
+/** Returns true if the player is currently voluntarily sitting out. */
+export function isSittingOut(sessionId: string, playerId: string): boolean {
+  return sessionSittingOut.get(sessionId)?.has(playerId) ?? false;
+}
+
+/** Returns all player IDs currently sitting out in this session. */
+export function getSittingOutPlayers(sessionId: string): string[] {
+  return Array.from(sessionSittingOut.get(sessionId) ?? []);
+}
+
+/** Clears a single player's sit-out flag (used in auto-clear after one game). */
+function clearSittingOutPlayer(sessionId: string, playerId: string): void {
+  sessionSittingOut.get(sessionId)?.delete(playerId);
 }
 
 /**
@@ -426,7 +466,9 @@ export function selectOptimalPlayers(
   // Fix 5: use dynamic window if not explicitly specified
   const { autoWindow } = getWindowSizes(queuePlayerIds.length);
   const effectiveWindow = windowSize ?? autoWindow;
-  const candidateIds = queuePlayerIds.slice(0, Math.min(effectiveWindow, queuePlayerIds.length));
+  // Exclude sitting-out players from the candidate pool (they keep their queue position)
+  const eligibleIds = queuePlayerIds.filter(id => !isSittingOut(sessionId, id));
+  const candidateIds = eligibleIds.slice(0, Math.min(effectiveWindow, eligibleIds.length));
 
   const scoredCandidates = candidateIds.map((playerId, index) => {
     const player = allPlayers.find(p => p.id === playerId);
@@ -500,9 +542,10 @@ export function generateAllMatchupOptions(
   const allCombinations: TeamCombination[] = [];
   const processedPlayerSets = new Set<string>();
 
-  // Fix 5: dynamic suggest window
-  const { suggestWindow } = getWindowSizes(queuePlayerIds.length);
-  const candidateIds = queuePlayerIds.slice(0, suggestWindow);
+  // Fix 5: dynamic suggest window; exclude sitting-out players
+  const eligibleQueueIds = queuePlayerIds.filter(id => !isSittingOut(sessionId, id));
+  const { suggestWindow } = getWindowSizes(eligibleQueueIds.length);
+  const candidateIds = eligibleQueueIds.slice(0, suggestWindow);
 
   const scoredCandidates = candidateIds.map((playerId, index) => {
     const player = allPlayers.find(p => p.id === playerId);

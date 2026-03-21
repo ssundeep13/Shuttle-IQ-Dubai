@@ -1,10 +1,10 @@
-import { Plus, Minus, Trash2, RefreshCw, ArrowUpDown } from "lucide-react";
+import { Plus, Trash2, RefreshCw, ArrowUpDown, Coffee } from "lucide-react";
 import { Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Select,
   SelectContent,
@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatSkillLevel, getSkillTierColor } from "@shared/utils/skillUtils";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TodayPlayer extends Player {
   gamesPlayedToday?: number;
@@ -25,9 +27,8 @@ interface PlayerQueueProps {
   onAddPlayer: () => void;
   onRemoveFromQueue: (playerId: string) => void;
   onClearQueue: () => void;
+  sessionId?: string;
 }
-
-// Using getSkillTierColor from skillUtils instead of local function
 
 export function PlayerQueue({
   players,
@@ -35,47 +36,57 @@ export function PlayerQueue({
   onAddPlayer,
   onRemoveFromQueue,
   onClearQueue,
+  sessionId,
 }: PlayerQueueProps) {
   const [sortBy, setSortBy] = useState<'skill' | 'games'>('skill');
 
-  // Fetch today's stats for all players
   const { data: todayPlayers = [] } = useQuery<TodayPlayer[]>({
     queryKey: ['/api/stats/today'],
   });
 
-  // Map queue player IDs to players with today's stats
+  const { data: sittingOutData } = useQuery<{ sittingOut: string[] }>({
+    queryKey: ['/api/sessions', sessionId, 'queue', 'sitting-out'],
+    queryFn: async () => {
+      const res = await fetch(`/api/sessions/${sessionId}/queue/sitting-out`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+        },
+      });
+      if (!res.ok) return { sittingOut: [] };
+      return res.json();
+    },
+    enabled: !!sessionId,
+    staleTime: 5000,
+  });
+
+  const sittingOutSet = new Set(sittingOutData?.sittingOut ?? []);
+
+  const toggleSitOutMutation = useMutation({
+    mutationFn: async (playerId: string) => {
+      return await apiRequest('POST', `/api/sessions/${sessionId}/queue/players/${playerId}/sit-out`, null);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions', sessionId, 'queue', 'sitting-out'] });
+    },
+  });
+
   const queuePlayers = queuePlayerIds
     .map((id) => {
       const player = players.find((p) => p.id === id);
       if (!player) return undefined;
-      
-      // Find today's stats for this player
       const todayStats = todayPlayers.find((tp) => tp.id === id);
-      if (todayStats) {
-        return {
-          ...player,
-          gamesPlayedToday: todayStats.gamesPlayedToday || 0,
-          winsToday: todayStats.winsToday || 0,
-        } as TodayPlayer;
-      }
-      
-      // If no stats found, return player with 0 today stats
       return {
         ...player,
-        gamesPlayedToday: 0,
-        winsToday: 0,
+        gamesPlayedToday: todayStats?.gamesPlayedToday ?? 0,
+        winsToday: todayStats?.winsToday ?? 0,
       } as TodayPlayer;
     })
     .filter((p): p is TodayPlayer => p !== undefined);
 
-  // Sort players based on selected criteria
   const sortedQueuePlayers = [...queuePlayers].sort((a, b) => {
     if (sortBy === 'skill') {
-      // Sort by skill score directly (10-200 scale already represents the hierarchy)
-      // Professional (190/200) → Advanced+ (170/180) → ... → Novice (10/20)
       return (b.skillScore || 90) - (a.skillScore || 90);
     } else {
-      // Sort by games played TODAY: highest to lowest
       return (b.gamesPlayedToday || 0) - (a.gamesPlayedToday || 0);
     }
   });
@@ -102,8 +113,13 @@ export function PlayerQueue({
         <p className="text-sm text-muted-foreground">
           <span className="font-semibold text-foreground" data-testid="text-queue-player-count">{queuePlayers.length}</span> player
           {queuePlayers.length !== 1 ? 's' : ''} waiting
+          {sittingOutSet.size > 0 && (
+            <span className="ml-1 text-muted-foreground">
+              · <span className="font-medium">{sittingOutSet.size}</span> sitting out
+            </span>
+          )}
         </p>
-        
+
         {queuePlayers.length > 0 && (
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <ArrowUpDown className="w-4 h-4 text-muted-foreground hidden sm:block" />
@@ -122,46 +138,90 @@ export function PlayerQueue({
 
       {queuePlayers.length > 0 ? (
         <div className="space-y-2 max-h-[600px] overflow-y-auto">
-          {sortedQueuePlayers.map((player, index) => (
-            <div
-              key={player.id}
-              className="flex items-center justify-between p-3 sm:p-3 bg-muted rounded-md border border-transparent hover:border-border transition-all hover-elevate min-h-[4rem]"
-              data-testid={`queue-player-${player.id}`}
-            >
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="flex items-center justify-center w-8 h-8 sm:w-8 sm:h-8 rounded-full bg-primary/10 text-primary font-bold text-sm flex-shrink-0">
-                  {index + 1}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-semibold text-foreground truncate">{player.name}</p>
-                    {player.shuttleIqId && (
-                      <Badge variant="outline" className="text-xs">
-                        {player.shuttleIqId}
+          {sortedQueuePlayers.map((player, index) => {
+            const isSittingOut = sittingOutSet.has(player.id);
+            return (
+              <div
+                key={player.id}
+                className={cn(
+                  "flex items-center justify-between p-3 sm:p-3 rounded-md border border-transparent hover:border-border transition-all hover-elevate min-h-[4rem]",
+                  isSittingOut
+                    ? "bg-muted/40 opacity-60"
+                    : "bg-muted"
+                )}
+                data-testid={`queue-player-${player.id}`}
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className={cn(
+                    "flex items-center justify-center w-8 h-8 sm:w-8 sm:h-8 rounded-full font-bold text-sm flex-shrink-0",
+                    isSittingOut ? "bg-muted-foreground/20 text-muted-foreground" : "bg-primary/10 text-primary"
+                  )}>
+                    {index + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className={cn("font-semibold truncate", isSittingOut ? "text-muted-foreground" : "text-foreground")}>
+                        {player.name}
+                      </p>
+                      {player.shuttleIqId && (
+                        <Badge variant="outline" className="text-xs">
+                          {player.shuttleIqId}
+                        </Badge>
+                      )}
+                      {isSittingOut && (
+                        <Badge variant="outline" className="text-xs text-muted-foreground">
+                          Sitting out
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
+                        {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
                       </Badge>
-                    )}
+                      <span className="text-xs text-muted-foreground">
+                        {player.gamesPlayedToday || 0} games · {player.winsToday || 0} wins
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
-                      {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {player.gamesPlayedToday || 0} games · {player.winsToday || 0} wins
-                    </span>
-                  </div>
+                </div>
+                <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                  {sessionId && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          onClick={() => toggleSitOutMutation.mutate(player.id)}
+                          variant="ghost"
+                          size="icon"
+                          disabled={toggleSitOutMutation.isPending}
+                          className={cn(
+                            "min-w-12 min-h-12 sm:min-w-9 sm:min-h-9",
+                            isSittingOut
+                              ? "text-amber-500"
+                              : "text-muted-foreground"
+                          )}
+                          data-testid={`button-sit-out-${player.id}`}
+                        >
+                          <Coffee className="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {isSittingOut ? "Resume — player will be eligible again" : "Sit out next round"}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                  <Button
+                    onClick={() => onRemoveFromQueue(player.id)}
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:text-destructive min-w-12 min-h-12 sm:min-w-9 sm:min-h-9"
+                    data-testid={`button-remove-queue-${player.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
               </div>
-              <Button
-                onClick={() => onRemoveFromQueue(player.id)}
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-destructive ml-2 flex-shrink-0 min-w-12 min-h-12 sm:min-w-9 sm:min-h-9"
-                data-testid={`button-remove-queue-${player.id}`}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="text-center py-12 bg-muted rounded-md">
