@@ -1,7 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card';
 import {
-  Trophy, Zap, Clock, Users2, BarChart3,
-  ArrowRight, TrendingUp, TrendingDown, Coffee,
+  Zap, Clock, Users2, BarChart3,
+  TrendingUp, TrendingDown, Coffee,
   ChevronRight,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
