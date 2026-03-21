@@ -89,6 +89,28 @@ export default function MyScores() {
   const [flagNote, setFlagNote] = useState('');
   const [progressionFilter, setProgressionFilter] = useState<'last10' | 'monthly' | 'all'>('last10');
   const [taggingGameId, setTaggingGameId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleShareProfile = async () => {
+    if (!linkedPlayerId) return;
+    const url = `${window.location.origin}/marketplace/players/${linkedPlayerId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'My ShuttleIQ Profile', url });
+        return;
+      } catch {
+        // user cancelled or share failed — fall through to clipboard
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast({ title: 'Link copied!', description: 'Profile link copied to clipboard.' });
+    } catch {
+      toast({ title: 'Could not copy', description: url, variant: 'destructive' });
+    }
+  };
 
   const { data: stats, isLoading } = useQuery<PlayerStats>({
     queryKey: ['/api/players', linkedPlayerId, 'stats'],
@@ -229,8 +251,11 @@ export default function MyScores() {
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
           </Link>
-          <Button variant="outline" size="sm" data-testid="button-share-profile">
-            <Share2 className="h-4 w-4 mr-1" /> Share Profile
+          <Button variant="outline" size="sm" onClick={handleShareProfile} data-testid="button-share-profile">
+            {copied
+              ? <><Check className="h-4 w-4 mr-1" /> Copied!</>
+              : <><Share2 className="h-4 w-4 mr-1" /> Share Profile</>
+            }
           </Button>
         </motion.div>
 
