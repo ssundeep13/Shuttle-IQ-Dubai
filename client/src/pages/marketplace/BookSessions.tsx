@@ -148,6 +148,7 @@ function ListCard({ session, isBooked }: SessionCardProps) {
               size="sm"
               variant={isBooked ? 'outline' : 'default'}
               className="gap-1"
+              disabled={!isBooked && session.spotsRemaining <= 0}
               data-testid={isBooked ? `button-view-booking-${session.id}` : `button-view-session-${session.id}`}
             >
               {isBooked ? 'View Booking' : session.spotsRemaining > 0 ? 'View & Book' : 'Join the Waitlist'}
@@ -243,6 +244,7 @@ function GridCard({ session, isBooked }: SessionCardProps) {
               size="sm"
               variant={isBooked ? 'outline' : 'default'}
               className="gap-1"
+              disabled={!isBooked && session.spotsRemaining <= 0}
               data-testid={isBooked ? `button-view-booking-${session.id}` : `button-view-session-${session.id}`}
             >
               {isBooked ? 'View Booking' : session.spotsRemaining > 0 ? 'View & Book' : 'Join the Waitlist'}
