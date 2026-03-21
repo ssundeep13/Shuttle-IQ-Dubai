@@ -102,23 +102,29 @@ export function getKFactor(gamesPlayed: number, returnGamesRemaining: number = 0
  * Calculate the contribution factor for a player based on their relative SKID
  * contribution to their team (Fix 1 — partner quality weighting).
  *
- * A player who contributed more skill to a win earns more; contributed less earns less.
- * The dampening factor (0.6) prevents the factor from reaching 0 or 1, so even a
- * very weak partner always gets some credit/blame for the result.
+ * Centered at 1.0 for equal-skill partners so existing delta magnitudes are preserved
+ * and only diverge when there is a skill gap within the pair.
  *
- * Range: 0.20 (weakest) to 0.80 (strongest), 0.50 for equal partners.
+ * - Equal partners          → 1.00 (no change to delta)
+ * - Stronger than partner   → > 1.00 (earn/lose proportionally more)
+ * - Weaker than partner     → < 1.00 (earn/lose proportionally less)
+ *
+ * The DAMPENING factor (0.6) limits the range to approximately 0.70–1.30,
+ * preventing extreme amplification or suppression.
  *
  * @param yourScore  Your current skill score
- * @param partnerScore  Your partner's skill score (null = singles or unavailable → factor = 0.5)
+ * @param partnerScore  Your partner's skill score (null = singles or unavailable → factor = 1.0)
  */
 export function getContributionFactor(yourScore: number, partnerScore: number | null | undefined): number {
-  if (partnerScore == null) return 0.5;
+  if (partnerScore == null) return 1.0;
 
   const yourSkid = Math.max(CONTRIBUTION_SKID_FLOOR, yourScore / 10);
   const partnerSkid = Math.max(CONTRIBUTION_SKID_FLOOR, partnerScore / 10);
 
+  // partnerWeight = your fraction of total team SKID: 0.5 means exactly equal
   const partnerWeight = yourSkid / (yourSkid + partnerSkid);
-  return 0.5 + (partnerWeight - 0.5) * CONTRIBUTION_DAMPENING;
+  // Map [0, 1] → [0.70, 1.30] (approximately) centered at 1.0
+  return 1.0 + (partnerWeight - 0.5) * CONTRIBUTION_DAMPENING;
 }
 
 /**

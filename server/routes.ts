@@ -619,10 +619,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'Novice': 25,
         'Beginner': 50,
         'Intermediate': 90,
+        // Advanced/Professional silently mapped to mid-Intermediate per policy
+        'Advanced': 90,
+        'Professional': 90,
       };
       
-      // Guard: any attempt to assign Advanced/Professional defaults to mid-Intermediate
-      const skillScore = skillScoreMap[validated.level] ?? 50;
+      const skillScore = skillScoreMap[validated.level] ?? 90; // Unknown level → Intermediate default
       
       const player = await storage.createPlayer({ ...validated, skillScore });
       
@@ -1456,12 +1458,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? (now.getTime() - new Date(lastPlayed).getTime()) / (24 * 60 * 60 * 1000)
           : 0;
         const isReturning = lastPlayed !== null && daysInactive >= RETURN_BOOST_THRESHOLD_DAYS;
-        // If returning: set returnGamesRemaining to 2. Otherwise decrement (floor 0).
-        const newReturnGamesRemaining = isReturning
-          ? RETURN_BOOST_GAMES
-          : Math.max(0, (player.returnGamesRemaining ?? 0) - 1);
-        // The boost that applies to THIS game uses the CURRENT returnGamesRemaining (before decrement)
+        // Effective credits for THIS game: if returning, reset to full RETURN_BOOST_GAMES;
+        // otherwise carry over existing credits unchanged (decrement happens after use).
         const currentReturnGames = isReturning ? RETURN_BOOST_GAMES : (player.returnGamesRemaining ?? 0);
+        // After this game, consume one credit (floor 0). That way:
+        //   comeback game: credits=2 (boost on) → stored=1
+        //   2nd game back: credits=1 (boost on) → stored=0
+        //   3rd game back: credits=0 (no boost)  → stored=0
+        const newReturnGamesRemaining = Math.max(0, currentReturnGames - 1);
 
         // Calculate new skill score using ELO-style adjustment (Fix 1 + Fix 2 + Fix 6)
         const skillBefore = player.skillScore || 50;

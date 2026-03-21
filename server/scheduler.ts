@@ -43,15 +43,19 @@ async function runReminderJob(): Promise<void> {
 /**
  * Tiered inactivity decay (Fix 6 — softer early, steeper late, max −50):
  *   weeks 0–1:  no decay
- *   weeks 2–3:  −3 pts/week from baseline (gentle early ramp)
- *   weeks 4–7:  −4 pts/week (moderate)
- *   week  8+:   −3 pts/week, total capped at −50
+ *   weeks 2–3:  −3 pts/week from baseline  (gentle early ramp)
+ *   weeks 4–7:  −4 pts/week                (moderate, strictly steeper than early)
+ *   week  8+:   −5 pts/week, capped at −50 (most aggressive, strictly steeper than middle)
  *
- * Examples for a player at 115 (low Advanced):
+ * Cumulative totals:
+ *   w2: −3 | w3: −6 | w4: −10 | w5: −14 | w6: −18 | w7: −22
+ *   w8: −27 | w9: −32 | w10: −37 | w11: −42 | w12: −47 | w13+: −50 (cap)
+ *
+ * Example — player at 115 (low Advanced):
  *   2 weeks → −3  → 112  (still Advanced)
  *   4 weeks → −10 → 105  (Intermediate)
- *   8 weeks → −22 →  93  (Intermediate)
- *  16 weeks → −46 →  69  (top Beginner, approaching cap)
+ *   8 weeks → −27 →  88  (Intermediate)
+ *  13 weeks → −50 →  65  (top Beginner, cap reached)
  *
  * Using skillScoreBaseline as the anchor makes this idempotent — each daily
  * run computes the same target score for a given inactivity duration, so running
@@ -64,9 +68,9 @@ async function runReminderJob(): Promise<void> {
 function calculateDecayPoints(daysInactive: number): number {
   const weeks = Math.floor(daysInactive / 7);
   if (weeks < 2) return 0;
-  if (weeks < 4) return (weeks - 1) * 3;          // weeks 2–3: −3/week
-  if (weeks < 8) return 6 + (weeks - 3) * 4;      // weeks 4–7: −4/week
-  return Math.min(22 + (weeks - 7) * 3, 50);       // week 8+:   capped at −50
+  if (weeks < 4) return (weeks - 1) * 3;          // weeks 2–3: −3/week  (3, 6)
+  if (weeks < 8) return 6 + (weeks - 3) * 4;      // weeks 4–7: −4/week  (10, 14, 18, 22)
+  return Math.min(22 + (weeks - 7) * 5, 50);       // week 8+:   −5/week, cap −50
 }
 
 async function runInactivityDecayJob(): Promise<void> {
