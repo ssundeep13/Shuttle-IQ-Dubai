@@ -613,20 +613,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validated = insertPlayerSchema.parse(req.body);
       
-      // Set initial skill score based on level (Fix 2: operators can only assign Novice/Beginner/Intermediate;
-      // Advanced and Professional are earned through gameplay only)
-      const skillScoreMap: Record<string, number> = {
-        'Novice': 25,
-        'Beginner': 50,
-        'Intermediate': 90,
-        // Advanced/Professional silently mapped to mid-Intermediate per policy
-        'Advanced': 90,
-        'Professional': 90,
+      // Fix 2: operators can only assign Novice/Beginner/Intermediate at creation time.
+      // Advanced/Professional are earned through gameplay — cap both score and stored level.
+      const ALLOWED_LEVELS: Record<string, { level: string; score: number }> = {
+        'Novice':       { level: 'Novice',       score: 25 },
+        'Beginner':     { level: 'Beginner',      score: 50 },
+        'Intermediate': { level: 'Intermediate',  score: 90 },
+        'Advanced':     { level: 'Intermediate',  score: 90 },
+        'Professional': { level: 'Intermediate',  score: 90 },
       };
+      const levelEntry = ALLOWED_LEVELS[validated.level] ?? { level: 'Intermediate', score: 90 };
+      const skillScore = levelEntry.score;
+      const normalizedLevel = levelEntry.level;
       
-      const skillScore = skillScoreMap[validated.level] ?? 90; // Unknown level → Intermediate default
-      
-      const player = await storage.createPlayer({ ...validated, skillScore });
+      const player = await storage.createPlayer({ ...validated, level: normalizedLevel, skillScore });
       
       // Only add to queue if there's an active session
       if (activeSession) {
