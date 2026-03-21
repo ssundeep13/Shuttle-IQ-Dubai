@@ -284,8 +284,8 @@ function calculateSplitPenalty(
  * Examples: 8 players → 6/8, 28 players → 9/14, 40 players → 14/20.
  */
 export function getWindowSizes(queueLength: number): { autoWindow: number; suggestWindow: number } {
-  const autoWindow   = Math.max(6, Math.min(16, Math.round(queueLength * 0.35)));
-  const suggestWindow = Math.max(8, Math.min(24, Math.round(queueLength * 0.50)));
+  const autoWindow   = Math.max(6, Math.min(16, Math.floor(queueLength * 0.35)));
+  const suggestWindow = Math.max(8, Math.min(24, Math.floor(queueLength * 0.50)));
   return { autoWindow, suggestWindow };
 }
 
@@ -308,8 +308,8 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   variance: number;
   tierDispersion: number;
 } {
-  const team1Skills = team1.map(p => p.skillScore || 50);
-  const team2Skills = team2.map(p => p.skillScore || 50);
+  const team1Skills = team1.map(p => p.skillScore || 90);
+  const team2Skills = team2.map(p => p.skillScore || 90);
 
   const team1Avg = team1Skills.reduce((a, b) => a + b, 0) / team1Skills.length;
   const team2Avg = team2Skills.reduce((a, b) => a + b, 0) / team2Skills.length;
@@ -433,7 +433,7 @@ export function selectOptimalPlayers(
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
     const priority = calculatePlayerPriority(player, index, restState);
-    const tierIndex = getTierIndex(player.skillScore || 50);
+    const tierIndex = getTierIndex(player.skillScore || 90);
     return { player, priority, restState, queuePosition: index, tierIndex };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
 
@@ -509,7 +509,7 @@ export function generateAllMatchupOptions(
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
     const priority = calculatePlayerPriority(player, index, restState);
-    const tierIndex = getTierIndex(player.skillScore || 50);
+    const tierIndex = getTierIndex(player.skillScore || 90);
     return { player, priority, restState, queuePosition: index, tierIndex };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
 
