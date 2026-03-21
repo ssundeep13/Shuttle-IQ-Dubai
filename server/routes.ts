@@ -1078,10 +1078,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       await storage.setQueue(activeSession.id, playerIds);
       
-      // Clear rest states for players that were removed from queue
+      // Clear rest states and sit-out flags for players removed from queue
       const removedPlayerIds = oldQueue.filter(id => !playerIds.includes(id));
       for (const playerId of removedPlayerIds) {
         clearPlayerRestState(activeSession.id, playerId);
+        clearSittingOutPlayer(activeSession.id, playerId);
       }
       
       res.json({ success: true });
