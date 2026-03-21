@@ -51,6 +51,10 @@ async function runReminderJob(): Promise<void> {
  * Using skillScoreBaseline as the anchor makes this idempotent — each daily
  * run computes the same target score for a given inactivity duration, so running
  * multiple times per day has no extra effect.
+ *
+ * Only players with a non-null lastPlayedAt are considered. Players without a
+ * recorded last-game date are skipped — the created_at fallback was removed to
+ * prevent false decay on legacy or newly imported players.
  */
 async function runInactivityDecayJob(): Promise<void> {
   try {
@@ -58,14 +62,14 @@ async function runInactivityDecayJob(): Promise<void> {
     // Inclusive: players inactive for >= 14 days (use strictly-less-than threshold date)
     const thresholdDate = new Date(now.getTime() - INACTIVITY_THRESHOLD_DAYS * 24 * 60 * 60 * 1000);
 
-    // Fetch players where lastPlayedAt >= 14 days ago,
-    // OR lastPlayedAt is null and createdAt >= 14 days ago (never played).
+    // Only fetch players where lastPlayedAt is set AND is older than the threshold.
+    // Never fall back to createdAt — that caused all historical players to appear
+    // maximally inactive and decay to the score floor.
     const inactivePlayers = await db
       .select()
       .from(players)
       .where(
-        sql`(${players.lastPlayedAt} IS NOT NULL AND ${players.lastPlayedAt} <= ${thresholdDate})
-            OR (${players.lastPlayedAt} IS NULL AND ${players.createdAt} <= ${thresholdDate})`
+        sql`${players.lastPlayedAt} IS NOT NULL AND ${players.lastPlayedAt} <= ${thresholdDate}`
       );
 
     if (inactivePlayers.length === 0) return;
@@ -74,7 +78,7 @@ async function runInactivityDecayJob(): Promise<void> {
 
     let decayCount = 0;
     for (const player of inactivePlayers) {
-      const referenceDate = player.lastPlayedAt ?? player.createdAt;
+      const referenceDate = player.lastPlayedAt!;
       const msInactive = now.getTime() - referenceDate.getTime();
       const daysInactive = msInactive / (24 * 60 * 60 * 1000);
 
@@ -122,22 +126,37 @@ async function runInactivityDecayJob(): Promise<void> {
 }
 
 /**
- * One-time startup migration: ensures every player has a skillScoreBaseline.
- * Newly created players always get one (set in storage.createPlayer).
- * This backfills legacy/existing rows that predate the column.
+ * One-time startup migration: ensures every player has a skillScoreBaseline
+ * and a lastPlayedAt timestamp.
+ *
+ * Newly created players always get both (set in storage.createPlayer and on
+ * game end). This backfills any legacy/existing rows that predate the columns.
+ *
+ * lastPlayedAt is set to NOW() for any player that still has it null — this
+ * gives them a clean 14-day inactivity window starting from the current date,
+ * ensuring the decay job never treats them as retroactively inactive.
  */
 async function backfillSkillScoreBaseline(): Promise<void> {
   try {
-    const updated = await db
+    const baselineUpdated = await db
       .update(players)
       .set({ skillScoreBaseline: sql`${players.skillScore}` })
       .where(sql`${players.skillScoreBaseline} IS NULL`)
       .returning({ id: players.id });
-    if (updated.length > 0) {
-      console.log(`[Scheduler] Backfilled skillScoreBaseline for ${updated.length} legacy player(s).`);
+    if (baselineUpdated.length > 0) {
+      console.log(`[Scheduler] Backfilled skillScoreBaseline for ${baselineUpdated.length} legacy player(s).`);
+    }
+
+    const clockUpdated = await db
+      .update(players)
+      .set({ lastPlayedAt: sql`NOW()` })
+      .where(sql`${players.lastPlayedAt} IS NULL`)
+      .returning({ id: players.id });
+    if (clockUpdated.length > 0) {
+      console.log(`[Scheduler] Backfilled lastPlayedAt (set to now) for ${clockUpdated.length} player(s) — inactivity clock starts today.`);
     }
   } catch (err) {
-    console.error('[Scheduler] skillScoreBaseline backfill error:', err);
+    console.error('[Scheduler] Startup backfill error:', err);
   }
 }
 
