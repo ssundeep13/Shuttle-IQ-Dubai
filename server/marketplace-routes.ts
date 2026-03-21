@@ -834,6 +834,13 @@ export function registerMarketplaceRoutes(app: Express) {
       if (booking.paymentMethod !== 'ziina') {
         return res.status(400).json({ error: "This booking does not require online payment" });
       }
+      if (!booking.promotedAt) {
+        return res.status(400).json({ error: "Booking has no payment window set" });
+      }
+      const paymentDeadline = new Date(booking.promotedAt).getTime() + 4 * 60 * 60 * 1000;
+      if (Date.now() > paymentDeadline) {
+        return res.status(410).json({ error: "Payment window has expired. Your spot has been released." });
+      }
 
       const bookableSession = await storage.getBookableSession(booking.sessionId);
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });

@@ -231,7 +231,7 @@ async function runExpiredPaymentJob(): Promise<void> {
 
     for (const booking of expired) {
       try {
-        // Cancel the expired pending_payment booking
+        // Cancel the expired pending_payment booking permanently
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date() });
 
         // Notify the user their payment window expired
@@ -239,16 +239,8 @@ async function runExpiredPaymentJob(): Promise<void> {
           userId: booking.userId,
           type: 'payment_expired',
           title: 'Payment window expired',
-          message: 'Your spot was released because payment was not completed within 4 hours. You have been returned to the waitlist.',
+          message: 'Your spot was released because payment was not completed within 4 hours. You can re-join the waitlist from the session page.',
           relatedBookingId: booking.id,
-        });
-
-        // Move back to waitlist
-        const waitlistCount = await storage.getWaitlistCountForSession(booking.sessionId);
-        await storage.updateBooking(booking.id, {
-          status: 'waitlisted',
-          waitlistPosition: waitlistCount + 1,
-          cancelledAt: null,
         });
 
         const bookableSession = await storage.getBookableSession(booking.sessionId);
@@ -258,7 +250,7 @@ async function runExpiredPaymentJob(): Promise<void> {
         const waitlisted = await storage.getWaitlistedBookingsForSession(booking.sessionId);
         const currentCount = await storage.getBookingCountForSession(booking.sessionId);
         const spotsAvailable = bookableSession.capacity - currentCount;
-        const next = waitlisted.find(w => w.id !== booking.id && (w.spotsBooked ?? 1) <= spotsAvailable);
+        const next = waitlisted.find(w => (w.spotsBooked ?? 1) <= spotsAvailable);
 
         if (next) {
           const isZiinaPromotion = next.paymentMethod === 'ziina';
@@ -310,7 +302,7 @@ async function runExpiredPaymentJob(): Promise<void> {
           console.log(`[Scheduler] Promoted booking ${next.id} (${isZiinaPromotion ? 'pending_payment' : 'confirmed'}) for session ${booking.sessionId}`);
         }
 
-        console.log(`[Scheduler] Expired pending_payment booking ${booking.id} — returned to waitlist`);
+        console.log(`[Scheduler] Expired pending_payment booking ${booking.id} — spot released and cascaded`);
       } catch (err) {
         console.error(`[Scheduler] Error expiring booking ${booking.id}:`, err);
       }

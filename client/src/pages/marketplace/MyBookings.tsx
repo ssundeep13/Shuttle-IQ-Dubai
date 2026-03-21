@@ -41,8 +41,8 @@ const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destruc
 
 const PAYMENT_WINDOW_MS = 4 * 60 * 60 * 1000;
 
-function PaymentCountdown({ promotedAt }: { promotedAt: string | Date | null }) {
-  const [remaining, setRemaining] = useState<string>('');
+function usePaymentCountdown(promotedAt: string | Date | null): { label: string; expired: boolean } {
+  const [state, setState] = useState<{ label: string; expired: boolean }>({ label: '', expired: false });
 
   useEffect(() => {
     if (!promotedAt) return;
@@ -51,13 +51,13 @@ function PaymentCountdown({ promotedAt }: { promotedAt: string | Date | null }) 
     const update = () => {
       const diff = deadline - Date.now();
       if (diff <= 0) {
-        setRemaining('Expired');
+        setState({ label: 'Expired', expired: true });
         return;
       }
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
       const s = Math.floor((diff % 60000) / 1000);
-      setRemaining(`${h}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`);
+      setState({ label: `${h}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`, expired: false });
     };
 
     update();
@@ -65,7 +65,7 @@ function PaymentCountdown({ promotedAt }: { promotedAt: string | Date | null }) 
     return () => clearInterval(interval);
   }, [promotedAt]);
 
-  return <span className="font-mono tabular-nums">{remaining}</span>;
+  return state;
 }
 
 function isWithin5Hours(sessionDate: Date | string, startTime: string): boolean {
@@ -240,10 +240,10 @@ export default function MyBookings() {
   });
 
   const initiatePaymentMutation = useMutation({
-    mutationFn: async (bookingId: string) => {
+    mutationFn: async (bookingId: string): Promise<{ redirectUrl: string }> => {
       return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/initiate-payment`);
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data) => {
       if (data?.redirectUrl) {
         window.location.href = data.redirectUrl;
       }
@@ -263,6 +263,7 @@ export default function MyBookings() {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
     const isWaitlisted = booking.status === 'waitlisted';
     const isPendingPayment = booking.status === 'pending_payment';
+    const countdown = usePaymentCountdown(isPendingPayment ? booking.promotedAt : null);
     const isLinkedGuest = booking.isGuestBooking && !!booking.myGuestId;
     const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && new Date(booking.session.date) >= new Date();
     const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && new Date(booking.session.date) >= new Date();
@@ -333,23 +334,27 @@ export default function MyBookings() {
 
             {/* Pending payment banner */}
             {isPendingPayment && (
-              <div className="mb-4 flex items-start gap-3 rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/40 p-3" data-testid={`banner-payment-due-${booking.id}`}>
-                <Timer className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />
+              <div className={`mb-4 flex items-start gap-3 rounded-md border p-3 ${countdown.expired ? 'bg-muted/40 border-muted' : 'bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800/40'}`} data-testid={`banner-payment-due-${booking.id}`}>
+                <Timer className={`h-4 w-4 shrink-0 mt-0.5 ${countdown.expired ? 'text-muted-foreground' : 'text-orange-500'}`} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-orange-700 dark:text-orange-300">Payment required to secure your spot</p>
-                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-0.5">
-                    Time remaining: <PaymentCountdown promotedAt={(booking as any).promotedAt} />
+                  <p className={`text-sm font-medium ${countdown.expired ? 'text-muted-foreground' : 'text-orange-700 dark:text-orange-300'}`}>
+                    {countdown.expired ? 'Payment window expired — spot will be released shortly' : 'Payment required to secure your spot'}
+                  </p>
+                  <p className={`text-xs mt-0.5 font-mono tabular-nums ${countdown.expired ? 'text-muted-foreground' : 'text-orange-600 dark:text-orange-400'}`}>
+                    {countdown.expired ? 'Expired' : `Time remaining: ${countdown.label}`}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => initiatePaymentMutation.mutate(booking.id)}
-                  disabled={initiatePaymentMutation.isPending}
-                  data-testid={`button-complete-payment-${booking.id}`}
-                  className="shrink-0"
-                >
-                  {initiatePaymentMutation.isPending ? 'Loading...' : 'Pay Now'}
-                </Button>
+                {!countdown.expired && (
+                  <Button
+                    size="sm"
+                    onClick={() => initiatePaymentMutation.mutate(booking.id)}
+                    disabled={initiatePaymentMutation.isPending}
+                    data-testid={`button-complete-payment-${booking.id}`}
+                    className="shrink-0"
+                  >
+                    {initiatePaymentMutation.isPending ? 'Loading...' : 'Pay Now'}
+                  </Button>
+                )}
               </div>
             )}
 
