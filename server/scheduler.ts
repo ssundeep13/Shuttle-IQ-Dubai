@@ -151,9 +151,10 @@ async function runInactivityDecayJob(): Promise<void> {
  */
 async function backfillSkillScoreBaseline(): Promise<void> {
   try {
-    // Step 1: Restore scores from the most recent game for players whose
-    // current skill_score has diverged from their last recorded game score.
-    // This is idempotent: after a game end, skill_score always equals the
+    // Step 1: Restore scores, baselines, and tier levels from each player's
+    // most recent game. Updates any player where skill_score, skill_score_baseline,
+    // or level is out of sync with their last recorded game_participants entry.
+    // Idempotent: after a normal game end, all three fields align with the
     // latest skill_score_after, so correct players produce 0 rows.
     const { rowCount: restoredCount } = await db.execute(sql`
       WITH last_game AS (
@@ -178,10 +179,14 @@ async function backfillSkillScoreBaseline(): Promise<void> {
         level                = lg.restored_level
       FROM last_game lg
       WHERE p.id = lg.player_id
-        AND p.skill_score != lg.restored_score
+        AND (
+          p.skill_score          != lg.restored_score
+          OR p.skill_score_baseline != lg.restored_score
+          OR p.level               != lg.restored_level
+        )
     `);
     if ((restoredCount ?? 0) > 0) {
-      console.log(`[Scheduler] Score restoration: corrected ${restoredCount} player(s) whose scores had diverged from game history.`);
+      console.log(`[Scheduler] Score restoration: corrected ${restoredCount} player(s) whose score/baseline/level had diverged from game history.`);
     }
 
     // Step 2: Backfill skillScoreBaseline for players with no game history
@@ -195,15 +200,19 @@ async function backfillSkillScoreBaseline(): Promise<void> {
       console.log(`[Scheduler] Backfilled skillScoreBaseline for ${baselineUpdated.length} player(s).`);
     }
 
-    // Step 3: Set lastPlayedAt = NOW() for any player still missing it.
-    // Gives them a clean 14-day inactivity window starting today.
+    // Step 3: Ensure every player has a lastPlayedAt >= the fix deployment date.
+    // This resets pre-fix timestamps (which were null or set by the buggy decay
+    // job using created_at) to NOW(), giving everyone a clean 14-day window.
+    // After the first corrective run, all timestamps will be post-fix so
+    // subsequent startup runs will find 0 rows — making this idempotent.
+    const FIX_DEPLOY_DATE = '2026-03-21 00:00:00+00';
     const clockUpdated = await db
       .update(players)
       .set({ lastPlayedAt: sql`NOW()` })
-      .where(sql`${players.lastPlayedAt} IS NULL`)
+      .where(sql`${players.lastPlayedAt} IS NULL OR ${players.lastPlayedAt} < ${FIX_DEPLOY_DATE}::timestamptz`)
       .returning({ id: players.id });
     if (clockUpdated.length > 0) {
-      console.log(`[Scheduler] Backfilled lastPlayedAt (set to now) for ${clockUpdated.length} player(s).`);
+      console.log(`[Scheduler] Reset lastPlayedAt to now for ${clockUpdated.length} player(s) — inactivity clock starts today.`);
     }
   } catch (err) {
     console.error('[Scheduler] Startup backfill error:', err);
