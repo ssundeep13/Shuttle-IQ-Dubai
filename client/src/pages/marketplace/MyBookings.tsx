@@ -266,8 +266,8 @@ export default function MyBookings() {
     const isPendingPayment = booking.status === 'pending_payment';
     const countdown = usePaymentCountdown(isPendingPayment ? booking.promotedAt : null);
     const isLinkedGuest = booking.isGuestBooking && !!booking.myGuestId;
-    const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && new Date(booking.session.date) >= new Date();
-    const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && new Date(booking.session.date) >= new Date();
+    const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && sessionEndTime(booking) >= new Date();
+    const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && sessionEndTime(booking) >= new Date();
     const lateFee = !isWaitlisted && !isPendingPayment && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
 
     const stripColor = isWaitlisted ? 'bg-amber-500'
