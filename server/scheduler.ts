@@ -126,34 +126,84 @@ async function runInactivityDecayJob(): Promise<void> {
 }
 
 /**
- * One-time startup migration: ensures every player has a skillScoreBaseline
- * and a lastPlayedAt timestamp.
+ * Startup migration: restores player skill scores from game history and
+ * ensures every player has a valid skillScoreBaseline and lastPlayedAt.
  *
- * Newly created players always get both (set in storage.createPlayer and on
- * game end). This backfills any legacy/existing rows that predate the columns.
+ * Why this exists:
+ *   The inactivity decay feature added last_played_at and skill_score_baseline
+ *   columns but the initial deploy had a bug — the decay job used created_at
+ *   as a fallback for null last_played_at, causing all historical players
+ *   (created months earlier) to be treated as maximally inactive and decayed
+ *   to the score floor of 10.
  *
- * lastPlayedAt is set to NOW() for any player that still has it null — this
- * gives them a clean 14-day inactivity window starting from the current date,
- * ensuring the decay job never treats them as retroactively inactive.
+ * What this does (idempotent — safe to run on every startup):
+ *   1. Score restoration: For any player whose current skill_score does NOT
+ *      match the skill_score_after recorded in their most recent game
+ *      (indicating wrongful decay), restore skill_score and
+ *      skill_score_baseline to that last recorded game score, and recalculate
+ *      the tier level. Players with no game history are unaffected.
+ *   2. Baseline backfill: For any player still missing a skill_score_baseline,
+ *      set it to their current skill_score.
+ *   3. Clock initialisation: For any player still missing a last_played_at,
+ *      set it to NOW() so their inactivity window starts from today.
+ *      (Players who already have last_played_at set are left untouched — their
+ *      timestamp was either restored or set correctly by a game-end event.)
  */
 async function backfillSkillScoreBaseline(): Promise<void> {
   try {
+    // Step 1: Restore scores from the most recent game for players whose
+    // current skill_score has diverged from their last recorded game score.
+    // This is idempotent: after a game end, skill_score always equals the
+    // latest skill_score_after, so correct players produce 0 rows.
+    const { rowCount: restoredCount } = await db.execute(sql`
+      WITH last_game AS (
+        SELECT DISTINCT ON (gp.player_id)
+          gp.player_id,
+          gp.skill_score_after AS restored_score,
+          CASE
+            WHEN gp.skill_score_after < 40  THEN 'Novice'
+            WHEN gp.skill_score_after < 70  THEN 'Beginner'
+            WHEN gp.skill_score_after < 110 THEN 'Intermediate'
+            WHEN gp.skill_score_after < 160 THEN 'Advanced'
+            ELSE 'Professional'
+          END AS restored_level
+        FROM game_participants gp
+        JOIN game_results gr ON gr.id = gp.game_id
+        ORDER BY gp.player_id, gr.created_at DESC
+      )
+      UPDATE players p
+      SET
+        skill_score          = lg.restored_score,
+        skill_score_baseline = lg.restored_score,
+        level                = lg.restored_level
+      FROM last_game lg
+      WHERE p.id = lg.player_id
+        AND p.skill_score != lg.restored_score
+    `);
+    if ((restoredCount ?? 0) > 0) {
+      console.log(`[Scheduler] Score restoration: corrected ${restoredCount} player(s) whose scores had diverged from game history.`);
+    }
+
+    // Step 2: Backfill skillScoreBaseline for players with no game history
+    // (players restored in step 1 already have the correct baseline).
     const baselineUpdated = await db
       .update(players)
       .set({ skillScoreBaseline: sql`${players.skillScore}` })
       .where(sql`${players.skillScoreBaseline} IS NULL`)
       .returning({ id: players.id });
     if (baselineUpdated.length > 0) {
-      console.log(`[Scheduler] Backfilled skillScoreBaseline for ${baselineUpdated.length} legacy player(s).`);
+      console.log(`[Scheduler] Backfilled skillScoreBaseline for ${baselineUpdated.length} player(s).`);
     }
 
+    // Step 3: Set lastPlayedAt = NOW() for any player still missing it.
+    // Gives them a clean 14-day inactivity window starting today.
     const clockUpdated = await db
       .update(players)
       .set({ lastPlayedAt: sql`NOW()` })
       .where(sql`${players.lastPlayedAt} IS NULL`)
       .returning({ id: players.id });
     if (clockUpdated.length > 0) {
-      console.log(`[Scheduler] Backfilled lastPlayedAt (set to now) for ${clockUpdated.length} player(s) — inactivity clock starts today.`);
+      console.log(`[Scheduler] Backfilled lastPlayedAt (set to now) for ${clockUpdated.length} player(s).`);
     }
   } catch (err) {
     console.error('[Scheduler] Startup backfill error:', err);
