@@ -253,7 +253,7 @@ export default function MyBookings() {
     },
   });
 
-  const sessionEndTime = (b: BookingWithDetails) => new Date(`${b.session.date}T${b.session.endTime || '23:59'}`);
+  const sessionEndTime = (b: BookingWithDetails) => new Date(`${String(b.session.date).slice(0, 10)}T${b.session.endTime || '23:59'}`);
   const upcoming = bookings?.filter(b => b.status !== 'cancelled' && sessionEndTime(b) >= new Date()) || [];
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
   const pendingPayment = upcoming.filter(b => b.status === 'pending_payment');
