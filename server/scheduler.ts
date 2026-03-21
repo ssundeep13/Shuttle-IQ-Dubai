@@ -170,7 +170,7 @@ async function backfillSkillScoreBaseline(): Promise<void> {
           END AS restored_level
         FROM game_participants gp
         JOIN game_results gr ON gr.id = gp.game_id
-        ORDER BY gp.player_id, gr.created_at DESC
+        ORDER BY gp.player_id, gr.created_at DESC, gp.game_id DESC
       )
       UPDATE players p
       SET
