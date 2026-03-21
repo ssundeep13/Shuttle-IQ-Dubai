@@ -253,11 +253,12 @@ export default function MyBookings() {
     },
   });
 
-  const upcoming = bookings?.filter(b => b.status !== 'cancelled' && new Date(b.session.date) >= new Date()) || [];
+  const sessionEndTime = (b: BookingWithDetails) => new Date(`${b.session.date}T${b.session.endTime || '23:59'}`);
+  const upcoming = bookings?.filter(b => b.status !== 'cancelled' && sessionEndTime(b) >= new Date()) || [];
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
   const pendingPayment = upcoming.filter(b => b.status === 'pending_payment');
   const active = upcoming.filter(b => b.status !== 'waitlisted' && b.status !== 'pending_payment');
-  const past = bookings?.filter(b => b.status === 'cancelled' || new Date(b.session.date) < new Date()) || [];
+  const past = bookings?.filter(b => b.status === 'cancelled' || sessionEndTime(b) < new Date()) || [];
 
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
