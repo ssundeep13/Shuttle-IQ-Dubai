@@ -34,6 +34,7 @@ export function MarketplaceFooter() {
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li><Link href="/marketplace/my-bookings" className="hover:text-foreground transition-colors" data-testid="link-footer-bookings">My Bookings</Link></li>
               <li><Link href="/marketplace/my-scores" className="hover:text-foreground transition-colors" data-testid="link-footer-scores">My Scores</Link></li>
+              <li><a href="/scoring-guide.pdf" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors" data-testid="link-footer-scoring-guide">Scoring Guide</a></li>
               <li><Link href="/marketplace/profile" className="hover:text-foreground transition-colors" data-testid="link-footer-profile">Profile</Link></li>
             </ul>
           </div>

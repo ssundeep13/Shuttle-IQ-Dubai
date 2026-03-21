@@ -18,7 +18,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Menu, User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History } from 'lucide-react';
+import { Menu, User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History, BookOpen } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MarketplaceNotification } from '@shared/schema';
 
@@ -267,6 +267,13 @@ export function MarketplaceNav() {
                   </Button>
                 </Link>
               ))}
+
+              <a href="/scoring-guide.pdf" target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+                <Button variant="ghost" className="w-full justify-start gap-2" data-testid="link-mobile-scoring-guide">
+                  <BookOpen className="h-4 w-4" />
+                  Scoring Guide
+                </Button>
+              </a>
 
               {isAuthenticated && (
                 <>
