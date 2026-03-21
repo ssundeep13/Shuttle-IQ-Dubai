@@ -72,15 +72,16 @@ export function getKFactor(gamesPlayed: number, returnGamesRemaining: number = 0
 
 /**
  * Contribution factor based on relative SKID share of the pair.
- * Range ~0.20–0.80; neutral 0.5 for equal partners or when partner is unknown.
- * Stronger player earns/loses more; weaker player earns/loses less.
+ * Centered at 1.0: equal partners → 1.0 (current delta unchanged).
+ * Stronger player earns/loses more (>1.0); weaker earns/loses less (<1.0).
+ * Range ~0.70–1.30 with DAMPENING=0.6. Falls back to 1.0 when partner unknown.
  */
 export function getContributionFactor(yourScore: number, partnerScore: number | null | undefined): number {
-  if (partnerScore == null) return 0.5;
+  if (partnerScore == null) return 1.0;
   const yourSkid = Math.max(CONTRIBUTION_SKID_FLOOR, yourScore / 10);
   const partnerSkid = Math.max(CONTRIBUTION_SKID_FLOOR, partnerScore / 10);
   const partnerWeight = yourSkid / (yourSkid + partnerSkid);
-  return 0.5 + (partnerWeight - 0.5) * CONTRIBUTION_DAMPENING;
+  return 1.0 + (partnerWeight - 0.5) * CONTRIBUTION_DAMPENING;
 }
 
 function getTierBounds(score: number): { lower: number; upper: number } {
