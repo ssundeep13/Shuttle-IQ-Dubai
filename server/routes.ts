@@ -37,6 +37,7 @@ import {
   clearSessionRestStates,
   toggleSittingOut,
   getSittingOutPlayers,
+  clearSittingOutPlayer,
   type TeamCombination
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
@@ -1112,8 +1113,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.removeFromQueue(activeSession.id, req.params.playerId);
       
-      // Clear rest state when player is removed from queue
+      // Clear rest state and sit-out flag when player is removed from queue
       clearPlayerRestState(activeSession.id, req.params.playerId);
+      clearSittingOutPlayer(activeSession.id, req.params.playerId);
       
       res.status(204).send();
     } catch (error) {
@@ -1141,7 +1143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/sessions/:sessionId/queue/sitting-out", requireAuth, async (req: AuthRequest, res) => {
+  app.get("/api/sessions/:sessionId/queue/sitting-out", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.params;
       const session = await storage.getSession(sessionId);

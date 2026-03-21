@@ -159,8 +159,8 @@ export function getSittingOutPlayers(sessionId: string): string[] {
   return Array.from(sessionSittingOut.get(sessionId) ?? []);
 }
 
-/** Clears a single player's sit-out flag (used in auto-clear after one game). */
-function clearSittingOutPlayer(sessionId: string, playerId: string): void {
+/** Clears a single player's sit-out flag (auto-clear or on queue removal). */
+export function clearSittingOutPlayer(sessionId: string, playerId: string): void {
   sessionSittingOut.get(sessionId)?.delete(playerId);
 }
 
