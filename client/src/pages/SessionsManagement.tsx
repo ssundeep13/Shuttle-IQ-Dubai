@@ -847,49 +847,27 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
       });
     });
 
-    // ❌ Cancelled section: fully-cancelled bookings + active bookings that have cancelled guests
-    // Build list of active bookings that have at least one individually-cancelled guest
-    const activeBookingsWithCancelledGuests = activeBookings.filter(b =>
-      (b.guests || []).some((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled')
-    );
-
-    const hasCancellations = cancelledBookings.length > 0 || activeBookingsWithCancelledGuests.length > 0;
-    if (hasCancellations) {
-      // Slot count: fully-cancelled (primary + all non-primary guests) + individually-cancelled guests only
-      const cancelledSlots =
-        cancelledBookings.reduce((sum, b) => {
-          const nonPrimaryGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary).length;
-          return sum + 1 + nonPrimaryGuests;
-        }, 0) +
-        activeBookingsWithCancelledGuests.reduce((sum, b) => {
-          return sum + (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled').length;
-        }, 0);
+    // ⏳ Waitlisted section
+    if (waitlistedBookings.length > 0) {
+      const waitlistedSlots = waitlistedBookings.reduce((sum, b) => {
+        const activeGuestCount = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled').length;
+        return sum + 1 + activeGuestCount;
+      }, 0);
 
       lines.push('');
-      lines.push(`❌ Cancelled: ${cancelledSlots}`);
-      let cNum = 1;
+      lines.push(`⏳ Waitlisted: ${waitlistedSlots}`);
+      let wNum = 1;
 
-      // Fully cancelled bookings: primary line + all non-primary guests as sub-lines
-      cancelledBookings.forEach((b) => {
+      waitlistedBookings.forEach((b) => {
         const name = b.user?.name || 'Unknown';
         const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
         const siqPart = siq ? ` (${siq})` : '';
-        lines.push(`${cNum}. ${name}${siqPart} Cancelled`);
-        cNum++;
-        (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary).forEach((g: BookingGuestWithLinked) => {
+        lines.push(`${wNum}. ${name}${siqPart} ⏳ Waitlisted`);
+        wNum++;
+
+        const activeGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled');
+        activeGuests.forEach((g: BookingGuestWithLinked) => {
           lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest)`);
-        });
-      });
-
-      // Active bookings with individually-cancelled guests: primary line + cancelled guest sub-lines only
-      activeBookingsWithCancelledGuests.forEach((b) => {
-        const name = b.user?.name || 'Unknown';
-        const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
-        const siqPart = siq ? ` (${siq})` : '';
-        lines.push(`${cNum}. ${name}${siqPart} ✓ Confirmed`);
-        cNum++;
-        (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'cancelled').forEach((g: BookingGuestWithLinked) => {
-          lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest) Cancelled`);
         });
       });
     }
