@@ -1,11 +1,12 @@
 import { storage } from "./storage";
-import { sendSessionReminderEmail } from "./emailClient";
+import { sendSessionReminderEmail, sendWaitlistPromotionEmail } from "./emailClient";
 import { db } from "./db";
 import { players } from "@shared/schema";
 import { sql } from "drizzle-orm";
 
 const REMINDER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const PAYMENT_WINDOW_MS = 4 * 60 * 60 * 1000; // 4-hour payment window for waitlist promotions
 
 const MIN_SKILL_SCORE = 10;
 const INACTIVITY_THRESHOLD_DAYS = 14;
@@ -211,10 +212,122 @@ async function backfillSkillScoreBaseline(): Promise<void> {
   }
 }
 
+/**
+ * Expires pending_payment bookings (waitlist promotions) that exceed the 4-hour payment window.
+ * For each expired booking:
+ *   1. Cancels the booking
+ *   2. Promotes the next eligible waitlisted user for that session (cascade)
+ */
+async function runExpiredPaymentJob(): Promise<void> {
+  try {
+    const expired = await storage.getExpiredPendingPaymentBookings(PAYMENT_WINDOW_MS);
+    if (expired.length === 0) return;
+
+    console.log(`[Scheduler] Expiring ${expired.length} pending_payment booking(s) that exceeded the 4-hour window...`);
+
+    const baseUrl = process.env.REPLIT_DOMAINS
+      ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+      : 'http://localhost:5000';
+
+    for (const booking of expired) {
+      try {
+        // Cancel the expired pending_payment booking
+        await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date() });
+
+        // Notify the user their payment window expired
+        await storage.createMarketplaceNotification({
+          userId: booking.userId,
+          type: 'payment_expired',
+          title: 'Payment window expired',
+          message: 'Your spot was released because payment was not completed within 4 hours. You have been returned to the waitlist.',
+          relatedBookingId: booking.id,
+        });
+
+        // Move back to waitlist
+        const waitlistCount = await storage.getWaitlistCountForSession(booking.sessionId);
+        await storage.updateBooking(booking.id, {
+          status: 'waitlisted',
+          waitlistPosition: waitlistCount + 1,
+          cancelledAt: null,
+        });
+
+        const bookableSession = await storage.getBookableSession(booking.sessionId);
+        if (!bookableSession) continue;
+
+        // Promote next eligible waitlisted user
+        const waitlisted = await storage.getWaitlistedBookingsForSession(booking.sessionId);
+        const currentCount = await storage.getBookingCountForSession(booking.sessionId);
+        const spotsAvailable = bookableSession.capacity - currentCount;
+        const next = waitlisted.find(w => w.id !== booking.id && (w.spotsBooked ?? 1) <= spotsAvailable);
+
+        if (next) {
+          const isZiinaPromotion = next.paymentMethod === 'ziina';
+          const dateLabel = new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+
+          if (isZiinaPromotion) {
+            await storage.updateBooking(next.id, {
+              status: 'pending_payment',
+              waitlistPosition: null,
+              promotedAt: new Date(),
+            });
+          } else {
+            await storage.updateBooking(next.id, { status: 'confirmed', waitlistPosition: null });
+            const slots = await storage.getBookingGuests(next.id);
+            for (const slot of slots) {
+              if (slot.status === 'pending') {
+                await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
+              }
+            }
+          }
+
+          await storage.createMarketplaceNotification({
+            userId: next.userId,
+            type: 'waitlist_promoted',
+            title: isZiinaPromotion ? 'Spot available — complete payment!' : "You're confirmed!",
+            message: isZiinaPromotion
+              ? `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`
+              : `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}.`,
+            relatedBookingId: next.id,
+          });
+
+          try {
+            const nextUser = await storage.getMarketplaceUser(next.userId);
+            if (nextUser) {
+              const checkoutUrl = isZiinaPromotion ? `${baseUrl}/marketplace/my-bookings` : undefined;
+              sendWaitlistPromotionEmail(nextUser.email, nextUser.name, bookableSession, checkoutUrl).catch(() => {});
+            }
+          } catch (emailErr) {
+            console.error('[Scheduler] Failed to send promotion email:', emailErr);
+          }
+
+          // Re-number remaining waitlisted bookings
+          const remaining = (await storage.getWaitlistedBookingsForSession(booking.sessionId))
+            .filter(w => w.id !== next.id);
+          for (let i = 0; i < remaining.length; i++) {
+            await storage.updateBooking(remaining[i].id, { waitlistPosition: i + 1 });
+          }
+
+          console.log(`[Scheduler] Promoted booking ${next.id} (${isZiinaPromotion ? 'pending_payment' : 'confirmed'}) for session ${booking.sessionId}`);
+        }
+
+        console.log(`[Scheduler] Expired pending_payment booking ${booking.id} — returned to waitlist`);
+      } catch (err) {
+        console.error(`[Scheduler] Error expiring booking ${booking.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('[Scheduler] Expired payment job error:', err);
+  }
+}
+
 export function startScheduler(): void {
   console.log('[Scheduler] Session reminder scheduler started (runs every 30 min)');
   setInterval(runReminderJob, REMINDER_INTERVAL_MS);
   runReminderJob();
+
+  console.log('[Scheduler] Waitlist payment expiry scheduler started (runs every 30 min)');
+  setInterval(runExpiredPaymentJob, REMINDER_INTERVAL_MS);
+  runExpiredPaymentJob();
 
   console.log('[Scheduler] Inactivity decay scheduler started (runs every 24 h)');
   // Backfill first, then run the decay job (backfill is fast and idempotent)

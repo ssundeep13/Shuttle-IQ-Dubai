@@ -164,6 +164,7 @@ export interface IStorage {
   getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]>;
   getWaitlistCountForSession(sessionId: string): Promise<number>;
   getBookingsNeedingReminder(): Promise<BookingWithDetails[]>;
+  getExpiredPendingPaymentBookings(olderThanMs: number): Promise<Booking[]>;
 
   // Notification operations
   createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string }): Promise<MarketplaceNotification>;
@@ -1161,13 +1162,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getBookingCountForSession(sessionId: string): Promise<number> {
-    // Count total spots across all confirmed/attended bookings (each booking may cover 1+ spots)
+    // Count total spots across all confirmed/attended/pending_payment bookings.
+    // pending_payment bookings hold a reserved spot (waitlist-promoted, awaiting Ziina payment).
     const activeBookings = await db
       .select({ spotsBooked: bookings.spotsBooked })
       .from(bookings)
       .where(and(
         eq(bookings.sessionId, sessionId),
-        sql`${bookings.status} IN ('confirmed', 'attended')`
+        sql`${bookings.status} IN ('confirmed', 'attended', 'pending_payment')`
       ));
     return activeBookings.reduce((sum, b) => sum + (b.spotsBooked ?? 1), 0);
   }
@@ -1321,6 +1323,18 @@ export class DatabaseStorage implements IStorage {
       }
     }
     return result;
+  }
+
+  async getExpiredPendingPaymentBookings(olderThanMs: number): Promise<Booking[]> {
+    const cutoff = new Date(Date.now() - olderThanMs);
+    return db
+      .select()
+      .from(bookings)
+      .where(and(
+        eq(bookings.status, 'pending_payment'),
+        sql`${bookings.promotedAt} IS NOT NULL`,
+        sql`${bookings.promotedAt} < ${cutoff.toISOString()}`,
+      ));
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'wouter';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, UserCheck, Pencil, Check, X } from 'lucide-react';
+import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, BookingGuest } from '@shared/schema';
@@ -36,7 +36,37 @@ const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destruc
   cancelled: { variant: 'destructive', label: 'Cancelled' },
   pending: { variant: 'outline', label: 'Pending' },
   waitlisted: { variant: 'outline', label: 'Waitlisted' },
+  pending_payment: { variant: 'outline', label: 'Payment Due' },
 };
+
+const PAYMENT_WINDOW_MS = 4 * 60 * 60 * 1000;
+
+function PaymentCountdown({ promotedAt }: { promotedAt: string | Date | null }) {
+  const [remaining, setRemaining] = useState<string>('');
+
+  useEffect(() => {
+    if (!promotedAt) return;
+    const deadline = new Date(promotedAt).getTime() + PAYMENT_WINDOW_MS;
+
+    const update = () => {
+      const diff = deadline - Date.now();
+      if (diff <= 0) {
+        setRemaining('Expired');
+        return;
+      }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setRemaining(`${h}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`);
+    };
+
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [promotedAt]);
+
+  return <span className="font-mono tabular-nums">{remaining}</span>;
+}
 
 function isWithin5Hours(sessionDate: Date | string, startTime: string): boolean {
   const [hours, minutes] = startTime.split(':').map(Number);
@@ -209,20 +239,37 @@ export default function MyBookings() {
     },
   });
 
+  const initiatePaymentMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/initiate-payment`);
+    },
+    onSuccess: (data: any) => {
+      if (data?.redirectUrl) {
+        window.location.href = data.redirectUrl;
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to start payment', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const upcoming = bookings?.filter(b => b.status !== 'cancelled' && new Date(b.session.date) >= new Date()) || [];
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
-  const active = upcoming.filter(b => b.status !== 'waitlisted');
+  const pendingPayment = upcoming.filter(b => b.status === 'pending_payment');
+  const active = upcoming.filter(b => b.status !== 'waitlisted' && b.status !== 'pending_payment');
   const past = bookings?.filter(b => b.status === 'cancelled' || new Date(b.session.date) < new Date()) || [];
 
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
     const isWaitlisted = booking.status === 'waitlisted';
+    const isPendingPayment = booking.status === 'pending_payment';
     const isLinkedGuest = booking.isGuestBooking && !!booking.myGuestId;
-    const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted') && new Date(booking.session.date) >= new Date();
+    const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && new Date(booking.session.date) >= new Date();
     const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && new Date(booking.session.date) >= new Date();
-    const lateFee = !isWaitlisted && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
+    const lateFee = !isWaitlisted && !isPendingPayment && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
 
     const stripColor = isWaitlisted ? 'bg-amber-500'
+      : isPendingPayment ? 'bg-orange-500'
       : booking.status === 'confirmed' ? 'bg-secondary'
       : booking.status === 'attended' ? 'bg-green-500'
       : booking.status === 'cancelled' ? 'bg-muted-foreground/30'
@@ -284,20 +331,42 @@ export default function MyBookings() {
               />
             )}
 
+            {/* Pending payment banner */}
+            {isPendingPayment && (
+              <div className="mb-4 flex items-start gap-3 rounded-md bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800/40 p-3" data-testid={`banner-payment-due-${booking.id}`}>
+                <Timer className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-orange-700 dark:text-orange-300">Payment required to secure your spot</p>
+                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-0.5">
+                    Time remaining: <PaymentCountdown promotedAt={(booking as any).promotedAt} />
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => initiatePaymentMutation.mutate(booking.id)}
+                  disabled={initiatePaymentMutation.isPending}
+                  data-testid={`button-complete-payment-${booking.id}`}
+                  className="shrink-0"
+                >
+                  {initiatePaymentMutation.isPending ? 'Loading...' : 'Pay Now'}
+                </Button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between gap-2 pt-3 border-t flex-wrap">
               <div className="flex items-center gap-3 flex-wrap">
-                {!isWaitlisted && (
+                {!isWaitlisted && !isPendingPayment && (
                   <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
                     AED {booking.amountAed}
                   </span>
                 )}
-                {!isWaitlisted && booking.spotsBooked > 1 && (
+                {!isWaitlisted && !isPendingPayment && booking.spotsBooked > 1 && (
                   <Badge variant="outline" className="text-xs gap-1">
                     <Users className="h-3 w-3" />
                     {booking.spotsBooked} spots
                   </Badge>
                 )}
-                {!isWaitlisted && (
+                {!isWaitlisted && !isPendingPayment && (
                   <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
                     {booking.paymentMethod === 'cash' ? (
                       <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
@@ -308,6 +377,9 @@ export default function MyBookings() {
                 )}
                 {isWaitlisted && (
                   <span className="text-xs text-muted-foreground">No payment until confirmed</span>
+                )}
+                {isPendingPayment && (
+                  <span className="text-xs text-muted-foreground">AED {booking.amountAed} — payment required</span>
                 )}
               </div>
               {canCancelAsGuest && (
@@ -353,23 +425,25 @@ export default function MyBookings() {
                       data-testid={`button-cancel-${booking.id}`}
                     >
                       <XCircle className="h-3.5 w-3.5" />
-                      {isWaitlisted ? 'Leave Waitlist' : 'Cancel'}
+                      {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel'}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle className="flex items-center gap-2">
                         <AlertTriangle className="h-5 w-5 text-destructive" />
-                        {isWaitlisted ? 'Leave Waitlist' : 'Cancel Booking'}
+                        {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel Booking'}
                       </AlertDialogTitle>
                       <AlertDialogDescription asChild>
                         <div className="space-y-3">
                           <p>
                             {isWaitlisted
                               ? `Remove yourself from the waitlist for "${booking.session.title}" on ${format(new Date(booking.session.date), 'MMMM d')}?`
+                              : isPendingPayment
+                              ? `Decline this spot for "${booking.session.title}" on ${format(new Date(booking.session.date), 'MMMM d')}? The spot will be offered to the next person on the waitlist.`
                               : `Are you sure you want to cancel your booking for "${booking.session.title}" on ${format(new Date(booking.session.date), 'MMMM d')}?`}
                           </p>
-                          {lateFee && !isWaitlisted && (
+                          {lateFee && (
                             <div className="flex gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20">
                               <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
                               <p className="text-sm text-destructive font-medium">
@@ -381,12 +455,12 @@ export default function MyBookings() {
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>{isWaitlisted ? 'Stay on Waitlist' : 'Keep Booking'}</AlertDialogCancel>
+                      <AlertDialogCancel>{isWaitlisted ? 'Stay on Waitlist' : isPendingPayment ? 'Keep Spot' : 'Keep Booking'}</AlertDialogCancel>
                       <AlertDialogAction
                         onClick={() => cancelMutation.mutate(booking.id)}
                         className="bg-destructive text-destructive-foreground"
                       >
-                        {isWaitlisted ? 'Leave Waitlist' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'}
+                        {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -430,6 +504,24 @@ export default function MyBookings() {
           </motion.div>
         ) : (
           <div className="space-y-8">
+            {pendingPayment.length > 0 && (
+              <motion.div variants={fadeInUp}>
+                <div className="flex items-center gap-2 mb-4">
+                  <h2 className="text-lg font-semibold flex items-center gap-2" data-testid="text-pending-payment-title">
+                    <Timer className="h-5 w-5 text-orange-500" />
+                    Payment Required
+                  </h2>
+                  <Badge variant="outline" className="text-xs border-orange-400/40 text-orange-600 dark:text-orange-400">{pendingPayment.length}</Badge>
+                </div>
+                <div className="space-y-3">
+                  {pendingPayment.map(b => (
+                    <motion.div key={b.id} variants={fadeInUp}>
+                      <BookingCard booking={b} />
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
             {waitlisted.length > 0 && (
               <motion.div variants={fadeInUp}>
                 <div className="flex items-center gap-2 mb-4">

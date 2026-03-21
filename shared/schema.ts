@@ -293,7 +293,7 @@ export const bookings = pgTable("bookings", {
   id: varchar("id").primaryKey(),
   userId: varchar("user_id").notNull(),
   sessionId: varchar("session_id").notNull(),
-  status: text("status").notNull().default('pending'), // 'pending', 'confirmed', 'waitlisted', 'attended', 'cancelled'
+  status: text("status").notNull().default('pending'), // 'pending', 'confirmed', 'waitlisted', 'pending_payment', 'attended', 'cancelled'
   paymentMethod: text("payment_method").notNull().default('ziina'),
   ziinaPaymentIntentId: text("ziina_payment_intent_id"),
   amountAed: integer("amount_aed").notNull(),
@@ -305,6 +305,7 @@ export const bookings = pgTable("bookings", {
   cancelledAt: timestamp("cancelled_at"),
   attendedAt: timestamp("attended_at"),
   reminderSentAt: timestamp("reminder_sent_at"),
+  promotedAt: timestamp("promoted_at"),
 }, (table) => [
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)

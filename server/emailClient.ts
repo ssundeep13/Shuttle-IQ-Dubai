@@ -158,17 +158,37 @@ export async function sendWaitlistPromotionEmail(
   toEmail: string,
   name: string,
   session: BookableSession,
+  checkoutUrl?: string,
 ): Promise<void> {
+  const paymentNote = checkoutUrl
+    ? `<p style="margin:0 0 20px;font-size:15px;color:#4a5568;line-height:1.6;">
+        To secure your spot, please complete payment within the next <strong>4 hours</strong>. Your spot will be released to the next player on the waitlist if payment is not received in time.
+       </p>
+       <p style="margin:0 0 28px;">
+         <a href="${checkoutUrl}" style="display:inline-block;background-color:#003e8c;color:#ffffff;font-size:15px;font-weight:600;padding:12px 28px;border-radius:6px;text-decoration:none;">Complete Payment</a>
+       </p>`
+    : `<p style="margin:0 0 28px;font-size:14px;color:#4a5568;line-height:1.6;">See you on the court!</p>`;
+
+  const headline = checkoutUrl
+    ? `A spot opened up — complete payment to confirm!`
+    : `Great news — you're confirmed!`;
+  const subline = checkoutUrl
+    ? `Hi ${name}, a spot just opened up and you've been moved from the waitlist for:`
+    : `Hi ${name}, a spot just opened up and you've been moved from the waitlist to confirmed for:`;
+
   const body = `
-    <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">Great news — you're confirmed!</h1>
-    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${name}, a spot just opened up and you've been moved from the waitlist to confirmed for:</p>
+    <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">${headline}</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">${subline}</p>
     ${sessionBlock(session)}
-    <p style="margin:0 0 28px;font-size:14px;color:#4a5568;line-height:1.6;">Your original payment or booking method remains in place. See you on the court!</p>
+    ${paymentNote}
     <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
     <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">If you can no longer make it, please cancel as soon as possible so another player can take your spot.</p>
   `;
+  const subject = checkoutUrl
+    ? `Spot available — complete payment to confirm: ${session.title}`
+    : `You're confirmed: ${session.title}`;
   try {
-    await sendEmail(toEmail, `You're confirmed: ${session.title}`, emailWrapper(body));
+    await sendEmail(toEmail, subject, emailWrapper(body));
     console.log(`[Email] Waitlist promotion sent to ${toEmail}`);
   } catch (err) {
     console.error('[Email] sendWaitlistPromotionEmail failed:', err);

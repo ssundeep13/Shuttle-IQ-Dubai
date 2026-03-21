@@ -744,7 +744,9 @@ export function registerMarketplaceRoutes(app: Express) {
 
         // Re-check capacity before confirming (since pending bookings no longer
         // count toward capacity, two users could race for the last spot).
-        if (!wasAlreadyConfirmed) {
+        // Skip for pending_payment bookings — they were explicitly promoted from the
+        // waitlist and already have a reserved spot.
+        if (!wasAlreadyConfirmed && booking.status !== 'pending_payment') {
           const sessionForCapacity = await storage.getBookableSessionWithAvailability(booking.sessionId);
           const neededSpots = booking.spotsBooked ?? 1;
           if (sessionForCapacity && sessionForCapacity.spotsRemaining < neededSpots) {
@@ -816,6 +818,49 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error: any) {
       console.error('Confirm error:', error);
       res.status(500).json({ error: "Failed to confirm booking" });
+    }
+  });
+
+  // Authenticated: initiate Ziina payment for a pending_payment (waitlist-promoted) booking
+  app.post("/api/marketplace/bookings/:id/initiate-payment", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
+      if (booking.status !== 'pending_payment') {
+        return res.status(400).json({ error: "Booking is not awaiting payment" });
+      }
+      if (booking.paymentMethod !== 'ziina') {
+        return res.status(400).json({ error: "This booking does not require online payment" });
+      }
+
+      const bookableSession = await storage.getBookableSession(booking.sessionId);
+      if (!bookableSession) return res.status(404).json({ error: "Session not found" });
+
+      const baseUrl = process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+
+      let paymentIntent;
+      try {
+        paymentIntent = await createZiinaPaymentIntent({
+          amountAed: booking.amountAed,
+          message: `Payment for ${bookableSession.title}${(booking.spotsBooked ?? 1) > 1 ? ` (${booking.spotsBooked} spots)` : ''}`,
+          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}`,
+          cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
+          failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
+        });
+      } catch (intentError: any) {
+        console.error('Ziina intent creation failed for pending_payment booking:', intentError.message);
+        return res.status(502).json({ error: intentError.message || 'Payment provider error. Please try again.' });
+      }
+
+      await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
+      return res.json({ redirectUrl: paymentIntent.redirect_url });
+    } catch (error: any) {
+      console.error('initiate-payment error:', error);
+      res.status(500).json({ error: "Failed to initiate payment" });
     }
   });
 
@@ -1116,7 +1161,7 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       }
 
-      const wasConfirmed = booking.status === 'confirmed';
+      const wasConfirmed = booking.status === 'confirmed' || booking.status === 'pending_payment';
 
       // Cancel the booking
       const updated = await storage.updateBooking(req.params.id, {
@@ -1155,23 +1200,42 @@ export function registerMarketplaceRoutes(app: Express) {
           // Find first waitlisted booking that fits the available spots
           const first = waitlisted.find(w => (w.spotsBooked ?? 1) <= spotsAvailable);
           if (first) {
-            await storage.updateBooking(first.id, { status: 'confirmed', waitlistPosition: null });
-            promoted = { bookingId: first.id, userId: first.userId };
+            const isZiinaPromotion = first.paymentMethod === 'ziina';
+            const promotionBaseUrl = process.env.REPLIT_DOMAINS
+              ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+              : 'http://localhost:5000';
 
-            // Confirm all pending slot rows for the promoted booking
-            const promotedSlots = await storage.getBookingGuests(first.id);
-            for (const slot of promotedSlots) {
-              if (slot.status === 'pending') {
-                await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
+            if (isZiinaPromotion) {
+              // Ziina payment: hold the spot as pending_payment with a 4-hour window
+              await storage.updateBooking(first.id, {
+                status: 'pending_payment',
+                waitlistPosition: null,
+                promotedAt: new Date(),
+              });
+            } else {
+              // Cash payment: immediately confirm the spot
+              await storage.updateBooking(first.id, { status: 'confirmed', waitlistPosition: null });
+
+              // Confirm all pending slot rows for the promoted booking
+              const promotedSlots = await storage.getBookingGuests(first.id);
+              for (const slot of promotedSlots) {
+                if (slot.status === 'pending') {
+                  await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
+                }
               }
             }
 
+            promoted = { bookingId: first.id, userId: first.userId };
+
             // Create notification for promoted user
+            const dateLabel = new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
             await storage.createMarketplaceNotification({
               userId: first.userId,
               type: 'waitlist_promoted',
-              title: "You're confirmed!",
-              message: `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
+              title: isZiinaPromotion ? 'Spot available — complete payment!' : "You're confirmed!",
+              message: isZiinaPromotion
+                ? `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`
+                : `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}.`,
               relatedBookingId: first.id,
             });
 
@@ -1179,28 +1243,30 @@ export function registerMarketplaceRoutes(app: Express) {
             try {
               const promotedUser = await storage.getMarketplaceUser(first.userId);
               if (promotedUser) {
-                sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession).catch(() => {});
+                const checkoutUrl = isZiinaPromotion
+                  ? `${promotionBaseUrl}/marketplace/my-bookings`
+                  : undefined;
+                sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession, checkoutUrl).catch(() => {});
 
-                const promotionBaseUrl = process.env.REPLIT_DOMAINS
-                  ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-                  : 'http://localhost:5000';
-                // Send emails + in-app notifications to non-primary guest slots
-                const confirmedSlots = await storage.getBookingGuests(first.id);
-                for (const slot of confirmedSlots) {
-                  if (!slot.isPrimary && slot.status === 'confirmed') {
-                    if (slot.email && slot.cancellationToken) {
-                      const cancelGuestUrl = `${promotionBaseUrl}/marketplace/guests/cancel/${slot.cancellationToken}`;
-                      const signupUrl = `${promotionBaseUrl}/marketplace/signup?email=${encodeURIComponent(slot.email)}`;
-                      sendGuestBookingEmail(slot.email, slot.name, promotedUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
-                    }
-                    if (slot.linkedUserId) {
-                      await storage.createMarketplaceNotification({
-                        userId: slot.linkedUserId,
-                        type: 'guest_booking_confirmed',
-                        title: 'You have a booking!',
-                        message: `${promotedUser.name} has been confirmed for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} — your guest spot is also confirmed.`,
-                        relatedBookingId: first.id,
-                      });
+                if (!isZiinaPromotion) {
+                  // Send emails + in-app notifications to non-primary guest slots (cash only — ziina waits for payment)
+                  const confirmedSlots = await storage.getBookingGuests(first.id);
+                  for (const slot of confirmedSlots) {
+                    if (!slot.isPrimary && slot.status === 'confirmed') {
+                      if (slot.email && slot.cancellationToken) {
+                        const cancelGuestUrl = `${promotionBaseUrl}/marketplace/guests/cancel/${slot.cancellationToken}`;
+                        const signupUrl = `${promotionBaseUrl}/marketplace/signup?email=${encodeURIComponent(slot.email)}`;
+                        sendGuestBookingEmail(slot.email, slot.name, promotedUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
+                      }
+                      if (slot.linkedUserId) {
+                        await storage.createMarketplaceNotification({
+                          userId: slot.linkedUserId,
+                          type: 'guest_booking_confirmed',
+                          title: 'You have a booking!',
+                          message: `${promotedUser.name} has been confirmed for "${bookableSession.title}" on ${dateLabel} — your guest spot is also confirmed.`,
+                          relatedBookingId: first.id,
+                        });
+                      }
                     }
                   }
                 }
