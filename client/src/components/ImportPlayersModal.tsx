@@ -208,6 +208,9 @@ export function ImportPlayersModal({ open, onClose, onImport, onImportCSV }: Imp
               <p className="text-xs text-muted-foreground">
                 Example: <span className="font-mono">Arjun,Male,Intermediate</span>
               </p>
+              <p className="text-xs text-muted-foreground">
+                Accepted levels: Novice, Beginner, Intermediate. Advanced and Professional are earned through gameplay.
+              </p>
               {selectedFile && (
                 <p className="text-xs text-success">
                   ✓ Selected: {selectedFile.name}

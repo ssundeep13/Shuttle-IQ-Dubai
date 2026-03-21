@@ -412,7 +412,7 @@ export class DatabaseStorage implements IStorage {
         // Initialize the decay baseline to the player's starting score.
         // This ensures the inactivity decay scheduler always has a stable anchor
         // and never falls back to the (already-decayed) current skillScore.
-        skillScoreBaseline: insertPlayer.skillScore ?? 90,
+        skillScoreBaseline: insertPlayer.skillScore ?? 50,
       })
       .returning();
     return addSkidToPlayer(player);

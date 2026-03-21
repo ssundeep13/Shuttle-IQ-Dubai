@@ -131,6 +131,9 @@ export function PlayerImport() {
           Example: M001, John Doe, Male, Intermediate
           <br />
           <span className="text-xs text-muted-foreground mt-1 block">
+            Accepted levels: Novice, Beginner, Intermediate. Advanced and Professional are earned through gameplay.
+          </span>
+          <span className="text-xs text-muted-foreground mt-1 block">
             {hasSession 
               ? "Players will be added to the current session's queue automatically" 
               : "Import players now and they'll be added to the queue when you create a session"}
@@ -158,7 +161,7 @@ export function PlayerImport() {
             </p>
             <Textarea
               id="paste-data"
-              placeholder="Paste your player data here...&#10;Example:&#10;M001    John Doe    Male    Intermediate&#10;F002    Jane Smith    Female    Advanced"
+              placeholder="Paste your player data here...&#10;Example:&#10;M001    John Doe    Male    Intermediate&#10;F002    Jane Smith    Female    Beginner"
               value={pastedText}
               onChange={(e) => setPastedText(e.target.value)}
               className="min-h-[200px] font-mono text-sm"

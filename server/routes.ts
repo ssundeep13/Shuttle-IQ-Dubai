@@ -509,13 +509,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Calculate new skill adjustment from the baseline (skillScoreBefore)
         const opponentAvgSkill = participant.team === 1 ? team2AvgSkill : team1AvgSkill;
+
+        // Fix 1: Find partner's skillScoreBefore for contribution factor
+        const partnerParticipant = participants.find(
+          p => p.team === participant.team && p.playerId !== participant.playerId
+        );
+        const partnerScoreBefore = partnerParticipant?.skillScoreBefore ?? null;
         
         const newSkillAfter = calculateSkillAdjustment(
           participant.skillScoreBefore,
           opponentAvgSkill,
           isNowWinner,
           pointDifferential,
-          player.gamesPlayed || 0
+          player.gamesPlayed || 0,
+          partnerScoreBefore
         );
         
         // Calculate what player's new current skill should be
@@ -606,21 +613,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validated = insertPlayerSchema.parse(req.body);
       
-      // Set initial skill score based on gender + level (10-200 scale)
+      // Set initial skill score based on level (Fix 2: operators can only assign Novice/Beginner/Intermediate;
+      // Advanced and Professional are earned through gameplay only)
       const skillScoreMap: Record<string, number> = {
-        'Novice': validated.gender === 'Female' ? 10 : 20,
-        'Beginner-': validated.gender === 'Female' ? 30 : 40,
-        'Beginner': validated.gender === 'Female' ? 50 : 60,
-        'Beginner+': validated.gender === 'Female' ? 70 : 80,
-        'Intermediate-': validated.gender === 'Female' ? 90 : 100,
-        'Intermediate': validated.gender === 'Female' ? 110 : 120,
-        'Intermediate+': validated.gender === 'Female' ? 130 : 140,
-        'Advanced': validated.gender === 'Female' ? 150 : 160,
-        'Advanced+': validated.gender === 'Female' ? 170 : 180,
-        'Professional': validated.gender === 'Female' ? 190 : 200,
+        'Novice': 25,
+        'Beginner': 50,
+        'Intermediate': 90,
       };
       
-      const skillScore = skillScoreMap[validated.level] || 100;
+      // Guard: any attempt to assign Advanced/Professional defaults to mid-Intermediate
+      const skillScore = skillScoreMap[validated.level] ?? 50;
       
       const player = await storage.createPlayer({ ...validated, skillScore });
       
@@ -878,9 +880,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             skillScore = estimateScoreFromLegacyLevel(externalPlayer.level);
             level = getSkillTier(skillScore);
           } else {
-            // No skill info - use defaults
-            skillScore = 90; // Default to mid-Intermediate
-            level = 'Intermediate';
+            // No skill info - default to mid-Beginner (Fix 2: lower starting point)
+            skillScore = 50;
+            level = 'Beginner';
           }
           
           // Validate and create player
@@ -1434,6 +1436,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         skillBefore: number;
         skillAfter: number;
       }> = [];
+
+      const now = new Date();
+      const RETURN_BOOST_THRESHOLD_DAYS = 14;
+      const RETURN_BOOST_GAMES = 2;
       
       for (const player of players) {
         const isWinner = winners.some(w => w.id === player.id);
@@ -1441,14 +1447,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         const opponentAvgSkill = isTeam1 ? team2AvgSkill : team1AvgSkill;
         
-        // Calculate new skill score using ELO-style adjustment
+        // Fix 1: Find partner score for contribution factor
+        const partnerScore = players.find(p => p.team === player.team && p.id !== player.id)?.skillScore ?? null;
+
+        // Fix 6: Determine return boost — if player was inactive 14+ days, grant 2-game boost
+        const lastPlayed = player.lastPlayedAt;
+        const daysInactive = lastPlayed
+          ? (now.getTime() - new Date(lastPlayed).getTime()) / (24 * 60 * 60 * 1000)
+          : 0;
+        const isReturning = lastPlayed !== null && daysInactive >= RETURN_BOOST_THRESHOLD_DAYS;
+        // If returning: set returnGamesRemaining to 2. Otherwise decrement (floor 0).
+        const newReturnGamesRemaining = isReturning
+          ? RETURN_BOOST_GAMES
+          : Math.max(0, (player.returnGamesRemaining ?? 0) - 1);
+        // The boost that applies to THIS game uses the CURRENT returnGamesRemaining (before decrement)
+        const currentReturnGames = isReturning ? RETURN_BOOST_GAMES : (player.returnGamesRemaining ?? 0);
+
+        // Calculate new skill score using ELO-style adjustment (Fix 1 + Fix 2 + Fix 6)
         const skillBefore = player.skillScore || 50;
         const skillAfter = calculateSkillAdjustment(
           skillBefore,
           opponentAvgSkill,
           isWinner,
           pointDifferential,
-          player.gamesPlayed || 0
+          player.gamesPlayed || 0,
+          partnerScore,
+          currentReturnGames
         );
         
         // Get updated tier based on new skill score
@@ -1468,8 +1492,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           skillScore: skillAfter,
           level: newLevel,
           status: 'waiting',
-          lastPlayedAt: new Date(),
+          lastPlayedAt: now,
           skillScoreBaseline: skillAfter, // Anchor for inactivity decay; decay is relative to this score
+          returnGamesRemaining: newReturnGamesRemaining, // Fix 6: track return boost games remaining
         });
       }
 
@@ -1865,17 +1890,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Reset all player statistics
       const allPlayers = await storage.getAllPlayers();
       for (const player of allPlayers) {
-        // Reset stats based on initial skill levels
-        let initialSkillScore = 50; // Default to 5.0
-        if (player.level === 'Beginner') initialSkillScore = 30; // 3.0
-        if (player.level === 'Intermediate') initialSkillScore = 50; // 5.0
-        if (player.level === 'Advanced') initialSkillScore = 80; // 8.0
+        // Reset stats based on initial skill levels (Fix 2: Novice=25, Beginner=50, Intermediate=90)
+        const resetScoreMap: Record<string, number> = {
+          'Novice': 25,
+          'Beginner': 50,
+          'Intermediate': 90,
+          'Advanced': 90,       // Advanced/Professional earned through play; reset to Intermediate
+          'Professional': 90,
+        };
+        const initialSkillScore = resetScoreMap[player.level] ?? 50;
         
         await storage.updatePlayer(player.id, {
           gamesPlayed: 0,
           wins: 0,
           skillScore: initialSkillScore,
-          status: 'waiting', // Set all players back to waiting
+          skillScoreBaseline: initialSkillScore,
+          returnGamesRemaining: 0,
+          status: 'waiting',
         });
       }
       console.log('[RESET-GAMES] Player statistics reset');

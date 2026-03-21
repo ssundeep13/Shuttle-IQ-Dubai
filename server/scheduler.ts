@@ -9,7 +9,6 @@ const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const MIN_SKILL_SCORE = 10;
 const INACTIVITY_THRESHOLD_DAYS = 14;
-const DECAY_POINTS_PER_WEEK = 5;
 
 function getSkillTierFromScore(score: number): string {
   if (score < 40) return 'Novice';
@@ -42,11 +41,17 @@ async function runReminderJob(): Promise<void> {
 }
 
 /**
- * Inactivity decay rule:
- *   - 14+ days inactive: -5 pts from skillScoreBaseline (the score at last game)
- *   - 21+ days: -10 pts from baseline
- *   - 28+ days: -15 pts from baseline
- *   - etc. (weeksOverThreshold × 5 pts, always relative to baseline)
+ * Tiered inactivity decay (Fix 6 — softer early, steeper late, max −50):
+ *   weeks 0–1:  no decay
+ *   weeks 2–3:  −3 pts/week from baseline (gentle early ramp)
+ *   weeks 4–7:  −4 pts/week (moderate)
+ *   week  8+:   −3 pts/week, total capped at −50
+ *
+ * Examples for a player at 115 (low Advanced):
+ *   2 weeks → −3  → 112  (still Advanced)
+ *   4 weeks → −10 → 105  (Intermediate)
+ *   8 weeks → −22 →  93  (Intermediate)
+ *  16 weeks → −46 →  69  (top Beginner, approaching cap)
  *
  * Using skillScoreBaseline as the anchor makes this idempotent — each daily
  * run computes the same target score for a given inactivity duration, so running
@@ -56,6 +61,14 @@ async function runReminderJob(): Promise<void> {
  * recorded last-game date are skipped — the created_at fallback was removed to
  * prevent false decay on legacy or newly imported players.
  */
+function calculateDecayPoints(daysInactive: number): number {
+  const weeks = Math.floor(daysInactive / 7);
+  if (weeks < 2) return 0;
+  if (weeks < 4) return (weeks - 1) * 3;          // weeks 2–3: −3/week
+  if (weeks < 8) return 6 + (weeks - 3) * 4;      // weeks 4–7: −4/week
+  return Math.min(22 + (weeks - 7) * 3, 50);       // week 8+:   capped at −50
+}
+
 async function runInactivityDecayJob(): Promise<void> {
   try {
     const now = new Date();
@@ -82,19 +95,13 @@ async function runInactivityDecayJob(): Promise<void> {
       const msInactive = now.getTime() - referenceDate.getTime();
       const daysInactive = msInactive / (24 * 60 * 60 * 1000);
 
-      // Full weeks beyond the 14-day mark:
-      //   14 days → weeksOver = 1 → -5 pts
-      //   21 days → weeksOver = 2 → -10 pts
-      //   28 days → weeksOver = 3 → -15 pts
-      const weeksOverThreshold = Math.floor((daysInactive - INACTIVITY_THRESHOLD_DAYS) / 7) + 1;
-      if (weeksOverThreshold < 1) continue;
-
       // Use the stored skillScoreBaseline as the decay anchor.
       // This is always set at player creation and updated on each game end.
       // If somehow still null (legacy data), skip this player to avoid compounding decay.
       if (player.skillScoreBaseline === null || player.skillScoreBaseline === undefined) continue;
       const baseline = player.skillScoreBaseline;
-      const totalDecay = weeksOverThreshold * DECAY_POINTS_PER_WEEK;
+      const totalDecay = calculateDecayPoints(daysInactive);
+      if (totalDecay === 0) continue;
       const targetScore = Math.max(MIN_SKILL_SCORE, baseline - totalDecay);
 
       // Only update if the player's current score is above the target.
