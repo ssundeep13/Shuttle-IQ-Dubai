@@ -587,7 +587,7 @@ export function registerMarketplaceRoutes(app: Express) {
           userId: req.user.userId,
           sessionId,
           status: 'waitlisted',
-          paymentMethod: 'cash',
+          paymentMethod: method, // preserve user's chosen payment method for promotion logic
           ziinaPaymentIntentId: null,
           amountAed: bookableSession.priceAed * spotsBooked,
           cashPaid: false,
