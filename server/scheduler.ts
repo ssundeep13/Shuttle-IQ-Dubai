@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import { sendSessionReminderEmail, sendWaitlistPromotionEmail } from "./emailClient";
+import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendGuestBookingEmail } from "./emailClient";
 import { db } from "./db";
 import { players } from "@shared/schema";
 import { sql } from "drizzle-orm";
@@ -287,6 +287,29 @@ async function runExpiredPaymentJob(): Promise<void> {
             if (nextUser) {
               const checkoutUrl = isZiinaPromotion ? `${baseUrl}/marketplace/my-bookings` : undefined;
               sendWaitlistPromotionEmail(nextUser.email, nextUser.name, bookableSession, checkoutUrl).catch(() => {});
+
+              if (!isZiinaPromotion) {
+                // Cash promotion: send guest confirmation emails and linked-user notifications
+                const confirmedSlots = await storage.getBookingGuests(next.id);
+                for (const slot of confirmedSlots) {
+                  if (!slot.isPrimary && slot.status === 'confirmed') {
+                    if (slot.email && slot.cancellationToken) {
+                      const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${slot.cancellationToken}`;
+                      const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(slot.email)}`;
+                      sendGuestBookingEmail(slot.email, slot.name, nextUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
+                    }
+                    if (slot.linkedUserId) {
+                      await storage.createMarketplaceNotification({
+                        userId: slot.linkedUserId,
+                        type: 'guest_booking_confirmed',
+                        title: 'You have a booking!',
+                        message: `${nextUser.name} has been confirmed for "${bookableSession.title}" on ${dateLabel} — your guest spot is also confirmed.`,
+                        relatedBookingId: next.id,
+                      });
+                    }
+                  }
+                }
+              }
             }
           } catch (emailErr) {
             console.error('[Scheduler] Failed to send promotion email:', emailErr);

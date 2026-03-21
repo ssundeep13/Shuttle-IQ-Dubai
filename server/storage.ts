@@ -50,7 +50,7 @@ import {
   playerTags,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, inArray, desc, sql, asc, like, gte } from "drizzle-orm";
+import { eq, and, inArray, desc, sql, asc, like, gte, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -1333,7 +1333,7 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         eq(bookings.status, 'pending_payment'),
         sql`${bookings.promotedAt} IS NOT NULL`,
-        sql`${bookings.promotedAt} < ${cutoff.toISOString()}`,
+        lt(bookings.promotedAt, cutoff),
       ));
   }
 
