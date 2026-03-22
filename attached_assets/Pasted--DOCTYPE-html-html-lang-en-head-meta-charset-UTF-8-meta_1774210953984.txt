@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShuttleIQ — Smart Suggestions & Queue Specification v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#F2ECE1; --card:#fff; --border:#D6C9B4; --border-s:#E2D8C8;
+    --blue:#002C84; --green:#00766C; --navy:#001A54;
+    --text:#001A54; --mid:#3A5070; --dim:#6A82A0;
+    --red:#B83030; --amber:#9A5C00; --success:#1A6B3C;
+    --bg-red:rgba(184,48,48,0.06); --bg-green:rgba(26,107,60,0.06);
+    --bg-blue:rgba(0,44,132,0.05); --bg-amber:rgba(154,92,0,0.06);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.75;}
+  .page{max-width:940px;margin:0 auto;padding:48px 32px 80px;}
+
+  /* HEADER */
+  .dh{border-bottom:2px solid var(--border);padding-bottom:28px;margin-bottom:40px;}
+  .eye{font-size:10px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--green);margin-bottom:10px;}
+  .dtitle{font-size:32px;font-weight:800;color:var(--navy);line-height:1.1;margin-bottom:8px;}
+  .dsub{font-size:14.5px;color:var(--mid);max-width:640px;line-height:1.65;}
+  .mrow{display:flex;gap:12px;margin-top:16px;flex-wrap:wrap;}
+  .mpill{font-size:11px;font-weight:600;color:var(--dim);background:rgba(0,28,84,.06);padding:3px 10px;border-radius:20px;}
+
+  /* SECTION */
+  .section{margin-bottom:52px;}
+  .sl{font-size:10px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--green);display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+  .sl::after{content:'';flex:1;height:1px;background:var(--border);}
+  .st{font-size:22px;font-weight:700;color:var(--navy);margin-bottom:6px;}
+  .ss{font-size:14px;color:var(--mid);margin-bottom:20px;line-height:1.65;}
+  p{color:var(--mid);margin-bottom:12px;line-height:1.7;}
+  p strong{color:var(--text);font-weight:600;}
+
+  /* CALLOUTS */
+  .hl{border-left:3px solid var(--blue);background:var(--bg-blue);border-radius:0 8px 8px 0;padding:12px 16px;margin:14px 0;font-size:13px;color:var(--mid);line-height:1.65;}
+  .hl strong{color:var(--blue);font-weight:700;}
+  .hl.g{border-left-color:var(--green);background:var(--bg-green);}
+  .hl.g strong{color:var(--green);}
+  .hl.r{border-left-color:var(--red);background:var(--bg-red);}
+  .hl.r strong{color:var(--red);}
+  .hl.a{border-left-color:var(--amber);background:var(--bg-amber);}
+  .hl.a strong{color:var(--amber);}
+
+  /* TABLES */
+  .tw{overflow-x:auto;margin:16px 0;border-radius:10px;border:1px solid var(--border);box-shadow:0 1px 4px rgba(0,26,84,.05);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  thead tr{background:var(--navy);}
+  thead th{color:#fff;font-weight:600;padding:10px 14px;text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;}
+  tbody tr{border-bottom:1px solid var(--border-s);}
+  tbody tr:last-child{border-bottom:none;}
+  tbody tr:nth-child(even){background:rgba(0,28,84,.02);}
+  td{padding:9px 14px;color:var(--mid);vertical-align:top;}
+  td.hl2{color:var(--text);font-weight:600;}
+  td.code{font-family:'Space Mono',monospace;font-size:11px;color:var(--blue);}
+  td.good{color:var(--success);font-weight:700;}
+  td.bad{color:var(--red);font-weight:700;}
+  td.warn{color:var(--amber);font-weight:600;}
+
+  /* CODE */
+  .cl{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:6px;margin-top:18px;}
+  .cb{background:var(--navy);border-radius:10px;padding:20px 22px;margin:6px 0 16px;overflow-x:auto;}
+  .cb pre{font-family:'Space Mono',monospace;font-size:12px;color:#D0DCF0;line-height:1.85;white-space:pre;}
+  .cm{color:#7888A4;} .kw{color:#50D4C8;} .st2{color:#80C4FF;} .nm{color:#FFB347;} .fn{color:#B8E0FF;}
+
+  /* STEPS */
+  .steps{display:flex;flex-direction:column;border:1px solid var(--border-s);border-radius:12px;overflow:hidden;margin:18px 0;}
+  .step{display:flex;border-bottom:1px solid var(--border-s);background:var(--card);}
+  .step:last-child{border-bottom:none;}
+  .snc{width:52px;flex-shrink:0;background:var(--navy);display:flex;align-items:flex-start;justify-content:center;padding-top:18px;}
+  .sn{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:rgba(80,212,200,.9);}
+  .sb{flex:1;padding:16px 18px;}
+  .stitle{font-weight:700;font-size:14px;color:var(--navy);margin-bottom:5px;}
+  .sdesc{font-size:13px;color:var(--mid);line-height:1.65;}
+  .sdesc strong{color:var(--text);font-weight:600;}
+
+  /* PRIORITY BOX */
+  .pbox{background:var(--navy);border-radius:12px;padding:24px 26px;margin:16px 0;}
+  .peq{font-family:'Space Mono',monospace;font-size:13px;color:#D0DCF0;line-height:2.2;}
+  .pk{color:#50D4C8;} .pv{color:#FFB347;} .ps{color:#FF8080;} .pc{color:#7888A4;font-size:11px;}
+  .pnew{color:#90FF90;font-weight:700;}
+
+  /* BADGE */
+  .badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
+  .bnew{background:rgba(0,118,108,.1);color:var(--green);}
+  .bchg{background:rgba(184,48,48,.1);color:var(--red);}
+  .bkeep{background:rgba(0,28,84,.08);color:var(--blue);}
+
+  /* MOCK UI */
+  .mock{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin:18px 0;box-shadow:0 2px 12px rgba(0,26,84,.06);}
+  .mock-header{background:rgba(0,28,84,.04);padding:12px 18px;border-bottom:1px solid var(--border-s);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);}
+  .mock-body{padding:18px;}
+  .notice-card{background:rgba(154,92,0,.06);border:1px solid rgba(154,92,0,.2);border-radius:10px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:flex-start;gap:12px;}
+  .notice-icon{font-size:18px;flex-shrink:0;margin-top:1px;}
+  .notice-text{font-size:13px;color:var(--amber);line-height:1.6;}
+  .notice-text strong{color:var(--amber);font-weight:700;}
+  .suggestion-card{border:1px solid var(--border-s);border-radius:10px;overflow:hidden;margin-bottom:12px;}
+  .sc-header{display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(0,28,84,.02);border-bottom:1px solid var(--border-s);}
+  .sc-opt{font-weight:700;font-size:14px;color:var(--navy);}
+  .sc-tag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
+  .tag-best{background:rgba(0,118,108,.1);color:var(--green);}
+  .tag-bal{background:rgba(0,44,132,.08);color:var(--blue);}
+  .tag-mix{background:rgba(154,92,0,.1);color:var(--amber);}
+  .sc-gap{margin-left:auto;font-size:12px;font-weight:600;color:var(--dim);}
+  .sc-body{display:grid;grid-template-columns:1fr 1fr;gap:0;}
+  .sc-team{padding:12px 14px;}
+  .sc-team:first-child{border-right:1px solid var(--border-s);}
+  .sc-team-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;display:flex;gap:8px;align-items:center;}
+  .sc-spread{font-size:10px;font-weight:600;padding:1px 6px;border-radius:6px;}
+  .spread-good{background:rgba(26,107,60,.1);color:var(--success);}
+  .spread-ok{background:rgba(154,92,0,.1);color:var(--amber);}
+  .spread-bad{background:rgba(184,48,48,.1);color:var(--red);}
+  .sc-player{font-size:13px;color:var(--text);margin-bottom:4px;display:flex;align-items:center;gap:6px;}
+  .sc-player-score{font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--blue);}
+  .sc-player-tier{font-size:10px;color:var(--dim);}
+  .sc-player-wait{font-size:10px;font-weight:600;padding:1px 5px;border-radius:6px;background:rgba(184,48,48,.1);color:var(--red);}
+  .sc-assign{display:block;width:100%;padding:12px;background:var(--navy);color:#fff;font-size:13px;font-weight:600;text-align:center;border:none;cursor:pointer;letter-spacing:.04em;}
+  .round-header{background:rgba(0,44,132,.04);border:1px solid var(--border-s);border-radius:10px;padding:14px 16px;margin-bottom:16px;}
+  .round-title{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px;}
+  .round-sub{font-size:12px;color:var(--dim);}
+  .court-tabs{display:flex;gap:8px;margin-bottom:16px;}
+  .court-tab{padding:6px 14px;border:1px solid var(--border-s);border-radius:20px;font-size:12px;font-weight:600;color:var(--dim);background:var(--card);cursor:pointer;}
+  .court-tab.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+
+  /* COMPARISON TABLE */
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;}
+  .compare-card{background:var(--card);border:1px solid var(--border-s);border-radius:12px;overflow:hidden;}
+  .compare-head{padding:12px 16px;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
+  .compare-head.old{background:var(--bg-red);color:var(--red);}
+  .compare-head.new2{background:var(--bg-green);color:var(--success);}
+  .compare-body{padding:14px 16px;font-size:13px;color:var(--mid);line-height:1.7;}
+  .compare-body strong{color:var(--text);font-weight:600;}
+
+  hr{border:none;border-top:1px solid var(--border);margin:44px 0;}
+
+  footer{margin-top:52px;padding-top:22px;border-top:2px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
+  .wm{font-family:'Inter',sans-serif;font-size:16px;font-weight:700;letter-spacing:-.03em;color:var(--navy);}
+  .wm .iq{color:var(--green);}
+  .fn2{font-size:11px;color:var(--dim);}
+
+  @media print{
+    body{background:#fff;}
+    .page{padding:20px;}
+    .cb{border:1px solid #ccc;background:#f4f4f4;}
+    .cb pre{color:#222;}
+    .pbox{background:#eee;}
+    .peq{color:#222;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="dh">
+    <div class="eye">Developer Specification v2 — ShuttleIQ Dubai</div>
+    <div class="dtitle">Smart Suggestions &amp; Queue Algorithm<br>Complete Revised Specification</div>
+    <div class="dsub">How suggestions are generated, ranked, and displayed — with the goal that every player gets an equal number of competitive games across a session. No auto-assign. Admin always decides.</div>
+    <div class="mrow">
+      <span class="mpill">Replaces all previous queue documentation</span>
+      <span class="mpill">Based on 1,448 matches · 47 sessions · 124 players</span>
+      <span class="mpill">March 2026</span>
+    </div>
+  </div>
+
+  <!-- ═══ THE CORE GOAL ═══ -->
+  <div class="section">
+    <div class="sl">The Core Goal</div>
+    <div class="st">What "good suggestions" actually means</div>
+    <div class="ss">This shapes every decision in the spec below. Keep it visible.</div>
+
+    <div class="compare">
+      <div class="compare-card">
+        <div class="compare-head old">❌ What the current system does</div>
+        <div class="compare-body">
+          Finds the <strong>mathematically balanced group</strong> based on team average scores right now, with no awareness of what happened earlier in the session.<br><br>
+          Result: the same 4 players who are always near the front of the queue get the best games, while players who joined slightly later get fewer games and worse matchups. Current data shows a <strong>5.8-game spread</strong> between the most and least-played player per session.
+        </div>
+      </div>
+      <div class="compare-card">
+        <div class="compare-head new2">✓ What the new system must do</div>
+        <div class="compare-body">
+          Finds the <strong>best competitive game for this moment</strong>, while actively tracking who has played the least this session and surfacing them first.<br><br>
+          Result: by the end of a session, every player has had roughly the same number of games (target: <strong>max 2-game spread</strong>), and every game was genuinely competitive. The admin's job is to confirm, not to think.
+        </div>
+      </div>
+    </div>
+
+    <div class="hl g"><strong>Admin's role:</strong> The admin sees ordered suggestions, best first. They confirm the top option in most cases. They override when they know something the algorithm doesn't — a player is tired, two players are arguing, a new player needs an easier game. The system advises. The admin decides.</div>
+  </div>
+
+  <!-- ═══ 01 SESSION STATE ═══ -->
+  <div class="section">
+    <div class="sl">01</div>
+    <div class="st">Session State — What to Track Per Player</div>
+    <div class="ss">The algorithm needs these values in memory at all times. Rebuild from game history on server restart. Reset to zero when a new session starts.</div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Field</th><th>Type</th><th>What it tracks</th><th>Updated when</th></tr></thead>
+        <tbody>
+          <tr><td class="hl2">games_this_session</td><td class="code">integer</td><td>Total games played since this session started</td><td>After every game completes</td></tr>
+          <tr><td class="hl2">consecutive_games</td><td class="code">integer</td><td>Games played in a row without a break</td><td>After every game. Halved after 1 round out. Zeroed after 2 rounds out.</td></tr>
+          <tr><td class="hl2">rounds_waited</td><td class="code">integer</td><td>How many full court rounds have completed since this player last played</td><td>Incremented every time a court round completes and this player was not in it</td></tr>
+          <tr><td class="hl2">is_sitting_out</td><td class="code">boolean</td><td>Voluntary sit-out flag</td><td>Toggled by admin. Auto-cleared after 1 round.</td></tr>
+          <tr><td class="hl2">last_partners</td><td class="code">player_id[]</td><td>IDs of partners from last 2 games</td><td>After every game</td></tr>
+          <tr><td class="hl2">last_opponents</td><td class="code">player_id[]</td><td>IDs of opponents from last 2 games</td><td>After every game</td></tr>
+          <tr><td class="hl2">session_game_quality</td><td class="code">float</td><td>Average skill gap of all games played this session. Lower = better games.</td><td>After every game</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="hl a"><strong>Session average games:</strong> Calculate dynamically as <code style="font-family:'Space Mono',monospace;font-size:11px;">total_games_played_this_session / active_players_count</code>. This is the fairness target. Any player below this average is under-served and should be prioritised.</div>
+  </div>
+
+  <!-- ═══ 02 PLAYER PRIORITY SCORE ═══ -->
+  <div class="section">
+    <div class="sl">02</div>
+    <div class="st">Player Priority Score — Revised Formula <span class="badge bchg" style="margin-left:8px;vertical-align:middle;">Changed</span></div>
+    <div class="ss">The most important change from the previous spec. Queue position weight is reduced significantly. Session equity is added as the dominant fairness driver.</div>
+
+    <div class="pbox">
+      <div class="peq">
+<span class="pk">priority</span>  =  (queue_position  <span class="pk">×  25</span>)              <span class="pc"> ← reduced from ×100. Still matters but no longer dominates.</span>
+           +  (consecutive_games  <span class="pk">×  10</span>)          <span class="pc"> ← only if consecutive_games ≥ 2 (needsRest)</span>
+           +  (total_games_ever  <span class="pk">×  0.1</span>)          <span class="pc"> ← tiny tiebreaker only</span>
+           <span class="ps">−  (rounds_waited  ×  18)</span>                <span class="pc"> ← rewards patience</span>
+           <span class="pnew">−  (session_games_deficit  ×  40)</span>        <span class="pc"> ← NEW dominant fairness driver</span>
+
+<span class="pc">session_games_deficit  =  session_avg_games  −  player.games_this_session
+If deficit is negative (player played MORE than average), this term adds to priority (penalises them).
+If deficit is positive (player played LESS than average), this term subtracts (boosts them up).
+
+Lower priority score  =  Higher priority  =  Suggested first</span>
+      </div>
+    </div>
+
+    <div class="compare" style="margin-top:16px;">
+      <div class="compare-card">
+        <div class="compare-head old">Old formula problem</div>
+        <div class="compare-body">Queue position weight of ×100 meant a player at position 25 needed to wait <strong>139 rounds</strong> to overcome the penalty vs position 1. The waiting bonus (×18) was too weak to matter. Players who joined late were systematically under-served for the entire session.</div>
+      </div>
+      <div class="compare-card">
+        <div class="compare-head new2">New formula result</div>
+        <div class="compare-body">Session games deficit weight of ×40 means a player with 2 fewer games than average gets a <strong>−80 point boost</strong> — strong enough to pull them ahead of a queue-position 3 penalty (+75). Players who've played less are actively surfaced. Target: ≤2 game spread per session.</div>
+      </div>
+    </div>
+
+    <div class="cl">Priority score examples — 25 player session, avg 4 games played</div>
+    <div class="cb"><pre><span class="cm">// Player A: position 3, played 2 games (2 below avg), 1 round waited, 0 consecutive</span>
+priority_A = (3 × 25) + 0 − (1 × 18) − (2 × 40) = 75 + 0 − 18 − 80 = <span class="pnew">−23</span>  ← very high priority
+
+<span class="cm">// Player B: position 1, played 6 games (2 above avg), 0 waited, 2 consecutive</span>
+priority_B = (1 × 25) + (2 × 10) − 0 + (2 × 40) = 25 + 20 + 80 = <span class="ps">125</span>  ← low priority despite being first
+
+<span class="cm">// Player C: position 8, played 4 games (at avg), 0 waited, 0 consecutive</span>
+priority_C = (8 × 25) + 0 − 0 − 0 = <span class="nm">200</span>  ← mid priority</pre></div>
+  </div>
+
+  <!-- ═══ 03 LONE OUTLIER DETECTION ═══ -->
+  <div class="section">
+    <div class="sl">03</div>
+    <div class="st">Lone Outlier Detection <span class="badge bnew" style="margin-left:8px;vertical-align:middle;">New</span></div>
+    <div class="ss">Before generating any suggestions, scan the active player pool for tiers with only one player. These players cannot be matched within their tier and must be handled explicitly.</div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="snc"><span class="sn">1</span></div>
+        <div class="sb">
+          <div class="stitle">Count active players per tier</div>
+          <div class="sdesc">At suggestion generation time, count how many players in the queue belong to each tier. A tier with <strong>fewer than 4 players</strong> cannot fill a court on its own.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">2</span></div>
+        <div class="sb">
+          <div class="stitle">Flag lone outliers (1 player in their tier)</div>
+          <div class="sdesc">Any player who is the <strong>only player</strong> in their tier this session is a lone outlier. They are <strong>excluded from all auto-generated suggestions</strong>. Show a dedicated notice card at the top of the suggestions panel — not buried, not subtle. Example: <em>"Sriram (Advanced, 130) is the only Advanced player this session. Assign him manually by dragging to a court, or ask him to wait."</em></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">3</span></div>
+        <div class="sb">
+          <div class="stitle">Flag small tiers (2–3 players)</div>
+          <div class="sdesc">If a tier has 2 or 3 players, they cannot fill a full court. Show a softer notice: <em>"Only 3 Lower-Int players available — they will be included in overflow suggestions."</em> These players are still eligible to appear in mixed-tier suggestions (Section 05, overflow rules) but are not the primary suggestion.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">4</span></div>
+        <div class="sb">
+          <div class="stitle">Admin can manually override</div>
+          <div class="sdesc">The admin can drag any lone outlier player into a court's team assignment panel at any time. When this happens, the system should show the resulting within-team spread and tier gap as a warning but not prevent the assignment. <strong>The admin has final authority.</strong></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hl r"><strong>Today's session example:</strong> Sriram (Advanced, 130) is the only Advanced player. All 5 suggestions currently shown pair him with Intermediate players, producing within-team spreads of 50–53 points. Under this rule, <strong>none of those 5 suggestions would be generated</strong>. Instead, a notice card explains Sriram's situation and the suggestions show 3 excellent Intermediate-only games.</div>
+  </div>
+
+  <!-- ═══ 04 WITHIN-TEAM SPREAD FILTER ═══ -->
+  <div class="section">
+    <div class="sl">04</div>
+    <div class="st">Within-Team Spread Hard Filter <span class="badge bchg" style="margin-left:8px;vertical-align:middle;">Critical</span></div>
+    <div class="ss">Applied before any suggestion is shown. A split is invalid if either team's players are too far apart in score. This prevents "average masking" — where a strong player carrying a weak one creates a misleadingly balanced team average.</div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Within-team spread</th><th>Decision</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td class="good">0 – 10 pts</td><td class="good">✓ Excellent</td><td>Genuine partnership — both players contribute equally</td></tr>
+          <tr><td class="warn">11 – 20 pts</td><td class="warn">✓ Acceptable</td><td>One player slightly stronger but still a real team</td></tr>
+          <tr><td class="bad">21 – 30 pts</td><td class="bad">❌ Reject</td><td>One player will carry — poor experience for both</td></tr>
+          <tr><td class="bad">&gt; 30 pts</td><td class="bad">❌ Reject</td><td>Not a real partnership. Effectively 1v2 on key rallies.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cl">Implementation</div>
+    <div class="cb"><pre><span class="kw">const</span> MAX_WITHIN_TEAM_SPREAD = <span class="nm">20</span>;
+
+<span class="kw">function</span> <span class="fn">isValidSplit</span>(team1, team2) {
+  <span class="kw">const</span> spread1 = Math.max(...team1.map(p => p.score)) - Math.min(...team1.map(p => p.score));
+  <span class="kw">const</span> spread2 = Math.max(...team2.map(p => p.score)) - Math.min(...team2.map(p => p.score));
+  <span class="kw">return</span> spread1 <= MAX_WITHIN_TEAM_SPREAD && spread2 <= MAX_WITHIN_TEAM_SPREAD;
+}
+
+<span class="cm">// If all 3 possible splits for a group fail this filter,</span>
+<span class="cm">// the group itself is invalid. Try the next priority combination.</span>
+<span class="cm">// If no group can form a valid split, widen the candidate window by 4 and retry once.</span>
+<span class="cm">// If still no valid split, relax to 25pts and show a "Compromised" warning label.</span></pre></div>
+
+    <div class="hl">Each suggestion card must display the within-team spread for both teams. Colour code it: <strong style="color:var(--success);">green ≤10</strong>, <strong style="color:var(--amber);">amber 11–20</strong>, <strong style="color:var(--red);">red &gt;20</strong> (should never appear after this filter is live, but useful during transition).</div>
+  </div>
+
+  <!-- ═══ 05 SUGGESTION GENERATION ═══ -->
+  <div class="section">
+    <div class="sl">05</div>
+    <div class="st">Suggestion Generation — Full Logic</div>
+    <div class="ss">How the engine produces the ordered list of suggestions shown to the admin for a single court.</div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="snc"><span class="sn">1</span></div>
+        <div class="sb">
+          <div class="stitle">Run lone outlier detection (Section 03)</div>
+          <div class="sdesc">Remove lone outliers from the eligible pool before doing anything else. Show their notice cards at the top of the UI.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">2</span></div>
+        <div class="sb">
+          <div class="stitle">Build the candidate window</div>
+          <div class="sdesc">From the active queue (excluding sitting-out players and those already on a court), take the front <strong>floor(queue_length × 50%)</strong>, clamped to a minimum of 8 and maximum of 24 players. This is the candidate pool.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">3</span></div>
+        <div class="sb">
+          <div class="stitle">Calculate priority score for each candidate (Section 02)</div>
+          <div class="sdesc">Apply the revised formula including the session_games_deficit term. Sort candidates by priority score (lowest first).</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">4</span></div>
+        <div class="sb">
+          <div class="stitle">Identify the anchor tier</div>
+          <div class="sdesc">The player with the <strong>lowest priority score</strong> (highest priority) in the candidate pool defines the target tier. The engine builds suggestions primarily from their tier first.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">5</span></div>
+        <div class="sb">
+          <div class="stitle">Generate up to 20 four-player combinations from the tier pool</div>
+          <div class="sdesc">Filter candidates to the anchor tier. Generate all unique combinations of 4. If fewer than 4 in the tier, apply overflow (Section 06). For each combination of 4, generate all 3 possible team splits and apply the within-team spread filter (Section 04). Discard any combination where no valid split exists.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">6</span></div>
+        <div class="sb">
+          <div class="stitle">Score and rank all valid combinations</div>
+          <div class="sdesc">For each valid combination, take its best valid split and score it using the 5-factor ranking (Section 07). Sort all combinations by their score. Return the top <strong>5 suggestions</strong> to the admin — not 15. Five is enough; more creates decision paralysis.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="snc"><span class="sn">7</span></div>
+        <div class="sb">
+          <div class="stitle">Label the top suggestion clearly</div>
+          <div class="sdesc">The first suggestion gets a <strong>"Best Match"</strong> label (green). Suggestions 2–5 get an <strong>"Option"</strong> label. The admin should be able to tap "Assign to Court" on Option 1 in most sessions without needing to read further.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 06 OVERFLOW ═══ -->
+  <div class="section">
+    <div class="sl">06</div>
+    <div class="st">Overflow — When Tier Pool Is Too Small</div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Situation</th><th>Action</th><th>UI label</th></tr></thead>
+        <tbody>
+          <tr><td class="hl2">4+ in target tier</td><td>Normal. Generate suggestions from tier only.</td><td>No warning needed</td></tr>
+          <tr><td class="hl2">2–3 in target tier</td><td>Add 1 player from adjacent tier (lowest priority score from adjacent tier). Max 1 overflow player per court.</td><td class="warn">Mixed Levels warning</td></tr>
+          <tr><td class="hl2">0–1 in target tier</td><td>Lone outlier rule applies (Section 03). Do not force a court. Show notice card.</td><td class="bad">Lone outlier notice</td></tr>
+          <tr><td class="hl2">All 3 splits fail spread filter</td><td>Try next priority combination. If still failing after 5 attempts, relax spread limit to 25pts for this suggestion only.</td><td class="warn">"Compromised" label</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="hl a"><strong>Adjacent tier map:</strong> novice ↔ beginner ↔ lower_intermediate ↔ upper_intermediate ↔ advanced ↔ professional. The two intermediate sub-tiers are adjacent to each other. When overflow is needed across this boundary, the Mixed Levels warning is shown but the within-team spread filter still applies.</div>
+  </div>
+
+  <!-- ═══ 07 SUGGESTION RANKING ═══ -->
+  <div class="section">
+    <div class="sl">07</div>
+    <div class="st">Suggestion Ranking — 5-Factor Sort <span class="badge bnew" style="margin-left:8px;vertical-align:middle;">Updated</span></div>
+    <div class="ss">After filtering, rank valid splits using this five-level sort. Each level only applies if the previous level is a tie (difference &lt; 0.5).</div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Priority</th><th>Factor</th><th>What it measures</th><th>Direction</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="hl2" style="color:var(--blue);">1st</td>
+            <td class="hl2">Tier dispersion</td>
+            <td>Max tier index minus min tier index across all 4 players. 0 = all same tier.</td>
+            <td>Lower = better</td>
+          </tr>
+          <tr>
+            <td class="hl2" style="color:var(--green);">2nd</td>
+            <td class="hl2">Skill gap</td>
+            <td>Absolute difference between Team 1 and Team 2 average scores. Primary balance metric.</td>
+            <td>Lower = better</td>
+          </tr>
+          <tr>
+            <td class="hl2" style="color:var(--amber);">3rd</td>
+            <td class="hl2">Session equity score</td>
+            <td>Sum of (session_games_deficit) for all 4 players. Groups with more under-served players are preferred.</td>
+            <td>Lower = better (more deficit = more deserving)</td>
+          </tr>
+          <tr>
+            <td class="hl2" style="color:var(--red);">4th</td>
+            <td class="hl2">Partner rotation penalty</td>
+            <td>+15 per repeated pair this session (cap +30/pair, +60 total). Prefer fresh pairings.</td>
+            <td>Lower = better</td>
+          </tr>
+          <tr>
+            <td class="hl2" style="color:var(--dim);">5th</td>
+            <td class="hl2">Score variance</td>
+            <td>Variance of all 4 scores around the group mean. Tighter groups play more evenly.</td>
+            <td>Lower = better</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cl">Ranking function</div>
+    <div class="cb"><pre><span class="kw">function</span> <span class="fn">scoreSplit</span>(split, sessionState, partnerHistory) {
+  <span class="kw">const</span> { team1, team2 } = split;
+  <span class="kw">const</span> all4 = [...team1, ...team2];
+
+  <span class="cm">// 1. Tier dispersion</span>
+  <span class="kw">const</span> tierIndices = all4.map(p => TIER_INDEX[p.current_tier]);
+  <span class="kw">const</span> tierDisp    = Math.max(...tierIndices) - Math.min(...tierIndices);
+
+  <span class="cm">// 2. Skill gap between team averages</span>
+  <span class="kw">const</span> avg1     = team1.reduce((s,p) => s+p.score, 0) / 2;
+  <span class="kw">const</span> avg2     = team2.reduce((s,p) => s+p.score, 0) / 2;
+  <span class="kw">const</span> skillGap = Math.abs(avg1 - avg2);
+
+  <span class="cm">// 3. Session equity — prefer groups with more under-served players</span>
+  <span class="kw">const</span> sessionAvg    = sessionState.avgGamesPlayed;
+  <span class="kw">const</span> equityScore   = all4.reduce((s,p) => s + (sessionAvg - p.games_this_session), 0);
+  <span class="cm">// Higher equityScore = more under-served players = BETTER = lower sort value needed</span>
+  <span class="kw">const</span> equityRank    = -equityScore;  <span class="cm">// negate so lower = better in sort</span>
+
+  <span class="cm">// 4. Partner rotation penalty</span>
+  <span class="kw">const</span> pairs   = [[team1[0].id, team1[1].id], [team2[0].id, team2[1].id]];
+  <span class="kw">let</span>   penalty = 0;
+  <span class="kw">for</span> (<span class="kw">const</span> pair <span class="kw">of</span> pairs) {
+    penalty += Math.min((partnerHistory[pairKey(pair)] ?? 0) * 15, 30);
+  }
+  penalty = Math.min(penalty, 60);
+
+  <span class="cm">// 5. Score variance</span>
+  <span class="kw">const</span> mean     = all4.reduce((s,p) => s+p.score, 0) / 4;
+  <span class="kw">const</span> variance = all4.reduce((s,p) => s+(p.score-mean)**2, 0) / 4;
+
+  <span class="kw">return</span> { split, tierDisp, skillGap, equityRank, penalty, variance };
+}
+
+<span class="kw">function</span> <span class="fn">rankSuggestions</span>(validSplits, sessionState, partnerHistory) {
+  <span class="kw">return</span> validSplits
+    .map(s => <span class="fn">scoreSplit</span>(s, sessionState, partnerHistory))
+    .sort((a, b) =>
+      a.tierDisp   - b.tierDisp   ||
+      a.skillGap   - b.skillGap   ||
+      a.equityRank - b.equityRank ||  <span class="cm">// NEW: session equity</span>
+      a.penalty    - b.penalty    ||
+      a.variance   - b.variance
+    )
+    .slice(0, 5);  <span class="cm">// return top 5 only</span>
+}</pre></div>
+  </div>
+
+  <!-- ═══ 08 THE SUGGESTION CARD ═══ -->
+  <div class="section">
+    <div class="sl">08</div>
+    <div class="st">The Suggestion Card — What to Show</div>
+    <div class="ss">Each suggestion card must give the admin everything they need to judge it in 3 seconds. Here is the exact content and the mock layout.</div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Element</th><th>Content</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="hl2">Option label</td><td>"Best Match" (option 1) or "Option 2–5"</td><td>Best Match in green. Others in grey.</td></tr>
+          <tr><td class="hl2">Balance badge</td><td>Balanced / Unbalanced</td><td>Balanced = skill gap ≤ 8. Unbalanced = &gt;8.</td></tr>
+          <tr><td class="hl2">Level badge</td><td>Mixed Levels (only if overflow applied)</td><td>Not shown for pure same-tier games.</td></tr>
+          <tr><td class="hl2">Gap score</td><td>"Gap: 3.5"</td><td>Team average difference. Keep this.</td></tr>
+          <tr><td class="hl2">Team label + avg + spread</td><td>"Team 1 · Avg: 98 · Spread: 4"</td><td>Spread colour-coded green/amber/red.</td></tr>
+          <tr><td class="hl2">Player row</td><td>Name · Gender · Tier · (Score)</td><td>Keep existing format.</td></tr>
+          <tr><td class="hl2">Wait indicator</td><td>Small red badge "Waited 3 rounds" on player name</td><td>Show only if rounds_waited ≥ 2. Helps admin spot under-served players.</td></tr>
+          <tr><td class="hl2">Assign to Court button</td><td>Full-width, dark navy</td><td>Keep existing style.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top:16px;font-weight:600;color:var(--navy);">Mock layout — what the suggestions panel should look like:</p>
+
+    <div class="mock">
+      <div class="mock-header">Smart Suggestions — Court 1 · 25 players in queue</div>
+      <div class="mock-body">
+
+        <div class="notice-card">
+          <div class="notice-icon">⚠️</div>
+          <div class="notice-text">
+            <strong>Sriram (Advanced, 130)</strong> is the only Advanced player this session.<br>
+            Suggestions below are for Intermediate players only. Assign Sriram manually or ask him to wait for another Advanced player.
+          </div>
+        </div>
+
+        <div class="suggestion-card">
+          <div class="sc-header">
+            <span class="sc-opt">Best Match</span>
+            <span class="sc-tag tag-best">Best Match</span>
+            <span class="sc-tag tag-bal">Balanced</span>
+            <span class="sc-gap">Gap: 2.0</span>
+          </div>
+          <div class="sc-body">
+            <div class="sc-team">
+              <div class="sc-team-label">Team 1 · Avg: 100 <span class="sc-spread spread-good">Spread: 4</span></div>
+              <div class="sc-player"><span class="sc-player-score">102</span> Sourabh <span class="sc-player-tier">M Upper-Int</span></div>
+              <div class="sc-player"><span class="sc-player-score">98</span> Yash <span class="sc-player-tier">M Upper-Int</span></div>
+            </div>
+            <div class="sc-team">
+              <div class="sc-team-label">Team 2 · Avg: 98 <span class="sc-spread spread-good">Spread: 8</span></div>
+              <div class="sc-player"><span class="sc-player-score">94</span> Reena <span class="sc-player-tier">F Upper-Int</span> <span class="sc-player-wait">Waited 3 rounds</span></div>
+              <div class="sc-player"><span class="sc-player-score">102</span> Alan <span class="sc-player-tier">M Upper-Int</span></div>
+            </div>
+          </div>
+          <button class="sc-assign">Assign to Court</button>
+        </div>
+
+        <div class="suggestion-card">
+          <div class="sc-header">
+            <span class="sc-opt">Option 2</span>
+            <span class="sc-tag tag-bal">Balanced</span>
+            <span class="sc-gap">Gap: 4.5</span>
+          </div>
+          <div class="sc-body">
+            <div class="sc-team">
+              <div class="sc-team-label">Team 1 · Avg: 101 <span class="sc-spread spread-good">Spread: 8</span></div>
+              <div class="sc-player"><span class="sc-player-score">98</span> Yash <span class="sc-player-tier">M Upper-Int</span></div>
+              <div class="sc-player"><span class="sc-player-score">94</span> Reena <span class="sc-player-tier">F Upper-Int</span></div>
+            </div>
+            <div class="sc-team">
+              <div class="sc-team-label">Team 2 · Avg: 96.5 <span class="sc-spread spread-good">Spread: 12</span></div>
+              <div class="sc-player"><span class="sc-player-score">102</span> Sourabh <span class="sc-player-tier">M Upper-Int</span></div>
+              <div class="sc-player"><span class="sc-player-score">91</span> Alan <span class="sc-player-tier">M Upper-Int</span></div>
+            </div>
+          </div>
+          <button class="sc-assign">Assign to Court</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 09 MULTI-COURT AWARENESS ═══ -->
+  <div class="section">
+    <div class="sl">09</div>
+    <div class="st">Multi-Court Awareness <span class="badge bnew" style="margin-left:8px;vertical-align:middle;">New</span></div>
+    <div class="ss">With 3 courts available simultaneously, the suggestion engine should be aware that filling all 3 courts at once is the goal — not just one court at a time.</div>
+
+    <p>Currently, when the admin opens Smart Suggestions it only thinks about one court. This means players selected for Court 1 are still visible in the suggestions for Courts 2 and 3, leading to the same players appearing in multiple suggestion cards.</p>
+
+    <p><strong>What to build:</strong> Add a "Round View" at the top of the suggestions panel that shows a proposed full round across all available courts simultaneously. This is the highest-level view the admin needs.</p>
+
+    <div class="mock">
+      <div class="mock-header">Smart Suggestions — Round View · 3 Courts Available</div>
+      <div class="mock-body">
+        <div class="round-header">
+          <div class="round-title">Recommended Round</div>
+          <div class="round-sub">Best allocation of current queue across all 3 courts · 12 players assigned · 13 waiting</div>
+        </div>
+        <div class="court-tabs">
+          <span class="court-tab active">Court 1 · Upper-Int</span>
+          <span class="court-tab">Court 2 · Lower-Int</span>
+          <span class="court-tab">Court 3 · Sriram ⚠️</span>
+        </div>
+        <div style="font-size:12px;color:var(--dim);margin-bottom:12px;">Showing Court 1 — tap other courts to review before assigning all</div>
+        <div class="suggestion-card">
+          <div class="sc-header">
+            <span class="sc-opt">Court 1 · Best Match</span>
+            <span class="sc-tag tag-best">Best Match</span>
+            <span class="sc-tag tag-bal">Balanced</span>
+            <span class="sc-gap">Gap: 2.0</span>
+          </div>
+          <div class="sc-body">
+            <div class="sc-team">
+              <div class="sc-team-label">Team 1 · Avg: 100 <span class="sc-spread spread-good">Spread: 4</span></div>
+              <div class="sc-player"><span class="sc-player-score">102</span> Sourabh <span class="sc-player-tier">M Upper-Int</span></div>
+              <div class="sc-player"><span class="sc-player-score">98</span> Yash <span class="sc-player-tier">M Upper-Int</span></div>
+            </div>
+            <div class="sc-team">
+              <div class="sc-team-label">Team 2 · Avg: 98 <span class="sc-spread spread-good">Spread: 8</span></div>
+              <div class="sc-player"><span class="sc-player-score">94</span> Reena <span class="sc-player-tier">F Upper-Int</span></div>
+              <div class="sc-player"><span class="sc-player-score">102</span> Alan <span class="sc-player-tier">M Upper-Int</span></div>
+            </div>
+          </div>
+          <button class="sc-assign">Assign All 3 Courts</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="hl"><strong>How multi-court generation works:</strong> Run the suggestion algorithm for Court 1 first (highest priority anchor player). Remove those 4 players from the pool. Run for Court 2 with the remaining pool. Remove those 4. Run for Court 3. The result is a non-overlapping full-round allocation. The admin can review each court's suggestion individually by tapping the court tabs, then confirm all 3 with a single "Assign All 3 Courts" button — or override individual courts before confirming.</div>
+
+    <div class="hl a"><strong>Court 3 in today's session:</strong> After filling Courts 1 and 2 from the Intermediate pool, Court 3 shows the Sriram notice. Admin decides what to do with him. The system does not guess.</div>
+  </div>
+
+  <!-- ═══ 10 QUEUE RE-ENTRY ═══ -->
+  <div class="section">
+    <div class="sl">10</div>
+    <div class="st">Queue Re-Entry After a Game</div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Player type</th><th>Re-entry position</th><th>consecutive_games</th><th>rounds_waited reset</th><th>games_this_session</th></tr></thead>
+        <tbody>
+          <tr><td class="hl2">Losers (2 players)</td><td>Appended to end of queue first</td><td>+1</td><td>Reset to 0</td><td>+1</td></tr>
+          <tr><td class="hl2">Winners (2 players)</td><td>Appended after losers</td><td>+1</td><td>Reset to 0</td><td>+1</td></tr>
+          <tr><td class="hl2">Players who sat out this round</td><td>Keep existing position</td><td>Unchanged (not halved until next round out)</td><td>+1</td><td>Unchanged</td></tr>
+          <tr><td class="hl2">Voluntary sit-out players</td><td>Keep existing position</td><td>Unchanged</td><td>Does NOT increment</td><td>Unchanged</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="hl"><strong>Rest reset logic:</strong> After 1 round sitting out, consecutive_games is <strong>halved</strong> (rounded down). After 2 rounds sitting out, consecutive_games is <strong>zeroed</strong>. This prevents a single break from completely erasing competitive fatigue history, while ensuring genuine rest is rewarded.</div>
+
+    <p><strong>Score and tier update timing:</strong> Always update score and tier <strong>before</strong> the player re-enters the queue. Their re-entry uses their new post-game score and confirmed tier (subject to the 3-game promotion buffer).</p>
+  </div>
+
+  <!-- ═══ 11 PROMOTION BUFFER ═══ -->
+  <div class="section">
+    <div class="sl">11</div>
+    <div class="st">Tier Promotion &amp; Demotion Buffer</div>
+    <div class="ss">A player must hold their new score range for 3 consecutive games before their tier label changes. Prevents single-session hot streaks pushing players into the wrong tier.</div>
+
+    <div class="cl">New columns required on players table</div>
+    <div class="cb"><pre><span class="kw">ALTER TABLE</span> players
+  <span class="kw">ADD COLUMN</span> tier_candidate        VARCHAR(30)  <span class="kw">DEFAULT NULL</span>,
+  <span class="kw">ADD COLUMN</span> tier_candidate_games  INTEGER      <span class="kw">DEFAULT</span> 0;
+
+<span class="cm">-- Queue and suggestions always use current_tier (confirmed).</span>
+<span class="cm">-- tier_candidate is only used for the UI progress indicator.</span>
+<span class="cm">-- A player trending toward upper_intermediate still queues as lower_intermediate</span>
+<span class="cm">-- until current_tier is officially updated after 3 confirmed games.</span></pre></div>
+
+    <div class="hl g"><strong>UI indicator:</strong> Show a subtle progress bar on the player's queue card when they are in tier_candidate status. Example: <em>"Trending to Competitive · 2/3"</em>. For demotion, show it quietly without a prominent label. This turns promotion into an exciting milestone and makes the system feel transparent.</div>
+  </div>
+
+  <!-- ═══ 12 WHAT NOT TO BUILD ═══ -->
+  <div class="section">
+    <div class="sl">12</div>
+    <div class="st">What Not to Build</div>
+    <div class="ss">Explicit decisions on features that were considered and rejected.</div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Feature</th><th>Decision</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td class="hl2">Auto-Assign button</td><td class="bad">Do not build</td><td>Admin needs to review and confirm every court. The system advises, the human decides. Removing human oversight creates bad games that damage player trust.</td></tr>
+          <tr><td class="hl2">More than 5 suggestions</td><td class="bad">Do not build</td><td>More than 5 options creates decision paralysis. If the top 5 all look bad, the problem is a structural session issue (lone outlier, too few players) — not a lack of options.</td></tr>
+          <tr><td class="hl2">Gender-based matching</td><td class="bad">Do not enforce</td><td>Gender is displayed on each player card (M/F). The admin can use this context to override. The algorithm should not enforce gender balance — it creates more problems than it solves in small player pools.</td></tr>
+          <tr><td class="hl2">Showing rejected splits</td><td class="bad">Do not show</td><td>Splits that fail the within-team spread filter must never be shown to the admin, even with a warning. Showing bad options creates confusion and the risk of an admin clicking one by mistake.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    <div>
+      <div class="wm">Shuttle<span class="iq">IQ</span> Dubai</div>
+      <div class="fn2">Smart Suggestions Specification v2 — supersedes all previous queue documentation</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="fn2">12 sections · March 2026</div>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>
