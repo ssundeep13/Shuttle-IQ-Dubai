@@ -515,11 +515,11 @@ function calculatePlayerPriority(
   queuePosition: number,
   restState: PlayerRestState,
   sessionAvgGames: number = 0,
-  queueWeight: number = 100.0,
+  queueWeight: number = 25.0,
   restWeight: number = 10.0,
   gamesPlayedWeight: number = 0.1,
-  waitingBonusWeight: number = 18.0,
-  sessionEquityWeight: number = 0.0
+  waitingBonusWeight: number = 6.0,
+  sessionEquityWeight: number = 40.0
 ): number {
   const positionScore = queuePosition * queueWeight;
   const restPenalty = restState.needsRest ? restState.consecutiveGames * restWeight : 0;
@@ -674,7 +674,7 @@ export function generateAllMatchupOptions(
   // Score with new weights: queue ×25, wait ×6, session deficit ×40
   const scored = baseCandidates.map(c => ({
     ...c,
-    priority: calculatePlayerPriority(c.player, c.queuePosition, c.restState, sessionAvgGames, 25.0, 10.0, 0.1, 6.0, 40.0),
+    priority: calculatePlayerPriority(c.player, c.queuePosition, c.restState, sessionAvgGames),
   }));
   scored.sort((a, b) => a.priority - b.priority);
 
@@ -898,7 +898,7 @@ export function generateAllMatchupOptions(
       splitPenalty,
       equityRank,
       isStretchMatch: true,
-      stretchMatchText: 'No same-tier partner available. Closest competitive match possible.',
+      stretchMatchText: 'No same-tier partner available. This is the closest competitive match possible.',
       outlierGamesWaited: outlierCand.restState.gamesWaited,
       isCompromised: false,
       rank: 0,

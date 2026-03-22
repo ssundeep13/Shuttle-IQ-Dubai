@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { formatSkillLevel } from "@shared/utils/skillUtils";
+import { formatSkillLevel, getTierDisplayName, getSkillTier } from "@shared/utils/skillUtils";
 import { apiRequest } from "@/lib/queryClient";
 import { ChevronDown, ChevronUp, Zap, Scale, Layers, Clock, Star, AlertCircle, Shuffle } from "lucide-react";
 import { useState } from "react";
@@ -105,8 +105,7 @@ export function SuggestedLineups({
 
   const getSpreadColor = (spread: number) => {
     if (spread <= 10) return "text-green-600 dark:text-green-400";
-    if (spread <= 18) return "text-amber-600 dark:text-amber-400";
-    return "text-red-600 dark:text-red-400";
+    return "text-amber-600 dark:text-amber-400";
   };
 
   const renderSuggestionCard = (suggestion: TeamCombination, idx: number, isFirst: boolean, keyPrefix: string = "") => {
@@ -124,7 +123,7 @@ export function SuggestedLineups({
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               <CardTitle className="text-sm">
-                {suggestion.isStretchMatch ? "Stretch Match" : isFirst ? "Best Option" : `Option ${idx + 1}`}
+                {suggestion.isStretchMatch ? "Stretch Match" : isFirst ? "Best Match" : `Option ${idx + 1}`}
               </CardTitle>
               <Badge variant="outline" className={balance.color} data-testid={`badge-balance-${keyPrefix}${idx}`}>
                 <BalanceIcon className="h-3 w-3 mr-1" />
@@ -136,7 +135,7 @@ export function SuggestedLineups({
                   className="text-muted-foreground border-muted-foreground/40"
                   data-testid={`badge-compromised-${keyPrefix}${idx}`}
                 >
-                  Wide Spread
+                  Compromised
                 </Badge>
               )}
               {isMixedTier && !suggestion.isStretchMatch && (
@@ -194,11 +193,11 @@ export function SuggestedLineups({
                     {(player.gamesWaited ?? 0) >= 4 && (
                       <Badge
                         variant="outline"
-                        className="text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 text-xs px-1"
+                        className="text-red-600 dark:text-red-400 border-red-300 dark:border-red-700 text-xs px-1"
                         data-testid={`badge-waited-${player.id}-${keyPrefix}${idx}`}
                       >
                         <Clock className="h-2.5 w-2.5 mr-0.5" />
-                        {player.gamesWaited}
+                        Waited {player.gamesWaited} games
                       </Badge>
                     )}
                   </div>
@@ -230,11 +229,11 @@ export function SuggestedLineups({
                     {(player.gamesWaited ?? 0) >= 4 && (
                       <Badge
                         variant="outline"
-                        className="text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 text-xs px-1"
+                        className="text-red-600 dark:text-red-400 border-red-300 dark:border-red-700 text-xs px-1"
                         data-testid={`badge-waited-${player.id}-${keyPrefix}${idx}`}
                       >
                         <Clock className="h-2.5 w-2.5 mr-0.5" />
-                        {player.gamesWaited}
+                        Waited {player.gamesWaited} games
                       </Badge>
                     )}
                   </div>
@@ -319,27 +318,31 @@ export function SuggestedLineups({
           )}
 
           {/* Lone outlier notice cards */}
-          {loneOutliers.map((outlier, idx) => (
-            <Card
-              key={`outlier-${idx}`}
-              className="border-blue-200 dark:border-blue-800"
-              data-testid={`card-lone-outlier-${idx}`}
-            >
-              <CardContent className="py-3 flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                    {outlier.player.name} has no same-level peers in the queue
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {outlier.gamesWaited >= 2
-                      ? "A Stretch Match has been generated below to get them into a game."
-                      : "They will be matched once more same-level players join the queue."}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {loneOutliers.map((outlier, idx) => {
+            const tier = getTierDisplayName(getSkillTier(outlier.player.skillScore || 90));
+            const score = outlier.player.skillScore || 90;
+            return (
+              <Card
+                key={`outlier-${idx}`}
+                className="border-blue-200 dark:border-blue-800"
+                data-testid={`card-lone-outlier-${idx}`}
+              >
+                <CardContent className="py-3 flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                      {outlier.player.name} ({tier}, {score}) has no same-level peers in the queue
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {outlier.gamesWaited >= 2
+                        ? "A Stretch Match has been generated to get them into a game."
+                        : "They will be matched once more same-level players join the queue."}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
 
           {isLoading && (
             <div className="text-center py-8 text-muted-foreground" data-testid="loading-suggestions">
