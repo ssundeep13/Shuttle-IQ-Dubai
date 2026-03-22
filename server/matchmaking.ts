@@ -841,68 +841,102 @@ export function generateAllMatchupOptions(
   });
 
   // ─── Build Stretch Matches ─────────────────────────────────────────────────
-  // For each lone outlier who has waited ≥ 2 games: pair with adjacent-tier players.
+  // For each lone outlier who has waited ≥ 2 games: find the best valid adjacent-tier pairing
+  // by evaluating all C(n,3) combinations of adjacent-tier players and picking the one that
+  // minimizes: tierDispersion → skillGap → spread → splitPenalty → variance.
   const stretchMatches: TeamCombination[] = [];
+  const STRETCH_SPREAD = 30;
 
   for (const outlierCand of loneOutlierCandidates) {
     if (outlierCand.restState.gamesWaited < 2) continue;
 
     const outlierTier = outlierCand.tierIndex;
-    const adjacentTierNums = [outlierTier - 1, outlierTier + 1].filter(t => t >= 0 && t <= 5);
+    const outlierPlayer = outlierCand.player;
+    const outlierScore = outlierPlayer.skillScore || 90;
 
-    // Pick adjacent tier with the most non-outlier candidates (need ≥ 3)
-    let bestAdjTier = -1;
-    let bestAdjCount = 0;
-    for (const adjTier of adjacentTierNums) {
-      const adjPool = (tierCountMap.get(adjTier) ?? []).filter(c => !loneOutlierIds.has(c.player.id));
-      if (adjPool.length > bestAdjCount) {
-        bestAdjCount = adjPool.length;
-        bestAdjTier = adjTier;
+    // Gather all non-outlier adjacent-tier candidates from ALL adjacent tiers
+    const adjacentTierNums = [outlierTier - 1, outlierTier + 1].filter(t => t >= 0 && t <= 5);
+    const allAdjCandidates = adjacentTierNums.flatMap(adjTier =>
+      (tierCountMap.get(adjTier) ?? []).filter(c => !loneOutlierIds.has(c.player.id))
+    );
+
+    if (allAdjCandidates.length < 3) continue;
+
+    // Evaluate all C(n,3) triples of adjacent-tier players:
+    //   team1 = [outlier, one adj player]  vs  team2 = [two other adj players]
+    // Keep the best valid triple (all spreads ≤ 30, minimize 5-factor objective).
+    let bestStretch: TeamCombination | null = null;
+
+    for (let pi = 0; pi < allAdjCandidates.length; pi++) {
+      const partnerCand = allAdjCandidates[pi];
+      const partnerScore = partnerCand.player.skillScore || 90;
+      if (Math.abs(outlierScore - partnerScore) > STRETCH_SPREAD) continue;
+
+      for (let oi = 0; oi < allAdjCandidates.length; oi++) {
+        if (oi === pi) continue;
+        for (let oj = oi + 1; oj < allAdjCandidates.length; oj++) {
+          if (oj === pi) continue;
+          const opp1Cand = allAdjCandidates[oi];
+          const opp2Cand = allAdjCandidates[oj];
+
+          if (!isValidSplit(
+            [outlierPlayer, partnerCand.player],
+            [opp1Cand.player, opp2Cand.player],
+            STRETCH_SPREAD
+          )) continue;
+
+          const metrics = calculateTeamMetrics(
+            [outlierPlayer, partnerCand.player],
+            [opp1Cand.player, opp2Cand.player]
+          );
+          const splitPenalty = calculateSplitPenalty(
+            [outlierPlayer, partnerCand.player],
+            [opp1Cand.player, opp2Cand.player],
+            sessionId
+          );
+          const equityRank = getEquityRank(
+            [outlierPlayer, partnerCand.player],
+            [opp1Cand.player, opp2Cand.player]
+          );
+
+          const candidate: TeamCombination = {
+            team1: [outlierPlayer, partnerCand.player],
+            team2: [opp1Cand.player, opp2Cand.player],
+            ...metrics,
+            splitPenalty,
+            equityRank,
+            isStretchMatch: true,
+            stretchMatchText: 'No same-tier partner available. This is the closest competitive match possible.',
+            outlierGamesWaited: outlierCand.restState.gamesWaited,
+            isCompromised: false,
+            rank: 0,
+          };
+
+          // 5-factor: tierDispersion → skillGap → spread sum → splitPenalty → variance
+          if (!bestStretch) {
+            bestStretch = candidate;
+          } else {
+            const spreadSum = (c: TeamCombination) => c.withinTeamSpread1 + c.withinTeamSpread2;
+            const beats =
+              candidate.tierDispersion < bestStretch.tierDispersion ||
+              (candidate.tierDispersion === bestStretch.tierDispersion && candidate.skillGap < bestStretch.skillGap - 0.01) ||
+              (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) < spreadSum(bestStretch)) ||
+              (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) === spreadSum(bestStretch) && candidate.splitPenalty < bestStretch.splitPenalty) ||
+              (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) === spreadSum(bestStretch) && candidate.splitPenalty === bestStretch.splitPenalty && candidate.variance < bestStretch.variance);
+            if (beats) bestStretch = candidate;
+          }
+        }
       }
     }
 
-    if (bestAdjTier === -1 || bestAdjCount < 3) continue;
+    if (!bestStretch) continue;
 
-    // Adjacent players sorted by skill score descending
-    const adjPlayers = (tierCountMap.get(bestAdjTier) ?? [])
-      .filter(c => !loneOutlierIds.has(c.player.id))
-      .sort((a, b) => (b.player.skillScore || 90) - (a.player.skillScore || 90));
+    // Enrich player objects with session state
+    const getRestState = (p: Player) => scored.find(c => c.player.id === p.id)?.restState ?? outlierCand.restState;
+    bestStretch.team1 = bestStretch.team1.map(p => enrichPlayer(p, getRestState(p))) as Player[];
+    bestStretch.team2 = bestStretch.team2.map(p => enrichPlayer(p, getRestState(p))) as Player[];
 
-    const outlierPlayer = outlierCand.player;
-    const partner = adjPlayers[0].player;
-    const opp1 = adjPlayers[1].player;
-    const opp2 = adjPlayers[2].player;
-
-    const STRETCH_SPREAD = 30;
-    const t1Spread = Math.abs((outlierPlayer.skillScore || 90) - (partner.skillScore || 90));
-    const t2Spread = Math.abs((opp1.skillScore || 90) - (opp2.skillScore || 90));
-    if (t1Spread > STRETCH_SPREAD || t2Spread > STRETCH_SPREAD) continue;
-
-    const metrics = calculateTeamMetrics([outlierPlayer, partner], [opp1, opp2]);
-    const splitPenalty = calculateSplitPenalty([outlierPlayer, partner], [opp1, opp2], sessionId);
-    const equityRank = getEquityRank([outlierPlayer, partner], [opp1, opp2]);
-
-    const enrichedT1 = [
-      enrichPlayer(outlierPlayer, outlierCand.restState),
-      enrichPlayer(partner, adjPlayers[0].restState),
-    ];
-    const enrichedT2 = [
-      enrichPlayer(opp1, adjPlayers[1].restState),
-      enrichPlayer(opp2, adjPlayers[2].restState),
-    ];
-
-    stretchMatches.push({
-      team1: enrichedT1 as Player[],
-      team2: enrichedT2 as Player[],
-      ...metrics,
-      splitPenalty,
-      equityRank,
-      isStretchMatch: true,
-      stretchMatchText: 'No same-tier partner available. This is the closest competitive match possible.',
-      outlierGamesWaited: outlierCand.restState.gamesWaited,
-      isCompromised: false,
-      rank: 0,
-    });
+    stretchMatches.push(bestStretch);
   }
 
   // ─── Enrich regular combination player objects with session state ──────────

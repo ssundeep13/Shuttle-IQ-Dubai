@@ -90,9 +90,12 @@ export function SuggestedLineups({
   const loneOutliers = data?.loneOutliers || [];
   const stretchMatches = data?.stretchMatches || [];
 
-  const getBalanceIndicator = (skillGap: number, isStretchMatch?: boolean) => {
+  const getBalanceIndicator = (skillGap: number, isStretchMatch?: boolean, isFirst?: boolean) => {
     if (isStretchMatch) {
       return { label: "Stretch Match", icon: Shuffle, color: "text-amber-600 dark:text-amber-400" };
+    }
+    if (isFirst) {
+      return { label: "Best Match", icon: Star, color: "text-green-600 dark:text-green-400" };
     }
     if (skillGap < 5) {
       return { label: "Best Match", icon: Star, color: "text-green-600 dark:text-green-400" };
@@ -109,7 +112,7 @@ export function SuggestedLineups({
   };
 
   const renderSuggestionCard = (suggestion: TeamCombination, idx: number, isFirst: boolean, keyPrefix: string = "") => {
-    const balance = getBalanceIndicator(suggestion.skillGap, suggestion.isStretchMatch);
+    const balance = getBalanceIndicator(suggestion.skillGap, suggestion.isStretchMatch, isFirst);
     const BalanceIcon = balance.icon;
     const isMixedTier = suggestion.tierDispersion > 0;
 
@@ -173,11 +176,9 @@ export function SuggestedLineups({
             <div className="space-y-2">
               <div className="flex items-center gap-1">
                 <span className="text-xs font-medium text-muted-foreground">Team 1 · Avg: {suggestion.team1Avg.toFixed(0)}</span>
-                {suggestion.withinTeamSpread1 > 0 && (
-                  <span className={`text-xs ${getSpreadColor(suggestion.withinTeamSpread1)}`} data-testid={`spread1-${keyPrefix}${idx}`}>
-                    ±{suggestion.withinTeamSpread1.toFixed(0)}
-                  </span>
-                )}
+                <span className={`text-xs ${getSpreadColor(suggestion.withinTeamSpread1 ?? 0)}`} data-testid={`spread1-${keyPrefix}${idx}`}>
+                  ±{(suggestion.withinTeamSpread1 ?? 0).toFixed(0)}
+                </span>
               </div>
               <div className="space-y-1">
                 {suggestion.team1.map((player) => (
@@ -209,11 +210,9 @@ export function SuggestedLineups({
             <div className="space-y-2">
               <div className="flex items-center gap-1">
                 <span className="text-xs font-medium text-muted-foreground">Team 2 · Avg: {suggestion.team2Avg.toFixed(0)}</span>
-                {suggestion.withinTeamSpread2 > 0 && (
-                  <span className={`text-xs ${getSpreadColor(suggestion.withinTeamSpread2)}`} data-testid={`spread2-${keyPrefix}${idx}`}>
-                    ±{suggestion.withinTeamSpread2.toFixed(0)}
-                  </span>
-                )}
+                <span className={`text-xs ${getSpreadColor(suggestion.withinTeamSpread2 ?? 0)}`} data-testid={`spread2-${keyPrefix}${idx}`}>
+                  ±{(suggestion.withinTeamSpread2 ?? 0).toFixed(0)}
+                </span>
               </div>
               <div className="space-y-1">
                 {suggestion.team2.map((player) => (
