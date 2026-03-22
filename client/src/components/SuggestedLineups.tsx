@@ -7,12 +7,17 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { formatSkillLevel } from "@shared/utils/skillUtils";
 import { apiRequest } from "@/lib/queryClient";
-import { ChevronDown, ChevronUp, Zap, Scale, Layers } from "lucide-react";
+import { ChevronDown, ChevronUp, Zap, Scale, Layers, Clock, Star, AlertCircle, Shuffle } from "lucide-react";
 import { useState } from "react";
 
+interface PlayerInSuggestion extends Player {
+  gamesWaited?: number;
+  gamesThisSession?: number;
+}
+
 interface TeamCombination {
-  team1: Player[];
-  team2: Player[];
+  team1: PlayerInSuggestion[];
+  team2: PlayerInSuggestion[];
   team1Avg: number;
   team2Avg: number;
   skillGap: number;
@@ -20,12 +25,26 @@ interface TeamCombination {
   tierDispersion: number;
   splitPenalty: number;
   crossTierPenalty: number;
+  withinTeamSpread1: number;
+  withinTeamSpread2: number;
+  equityRank: number;
+  isStretchMatch?: boolean;
+  stretchMatchText?: string;
+  outlierGamesWaited?: number;
+  isCompromised?: boolean;
   rank: number;
+}
+
+interface LoneOutlier {
+  player: Player;
+  gamesWaited: number;
 }
 
 interface SuggestionsResponse {
   suggestions: TeamCombination[];
   restWarnings: string[];
+  loneOutliers: LoneOutlier[];
+  stretchMatches: TeamCombination[];
   queueSize: number;
 }
 
@@ -68,15 +87,183 @@ export function SuggestedLineups({
 
   const suggestions = data?.suggestions || [];
   const restWarnings = data?.restWarnings || [];
+  const loneOutliers = data?.loneOutliers || [];
+  const stretchMatches = data?.stretchMatches || [];
 
-  const getBalanceIndicator = (skillGap: number) => {
+  const getBalanceIndicator = (skillGap: number, isStretchMatch?: boolean) => {
+    if (isStretchMatch) {
+      return { label: "Stretch Match", icon: Shuffle, color: "text-amber-600 dark:text-amber-400" };
+    }
     if (skillGap < 5) {
-      return { label: "Perfect Match", icon: Scale, color: "text-green-600 dark:text-green-400" };
+      return { label: "Best Match", icon: Star, color: "text-green-600 dark:text-green-400" };
     } else if (skillGap < 10) {
       return { label: "Balanced", icon: Scale, color: "text-blue-600 dark:text-blue-400" };
     } else {
       return { label: "Competitive", icon: Zap, color: "text-orange-600 dark:text-orange-400" };
     }
+  };
+
+  const getSpreadColor = (spread: number) => {
+    if (spread <= 10) return "text-green-600 dark:text-green-400";
+    if (spread <= 18) return "text-amber-600 dark:text-amber-400";
+    return "text-red-600 dark:text-red-400";
+  };
+
+  const renderSuggestionCard = (suggestion: TeamCombination, idx: number, isFirst: boolean, keyPrefix: string = "") => {
+    const balance = getBalanceIndicator(suggestion.skillGap, suggestion.isStretchMatch);
+    const BalanceIcon = balance.icon;
+    const isMixedTier = suggestion.tierDispersion > 0;
+
+    return (
+      <Card
+        key={`${keyPrefix}${idx}`}
+        className={`hover-elevate ${suggestion.isStretchMatch ? "border-amber-200 dark:border-amber-800" : ""}`}
+        data-testid={`suggestion-${keyPrefix}${idx}`}
+      >
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <CardTitle className="text-sm">
+                {suggestion.isStretchMatch ? "Stretch Match" : isFirst ? "Best Option" : `Option ${idx + 1}`}
+              </CardTitle>
+              <Badge variant="outline" className={balance.color} data-testid={`badge-balance-${keyPrefix}${idx}`}>
+                <BalanceIcon className="h-3 w-3 mr-1" />
+                {balance.label}
+              </Badge>
+              {suggestion.isCompromised && (
+                <Badge
+                  variant="outline"
+                  className="text-muted-foreground border-muted-foreground/40"
+                  data-testid={`badge-compromised-${keyPrefix}${idx}`}
+                >
+                  Wide Spread
+                </Badge>
+              )}
+              {isMixedTier && !suggestion.isStretchMatch && (
+                <Badge
+                  variant="outline"
+                  className="text-muted-foreground border-muted-foreground/40"
+                  data-testid={`badge-mixed-tier-${keyPrefix}${idx}`}
+                >
+                  <Layers className="h-3 w-3 mr-1" />
+                  Mixed Levels
+                </Badge>
+              )}
+              {suggestion.isStretchMatch && suggestion.outlierGamesWaited !== undefined && (
+                <Badge
+                  variant="outline"
+                  className="text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700"
+                  data-testid={`badge-waited-stretch-${keyPrefix}${idx}`}
+                >
+                  <Clock className="h-3 w-3 mr-1" />
+                  Waited {suggestion.outlierGamesWaited}
+                </Badge>
+              )}
+            </div>
+            <CardDescription className="text-xs" data-testid={`skill-gap-${keyPrefix}${idx}`}>
+              Gap: {suggestion.skillGap.toFixed(1)}
+            </CardDescription>
+          </div>
+          {suggestion.isStretchMatch && suggestion.stretchMatchText && (
+            <p className="text-xs text-muted-foreground mt-1">{suggestion.stretchMatchText}</p>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            {/* Team 1 */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-muted-foreground">Team 1 · Avg: {suggestion.team1Avg.toFixed(0)}</span>
+                {suggestion.withinTeamSpread1 > 0 && (
+                  <span className={`text-xs ${getSpreadColor(suggestion.withinTeamSpread1)}`} data-testid={`spread1-${keyPrefix}${idx}`}>
+                    ±{suggestion.withinTeamSpread1.toFixed(0)}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1">
+                {suggestion.team1.map((player) => (
+                  <div
+                    key={player.id}
+                    className="flex items-center gap-1 text-sm"
+                    data-testid={`team1-player-${player.id}-${keyPrefix}${idx}`}
+                  >
+                    <span>{player.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {player.gender?.[0]} {formatSkillLevel(player.skillScore || 90)}
+                    </span>
+                    {(player.gamesWaited ?? 0) >= 4 && (
+                      <Badge
+                        variant="outline"
+                        className="text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 text-xs px-1"
+                        data-testid={`badge-waited-${player.id}-${keyPrefix}${idx}`}
+                      >
+                        <Clock className="h-2.5 w-2.5 mr-0.5" />
+                        {player.gamesWaited}
+                      </Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Team 2 */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-muted-foreground">Team 2 · Avg: {suggestion.team2Avg.toFixed(0)}</span>
+                {suggestion.withinTeamSpread2 > 0 && (
+                  <span className={`text-xs ${getSpreadColor(suggestion.withinTeamSpread2)}`} data-testid={`spread2-${keyPrefix}${idx}`}>
+                    ±{suggestion.withinTeamSpread2.toFixed(0)}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1">
+                {suggestion.team2.map((player) => (
+                  <div
+                    key={player.id}
+                    className="flex items-center gap-1 text-sm"
+                    data-testid={`team2-player-${player.id}-${keyPrefix}${idx}`}
+                  >
+                    <span>{player.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {player.gender?.[0]} {formatSkillLevel(player.skillScore || 90)}
+                    </span>
+                    {(player.gamesWaited ?? 0) >= 4 && (
+                      <Badge
+                        variant="outline"
+                        className="text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700 text-xs px-1"
+                        data-testid={`badge-waited-${player.id}-${keyPrefix}${idx}`}
+                      >
+                        <Clock className="h-2.5 w-2.5 mr-0.5" />
+                        {player.gamesWaited}
+                      </Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {availableCourts > 0 && isActiveSession && (
+            <Button
+              size="sm"
+              className="w-full"
+              onClick={() => onAssign(
+                suggestion.team1.map(p => p.id),
+                suggestion.team2.map(p => p.id)
+              )}
+              data-testid={`button-assign-suggestion-${keyPrefix}${idx}`}
+            >
+              Assign to Court
+            </Button>
+          )}
+          {availableCourts > 0 && !isActiveSession && (
+            <div className="text-xs text-center text-muted-foreground py-2" data-testid="readonly-message">
+              Read-only: This is not the active session
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
   };
 
   return (
@@ -131,6 +318,29 @@ export function SuggestedLineups({
             </Card>
           )}
 
+          {/* Lone outlier notice cards */}
+          {loneOutliers.map((outlier, idx) => (
+            <Card
+              key={`outlier-${idx}`}
+              className="border-blue-200 dark:border-blue-800"
+              data-testid={`card-lone-outlier-${idx}`}
+            >
+              <CardContent className="py-3 flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                    {outlier.player.name} has no same-level peers in the queue
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {outlier.gamesWaited >= 2
+                      ? "A Stretch Match has been generated below to get them into a game."
+                      : "They will be matched once more same-level players join the queue."}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+
           {isLoading && (
             <div className="text-center py-8 text-muted-foreground" data-testid="loading-suggestions">
               Generating suggestions...
@@ -143,113 +353,26 @@ export function SuggestedLineups({
             </div>
           )}
 
-          {!isLoading && !error && suggestions.length === 0 && (
+          {!isLoading && !error && suggestions.length === 0 && stretchMatches.length === 0 && (
             <div className="text-center py-8 text-muted-foreground" data-testid="no-suggestions">
               Not enough players for suggestions
             </div>
           )}
 
-          {!isLoading && suggestions.map((suggestion, idx) => {
-            const balance = getBalanceIndicator(suggestion.skillGap);
-            const BalanceIcon = balance.icon;
-            // tierDispersion > 0 means at least 2 different skill tiers in this group.
-            // Even adjacent tiers (e.g. Beginner + Intermediate) are flagged as Mixed Levels
-            // since the whole point of tier grouping is same-level games.
-            const isMixedTier = suggestion.tierDispersion > 0;
+          {/* Stretch Match cards — shown at top when outlier has waited ≥ 3 games */}
+          {!isLoading && stretchMatches
+            .filter(sm => (sm.outlierGamesWaited ?? 0) >= 3)
+            .map((sm, idx) => renderSuggestionCard(sm, idx, false, "stretch-top-"))}
 
-            return (
-              <Card key={idx} className="hover-elevate" data-testid={`suggestion-${idx}`}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <CardTitle className="text-sm">Option {idx + 1}</CardTitle>
-                      <Badge variant="outline" className={balance.color} data-testid={`badge-balance-${idx}`}>
-                        <BalanceIcon className="h-3 w-3 mr-1" />
-                        {balance.label}
-                      </Badge>
-                      {isMixedTier && (
-                        <Badge
-                          variant="outline"
-                          className="text-muted-foreground border-muted-foreground/40"
-                          data-testid={`badge-mixed-tier-${idx}`}
-                        >
-                          <Layers className="h-3 w-3 mr-1" />
-                          Mixed Levels
-                        </Badge>
-                      )}
-                    </div>
-                    <CardDescription className="text-xs" data-testid={`skill-gap-${idx}`}>
-                      Gap: {suggestion.skillGap.toFixed(1)}
-                    </CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Team 1 */}
-                    <div className="space-y-2">
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Team 1 • Avg: {suggestion.team1Avg.toFixed(0)}
-                      </div>
-                      <div className="space-y-1">
-                        {suggestion.team1.map((player) => (
-                          <div
-                            key={player.id}
-                            className="text-sm"
-                            data-testid={`team1-player-${player.id}-${idx}`}
-                          >
-                            {player.name}
-                            <span className="text-xs text-muted-foreground ml-1">
-                              {player.gender?.[0]} {formatSkillLevel(player.skillScore || 90)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+          {/* Regular suggestion cards */}
+          {!isLoading && suggestions.map((suggestion, idx) =>
+            renderSuggestionCard(suggestion, idx, idx === 0)
+          )}
 
-                    {/* Team 2 */}
-                    <div className="space-y-2">
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Team 2 • Avg: {suggestion.team2Avg.toFixed(0)}
-                      </div>
-                      <div className="space-y-1">
-                        {suggestion.team2.map((player) => (
-                          <div
-                            key={player.id}
-                            className="text-sm"
-                            data-testid={`team2-player-${player.id}-${idx}`}
-                          >
-                            {player.name}
-                            <span className="text-xs text-muted-foreground ml-1">
-                              {player.gender?.[0]} {formatSkillLevel(player.skillScore || 90)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {availableCourts > 0 && isActiveSession && (
-                    <Button
-                      size="sm"
-                      className="w-full"
-                      onClick={() => onAssign(
-                        suggestion.team1.map(p => p.id),
-                        suggestion.team2.map(p => p.id)
-                      )}
-                      data-testid={`button-assign-suggestion-${idx}`}
-                    >
-                      Assign to Court
-                    </Button>
-                  )}
-                  {availableCourts > 0 && !isActiveSession && (
-                    <div className="text-xs text-center text-muted-foreground py-2" data-testid="readonly-message">
-                      Read-only: This is not the active session
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+          {/* Stretch Match cards — shown at bottom when outlier has waited < 3 games */}
+          {!isLoading && stretchMatches
+            .filter(sm => (sm.outlierGamesWaited ?? 0) < 3)
+            .map((sm, idx) => renderSuggestionCard(sm, idx, false, "stretch-bottom-"))}
         </div>
       )}
     </div>

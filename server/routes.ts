@@ -1242,7 +1242,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         activeSession.id,
         queue,
         allPlayers,
-        15, // Return top 15 balanced options
+        15,
         groupByTier
       );
 
@@ -1302,17 +1302,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const groupByTier = req.query.groupByTier !== 'false';
 
       // Generate top 5 matchup options
-      const { allCombinations, restWarnings } = generateAllMatchupOptions(
+      const { allCombinations, restWarnings, loneOutliers, stretchMatches } = generateAllMatchupOptions(
         session.id,
         queue,
         allPlayers,
-        5, // Return top 5 suggestions
+        5,
         groupByTier
       );
 
       res.json({
         suggestions: allCombinations,
         restWarnings,
+        loneOutliers,
+        stretchMatches,
         queueSize: queue.length
       });
     } catch (error) {

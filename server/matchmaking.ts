@@ -48,6 +48,7 @@ interface PlayerRestState {
   playerId: string;
   consecutiveGames: number;
   gamesWaited: number; // games sat out since last playing
+  gamesThisSession: number; // total games played this session
   lastGameEndedAt: Date | null;
   needsRest: boolean;
 }
@@ -60,9 +61,16 @@ export interface TeamCombination {
   team2Avg: number;
   skillGap: number;
   variance: number;
-  tierDispersion: number;   // max tier index - min tier index across all 4 players (0 = same tier)
-  splitPenalty: number;     // Fix 3: partner repetition penalty (0 = novel pairing, up to 60 = both pairs repeated)
-  crossTierPenalty: number; // 0 = no cross-tier team, 1+ = teams with mixed-tier players (prefer 0)
+  tierDispersion: number;     // max tier index - min tier index across all 4 players (0 = same tier)
+  splitPenalty: number;       // partner repetition penalty (0 = novel pairing, up to 60 = both pairs repeated)
+  crossTierPenalty: number;   // 0 = no cross-tier team, 1+ = teams with mixed-tier players (prefer 0)
+  withinTeamSpread1: number;  // max-min score spread within team1
+  withinTeamSpread2: number;  // max-min score spread within team2
+  equityRank: number;         // negated sum of session deficits (lower = more under-served players)
+  isStretchMatch?: boolean;   // true if this is a lone-outlier stretch match
+  stretchMatchText?: string;  // explanatory text for stretch matches
+  outlierGamesWaited?: number;// gamesWaited of the lone outlier in this stretch match
+  isCompromised?: boolean;    // true if generated under the relaxed 25pt spread limit
   rank: number;
 }
 
@@ -114,13 +122,17 @@ export function updatePlayerRestState(
     playerId,
     consecutiveGames: 0,
     gamesWaited: 0,
+    gamesThisSession: 0,
     lastGameEndedAt: null,
     needsRest: false,
   };
+  // Ensure gamesThisSession is present on objects hydrated before this field existed
+  if (current.gamesThisSession === undefined) current.gamesThisSession = 0;
 
   if (played) {
     current.consecutiveGames += 1;
     current.gamesWaited = 0;
+    current.gamesThisSession += 1;
     current.lastGameEndedAt = new Date();
     current.needsRest = current.consecutiveGames >= 2;
   } else {
@@ -143,10 +155,16 @@ export function updatePlayerRestState(
 
 export function getPlayerRestState(sessionId: string, playerId: string): PlayerRestState {
   const states = getSessionRestStates(sessionId);
-  return states.get(playerId) || {
+  const existing = states.get(playerId);
+  if (existing) {
+    if (existing.gamesThisSession === undefined) existing.gamesThisSession = 0;
+    return existing;
+  }
+  return {
     playerId,
     consecutiveGames: 0,
     gamesWaited: 0,
+    gamesThisSession: 0,
     lastGameEndedAt: null,
     needsRest: false,
   };
@@ -228,6 +246,7 @@ export function buildRestStatesFromHistory(
       playerId,
       consecutiveGames: 0,
       gamesWaited: 0,
+      gamesThisSession: 0,
       lastGameEndedAt: null,
       needsRest: false,
     });
@@ -243,6 +262,7 @@ export function buildRestStatesFromHistory(
       if (playerIdsInGame.has(playerId)) {
         current.consecutiveGames += 1;
         current.gamesWaited = 0;
+        current.gamesThisSession += 1;
         current.lastGameEndedAt = participants[0].createdAt;
       } else {
         // Fix 4: graduated reset (same logic as updatePlayerRestState)
@@ -384,6 +404,8 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   variance: number;
   tierDispersion: number;
   crossTierPenalty: number;
+  withinTeamSpread1: number;
+  withinTeamSpread2: number;
 } {
   const team1Skills = team1.map(p => p.skillScore || 90);
   const team2Skills = team2.map(p => p.skillScore || 90);
@@ -391,6 +413,9 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   const team1Avg = team1Skills.reduce((a, b) => a + b, 0) / team1Skills.length;
   const team2Avg = team2Skills.reduce((a, b) => a + b, 0) / team2Skills.length;
   const skillGap = Math.abs(team1Avg - team2Avg);
+
+  const withinTeamSpread1 = team1Skills.length > 1 ? Math.max(...team1Skills) - Math.min(...team1Skills) : 0;
+  const withinTeamSpread2 = team2Skills.length > 1 ? Math.max(...team2Skills) - Math.min(...team2Skills) : 0;
 
   const allSkills = [...team1Skills, ...team2Skills];
   const mean = (team1Avg + team2Avg) / 2;
@@ -412,7 +437,7 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   // Penalty for any team that has 2+ cross-tier players stacked together
   const crossTierPenalty = (team1CrossTier > 1 ? 1 : 0) + (team2CrossTier > 1 ? 1 : 0);
 
-  return { team1Avg, team2Avg, skillGap, variance, tierDispersion, crossTierPenalty };
+  return { team1Avg, team2Avg, skillGap, variance, tierDispersion, crossTierPenalty, withinTeamSpread1, withinTeamSpread2 };
 }
 
 /**
@@ -436,7 +461,7 @@ export function findBalancedTeams(
   for (const [team1, team2] of permutations) {
     const metrics = calculateTeamMetrics(team1, team2);
     const splitPenalty = sessionId ? calculateSplitPenalty(team1, team2, sessionId) : 0;
-    combinations.push({ team1, team2, ...metrics, splitPenalty, rank: 0 });
+    combinations.push({ team1, team2, ...metrics, splitPenalty, equityRank: 0, rank: 0 });
   }
 
   // Hard constraint: exclude permutations that put 2 cross-tier players on the same team,
@@ -489,16 +514,28 @@ function calculatePlayerPriority(
   player: Player,
   queuePosition: number,
   restState: PlayerRestState,
+  sessionAvgGames: number = 0,
   queueWeight: number = 100.0,
   restWeight: number = 10.0,
   gamesPlayedWeight: number = 0.1,
-  waitingBonusWeight: number = 18.0
+  waitingBonusWeight: number = 18.0,
+  sessionEquityWeight: number = 0.0
 ): number {
   const positionScore = queuePosition * queueWeight;
   const restPenalty = restState.needsRest ? restState.consecutiveGames * restWeight : 0;
   const gamesPlayedPenalty = (player.gamesPlayed || 0) * gamesPlayedWeight;
   const waitingBonus = restState.gamesWaited * waitingBonusWeight;
-  return positionScore + restPenalty + gamesPlayedPenalty - waitingBonus;
+  const sessionDeficit = sessionAvgGames - (restState.gamesThisSession || 0);
+  const sessionEquityBonus = sessionDeficit * sessionEquityWeight;
+  return positionScore + restPenalty + gamesPlayedPenalty - waitingBonus - sessionEquityBonus;
+}
+
+/** Within-team spread check: returns true if both teams satisfy the spread limit. */
+function isValidSplit(team1: Player[], team2: Player[], maxSpread: number): boolean {
+  const t1 = team1.map(p => p.skillScore || 90);
+  const t2 = team2.map(p => p.skillScore || 90);
+  return (Math.max(...t1) - Math.min(...t1)) <= maxSpread &&
+         (Math.max(...t2) - Math.min(...t2)) <= maxSpread;
 }
 
 /**
@@ -603,60 +640,94 @@ export function generateAllMatchupOptions(
   sessionId: string,
   queuePlayerIds: string[],
   allPlayers: Player[],
-  maxOptions: number = 15,
+  maxOptions: number = 5,
   groupByTier: boolean = false
 ): {
   allCombinations: TeamCombination[];
   restWarnings: string[];
+  loneOutliers: { player: Player; gamesWaited: number }[];
+  stretchMatches: TeamCombination[];
 } {
   const restWarnings: string[] = [];
-  const allCombinations: TeamCombination[] = [];
-  const processedPlayerSets = new Set<string>();
 
-  // Fix 5: dynamic suggest window; exclude sitting-out players
+  // Dynamic suggest window; exclude sitting-out players
   const eligibleQueueIds = queuePlayerIds.filter(id => !isSittingOut(sessionId, id));
   const { suggestWindow } = getWindowSizes(eligibleQueueIds.length);
   const candidateIds = eligibleQueueIds.slice(0, suggestWindow);
 
-  const scoredCandidates = candidateIds.map((playerId, index) => {
+  // ─── Build scored candidate pool ──────────────────────────────────────────
+  let totalGamesThisSession = 0;
+  let eligibleCount = 0;
+
+  const baseCandidates = candidateIds.map((playerId, index) => {
     const player = allPlayers.find(p => p.id === playerId);
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
-    const priority = calculatePlayerPriority(player, index, restState);
-    // Use confirmed tier (player.level) — respects the 3-game promotion buffer.
+    totalGamesThisSession += restState.gamesThisSession;
+    eligibleCount++;
     const tierIndex = getConfirmedTierIndex(player.level || 'lower_intermediate');
-    return { player, priority, restState, queuePosition: index, tierIndex };
+    return { player, restState, queuePosition: index, tierIndex };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
 
-  scoredCandidates.sort((a, b) => a.priority - b.priority);
+  const sessionAvgGames = eligibleCount > 0 ? totalGamesThisSession / eligibleCount : 0;
 
-  const generatePlayerSets = (): Player[][] => {
+  // Score with new weights: queue ×25, wait ×6, session deficit ×40
+  const scored = baseCandidates.map(c => ({
+    ...c,
+    priority: calculatePlayerPriority(c.player, c.queuePosition, c.restState, sessionAvgGames, 25.0, 10.0, 0.1, 6.0, 40.0),
+  }));
+  scored.sort((a, b) => a.priority - b.priority);
+
+  // ─── Lone outlier detection ───────────────────────────────────────────────
+  // A lone outlier is the ONLY player of their confirmed tier in the candidate pool.
+  const tierCountMap = new Map<number, typeof scored>();
+  for (const c of scored) {
+    if (!tierCountMap.has(c.tierIndex)) tierCountMap.set(c.tierIndex, []);
+    tierCountMap.get(c.tierIndex)!.push(c);
+  }
+
+  const loneOutlierCandidates = scored.filter(c => (tierCountMap.get(c.tierIndex)?.length ?? 0) === 1);
+  const loneOutlierIds = new Set(loneOutlierCandidates.map(c => c.player.id));
+
+  const loneOutliers = loneOutlierCandidates.map(c => ({
+    player: c.player,
+    gamesWaited: c.restState.gamesWaited,
+  }));
+
+  // Regular candidates exclude lone outliers
+  const regularCandidates = scored.filter(c => !loneOutlierIds.has(c.player.id));
+
+  // ─── Helper: enrich player with session state ─────────────────────────────
+  const enrichPlayer = (p: Player, rs: PlayerRestState): Player => ({
+    ...p,
+    gamesWaited: rs.gamesWaited,
+    gamesThisSession: rs.gamesThisSession,
+  } as Player);
+
+  // ─── Helper: generate player groups of 4 ────────────────────────────────
+  const generatePlayerSets = (candidates: typeof scored): Player[][] => {
     const sets: Player[][] = [];
-    const minPlayers = Math.min(8, scoredCandidates.length);
-    if (scoredCandidates.length < 4) return [];
+    const n = candidates.length;
+    if (n < 4) return [];
+    const limit = Math.min(n, 10);
 
-    for (let i = 0; i < Math.min(minPlayers, scoredCandidates.length); i++) {
-      for (let j = i + 1; j < Math.min(minPlayers + 1, scoredCandidates.length); j++) {
-        for (let k = j + 1; k < Math.min(minPlayers + 2, scoredCandidates.length); k++) {
-          for (let l = k + 1; l < Math.min(minPlayers + 3, scoredCandidates.length); l++) {
-            const group = [scoredCandidates[i], scoredCandidates[j], scoredCandidates[k], scoredCandidates[l]];
+    for (let i = 0; i < limit; i++) {
+      for (let j = i + 1; j < limit; j++) {
+        for (let k = j + 1; k < limit; k++) {
+          for (let l = k + 1; l < limit; l++) {
+            const group = [candidates[i], candidates[j], candidates[k], candidates[l]];
 
             if (groupByTier) {
-              // Hard tier-composition constraint: valid groups are 4 same-tier
-              // or exactly 3 same-tier + 1 adjacent-tier (the "3+1 rule").
+              // Hard tier-composition constraint: 4 same-tier OR 3+1 adjacent
               const tierCounts = new Map<number, number>();
               for (const c of group) tierCounts.set(c.tierIndex, (tierCounts.get(c.tierIndex) ?? 0) + 1);
-              const sorted = [...tierCounts.entries()].sort((a, b) => b[1] - a[1]);
-              const majorityTier = sorted[0][0];
-              const majorityCount = sorted[0][1];
-              // Must have ≥3 same-tier players
+              const sorted2 = [...tierCounts.entries()].sort((a, b) => b[1] - a[1]);
+              const majorityTier = sorted2[0][0];
+              const majorityCount = sorted2[0][1];
               if (majorityCount < 3) continue;
-              // Cross-tier players must each be adjacent to the majority tier
-              const crossTierPlayers = group.filter(c => c.tierIndex !== majorityTier);
-              const allAdjacent = crossTierPlayers.every(c => Math.abs(c.tierIndex - majorityTier) === 1);
-              if (!allAdjacent) continue;
-              // At most 1 cross-tier player allowed (3+1 rule, not 2+2)
-              if (crossTierPlayers.length > 1) continue;
+              const cross = group.filter(c => c.tierIndex !== majorityTier);
+              if (!cross.every(c => Math.abs(c.tierIndex - majorityTier) === 1)) continue;
+              if (cross.length > 1) continue;
             }
 
             sets.push(group.map(c => c.player));
@@ -668,53 +739,188 @@ export function generateAllMatchupOptions(
     return sets;
   };
 
-  let playerSets = generatePlayerSets();
+  // ─── Helper: compute equity rank for a group of 4 ────────────────────────
+  const getEquityRank = (team1: Player[], team2: Player[]): number => {
+    // Negative sum of deficits → lower value = more under-served players (sort asc to prefer them)
+    const totalDeficit = [...team1, ...team2].reduce((sum, p) => {
+      const rs = scored.find(c => c.player.id === p.id)?.restState;
+      return sum + (sessionAvgGames - (rs?.gamesThisSession ?? 0));
+    }, 0);
+    return -totalDeficit; // negate: more deficit = lower equityRank = preferred
+  };
 
-  // When groupByTier=true and no valid sets were found, do NOT fall back to
-  // unconstrained selection. The caller receives empty allCombinations and
-  // restWarnings, and should surface "insufficient tier-compatible players" to the user.
-  if (groupByTier && playerSets.length === 0 && scoredCandidates.length >= 4) {
+  // ─── Helper: build combos from player sets with spread filter ─────────────
+  const buildCombinations = (playerSets: Player[][], maxSpread: number, isCompromised: boolean): TeamCombination[] => {
+    const combos: TeamCombination[] = [];
+    const processed = new Set<string>();
+
+    for (const playerSet of playerSets) {
+      const setKey = playerSet.map(p => p.id).sort().join('-');
+      if (processed.has(setKey)) continue;
+      processed.add(setKey);
+
+      const permutations = getAllTeamPermutations(playerSet);
+      let best: TeamCombination | null = null;
+
+      for (const [t1, t2] of permutations) {
+        if (!isValidSplit(t1, t2, maxSpread)) continue;
+
+        const metrics = calculateTeamMetrics(t1, t2);
+        const splitPenalty = calculateSplitPenalty(t1, t2, sessionId);
+        const equityRank = getEquityRank(t1, t2);
+
+        const combo: TeamCombination = {
+          team1: t1,
+          team2: t2,
+          ...metrics,
+          splitPenalty,
+          equityRank,
+          isCompromised,
+          isStretchMatch: false,
+          rank: 0,
+        };
+
+        if (!best) {
+          best = combo;
+        } else {
+          // 5-factor: tierDispersion → skillGap → equityRank → splitPenalty → variance
+          const beats =
+            combo.tierDispersion < best.tierDispersion ||
+            (combo.tierDispersion === best.tierDispersion && combo.skillGap < best.skillGap - 0.01) ||
+            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank < best.equityRank) ||
+            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty < best.splitPenalty) ||
+            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty === best.splitPenalty && combo.variance < best.variance);
+          if (beats) best = combo;
+        }
+      }
+
+      if (best) {
+        // Rest warnings
+        for (const player of playerSet) {
+          const rs = getPlayerRestState(sessionId, player.id);
+          if (rs.needsRest) {
+            const msg = `${player.name} has played ${rs.consecutiveGames} consecutive games`;
+            if (!restWarnings.includes(msg)) restWarnings.push(msg);
+          }
+        }
+        combos.push(best);
+      }
+    }
+
+    return combos;
+  };
+
+  // ─── Generate regular suggestions ────────────────────────────────────────
+  const playerSets = generatePlayerSets(regularCandidates);
+
+  if (groupByTier && playerSets.length === 0 && regularCandidates.length >= 4) {
     console.warn('[Matchmaking] No valid tier-grouped sets found in candidate window; cannot suggest');
     restWarnings.push('Insufficient same-tier players; cannot generate tier-grouped suggestions');
   }
 
-  for (const playerSet of playerSets) {
-    const setKey = playerSet.map(p => p.id).sort().join('-');
-    if (processedPlayerSets.has(setKey)) continue;
-    processedPlayerSets.add(setKey);
+  let combinations = buildCombinations(playerSets, 20, false);
 
-    // Fix 3: pass sessionId so split penalty is factored into ranking
-    const combinations = findBalancedTeams(playerSet, 3, groupByTier, sessionId);
-
-    for (const player of playerSet) {
-      const restState = getPlayerRestState(sessionId, player.id);
-      if (restState.needsRest) {
-        const warningMsg = `${player.name} has played ${restState.consecutiveGames} consecutive games`;
-        if (!restWarnings.includes(warningMsg)) restWarnings.push(warningMsg);
-      }
+  // Last resort: retry at 25pt spread if no clean options exist
+  if (combinations.length === 0 && playerSets.length > 0) {
+    combinations = buildCombinations(playerSets, 25, true);
+    if (combinations.length > 0) {
+      console.warn('[Matchmaking] Using compromised spread limit (25pts)');
     }
-
-    allCombinations.push(...combinations);
   }
 
-  // Sort: cross-tier team avoidance → tier homogeneity → skill gap → split penalty → variance
-  allCombinations.sort((a, b) => {
-    const crossTierDiff = a.crossTierPenalty - b.crossTierPenalty;
-    if (crossTierDiff !== 0) return crossTierDiff;
-    if (groupByTier) {
-      const tierDiff = a.tierDispersion - b.tierDispersion;
-      if (tierDiff !== 0) return tierDiff;
-    }
+  // 5-factor final sort
+  combinations.sort((a, b) => {
+    const tierDiff = a.tierDispersion - b.tierDispersion;
+    if (tierDiff !== 0) return tierDiff;
     if (Math.abs(a.skillGap - b.skillGap) >= 0.01) return a.skillGap - b.skillGap;
-    const penaltyDiff = a.splitPenalty - b.splitPenalty;
-    if (penaltyDiff !== 0) return penaltyDiff;
+    const eqDiff = a.equityRank - b.equityRank;
+    if (eqDiff !== 0) return eqDiff;
+    const penDiff = a.splitPenalty - b.splitPenalty;
+    if (penDiff !== 0) return penDiff;
     return a.variance - b.variance;
   });
 
-  allCombinations.forEach((combo, index) => { combo.rank = index + 1; });
+  // ─── Build Stretch Matches ─────────────────────────────────────────────────
+  // For each lone outlier who has waited ≥ 2 games: pair with adjacent-tier players.
+  const stretchMatches: TeamCombination[] = [];
+
+  for (const outlierCand of loneOutlierCandidates) {
+    if (outlierCand.restState.gamesWaited < 2) continue;
+
+    const outlierTier = outlierCand.tierIndex;
+    const adjacentTierNums = [outlierTier - 1, outlierTier + 1].filter(t => t >= 0 && t <= 5);
+
+    // Pick adjacent tier with the most non-outlier candidates (need ≥ 3)
+    let bestAdjTier = -1;
+    let bestAdjCount = 0;
+    for (const adjTier of adjacentTierNums) {
+      const adjPool = (tierCountMap.get(adjTier) ?? []).filter(c => !loneOutlierIds.has(c.player.id));
+      if (adjPool.length > bestAdjCount) {
+        bestAdjCount = adjPool.length;
+        bestAdjTier = adjTier;
+      }
+    }
+
+    if (bestAdjTier === -1 || bestAdjCount < 3) continue;
+
+    // Adjacent players sorted by skill score descending
+    const adjPlayers = (tierCountMap.get(bestAdjTier) ?? [])
+      .filter(c => !loneOutlierIds.has(c.player.id))
+      .sort((a, b) => (b.player.skillScore || 90) - (a.player.skillScore || 90));
+
+    const outlierPlayer = outlierCand.player;
+    const partner = adjPlayers[0].player;
+    const opp1 = adjPlayers[1].player;
+    const opp2 = adjPlayers[2].player;
+
+    const STRETCH_SPREAD = 30;
+    const t1Spread = Math.abs((outlierPlayer.skillScore || 90) - (partner.skillScore || 90));
+    const t2Spread = Math.abs((opp1.skillScore || 90) - (opp2.skillScore || 90));
+    if (t1Spread > STRETCH_SPREAD || t2Spread > STRETCH_SPREAD) continue;
+
+    const metrics = calculateTeamMetrics([outlierPlayer, partner], [opp1, opp2]);
+    const splitPenalty = calculateSplitPenalty([outlierPlayer, partner], [opp1, opp2], sessionId);
+    const equityRank = getEquityRank([outlierPlayer, partner], [opp1, opp2]);
+
+    const enrichedT1 = [
+      enrichPlayer(outlierPlayer, outlierCand.restState),
+      enrichPlayer(partner, adjPlayers[0].restState),
+    ];
+    const enrichedT2 = [
+      enrichPlayer(opp1, adjPlayers[1].restState),
+      enrichPlayer(opp2, adjPlayers[2].restState),
+    ];
+
+    stretchMatches.push({
+      team1: enrichedT1 as Player[],
+      team2: enrichedT2 as Player[],
+      ...metrics,
+      splitPenalty,
+      equityRank,
+      isStretchMatch: true,
+      stretchMatchText: 'No same-tier partner available. Closest competitive match possible.',
+      outlierGamesWaited: outlierCand.restState.gamesWaited,
+      isCompromised: false,
+      rank: 0,
+    });
+  }
+
+  // ─── Enrich regular combination player objects with session state ──────────
+  for (const combo of combinations) {
+    for (const team of [combo.team1, combo.team2]) {
+      for (let i = 0; i < team.length; i++) {
+        const rs = scored.find(c => c.player.id === team[i].id)?.restState;
+        if (rs) team[i] = enrichPlayer(team[i], rs);
+      }
+    }
+  }
+
+  combinations.forEach((combo, index) => { combo.rank = index + 1; });
 
   return {
-    allCombinations: allCombinations.slice(0, maxOptions),
+    allCombinations: combinations.slice(0, maxOptions),
     restWarnings,
+    loneOutliers,
+    stretchMatches,
   };
 }
