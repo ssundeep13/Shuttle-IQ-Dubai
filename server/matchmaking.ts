@@ -24,6 +24,25 @@ export function getTierIndex(skillScore: number): number {
   return 2;
 }
 
+/**
+ * Return the 0-based tier index from a confirmed player.level DB value.
+ * Used for matchmaking pool selection so the 3-game buffer is respected —
+ * players stay at their confirmed tier until promoted, regardless of current score.
+ */
+export function getConfirmedTierIndex(level: string): number {
+  switch (level) {
+    case 'Novice':             return 0;
+    case 'Beginner':           return 1;
+    case 'lower_intermediate': return 2;
+    case 'Intermediate':       return 2; // legacy label
+    case 'upper_intermediate': return 3;
+    case 'Competitive':        return 3; // display-name fallback
+    case 'Advanced':           return 4;
+    case 'Professional':       return 5;
+    default:                   return 2;
+  }
+}
+
 // Player rest state tracking
 interface PlayerRestState {
   playerId: string;
@@ -377,16 +396,21 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   const mean = (team1Avg + team2Avg) / 2;
   const variance = allSkills.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / allSkills.length;
 
-  const team1Tiers = team1Skills.map(s => getTierIndex(s));
-  const team2Tiers = team2Skills.map(s => getTierIndex(s));
+  const team1Tiers = team1.map(p => getConfirmedTierIndex(p.level || 'lower_intermediate'));
+  const team2Tiers = team2.map(p => getConfirmedTierIndex(p.level || 'lower_intermediate'));
   const allTierIndices = [...team1Tiers, ...team2Tiers];
   const tierDispersion = Math.max(...allTierIndices) - Math.min(...allTierIndices);
 
-  // Count teams that have players from 2 different tiers (cross-tier same-team).
-  // Prefer arrangements where cross-tier players are split across teams (crossTierPenalty = 0).
-  const team1Mixed = new Set(team1Tiers).size > 1 ? 1 : 0;
-  const team2Mixed = new Set(team2Tiers).size > 1 ? 1 : 0;
-  const crossTierPenalty = team1Mixed + team2Mixed;
+  // Find the plurality (majority) confirmed tier among all 4 players.
+  // Cross-tier players are those NOT in the majority tier.
+  // Penalty when 2+ cross-tier players end up on the same team — they should be split.
+  const tierCounts = new Map<number, number>();
+  for (const t of allTierIndices) tierCounts.set(t, (tierCounts.get(t) ?? 0) + 1);
+  const majorityTier = [...tierCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const team1CrossTier = team1Tiers.filter(t => t !== majorityTier).length;
+  const team2CrossTier = team2Tiers.filter(t => t !== majorityTier).length;
+  // Penalty for any team that has 2+ cross-tier players stacked together
+  const crossTierPenalty = (team1CrossTier > 1 ? 1 : 0) + (team2CrossTier > 1 ? 1 : 0);
 
   return { team1Avg, team2Avg, skillGap, variance, tierDispersion, crossTierPenalty };
 }
@@ -506,7 +530,8 @@ export function selectOptimalPlayers(
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
     const priority = calculatePlayerPriority(player, index, restState);
-    const tierIndex = getTierIndex(player.skillScore || 90);
+    // Use confirmed tier (player.level) — respects the 3-game promotion buffer.
+    const tierIndex = getConfirmedTierIndex(player.level || 'lower_intermediate');
     return { player, priority, restState, queuePosition: index, tierIndex };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
 
@@ -536,25 +561,25 @@ export function selectOptimalPlayers(
         tierGroupFound = true;
         const t1 = getTierDisplayNameForIndex(leadTier);
         const t2 = getTierDisplayNameForIndex(adjacent[0].tierIndex);
-        restWarnings.push(`Mixed levels: ${t1} + ${t2}`);
+        const warning = `Mixed levels: ${t1} + ${t2}`;
+        restWarnings.push(warning);
+        console.warn(`[Matchmaking] ${warning} — 3+1 adjacent-tier match`);
       }
     }
 
     if (!tierGroupFound) {
-      // Strict pool: same-tier + adjacent-tier only. No unconstrained fallback.
-      const adjacent = scoredCandidates.filter(
-        c => c.tierIndex !== leadTier && Math.abs(c.tierIndex - leadTier) === 1
-      );
-      const strictPool = [...sameTier, ...adjacent];
-      // Sort strict pool by priority (already sorted above, but re-sort after combining)
-      strictPool.sort((a, b) => a.priority - b.priority);
-      selected = strictPool.slice(0, 4);
+      // Cannot satisfy 3+1 tier constraint (fewer than 3 same-tier players available).
+      // Documented fallback: priority-based selection ignoring tier, with an explicit warning.
+      // The tier constraint (max 1 adjacent-tier) is only enforced when ≥3 same-tier exist.
+      selected = scoredCandidates.slice(0, 4);
       const tiers = selected.map(c => c.tierIndex);
       isMixedTier = selected.length >= 4 && Math.max(...tiers) - Math.min(...tiers) > 0;
       if (isMixedTier) {
         const minTier = Math.min(...tiers);
         const maxTier = Math.max(...tiers);
-        restWarnings.push(`Mixed levels: ${getTierDisplayNameForIndex(minTier)} + ${getTierDisplayNameForIndex(maxTier)}`);
+        const warning = `Mixed levels: ${getTierDisplayNameForIndex(minTier)} + ${getTierDisplayNameForIndex(maxTier)}`;
+        restWarnings.push(warning);
+        console.warn(`[Matchmaking] ${warning} — insufficient same-tier candidates for tier-grouped match`);
       }
     }
   } else {
@@ -604,7 +629,8 @@ export function generateAllMatchupOptions(
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
     const priority = calculatePlayerPriority(player, index, restState);
-    const tierIndex = getTierIndex(player.skillScore || 90);
+    // Use confirmed tier (player.level) — respects the 3-game promotion buffer.
+    const tierIndex = getConfirmedTierIndex(player.level || 'lower_intermediate');
     return { player, priority, restState, queuePosition: index, tierIndex };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
 
