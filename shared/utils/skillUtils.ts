@@ -212,9 +212,9 @@ export function estimateScoreFromLegacyLevel(legacyLevel: string): number {
   if (lower === 'beginner') return 50;
   if (lower === 'beginner+') return 62;
   if (lower === 'intermediate-') return 75;
-  if (lower === 'intermediate') return 80;
-  if (lower === 'intermediate+') return 95;
-  if (lower === 'competitive') return 95;
+  if (lower === 'intermediate') return 90;
+  if (lower === 'intermediate+') return 100;
+  if (lower === 'competitive') return 100;
   if (lower.includes('advanced') || lower.includes('professional')) return 90;
   return DEFAULT_NEW_PLAYER_SCORE;
 }

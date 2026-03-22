@@ -645,12 +645,27 @@ export function generateAllMatchupOptions(
       for (let j = i + 1; j < Math.min(minPlayers + 1, scoredCandidates.length); j++) {
         for (let k = j + 1; k < Math.min(minPlayers + 2, scoredCandidates.length); k++) {
           for (let l = k + 1; l < Math.min(minPlayers + 3, scoredCandidates.length); l++) {
-            sets.push([
-              scoredCandidates[i].player,
-              scoredCandidates[j].player,
-              scoredCandidates[k].player,
-              scoredCandidates[l].player,
-            ]);
+            const group = [scoredCandidates[i], scoredCandidates[j], scoredCandidates[k], scoredCandidates[l]];
+
+            if (groupByTier) {
+              // Hard tier-composition constraint: valid groups are 4 same-tier
+              // or exactly 3 same-tier + 1 adjacent-tier (the "3+1 rule").
+              const tierCounts = new Map<number, number>();
+              for (const c of group) tierCounts.set(c.tierIndex, (tierCounts.get(c.tierIndex) ?? 0) + 1);
+              const sorted = [...tierCounts.entries()].sort((a, b) => b[1] - a[1]);
+              const majorityTier = sorted[0][0];
+              const majorityCount = sorted[0][1];
+              // Must have ≥3 same-tier players
+              if (majorityCount < 3) continue;
+              // Cross-tier players must each be adjacent to the majority tier
+              const crossTierPlayers = group.filter(c => c.tierIndex !== majorityTier);
+              const allAdjacent = crossTierPlayers.every(c => Math.abs(c.tierIndex - majorityTier) === 1);
+              if (!allAdjacent) continue;
+              // At most 1 cross-tier player allowed (3+1 rule, not 2+2)
+              if (crossTierPlayers.length > 1) continue;
+            }
+
+            sets.push(group.map(c => c.player));
             if (sets.length >= 20) return sets;
           }
         }
@@ -659,7 +674,17 @@ export function generateAllMatchupOptions(
     return sets;
   };
 
-  const playerSets = generatePlayerSets();
+  let playerSets = generatePlayerSets();
+
+  // If tier-grouping produced no valid sets (insufficient same-tier players),
+  // fall back to unconstrained sets and log a warning.
+  if (groupByTier && playerSets.length === 0 && scoredCandidates.length >= 4) {
+    console.warn('[Matchmaking] No valid tier-grouped sets found; falling back to priority-based selection');
+    restWarnings.push('Insufficient same-tier players; using mixed group (no tier-valid combination found)');
+    // Generate unconstrained sets for at least one suggestion
+    const fallbackGroup = scoredCandidates.slice(0, 4).map(c => c.player);
+    playerSets = [fallbackGroup];
+  }
 
   for (const playerSet of playerSets) {
     const setKey = playerSet.map(p => p.id).sort().join('-');
