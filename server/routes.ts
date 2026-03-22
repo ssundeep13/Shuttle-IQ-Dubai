@@ -1289,6 +1289,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ 
           suggestions: [],
           restWarnings: [],
+          loneOutliers: [],
+          stretchMatches: [],
           queueSize: queue.length,
           message: `Need ${4 - queue.length} more players in queue`
         });

@@ -566,7 +566,8 @@ export function selectOptimalPlayers(
     const player = allPlayers.find(p => p.id === playerId);
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
-    const priority = calculatePlayerPriority(player, index, restState);
+    // Auto-assign path: use queue ×25, wait ×6; no session equity term (sessionAvgGames not available here)
+    const priority = calculatePlayerPriority(player, index, restState, 0, 25.0, 10.0, 0.1, 6.0, 0);
     // Use confirmed tier (player.level) — respects the 3-game promotion buffer.
     const tierIndex = getConfirmedTierIndex(player.level || 'lower_intermediate');
     return { player, priority, restState, queuePosition: index, tierIndex };
