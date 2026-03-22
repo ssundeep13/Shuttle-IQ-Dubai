@@ -16,22 +16,22 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getSkillTier, getTierDisplayName, formatSkillLevel } from "@shared/utils/skillUtils";
+import { getSkillTier, formatSkillLevel } from "@shared/utils/skillUtils";
 import type { Player } from "@shared/schema";
 
-// Maps display name → skill score for admin manual overrides
+// Maps canonical DB level → skill score for admin manual overrides
 const skillLevelMap: Record<string, number> = {
-  'Novice': 25,
-  'Beginner': 55,
-  'Intermediate': 80,
-  'Competitive': 100,
-  'Advanced': 150,
-  'Professional': 190,
+  'Novice':             25,
+  'Beginner':           55,
+  'lower_intermediate': 80,
+  'upper_intermediate': 100,
+  'Advanced':           150,
+  'Professional':       190,
 };
 
 const editPlayerSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name is too long"),
-  level: z.enum(['Novice', 'Beginner', 'Intermediate', 'Competitive', 'Advanced', 'Professional']),
+  level: z.enum(['Novice', 'Beginner', 'lower_intermediate', 'upper_intermediate', 'Advanced', 'Professional']),
 });
 
 type EditPlayerForm = z.infer<typeof editPlayerSchema>;
@@ -53,7 +53,7 @@ export function EditPlayerModal({
     resolver: zodResolver(editPlayerSchema),
     defaultValues: {
       name: player?.name || '',
-      level: player ? getTierDisplayName(getSkillTier(player.skillScore)) as EditPlayerForm['level'] : 'Intermediate',
+      level: player ? (getSkillTier(player.skillScore) as EditPlayerForm['level']) : 'lower_intermediate',
     },
   });
 
@@ -61,7 +61,7 @@ export function EditPlayerModal({
     if (player) {
       form.reset({
         name: player.name,
-        level: getTierDisplayName(getSkillTier(player.skillScore)) as EditPlayerForm['level'],
+        level: getSkillTier(player.skillScore) as EditPlayerForm['level'],
       });
     }
   }, [player?.id, player?.name, player?.skillScore, form]);
@@ -147,8 +147,8 @@ export function EditPlayerModal({
                     <SelectContent>
                       <SelectItem value="Novice">Novice (25)</SelectItem>
                       <SelectItem value="Beginner">Beginner (55)</SelectItem>
-                      <SelectItem value="Intermediate">Intermediate (80)</SelectItem>
-                      <SelectItem value="Competitive">Competitive (100)</SelectItem>
+                      <SelectItem value="lower_intermediate">Intermediate (80)</SelectItem>
+                      <SelectItem value="upper_intermediate">Competitive (100)</SelectItem>
                       <SelectItem value="Advanced">Advanced (150)</SelectItem>
                       <SelectItem value="Professional">Professional (190)</SelectItem>
                     </SelectContent>

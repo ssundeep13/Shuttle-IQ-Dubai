@@ -568,19 +568,13 @@ export function selectOptimalPlayers(
     }
 
     if (!tierGroupFound) {
-      // Cannot satisfy 3+1 tier constraint (fewer than 3 same-tier players available).
-      // Documented fallback: priority-based selection ignoring tier, with an explicit warning.
-      // The tier constraint (max 1 adjacent-tier) is only enforced when ≥3 same-tier exist.
-      selected = scoredCandidates.slice(0, 4);
-      const tiers = selected.map(c => c.tierIndex);
-      isMixedTier = selected.length >= 4 && Math.max(...tiers) - Math.min(...tiers) > 0;
-      if (isMixedTier) {
-        const minTier = Math.min(...tiers);
-        const maxTier = Math.max(...tiers);
-        const warning = `Mixed levels: ${getTierDisplayNameForIndex(minTier)} + ${getTierDisplayNameForIndex(maxTier)}`;
-        restWarnings.push(warning);
-        console.warn(`[Matchmaking] ${warning} — insufficient same-tier candidates for tier-grouped match`);
-      }
+      // When groupByTier is active and fewer than 3 same-tier players exist,
+      // we CANNOT form a valid group — return empty to signal the caller.
+      // No unconstrained fallback: the caller must treat <4 selected players as
+      // "insufficient tier-compatible players" and surface that to the user.
+      console.warn('[Matchmaking] Insufficient same-tier candidates; cannot form a valid tier group');
+      restWarnings.push('Insufficient same-tier players; cannot form a tier-grouped match');
+      selected = [];
     }
   } else {
     const tiers = selected.map(c => c.tierIndex);
@@ -676,14 +670,12 @@ export function generateAllMatchupOptions(
 
   let playerSets = generatePlayerSets();
 
-  // If tier-grouping produced no valid sets (insufficient same-tier players),
-  // fall back to unconstrained sets and log a warning.
+  // When groupByTier=true and no valid sets were found, do NOT fall back to
+  // unconstrained selection. The caller receives empty allCombinations and
+  // restWarnings, and should surface "insufficient tier-compatible players" to the user.
   if (groupByTier && playerSets.length === 0 && scoredCandidates.length >= 4) {
-    console.warn('[Matchmaking] No valid tier-grouped sets found; falling back to priority-based selection');
-    restWarnings.push('Insufficient same-tier players; using mixed group (no tier-valid combination found)');
-    // Generate unconstrained sets for at least one suggestion
-    const fallbackGroup = scoredCandidates.slice(0, 4).map(c => c.player);
-    playerSets = [fallbackGroup];
+    console.warn('[Matchmaking] No valid tier-grouped sets found in candidate window; cannot suggest');
+    restWarnings.push('Insufficient same-tier players; cannot generate tier-grouped suggestions');
   }
 
   for (const playerSet of playerSets) {
