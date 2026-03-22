@@ -669,15 +669,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validated = insertPlayerSchema.parse(req.body);
       
-      // Fix 2: operators can only assign Novice/Beginner/Intermediate at creation time.
+      // Operators can assign Novice/Beginner/Intermediate/Competitive at creation.
       // Advanced/Professional are earned through gameplay — cap at lower_intermediate.
       const ALLOWED_LEVELS: Record<string, { level: string; score: number }> = {
         'Novice':             { level: 'Novice',             score: 25 },
         'Beginner':           { level: 'Beginner',           score: 50 },
         'Intermediate':       { level: 'lower_intermediate', score: 80 },
         'lower_intermediate': { level: 'lower_intermediate', score: 80 },
-        'upper_intermediate': { level: 'lower_intermediate', score: 80 },
-        'Competitive':        { level: 'lower_intermediate', score: 80 },
+        'upper_intermediate': { level: 'upper_intermediate', score: 100 },
+        'Competitive':        { level: 'upper_intermediate', score: 100 },
         'Advanced':           { level: 'lower_intermediate', score: 80 },
         'Professional':       { level: 'lower_intermediate', score: 80 },
       };
@@ -2004,7 +2004,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           'Novice': 25,
           'Beginner': 50,
           'lower_intermediate': 80,
-          'upper_intermediate': 80,
+          'upper_intermediate': 100,
           'Intermediate': 80,       // legacy label — map to lower_intermediate score
           'Advanced': 80,           // Advanced/Professional earned through play; reset to Intermediate
           'Professional': 80,

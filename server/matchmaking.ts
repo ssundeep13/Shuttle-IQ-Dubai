@@ -415,10 +415,12 @@ export function findBalancedTeams(
     combinations.push({ team1, team2, ...metrics, splitPenalty, rank: 0 });
   }
 
-  combinations.sort((a, b) => {
-    // Hard-first: prefer arrangements that don't put cross-tier players on the same team
-    const crossTierDiff = a.crossTierPenalty - b.crossTierPenalty;
-    if (crossTierDiff !== 0) return crossTierDiff;
+  // Hard constraint: exclude permutations that put 2 cross-tier players on the same team,
+  // but only when at least one permutation doesn't have this problem.
+  const validArrangements = combinations.filter(c => c.crossTierPenalty === 0);
+  const workingSet = validArrangements.length > 0 ? validArrangements : combinations;
+
+  workingSet.sort((a, b) => {
     if (groupByTier) {
       const tierDiff = a.tierDispersion - b.tierDispersion;
       if (tierDiff !== 0) return tierDiff;
@@ -432,8 +434,8 @@ export function findBalancedTeams(
     return a.variance - b.variance;
   });
 
-  combinations.forEach((combo, index) => { combo.rank = index + 1; });
-  return combinations.slice(0, topN);
+  workingSet.forEach((combo, index) => { combo.rank = index + 1; });
+  return workingSet.slice(0, topN);
 }
 
 // ─── Player priority & selection ─────────────────────────────────────────────
@@ -519,7 +521,7 @@ export function selectOptimalPlayers(
     const sameTier = scoredCandidates.filter(c => c.tierIndex === leadTier);
 
     if (sameTier.length >= 4) {
-      // Enough same-tier players — pure match
+      // Pure same-tier match
       selected = sameTier.slice(0, 4);
       isMixedTier = false;
       tierGroupFound = true;
@@ -537,11 +539,16 @@ export function selectOptimalPlayers(
         restWarnings.push(`Mixed levels: ${t1} + ${t2}`);
       }
     }
-    // If <3 same-tier found, fall through to priority-based selection (no tier constraint)
 
     if (!tierGroupFound) {
-      // Fall back: top-priority candidates regardless of tier
-      selected = scoredCandidates.slice(0, 4);
+      // Strict pool: same-tier + adjacent-tier only. No unconstrained fallback.
+      const adjacent = scoredCandidates.filter(
+        c => c.tierIndex !== leadTier && Math.abs(c.tierIndex - leadTier) === 1
+      );
+      const strictPool = [...sameTier, ...adjacent];
+      // Sort strict pool by priority (already sorted above, but re-sort after combining)
+      strictPool.sort((a, b) => a.priority - b.priority);
+      selected = strictPool.slice(0, 4);
       const tiers = selected.map(c => c.tierIndex);
       isMixedTier = selected.length >= 4 && Math.max(...tiers) - Math.min(...tiers) > 0;
       if (isMixedTier) {
@@ -553,12 +560,6 @@ export function selectOptimalPlayers(
   } else {
     const tiers = selected.map(c => c.tierIndex);
     isMixedTier = selected.length >= 4 && Math.max(...tiers) - Math.min(...tiers) > 0;
-    if (isMixedTier && groupByTier) {
-      const tIndices = tiers;
-      const minTier = Math.min(...tIndices);
-      const maxTier = Math.max(...tIndices);
-      restWarnings.push(`Mixed levels: ${getTierDisplayNameForIndex(minTier)} + ${getTierDisplayNameForIndex(maxTier)}`);
-    }
   }
 
   const selectedPlayers = selected.map(c => c.player);
