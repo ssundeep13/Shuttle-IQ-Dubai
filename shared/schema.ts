@@ -29,7 +29,7 @@ export const players = pgTable("players", {
   email: text("email"),
   phone: text("phone"),
   gender: text("gender").notNull(), // 'Male', 'Female'
-  level: text("level").notNull(), // 'Novice' (10-39), 'Beginner' (40-69), 'Intermediate' (70-109), 'Advanced' (110-159), 'Professional' (160-200)
+  level: text("level").notNull(), // 'Novice' (10-39), 'Beginner' (40-69), 'lower_intermediate' (70-89), 'upper_intermediate' (90-109), 'Advanced' (110-159), 'Professional' (160-200)
   skillScore: integer("skill_score").notNull().default(50), // 10-200 point scale (default: mid-Beginner)
   gamesPlayed: integer("games_played").notNull().default(0),
   wins: integer("wins").notNull().default(0),
@@ -38,6 +38,8 @@ export const players = pgTable("players", {
   lastPlayedAt: timestamp("last_played_at"), // When player last participated in a game (null = never)
   skillScoreBaseline: integer("skill_score_baseline"), // Score at time of last game — anchor for inactivity decay (null = never played)
   returnGamesRemaining: integer("return_games_remaining").notNull().default(0), // Games left with return K-boost after 14+ day absence
+  tierCandidate: text("tier_candidate"), // Tier the player is trending toward (null = stable)
+  tierCandidateGames: integer("tier_candidate_games").notNull().default(0), // Consecutive games with score in candidate tier
 });
 
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, shuttleIqId: true, createdAt: true });

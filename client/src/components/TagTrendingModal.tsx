@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { TrendingUp, Users, ArrowLeft } from 'lucide-react';
 import type { TrendingTag, PlayerTopTag } from '@shared/schema';
 import type { Player } from '@shared/schema';
+import { getTierDisplayName } from '@shared/utils/skillUtils';
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -50,7 +51,7 @@ function TagWithPlayers({ tagId, onBack }: TagWithPlayersProps) {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{player.name}</p>
-                <p className="text-xs text-muted-foreground">{player.level} &middot; {player.skillScore} pts</p>
+                <p className="text-xs text-muted-foreground">{getTierDisplayName(player.level)} &middot; {player.skillScore} pts</p>
               </div>
               <Badge variant="outline" className="shrink-0 text-xs no-default-hover-elevate no-default-active-elevate">
                 <Users className="h-3 w-3 mr-1" />

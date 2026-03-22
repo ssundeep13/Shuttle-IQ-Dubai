@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getSkillTierColor } from "@shared/utils/skillUtils";
 
 interface GameParticipant {
   gameId: string;
@@ -43,18 +44,7 @@ interface GameHistoryProps {
   sessionId?: string;
 }
 
-const getLevelColor = (level: string) => {
-  switch (level) {
-    case 'Beginner':
-      return 'border-success/20 bg-success/10 text-success';
-    case 'Intermediate':
-      return 'border-warning/20 bg-warning/10 text-warning';
-    case 'Advanced':
-      return 'border-destructive/20 bg-destructive/10 text-destructive';
-    default:
-      return 'border-muted bg-muted text-muted-foreground';
-  }
-};
+const getLevelColor = (level: string) => getSkillTierColor(level);
 
 export function GameHistory({ games, onResetGames, sessionId }: GameHistoryProps) {
   const { toast } = useToast();

@@ -35,7 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, UserPlus, Users, Trophy, Target, Check, Ticket, UserCheck, Link2Off, CreditCard, Banknote } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { formatSkillLevel } from "@shared/utils/skillUtils";
+import { formatSkillLevel, getTierDisplayName } from "@shared/utils/skillUtils";
 import { cn } from "@/lib/utils";
 
 interface AddPlayerModalProps {
@@ -69,7 +69,7 @@ interface BookingsResponse {
 const formSchema = insertPlayerSchema.extend({
   name: z.string().min(1, "Player name is required"),
   gender: z.enum(['Male', 'Female']),
-  level: z.enum(['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Professional']),
+  level: z.enum(['Novice', 'Beginner', 'Intermediate', 'Competitive', 'Advanced', 'Professional']),
   skillScore: z.number().min(10).max(200).optional(),
 });
 
@@ -91,7 +91,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
       name: "",
       gender: "Male",
       level: "Intermediate",
-      skillScore: 90,
+      skillScore: 80,
       gamesPlayed: 0,
       wins: 0,
       status: "waiting",
@@ -374,7 +374,8 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
                         <SelectContent>
                           <SelectItem value="Novice">Novice (1.0-3.9)</SelectItem>
                           <SelectItem value="Beginner">Beginner (4.0-6.9)</SelectItem>
-                          <SelectItem value="Intermediate">Intermediate (7.0-10.9)</SelectItem>
+                          <SelectItem value="Intermediate">Intermediate (7.0-8.9)</SelectItem>
+                          <SelectItem value="Competitive">Competitive (9.0-10.9)</SelectItem>
                           <SelectItem value="Advanced">Advanced (11.0-15.9)</SelectItem>
                           <SelectItem value="Professional">Professional (16.0-20.0)</SelectItem>
                         </SelectContent>
@@ -637,7 +638,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
                                 {entry.player!.name}
                               </Badge>
                               <span className="text-xs text-muted-foreground">
-                                {entry.player!.level} ({entry.player!.skillScore})
+                                {getTierDisplayName(entry.player!.level)} ({entry.player!.skillScore})
                               </span>
                             </div>
                           ) : (

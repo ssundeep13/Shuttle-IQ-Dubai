@@ -42,6 +42,49 @@ import {
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
 
+// ─── Tier buffer helper ───────────────────────────────────────────────────────
+// After each game, a player's confirmed level (stored in DB) only changes after
+// 3 consecutive games where their skill score lands in the new tier.
+// Until then, tierCandidate + tierCandidateGames track the trend.
+function applyTierBuffer(
+  player: { level: string; tierCandidate: string | null; tierCandidateGames: number },
+  newScore: number,
+  getSkillTierFn: (score: number) => string
+): { level: string; tierCandidate: string | null; tierCandidateGames: number } {
+  const scoreTier = getSkillTierFn(newScore);
+  const currentTier = player.level;
+
+  if (scoreTier === currentTier) {
+    // Score stays in same tier — reset candidate
+    return { level: currentTier, tierCandidate: null, tierCandidateGames: 0 };
+  }
+
+  // Score crossed a tier boundary — check candidate progression
+  const existingCandidate = player.tierCandidate;
+  const existingCount = player.tierCandidateGames ?? 0;
+
+  let newCandidate: string;
+  let newCount: number;
+
+  if (scoreTier === existingCandidate) {
+    // Continuing toward same candidate tier
+    newCount = existingCount + 1;
+    newCandidate = existingCandidate;
+  } else {
+    // Changed direction or different candidate — start fresh
+    newCandidate = scoreTier;
+    newCount = 1;
+  }
+
+  if (newCount >= 3) {
+    // Confirmed — promote or demote
+    return { level: scoreTier, tierCandidate: null, tierCandidateGames: 0 };
+  }
+
+  // Not yet confirmed — keep current tier
+  return { level: currentTier, tierCandidate: newCandidate, tierCandidateGames: newCount };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Seed admin user on startup (dev only), then rotate legacy password (all envs)
   await seedAdminUser();
@@ -533,7 +576,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Calculate what player's new current skill should be
         const newChange = newSkillAfter - participant.skillScoreBefore;
         const newCurrentSkill = baselineSkill + newChange;
-        const newLevel = getSkillTier(newCurrentSkill);
+
+        // Apply 3-game tier promotion buffer
+        const tierResult = applyTierBuffer(
+          { level: player.level, tierCandidate: player.tierCandidate ?? null, tierCandidateGames: player.tierCandidateGames ?? 0 },
+          newCurrentSkill,
+          getSkillTier
+        );
         
         // Update game participant record with new skill after
         await db.update(gameParticipants)
@@ -550,7 +599,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         await storage.updatePlayer(participant.playerId, {
           skillScore: newCurrentSkill,
-          level: newLevel,
+          level: tierResult.level,
+          tierCandidate: tierResult.tierCandidate,
+          tierCandidateGames: tierResult.tierCandidateGames,
           wins: Math.max(0, player.wins + winsAdjustment),
         });
       }
@@ -619,15 +670,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validated = insertPlayerSchema.parse(req.body);
       
       // Fix 2: operators can only assign Novice/Beginner/Intermediate at creation time.
-      // Advanced/Professional are earned through gameplay — cap both score and stored level.
+      // Advanced/Professional are earned through gameplay — cap at lower_intermediate.
       const ALLOWED_LEVELS: Record<string, { level: string; score: number }> = {
-        'Novice':       { level: 'Novice',       score: 25 },
-        'Beginner':     { level: 'Beginner',      score: 50 },
-        'Intermediate': { level: 'Intermediate',  score: 90 },
-        'Advanced':     { level: 'Intermediate',  score: 90 },
-        'Professional': { level: 'Intermediate',  score: 90 },
+        'Novice':             { level: 'Novice',             score: 25 },
+        'Beginner':           { level: 'Beginner',           score: 50 },
+        'Intermediate':       { level: 'lower_intermediate', score: 80 },
+        'lower_intermediate': { level: 'lower_intermediate', score: 80 },
+        'upper_intermediate': { level: 'lower_intermediate', score: 80 },
+        'Competitive':        { level: 'lower_intermediate', score: 80 },
+        'Advanced':           { level: 'lower_intermediate', score: 80 },
+        'Professional':       { level: 'lower_intermediate', score: 80 },
       };
-      const levelEntry = ALLOWED_LEVELS[validated.level] ?? { level: 'Intermediate', score: 90 };
+      const levelEntry = ALLOWED_LEVELS[validated.level] ?? { level: 'lower_intermediate', score: 80 };
       const skillScore = levelEntry.score;
       const normalizedLevel = levelEntry.level;
       
@@ -1521,8 +1575,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           currentReturnGames
         );
         
-        // Get updated tier based on new skill score
-        const newLevel = getSkillTier(skillAfter);
+        // Apply 3-game tier promotion buffer
+        const tierResult = applyTierBuffer(
+          { level: player.level, tierCandidate: player.tierCandidate ?? null, tierCandidateGames: player.tierCandidateGames ?? 0 },
+          skillAfter,
+          getSkillTier
+        );
         
         // Track for game history
         participantData.push({
@@ -1536,7 +1594,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           gamesPlayed: player.gamesPlayed + 1,
           wins: isWinner ? player.wins + 1 : player.wins,
           skillScore: skillAfter,
-          level: newLevel,
+          level: tierResult.level,
+          tierCandidate: tierResult.tierCandidate,
+          tierCandidateGames: tierResult.tierCandidateGames,
           status: 'waiting',
           lastPlayedAt: now,
           skillScoreBaseline: skillAfter, // Anchor for inactivity decay; decay is relative to this score
@@ -1939,13 +1999,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Reset all player statistics
       const allPlayers = await storage.getAllPlayers();
       for (const player of allPlayers) {
-        // Reset stats based on initial skill levels (Fix 2: Novice=25, Beginner=50, Intermediate=90)
+        // Reset stats based on initial skill levels (Novice=25, Beginner=50, Intermediate/higher=80)
         const resetScoreMap: Record<string, number> = {
           'Novice': 25,
           'Beginner': 50,
-          'Intermediate': 90,
-          'Advanced': 90,       // Advanced/Professional earned through play; reset to Intermediate
-          'Professional': 90,
+          'lower_intermediate': 80,
+          'upper_intermediate': 80,
+          'Intermediate': 80,       // legacy label — map to lower_intermediate score
+          'Advanced': 80,           // Advanced/Professional earned through play; reset to Intermediate
+          'Professional': 80,
         };
         const initialSkillScore = resetScoreMap[player.level] ?? 50;
         

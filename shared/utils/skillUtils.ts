@@ -1,12 +1,25 @@
 /**
  * Skill Management Utilities
- * Scores: 10–200. Tiers: Novice (10–39), Beginner (40–69),
- * Intermediate (70–109), Advanced (110–159), Professional (160–200).
+ * Scores: 10–200.
+ * Tiers (DB value → display name):
+ *   Novice           (10–39)
+ *   Beginner         (40–69)
+ *   lower_intermediate (70–89)   → displayed as "Intermediate"
+ *   upper_intermediate (90–109)  → displayed as "Competitive"
+ *   Advanced         (110–159)
+ *   Professional     (160–200)
  */
 
-export type SkillTier = 'Novice' | 'Beginner' | 'Intermediate' | 'Advanced' | 'Professional';
+export type SkillTier = 'Novice' | 'Beginner' | 'lower_intermediate' | 'upper_intermediate' | 'Advanced' | 'Professional';
 
-export const SKILL_TIERS: SkillTier[] = ['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Professional'];
+export const SKILL_TIERS: SkillTier[] = [
+  'Novice',
+  'Beginner',
+  'lower_intermediate',
+  'upper_intermediate',
+  'Advanced',
+  'Professional',
+];
 
 export const MIN_SKILL_SCORE = 10;
 export const MAX_SKILL_SCORE = 200;
@@ -26,9 +39,26 @@ const CONTRIBUTION_SKID_FLOOR = 1.0;
 export function getSkillTier(skillScore: number): SkillTier {
   if (skillScore < 40) return 'Novice';
   if (skillScore < 70) return 'Beginner';
-  if (skillScore < 110) return 'Intermediate';
+  if (skillScore < 90) return 'lower_intermediate';
+  if (skillScore < 110) return 'upper_intermediate';
   if (skillScore < 160) return 'Advanced';
   return 'Professional';
+}
+
+/**
+ * Return the user-facing display name for a tier DB value.
+ * Never show raw DB values (lower_intermediate / upper_intermediate) to users.
+ */
+export function getTierDisplayName(tier: string): string {
+  switch (tier) {
+    case 'Novice': return 'Novice';
+    case 'Beginner': return 'Beginner';
+    case 'lower_intermediate': return 'Intermediate';
+    case 'upper_intermediate': return 'Competitive';
+    case 'Advanced': return 'Advanced';
+    case 'Professional': return 'Professional';
+    default: return tier;
+  }
 }
 
 export function calculateSKID(skillScore: number): number {
@@ -39,14 +69,15 @@ export function getSkillTierRange(tier: SkillTier): string {
   switch (tier) {
     case 'Novice': return '1.0-3.9';
     case 'Beginner': return '4.0-6.9';
-    case 'Intermediate': return '7.0-10.9';
+    case 'lower_intermediate': return '7.0-8.9';
+    case 'upper_intermediate': return '9.0-10.9';
     case 'Advanced': return '11.0-15.9';
     case 'Professional': return '16.0-20.0';
   }
 }
 
 export function formatSkillLevel(skillScore: number): string {
-  return `${getSkillTier(skillScore)} (${skillScore})`;
+  return `${getTierDisplayName(getSkillTier(skillScore))} (${skillScore})`;
 }
 
 export function calculateTeamAverage(playerScores: number[]): number {
@@ -87,7 +118,8 @@ export function getContributionFactor(yourScore: number, partnerScore: number | 
 function getTierBounds(score: number): { lower: number; upper: number } {
   if (score < 40) return { lower: MIN_SKILL_SCORE, upper: 40 };
   if (score < 70) return { lower: 40, upper: 70 };
-  if (score < 110) return { lower: 70, upper: 110 };
+  if (score < 90) return { lower: 70, upper: 90 };
+  if (score < 110) return { lower: 90, upper: 110 };
   if (score < 160) return { lower: 110, upper: 160 };
   return { lower: 160, upper: MAX_SKILL_SCORE };
 }
@@ -139,7 +171,7 @@ export function calculateSkillAdjustment(
   const playerTier = getSkillTier(playerScore);
   const opponentTier = getSkillTier(opponentAvgScore);
   const playerBounds = getTierBounds(playerScore);
-  const tierOrder: SkillTier[] = ['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Professional'];
+  const tierOrder: SkillTier[] = ['Novice', 'Beginner', 'lower_intermediate', 'upper_intermediate', 'Advanced', 'Professional'];
 
   if (won && newScore >= playerBounds.upper) {
     const targetTierIndex = tierOrder.indexOf(getSkillTier(playerBounds.upper));
@@ -158,15 +190,15 @@ export function calculateSkillAdjustment(
 }
 
 /**
- * Normalize legacy level text. Advanced/Professional → Intermediate
+ * Normalize legacy level text. Advanced/Professional → lower_intermediate
  * (those tiers must be earned through gameplay, not manually assigned).
  */
 export function normalizeLegacySkillLevel(legacyLevel: string): SkillTier {
   const lower = legacyLevel.toLowerCase();
   if (lower.includes('novice')) return 'Novice';
   if (lower.includes('beginner')) return 'Beginner';
-  if (lower.includes('intermediate')) return 'Intermediate';
-  return 'Intermediate';
+  if (lower.includes('intermediate') || lower.includes('competitive')) return 'lower_intermediate';
+  return 'lower_intermediate';
 }
 
 /**
@@ -180,18 +212,21 @@ export function estimateScoreFromLegacyLevel(legacyLevel: string): number {
   if (lower === 'beginner') return 50;
   if (lower === 'beginner+') return 62;
   if (lower === 'intermediate-') return 75;
-  if (lower === 'intermediate') return 90;
-  if (lower === 'intermediate+') return 100;
-  if (lower.includes('advanced') || lower.includes('professional')) return 90;
+  if (lower === 'intermediate') return 80;
+  if (lower === 'intermediate+') return 95;
+  if (lower === 'competitive') return 95;
+  if (lower.includes('advanced') || lower.includes('professional')) return 80;
   return DEFAULT_NEW_PLAYER_SCORE;
 }
 
 export function getSkillTierColor(tier: string): string {
-  if (tier.includes('Novice') || tier.includes('Beginner')) {
+  if (tier === 'Novice' || tier === 'Beginner') {
     return 'border-success/20 bg-success/10 text-success';
-  } else if (tier.includes('Intermediate')) {
+  } else if (tier === 'lower_intermediate') {
     return 'border-warning/20 bg-warning/10 text-warning';
-  } else if (tier.includes('Advanced') || tier.includes('Professional')) {
+  } else if (tier === 'upper_intermediate') {
+    return 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+  } else if (tier === 'Advanced' || tier === 'Professional') {
     return 'border-destructive/20 bg-destructive/10 text-destructive';
   }
   return 'border-muted bg-muted text-muted-foreground';

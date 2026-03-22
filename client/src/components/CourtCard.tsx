@@ -23,11 +23,13 @@ interface CourtCardProps {
 
 // Using getSkillTierColor from skillUtils instead of local function
 const getLevelTextColor = (level: string) => {
-  if (level.includes('Novice') || level.includes('Beginner')) {
+  if (level === 'Novice' || level === 'Beginner') {
     return 'text-success';
-  } else if (level.includes('Intermediate')) {
+  } else if (level === 'lower_intermediate') {
     return 'text-warning';
-  } else if (level.includes('Advanced') || level.includes('Professional')) {
+  } else if (level === 'upper_intermediate') {
+    return 'text-amber-600 dark:text-amber-400';
+  } else if (level === 'Advanced' || level === 'Professional') {
     return 'text-destructive';
   }
   return 'text-muted-foreground';

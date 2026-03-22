@@ -14,7 +14,8 @@ const INACTIVITY_THRESHOLD_DAYS = 14;
 function getSkillTierFromScore(score: number): string {
   if (score < 40) return 'Novice';
   if (score < 70) return 'Beginner';
-  if (score < 110) return 'Intermediate';
+  if (score < 90) return 'lower_intermediate';
+  if (score < 110) return 'upper_intermediate';
   if (score < 160) return 'Advanced';
   return 'Professional';
 }
@@ -157,7 +158,8 @@ async function backfillSkillScoreBaseline(): Promise<void> {
           CASE
             WHEN gp.skill_score_after < 40  THEN 'Novice'
             WHEN gp.skill_score_after < 70  THEN 'Beginner'
-            WHEN gp.skill_score_after < 110 THEN 'Intermediate'
+            WHEN gp.skill_score_after < 90  THEN 'lower_intermediate'
+            WHEN gp.skill_score_after < 110 THEN 'upper_intermediate'
             WHEN gp.skill_score_after < 160 THEN 'Advanced'
             ELSE 'Professional'
           END AS restored_level

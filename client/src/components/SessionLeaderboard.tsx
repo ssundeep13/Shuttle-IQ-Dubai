@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatSkillLevel, getSkillTierColor } from "@shared/utils/skillUtils";
+import { formatSkillLevel, getSkillTierColor, getTierDisplayName } from "@shared/utils/skillUtils";
 
 interface SessionLeaderboardProps {
   sessionId: string;
@@ -186,6 +186,11 @@ export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
                     <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
                       {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
                     </Badge>
+                    {player.tierCandidate && (
+                      <span className="text-xs text-muted-foreground">
+                        → {getTierDisplayName(player.tierCandidate)} {player.tierCandidateGames}/3
+                      </span>
+                    )}
                     {player.status === 'playing' && (
                       <Badge className="bg-info/10 text-info border-info/20">Playing</Badge>
                     )}

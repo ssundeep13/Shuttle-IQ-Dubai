@@ -1,17 +1,20 @@
 import { Player, GameParticipant } from '@shared/schema';
 
-// Tier definitions matching schema comments
+// Tier definitions matching schema (6 tiers, indices 0-5)
+// lower_intermediate (70-89) → display "Intermediate"
+// upper_intermediate (90-109) → display "Competitive"
 const TIER_RANGES = [
-  { name: 'Novice',       min: 10,  max: 39,  index: 0 },
-  { name: 'Beginner',     min: 40,  max: 69,  index: 1 },
-  { name: 'Intermediate', min: 70,  max: 109, index: 2 },
-  { name: 'Advanced',     min: 110, max: 159, index: 3 },
-  { name: 'Professional', min: 160, max: 200, index: 4 },
+  { name: 'Novice',             min: 10,  max: 39,  index: 0 },
+  { name: 'Beginner',           min: 40,  max: 69,  index: 1 },
+  { name: 'lower_intermediate', min: 70,  max: 89,  index: 2 },
+  { name: 'upper_intermediate', min: 90,  max: 109, index: 3 },
+  { name: 'Advanced',           min: 110, max: 159, index: 4 },
+  { name: 'Professional',       min: 160, max: 200, index: 5 },
 ];
 
 /**
  * Return the 0-based tier index for a given skill score.
- * 0 = Novice, 1 = Beginner, 2 = Intermediate, 3 = Advanced, 4 = Professional
+ * 0=Novice, 1=Beginner, 2=Intermediate, 3=Competitive, 4=Advanced, 5=Professional
  */
 export function getTierIndex(skillScore: number): number {
   const clamped = Math.max(10, Math.min(200, skillScore));

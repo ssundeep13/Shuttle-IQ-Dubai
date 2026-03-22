@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatSkillLevel, getSkillTierColor } from "@shared/utils/skillUtils";
+import { formatSkillLevel, getSkillTierColor, getTierDisplayName } from "@shared/utils/skillUtils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -178,6 +178,11 @@ export function PlayerQueue({
                       <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
                         {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
                       </Badge>
+                      {player.tierCandidate && (
+                        <span className="text-xs text-muted-foreground">
+                          → {getTierDisplayName(player.tierCandidate)} {player.tierCandidateGames}/3
+                        </span>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {player.gamesPlayedToday || 0} games · {player.winsToday || 0} wins
                       </span>

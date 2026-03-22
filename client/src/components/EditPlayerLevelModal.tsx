@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -15,19 +14,21 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { getSkillTier, formatSkillLevel } from "@shared/utils/skillUtils";
+import { getSkillTier, getTierDisplayName, formatSkillLevel } from "@shared/utils/skillUtils";
 import type { Player } from "@shared/schema";
 
+// Maps display name → skill score for admin manual overrides
 const skillLevelMap: Record<string, number> = {
   'Novice': 25,
   'Beginner': 55,
-  'Intermediate': 100,
+  'Intermediate': 80,
+  'Competitive': 100,
   'Advanced': 150,
   'Professional': 190,
 };
 
 const editLevelSchema = z.object({
-  level: z.enum(['Novice', 'Beginner', 'Intermediate', 'Advanced', 'Professional']),
+  level: z.enum(['Novice', 'Beginner', 'Intermediate', 'Competitive', 'Advanced', 'Professional']),
 });
 
 type EditLevelForm = z.infer<typeof editLevelSchema>;
@@ -48,7 +49,7 @@ export function EditPlayerLevelModal({
   const form = useForm<EditLevelForm>({
     resolver: zodResolver(editLevelSchema),
     defaultValues: {
-      level: player ? getSkillTier(player.skillScore) : 'Intermediate',
+      level: player ? getTierDisplayName(getSkillTier(player.skillScore)) as EditLevelForm['level'] : 'Intermediate',
     },
   });
 
@@ -114,7 +115,8 @@ export function EditPlayerLevelModal({
                     <SelectContent>
                       <SelectItem value="Novice">Novice (25)</SelectItem>
                       <SelectItem value="Beginner">Beginner (55)</SelectItem>
-                      <SelectItem value="Intermediate">Intermediate (100)</SelectItem>
+                      <SelectItem value="Intermediate">Intermediate (80)</SelectItem>
+                      <SelectItem value="Competitive">Competitive (100)</SelectItem>
                       <SelectItem value="Advanced">Advanced (150)</SelectItem>
                       <SelectItem value="Professional">Professional (190)</SelectItem>
                     </SelectContent>

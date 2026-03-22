@@ -12,7 +12,7 @@ import {
   Swords, Heart, ArrowUpRight, ArrowDownRight
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { formatSkillLevel } from "@shared/utils/skillUtils";
+import { formatSkillLevel, getTierDisplayName } from "@shared/utils/skillUtils";
 import type { PlayerStats } from "@shared/schema";
 
 export default function PlayerProfile() {
@@ -139,13 +139,18 @@ export default function PlayerProfile() {
                 <CardTitle className="text-2xl md:text-3xl" data-testid="text-player-name">
                   {player.name}
                 </CardTitle>
-                <CardDescription className="flex items-center gap-2 mt-1">
+                <CardDescription className="flex flex-wrap items-center gap-2 mt-1">
                   <Badge variant="outline" data-testid="badge-shuttle-iq-id">
                     {player.shuttleIqId || 'No ID'}
                   </Badge>
                   <span className="text-muted-foreground">
                     {player.gender === 'Male' ? 'M' : 'F'} • {formatSkillLevel(player.skillScore)}
                   </span>
+                  {player.tierCandidate && (
+                    <span className="text-xs text-muted-foreground">
+                      → {getTierDisplayName(player.tierCandidate)} {player.tierCandidateGames}/3
+                    </span>
+                  )}
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">

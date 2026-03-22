@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Users } from "lucide-react";
+import { getSkillTierColor, getTierDisplayName } from "@shared/utils/skillUtils";
 
 interface AutoAssignConfirmDialogProps {
   isOpen: boolean;
@@ -28,18 +29,7 @@ interface AutoAssignConfirmDialogProps {
   totalCombinations?: number;
 }
 
-const getLevelColor = (level: string) => {
-  switch (level) {
-    case 'Beginner':
-      return 'border-success/20 bg-success/10 text-success';
-    case 'Intermediate':
-      return 'border-warning/20 bg-warning/10 text-warning';
-    case 'Advanced':
-      return 'border-destructive/20 bg-destructive/10 text-destructive';
-    default:
-      return 'border-muted bg-muted text-muted-foreground';
-  }
-};
+const getLevelColor = (level: string) => getSkillTierColor(level);
 
 export function AutoAssignConfirmDialog({
   isOpen,
@@ -85,7 +75,7 @@ export function AutoAssignConfirmDialog({
                     <p className="font-semibold text-sm text-foreground">{player.name}</p>
                     <div className="flex items-center justify-between mt-1">
                       <Badge className={cn("text-xs", getLevelColor(player.level))}>
-                        {player.level}
+                        {getTierDisplayName(player.level)}
                       </Badge>
                       <span className="text-xs font-semibold text-accent">
                         {((player.skillScore || 50) / 10).toFixed(1)}
@@ -111,7 +101,7 @@ export function AutoAssignConfirmDialog({
                     <p className="font-semibold text-sm text-foreground">{player.name}</p>
                     <div className="flex items-center justify-between mt-1">
                       <Badge className={cn("text-xs", getLevelColor(player.level))}>
-                        {player.level}
+                        {getTierDisplayName(player.level)}
                       </Badge>
                       <span className="text-xs font-semibold text-accent">
                         {((player.skillScore || 50) / 10).toFixed(1)}

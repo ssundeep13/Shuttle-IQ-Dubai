@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { User, Link2, Search, Check, Mail, Phone } from 'lucide-react';
+import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 
 const fadeInUp = {
@@ -80,7 +81,7 @@ export default function Profile() {
             <h2 className="text-xl font-semibold" data-testid="text-profile-name">{user?.name}</h2>
             <p className="text-sm text-muted-foreground">{user?.email}</p>
             {user?.linkedPlayer && (
-              <Badge variant="secondary" className="mt-1 text-xs">{user.linkedPlayer.level}</Badge>
+              <Badge variant="secondary" className="mt-1 text-xs">{getTierDisplayName(user.linkedPlayer.level)}</Badge>
             )}
           </div>
         </motion.div>
@@ -145,7 +146,7 @@ export default function Profile() {
                       </div>
                       <div className="text-right">
                         <div className="text-xl font-bold">{user.linkedPlayer.skillScore}</div>
-                        <Badge variant="secondary" className="text-xs">{user.linkedPlayer.level}</Badge>
+                        <Badge variant="secondary" className="text-xs">{getTierDisplayName(user.linkedPlayer.level)}</Badge>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 text-sm text-green-600">
@@ -196,7 +197,7 @@ export default function Profile() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-xs">{player.level}</Badge>
+                              <Badge variant="outline" className="text-xs">{getTierDisplayName(player.level)}</Badge>
                               <Button
                                 size="sm"
                                 onClick={() => linkMutation.mutate(player.id)}

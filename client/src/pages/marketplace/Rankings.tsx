@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Trophy, Medal, Calendar, CalendarDays, CalendarRange } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Player } from '@shared/schema';
+import { getTierDisplayName } from '@shared/utils/skillUtils';
 
 type TimeFilter = 'all-time' | 'this-month' | 'this-week';
 
@@ -41,6 +42,8 @@ const levelColor = (level: string) => {
   switch (level) {
     case 'Professional': return 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20';
     case 'Advanced': return 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20';
+    case 'upper_intermediate': return 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20';
+    case 'lower_intermediate': return 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20';
     case 'Intermediate': return 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20';
     case 'Beginner': return 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20';
     default: return 'bg-gray-500/10 text-gray-700 dark:text-gray-400 border-gray-500/20';
@@ -207,7 +210,7 @@ export default function Rankings() {
                                 </p>
                                 <p className="text-[10px] text-muted-foreground -mt-0.5">{entry.primaryLabel}</p>
                                 <Badge variant="outline" className={`text-xs mt-2 ${levelColor(entry.player.level)}`}>
-                                  {entry.player.level}
+                                  {getTierDisplayName(entry.player.level)}
                                 </Badge>
                                 <p className="text-xs text-muted-foreground mt-1.5">
                                   {entry.secondaryLine}
@@ -246,7 +249,7 @@ export default function Rankings() {
                                   {entry.primaryStat} <span className="text-xs font-normal text-muted-foreground">{entry.primaryLabel}</span>
                                 </div>
                                 <Badge variant="outline" className={`text-xs ${levelColor(entry.player.level)}`}>
-                                  {entry.player.level}
+                                  {getTierDisplayName(entry.player.level)}
                                 </Badge>
                               </div>
                               <div className="text-right shrink-0 text-sm text-muted-foreground w-24">

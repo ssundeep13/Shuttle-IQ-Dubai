@@ -45,7 +45,8 @@ function BulletItem({ children }: { children: React.ReactNode }) {
 const TIERS = [
   { name: 'Novice', range: '10–39', skid: '1.0–3.9', note: 'Entry level', color: 'bg-success/10 text-success border-success/20' },
   { name: 'Beginner', range: '40–69', skid: '4.0–6.9', note: 'Default start: 50', color: 'bg-success/10 text-success border-success/20' },
-  { name: 'Intermediate', range: '70–109', skid: '7.0–10.9', note: 'Calibration cap', color: 'bg-warning/10 text-warning border-warning/20' },
+  { name: 'Intermediate', range: '70–89', skid: '7.0–8.9', note: 'Calibration cap', color: 'bg-warning/10 text-warning border-warning/20' },
+  { name: 'Competitive', range: '90–109', skid: '9.0–10.9', note: 'Earned through play', color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
   { name: 'Advanced', range: '110–159', skid: '11.0–15.9', note: 'Must be earned', color: 'bg-destructive/10 text-destructive border-destructive/20' },
   { name: 'Professional', range: '160–200', skid: '16.0–20.0', note: 'Elite', color: 'bg-destructive/10 text-destructive border-destructive/20' },
 ];
