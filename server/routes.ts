@@ -1,11 +1,11 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, tags, playerTags } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags } from "@shared/schema";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { sql, eq, inArray, and, desc } from "drizzle-orm";
+import { sql, eq, inArray, and, desc, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import { 
   generateAccessToken, 
@@ -2203,6 +2203,196 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Tag submission error:", err);
       res.status(500).json({ error: "Failed to submit tags" });
+    }
+  });
+
+  // ============================================================
+  // ADMIN DATA EXPORT ENDPOINTS
+  // ============================================================
+
+  function csvEscape(val: unknown): string {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  }
+
+  function buildCsv(headers: string[], rows: unknown[][]): string {
+    const header = headers.map(csvEscape).join(',');
+    const body = rows.map(row => row.map(csvEscape).join(',')).join('\n');
+    return header + '\n' + body;
+  }
+
+  function sendCsv(res: import('express').Response, filename: string, csv: string) {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
+  }
+
+  // GET /api/admin/export/matches.csv
+  app.get("/api/admin/export/matches.csv", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const allResults = await db.select().from(gameResults).orderBy(asc(gameResults.createdAt));
+      const allParticipants = await db.select().from(gameParticipants);
+
+      const participantsByGame = new Map<string, typeof allParticipants>();
+      for (const p of allParticipants) {
+        if (!participantsByGame.has(p.gameId)) participantsByGame.set(p.gameId, []);
+        participantsByGame.get(p.gameId)!.push(p);
+      }
+
+      const headers = [
+        'match_id', 'match_date', 'session_id', 'court_id',
+        'team1_player1_id', 'team1_player2_id',
+        'team2_player1_id', 'team2_player2_id',
+        'team1_score', 'team2_score', 'winning_team',
+      ];
+
+      const rows = allResults.map(r => {
+        const participants = participantsByGame.get(r.id) ?? [];
+        const team1 = participants.filter(p => p.team === 1);
+        const team2 = participants.filter(p => p.team === 2);
+        return [
+          r.id,
+          r.createdAt.toISOString(),
+          r.sessionId,
+          r.courtId,
+          team1[0]?.playerId ?? '',
+          team1[1]?.playerId ?? '',
+          team2[0]?.playerId ?? '',
+          team2[1]?.playerId ?? '',
+          r.team1Score,
+          r.team2Score,
+          r.winningTeam,
+        ];
+      });
+
+      sendCsv(res, 'matches.csv', buildCsv(headers, rows));
+    } catch (error) {
+      console.error('Export matches error:', error);
+      res.status(500).json({ error: 'Failed to export matches' });
+    }
+  });
+
+  // GET /api/admin/export/players.csv
+  app.get("/api/admin/export/players.csv", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const allPlayers = await db.select().from(players).orderBy(asc(players.name));
+
+      const headers = [
+        'player_id', 'shuttle_iq_id', 'display_name', 'gender',
+        'current_score', 'current_tier', 'total_games_played', 'wins',
+        'created_at', 'last_played_at',
+      ];
+
+      const rows = allPlayers.map(p => [
+        p.id,
+        p.shuttleIqId ?? '',
+        p.name,
+        p.gender,
+        p.skillScore,
+        p.level,
+        p.gamesPlayed,
+        p.wins,
+        p.createdAt.toISOString(),
+        p.lastPlayedAt ? p.lastPlayedAt.toISOString() : '',
+      ]);
+
+      sendCsv(res, 'players.csv', buildCsv(headers, rows));
+    } catch (error) {
+      console.error('Export players error:', error);
+      res.status(500).json({ error: 'Failed to export players' });
+    }
+  });
+
+  // GET /api/admin/export/score-history.csv
+  app.get("/api/admin/export/score-history.csv", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const allParticipants = await db.select().from(gameParticipants);
+      const allResults = await db.select().from(gameResults).orderBy(asc(gameResults.createdAt));
+
+      const gameResultMap = new Map(allResults.map(r => [r.id, r]));
+
+      // Group participants by gameId for opponent avg calculation
+      const participantsByGame = new Map<string, typeof allParticipants>();
+      for (const p of allParticipants) {
+        if (!participantsByGame.has(p.gameId)) participantsByGame.set(p.gameId, []);
+        participantsByGame.get(p.gameId)!.push(p);
+      }
+
+      const headers = [
+        'player_id', 'match_id', 'match_date', 'session_id',
+        'player_team', 'score_before', 'score_after', 'score_delta',
+        'opponent_team_avg_score_before',
+      ];
+
+      const rows: unknown[][] = [];
+      for (const p of allParticipants) {
+        const gameResult = gameResultMap.get(p.gameId);
+        if (!gameResult) continue;
+
+        const gameParts = participantsByGame.get(p.gameId) ?? [];
+        const opponentTeam = p.team === 1 ? 2 : 1;
+        const opponentParts = gameParts.filter(op => op.team === opponentTeam);
+        const opponentAvg = opponentParts.length > 0
+          ? opponentParts.reduce((sum, op) => sum + op.skillScoreBefore, 0) / opponentParts.length
+          : null;
+
+        rows.push([
+          p.playerId,
+          p.gameId,
+          gameResult.createdAt.toISOString(),
+          gameResult.sessionId,
+          p.team,
+          p.skillScoreBefore,
+          p.skillScoreAfter,
+          p.skillScoreAfter - p.skillScoreBefore,
+          opponentAvg !== null ? opponentAvg.toFixed(2) : '',
+        ]);
+      }
+
+      // Sort rows by match_date then player_id for consistency
+      rows.sort((a, b) => {
+        const dateA = String(a[2]);
+        const dateB = String(b[2]);
+        if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+        return String(a[0]) < String(b[0]) ? -1 : 1;
+      });
+
+      sendCsv(res, 'score-history.csv', buildCsv(headers, rows));
+    } catch (error) {
+      console.error('Export score-history error:', error);
+      res.status(500).json({ error: 'Failed to export score history' });
+    }
+  });
+
+  // GET /api/admin/export/sessions.csv
+  app.get("/api/admin/export/sessions.csv", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const allSessions = await db.select().from(sessions).orderBy(asc(sessions.createdAt));
+
+      const headers = [
+        'session_id', 'session_date', 'venue_name', 'venue_location',
+        'court_count', 'status', 'created_at', 'ended_at',
+      ];
+
+      const rows = allSessions.map(s => [
+        s.id,
+        s.date.toISOString(),
+        s.venueName,
+        s.venueLocation ?? '',
+        s.courtCount,
+        s.status,
+        s.createdAt.toISOString(),
+        s.endedAt ? s.endedAt.toISOString() : '',
+      ]);
+
+      sendCsv(res, 'sessions.csv', buildCsv(headers, rows));
+    } catch (error) {
+      console.error('Export sessions error:', error);
+      res.status(500).json({ error: 'Failed to export sessions' });
     }
   });
 
