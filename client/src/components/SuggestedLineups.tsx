@@ -18,6 +18,8 @@ interface TeamCombination {
   skillGap: number;
   variance: number;
   tierDispersion: number;
+  splitPenalty: number;
+  crossTierPenalty: number;
   rank: number;
 }
 

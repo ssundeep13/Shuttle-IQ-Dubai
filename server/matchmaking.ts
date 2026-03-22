@@ -41,9 +41,23 @@ export interface TeamCombination {
   team2Avg: number;
   skillGap: number;
   variance: number;
-  tierDispersion: number; // max tier index - min tier index across all 4 players (0 = same tier)
-  splitPenalty: number;   // Fix 3: partner repetition penalty (0 = novel pairing, up to 60 = both pairs repeated)
+  tierDispersion: number;   // max tier index - min tier index across all 4 players (0 = same tier)
+  splitPenalty: number;     // Fix 3: partner repetition penalty (0 = novel pairing, up to 60 = both pairs repeated)
+  crossTierPenalty: number; // 0 = no cross-tier team, 1+ = teams with mixed-tier players (prefer 0)
   rank: number;
+}
+
+/**
+ * Return a user-facing display name for a tier by its index in TIER_RANGES.
+ */
+function getTierDisplayNameForIndex(tierIndex: number): string {
+  const tier = TIER_RANGES[tierIndex];
+  if (!tier) return String(tierIndex);
+  switch (tier.name) {
+    case 'lower_intermediate': return 'Intermediate';
+    case 'upper_intermediate': return 'Competitive';
+    default: return tier.name;
+  }
 }
 
 // ─── In-memory state stores ──────────────────────────────────────────────────
@@ -350,6 +364,7 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   skillGap: number;
   variance: number;
   tierDispersion: number;
+  crossTierPenalty: number;
 } {
   const team1Skills = team1.map(p => p.skillScore || 90);
   const team2Skills = team2.map(p => p.skillScore || 90);
@@ -362,10 +377,18 @@ function calculateTeamMetrics(team1: Player[], team2: Player[]): {
   const mean = (team1Avg + team2Avg) / 2;
   const variance = allSkills.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / allSkills.length;
 
-  const allTierIndices = allSkills.map(s => getTierIndex(s));
+  const team1Tiers = team1Skills.map(s => getTierIndex(s));
+  const team2Tiers = team2Skills.map(s => getTierIndex(s));
+  const allTierIndices = [...team1Tiers, ...team2Tiers];
   const tierDispersion = Math.max(...allTierIndices) - Math.min(...allTierIndices);
 
-  return { team1Avg, team2Avg, skillGap, variance, tierDispersion };
+  // Count teams that have players from 2 different tiers (cross-tier same-team).
+  // Prefer arrangements where cross-tier players are split across teams (crossTierPenalty = 0).
+  const team1Mixed = new Set(team1Tiers).size > 1 ? 1 : 0;
+  const team2Mixed = new Set(team2Tiers).size > 1 ? 1 : 0;
+  const crossTierPenalty = team1Mixed + team2Mixed;
+
+  return { team1Avg, team2Avg, skillGap, variance, tierDispersion, crossTierPenalty };
 }
 
 /**
@@ -393,6 +416,9 @@ export function findBalancedTeams(
   }
 
   combinations.sort((a, b) => {
+    // Hard-first: prefer arrangements that don't put cross-tier players on the same team
+    const crossTierDiff = a.crossTierPenalty - b.crossTierPenalty;
+    if (crossTierDiff !== 0) return crossTierDiff;
     if (groupByTier) {
       const tierDiff = a.tierDispersion - b.tierDispersion;
       if (tierDiff !== 0) return tierDiff;
@@ -490,27 +516,49 @@ export function selectOptimalPlayers(
 
   if (groupByTier && scoredCandidates.length >= 4) {
     const leadTier = scoredCandidates[0].tierIndex;
+    const sameTier = scoredCandidates.filter(c => c.tierIndex === leadTier);
 
-    for (const tierTolerance of [0, 1]) {
-      const tierCandidates = scoredCandidates.filter(
-        c => Math.abs(c.tierIndex - leadTier) <= tierTolerance
+    if (sameTier.length >= 4) {
+      // Enough same-tier players — pure match
+      selected = sameTier.slice(0, 4);
+      isMixedTier = false;
+      tierGroupFound = true;
+    } else if (sameTier.length >= 3) {
+      // 3 same-tier + exactly 1 adjacent-tier player allowed
+      const adjacent = scoredCandidates.filter(
+        c => c.tierIndex !== leadTier && Math.abs(c.tierIndex - leadTier) === 1
       );
-      if (tierCandidates.length >= 4) {
-        selected = tierCandidates.slice(0, 4);
-        const tiers = selected.map(c => c.tierIndex);
-        isMixedTier = Math.max(...tiers) - Math.min(...tiers) > 0;
+      if (adjacent.length >= 1) {
+        selected = [...sameTier.slice(0, 3), adjacent[0]];
+        isMixedTier = true;
         tierGroupFound = true;
-        break;
+        const t1 = getTierDisplayNameForIndex(leadTier);
+        const t2 = getTierDisplayNameForIndex(adjacent[0].tierIndex);
+        restWarnings.push(`Mixed levels: ${t1} + ${t2}`);
       }
     }
+    // If <3 same-tier found, fall through to priority-based selection (no tier constraint)
 
     if (!tierGroupFound) {
+      // Fall back: top-priority candidates regardless of tier
+      selected = scoredCandidates.slice(0, 4);
       const tiers = selected.map(c => c.tierIndex);
-      isMixedTier = Math.max(...tiers) - Math.min(...tiers) > 0;
+      isMixedTier = selected.length >= 4 && Math.max(...tiers) - Math.min(...tiers) > 0;
+      if (isMixedTier) {
+        const minTier = Math.min(...tiers);
+        const maxTier = Math.max(...tiers);
+        restWarnings.push(`Mixed levels: ${getTierDisplayNameForIndex(minTier)} + ${getTierDisplayNameForIndex(maxTier)}`);
+      }
     }
   } else {
     const tiers = selected.map(c => c.tierIndex);
     isMixedTier = selected.length >= 4 && Math.max(...tiers) - Math.min(...tiers) > 0;
+    if (isMixedTier && groupByTier) {
+      const tIndices = tiers;
+      const minTier = Math.min(...tIndices);
+      const maxTier = Math.max(...tIndices);
+      restWarnings.push(`Mixed levels: ${getTierDisplayNameForIndex(minTier)} + ${getTierDisplayNameForIndex(maxTier)}`);
+    }
   }
 
   const selectedPlayers = selected.map(c => c.player);
@@ -605,8 +653,10 @@ export function generateAllMatchupOptions(
     allCombinations.push(...combinations);
   }
 
-  // Sort: tier homogeneity → skill gap → split penalty → variance
+  // Sort: cross-tier team avoidance → tier homogeneity → skill gap → split penalty → variance
   allCombinations.sort((a, b) => {
+    const crossTierDiff = a.crossTierPenalty - b.crossTierPenalty;
+    if (crossTierDiff !== 0) return crossTierDiff;
     if (groupByTier) {
       const tierDiff = a.tierDispersion - b.tierDispersion;
       if (tierDiff !== 0) return tierDiff;
