@@ -2226,7 +2226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   function sendCsv(res: import('express').Response, filename: string, csv: string) {
-    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
   }
@@ -2357,8 +2357,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       rows.sort((a, b) => {
         const dateA = String(a[2]);
         const dateB = String(b[2]);
-        if (dateA !== dateB) return dateA < dateB ? -1 : 1;
-        return String(a[0]) < String(b[0]) ? -1 : 1;
+        if (dateA < dateB) return -1;
+        if (dateA > dateB) return 1;
+        const idA = String(a[0]);
+        const idB = String(b[0]);
+        if (idA < idB) return -1;
+        if (idA > idB) return 1;
+        return 0;
       });
 
       sendCsv(res, 'score-history.csv', buildCsv(headers, rows));
