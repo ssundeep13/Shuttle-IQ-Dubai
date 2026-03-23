@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import { sql, eq, inArray, and, desc, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
+import { verifyAccessToken } from "./auth/utils";
 import { 
   generateAccessToken, 
   generateRefreshToken, 
@@ -314,6 +315,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/sessions", async (req, res) => {
     try {
       const sandbox = req.query.sandbox === 'true';
+      if (sandbox) {
+        const authHeader = req.headers.authorization;
+        const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+        const user = token ? verifyAccessToken(token) : null;
+        if (!user || !['admin', 'super_admin'].includes(user.role)) {
+          return res.status(403).json({ error: "Forbidden" });
+        }
+      }
       const sessions = await storage.getAllSessions(sandbox);
       res.json(sessions);
     } catch (error) {
@@ -1614,8 +1623,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           skillAfter,
         });
         
-        // Sandbox sessions: skip all persistent player stat updates — no score, no game count
-        if (!isSandboxSession) {
+        if (isSandboxSession) {
+          // Sandbox sessions: only reset operational player state (status) — skip ELO/stats updates
+          await storage.updatePlayer(player.id, { status: 'waiting' });
+        } else {
           await storage.updatePlayer(player.id, {
             gamesPlayed: player.gamesPlayed + 1,
             wins: isWinner ? player.wins + 1 : player.wins,
@@ -1751,11 +1762,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      // Get all games from today
+      // Get all games from today (excluding sandbox sessions)
       const todaysGames = await db
         .select()
         .from(gameResults)
-        .where(sql`${gameResults.createdAt} >= ${today}`);
+        .where(sql`${gameResults.createdAt} >= ${today} AND ${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`);
       
       const gameIds = todaysGames.map(g => g.id);
       
@@ -1819,7 +1830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const weekGames = await db
         .select()
         .from(gameResults)
-        .where(sql`${gameResults.createdAt} >= ${startOfWeek}`);
+        .where(sql`${gameResults.createdAt} >= ${startOfWeek} AND ${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`);
 
       const gameIds = weekGames.map(g => g.id);
 
@@ -1874,11 +1885,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const startOfMonth = new Date(year, month - 1, 1, 0, 0, 0, 0);
       const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999); // Last day of month
       
-      // Get all games from the specified month
+      // Get all games from the specified month (excluding sandbox sessions)
       const monthGames = await db
         .select()
         .from(gameResults)
-        .where(sql`${gameResults.createdAt} >= ${startOfMonth} AND ${gameResults.createdAt} <= ${endOfMonth}`);
+        .where(sql`${gameResults.createdAt} >= ${startOfMonth} AND ${gameResults.createdAt} <= ${endOfMonth} AND ${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`);
       
       const gameIds = monthGames.map(g => g.id);
       
@@ -2076,10 +2087,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { players } = await import('@shared/schema');
       const sessionId = req.params.sessionId;
       
-      // Fetch game results for the specific session (or all if no sessionId provided)
+      // Fetch game results for the specific session (or all non-sandbox if no sessionId provided)
       const gamesQuery = sessionId 
         ? db.select().from(gameResults).where(eq(gameResults.sessionId, sessionId)).orderBy(desc(gameResults.createdAt))
-        : db.select().from(gameResults).orderBy(desc(gameResults.createdAt));
+        : db.select().from(gameResults).where(sql`${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`).orderBy(desc(gameResults.createdAt));
       
       const games = await gamesQuery;
       
