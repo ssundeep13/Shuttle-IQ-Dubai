@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'wouter';
 import { ArrowLeft, Copy, Check } from 'lucide-react';
 
@@ -344,7 +344,7 @@ const REEL_NOTES = `Reel Adaptation Notes:
 • Audio: Lo-fi hip-hop or minimal sports cinematic beat
 • Aspect ratio: 9:16 (1080×1920) for Reels vs 4:5 (1080×1350) for carousel`;
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, testId }: { text: string; testId: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
@@ -355,7 +355,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      data-testid="button-copy-caption"
+      data-testid={testId}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -379,11 +379,25 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export default function InstagramCarousel() {
-  const [activeSlide, setActiveSlide] = useState<number | null>(null);
+  const [activeSlide, setActiveSlide] = useState<number>(0);
+  const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const observers: IntersectionObserver[] = [];
+    slideRefs.current.forEach((el, i) => {
+      if (!el) return;
+      const obs = new IntersectionObserver(
+        ([entry]) => { if (entry.isIntersecting) setActiveSlide(i); },
+        { threshold: 0.5 }
+      );
+      obs.observe(el);
+      observers.push(obs);
+    });
+    return () => observers.forEach(o => o.disconnect());
+  }, []);
 
   const scrollToSlide = (idx: number) => {
-    setActiveSlide(idx);
-    const el = document.getElementById(`slide-block-${idx}`);
+    const el = slideRefs.current[idx];
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
@@ -407,7 +421,7 @@ export default function InstagramCarousel() {
           <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 400, fontSize: '13px', color: WHITE_60, marginLeft: '12px' }}>Instagram Carousel · 7 Slides</span>
         </div>
 
-        {/* Slide jump dots */}
+        {/* Slide jump dots — synced to scroll position */}
         <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto', alignItems: 'center' }}>
           {SLIDES.map((_, i) => (
             <button
@@ -433,7 +447,12 @@ export default function InstagramCarousel() {
       {/* Slides */}
       <div style={{ maxWidth: '560px', margin: '0 auto', padding: '48px 24px 0' }}>
         {SLIDES.map((SlideComp, i) => (
-          <div key={i} id={`slide-block-${i}`} style={{ marginBottom: '48px' }}>
+          <div
+            key={i}
+            id={`slide-block-${i}`}
+            ref={el => { slideRefs.current[i] = el; }}
+            style={{ marginBottom: '48px' }}
+          >
             {/* Slide label */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <span style={{ fontFamily: 'Inter, sans-serif', fontSize: '12px', fontWeight: 600, color: WHITE_60, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
@@ -453,17 +472,17 @@ export default function InstagramCarousel() {
 
         {/* Caption section */}
         <div style={{ marginTop: '16px', marginBottom: '0', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '48px' }}>
-          <div style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 800, fontSize: '18px', color: WHITE, marginBottom: '24px' }}>
-            Instagram Caption
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+            <div style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 800, fontSize: '18px', color: WHITE }}>
+              Instagram Caption
+            </div>
+            <CopyButton text={CAPTION} testId="button-copy-caption" />
           </div>
 
-          <div style={{ position: 'relative', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', padding: '24px' }}>
-            <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
-              <CopyButton text={CAPTION} />
-            </div>
+          <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', padding: '24px' }}>
             <pre
               data-testid="text-caption"
-              style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px', lineHeight: 1.8, color: WHITE_60, whiteSpace: 'pre-wrap', margin: 0, marginTop: '8px' }}
+              style={{ fontFamily: 'Inter, sans-serif', fontSize: '14px', lineHeight: 1.8, color: WHITE_60, whiteSpace: 'pre-wrap', margin: 0 }}
             >
               {CAPTION}
             </pre>
@@ -472,8 +491,11 @@ export default function InstagramCarousel() {
 
         {/* Reel notes */}
         <div style={{ marginTop: '32px', marginBottom: '64px' }}>
-          <div style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 800, fontSize: '18px', color: WHITE, marginBottom: '16px' }}>
-            Reel Adaptation Notes
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+            <div style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 800, fontSize: '18px', color: WHITE }}>
+              Reel Adaptation Notes
+            </div>
+            <CopyButton text={REEL_NOTES} testId="button-copy-reel-notes" />
           </div>
           <div style={{ background: 'rgba(30,200,176,0.05)', borderRadius: '12px', border: `1px solid rgba(30,200,176,0.15)`, padding: '24px' }}>
             <pre
