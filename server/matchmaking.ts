@@ -634,11 +634,12 @@ export function selectOptimalPlayers(
 }
 
 /**
- * Bracketed court assignment: divide the queue into N equal skill brackets,
- * one per available court, and find the best team split within each bracket.
+ * Bracketed court assignment: divide the queue into exactly N equal percentile
+ * skill brackets (one per available court), select the best 4 players within
+ * each bracket by queue-priority ordering, then find the optimal team split.
  *
- * Returns one entry per court. If a bracket has fewer than 4 eligible players
- * the entry has `insufficientPlayers: true` and no team data.
+ * Always returns exactly `courtCount` entries. Entries with fewer than 4
+ * players carry `insufficientPlayers: true` and `combination: null`.
  */
 export function generateBracketedLineups(
   sessionId: string,
@@ -647,7 +648,7 @@ export function generateBracketedLineups(
   courtCount: number,
 ): {
   brackets: Array<{
-    courtIndex: number;         // 0-based
+    courtIndex: number;
     skillRangeMin: number;
     skillRangeMax: number;
     combination: TeamCombination | null;
@@ -660,8 +661,9 @@ export function generateBracketedLineups(
 
   const restWarnings: string[] = [];
 
-  // Eligible pool: queue players not sitting out who exist in allPlayers
+  // ── Step 1: Build eligible pool with queue priority scores ────────────────
   const eligibleQueueIds = queuePlayerIds.filter(id => !isSittingOut(sessionId, id));
+
   const eligibleCandidates = eligibleQueueIds
     .map((playerId, queueIndex) => {
       const player = allPlayers.find(p => p.id === playerId);
@@ -671,48 +673,48 @@ export function generateBracketedLineups(
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);
 
-  // Sort by skill score descending (highest first → top bracket first)
-  const sorted = [...eligibleCandidates].sort(
+  // Compute session average for equity scoring (mirrors generateAllMatchupOptions)
+  const totalGamesThisSession = eligibleCandidates.reduce(
+    (sum, c) => sum + c.restState.gamesThisSession, 0,
+  );
+  const sessionAvgGames = eligibleCandidates.length > 0
+    ? totalGamesThisSession / eligibleCandidates.length
+    : 0;
+
+  // Enrich with priority score (lower priority = should play sooner)
+  const prioritised = eligibleCandidates.map(c => ({
+    ...c,
+    priority: calculatePlayerPriority(c.player, c.queueIndex, c.restState, sessionAvgGames),
+  }));
+
+  // ── Step 2: Sort by skill score descending → N equal percentile buckets ──
+  // We always create exactly `courtCount` buckets from the full eligible pool.
+  // Each bucket is a percentile slice; buckets with <4 players are marked insufficient.
+  const sortedBySkill = [...prioritised].sort(
     (a, b) => (b.player.skillScore ?? 90) - (a.player.skillScore ?? 90),
   );
 
-  const n = sorted.length;
-  const effectiveCourts = Math.min(courtCount, Math.floor(n / 4));
+  const n = sortedBySkill.length;
+  // Divide n players into courtCount equal-ish slices
+  const baseSize = Math.floor(n / courtCount);
+  const remainder = n % courtCount;
 
-  if (effectiveCourts === 0) {
-    // Not enough players for even one court — return empty brackets
-    const brackets = Array.from({ length: courtCount }, (_, i) => ({
-      courtIndex: i,
-      skillRangeMin: 0,
-      skillRangeMax: 0,
-      combination: null,
-      insufficientPlayers: true,
-      playerCount: 0,
-    }));
-    restWarnings.push('Not enough players to fill any bracket');
-    return { brackets, restWarnings };
-  }
-
-  // Divide sorted list into effectiveCourts roughly equal buckets
-  const bracketSize = Math.floor(n / effectiveCourts);
-  const remainder = n % effectiveCourts;
-
-  const buckets: typeof sorted[] = [];
+  const buckets: typeof sortedBySkill[] = [];
   let offset = 0;
-  for (let i = 0; i < effectiveCourts; i++) {
-    const size = bracketSize + (i < remainder ? 1 : 0);
-    buckets.push(sorted.slice(offset, offset + size));
+  for (let i = 0; i < courtCount; i++) {
+    const size = baseSize + (i < remainder ? 1 : 0);
+    buckets.push(sortedBySkill.slice(offset, offset + size));
     offset += size;
   }
 
-  // For each bracket find the best 4 players and optimal team split
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const enrich = (p: Player): Player => {
+    const rs = eligibleCandidates.find(c => c.player.id === p.id)?.restState;
+    if (!rs) return p;
+    return { ...p, gamesWaited: rs.gamesWaited, gamesThisSession: rs.gamesThisSession } as Player;
+  };
+
   const getEquityRank = (team1: Player[], team2: Player[]): number => {
-    const totalGamesThisSession = eligibleCandidates.reduce(
-      (sum, c) => sum + c.restState.gamesThisSession, 0,
-    );
-    const sessionAvgGames = eligibleCandidates.length > 0
-      ? totalGamesThisSession / eligibleCandidates.length
-      : 0;
     const deficit = [...team1, ...team2].reduce((sum, p) => {
       const rs = eligibleCandidates.find(c => c.player.id === p.id)?.restState;
       return sum + (sessionAvgGames - (rs?.gamesThisSession ?? 0));
@@ -720,28 +722,27 @@ export function generateBracketedLineups(
     return -deficit;
   };
 
-  const pickBestCombo = (bucket: typeof sorted): TeamCombination | null => {
+  // ── Step 3: For each bucket, select top-4 by queue-priority, find best teams ──
+  const pickBestCombo = (bucket: typeof sortedBySkill): TeamCombination | null => {
     if (bucket.length < 4) return null;
 
-    // Take the first 4 by skill-score order within bucket (highest to lowest)
-    // — gives the best chance of balanced teams within each bracket
-    const pool = bucket.slice(0, Math.min(10, bucket.length));
+    // Within this skill bracket, rank by queue priority (ascending = play sooner)
+    const byPriority = [...bucket].sort((a, b) => a.priority - b.priority);
+    // Consider top 8 priority candidates to generate C(n,4) player sets
+    const pool = byPriority.slice(0, Math.min(8, byPriority.length));
+
     const playerSets: Player[][] = [];
-    const limit = Math.min(pool.length, 8);
-    for (let i = 0; i < limit; i++) {
-      for (let j = i + 1; j < limit; j++) {
-        for (let k = j + 1; k < limit; k++) {
-          for (let l = k + 1; l < limit; l++) {
+    const limit = pool.length;
+    for (let i = 0; i < limit && playerSets.length < 15; i++) {
+      for (let j = i + 1; j < limit && playerSets.length < 15; j++) {
+        for (let k = j + 1; k < limit && playerSets.length < 15; k++) {
+          for (let l = k + 1; l < limit && playerSets.length < 15; l++) {
             playerSets.push([
               pool[i].player, pool[j].player, pool[k].player, pool[l].player,
             ]);
-            if (playerSets.length >= 15) break;
           }
-          if (playerSets.length >= 15) break;
         }
-        if (playerSets.length >= 15) break;
       }
-      if (playerSets.length >= 15) break;
     }
 
     let best: TeamCombination | null = null;
@@ -776,16 +777,8 @@ export function generateBracketedLineups(
     }
 
     if (best) {
-      // Enrich players with session state
-      const enrich = (p: Player): Player => {
-        const rs = eligibleCandidates.find(c => c.player.id === p.id)?.restState;
-        if (!rs) return p;
-        return { ...p, gamesWaited: rs.gamesWaited, gamesThisSession: rs.gamesThisSession } as Player;
-      };
       best.team1 = best.team1.map(enrich);
       best.team2 = best.team2.map(enrich);
-
-      // Collect rest warnings for assigned players
       for (const p of [...best.team1, ...best.team2]) {
         const rs = eligibleCandidates.find(c => c.player.id === p.id)?.restState;
         if (rs?.needsRest) {
@@ -798,6 +791,7 @@ export function generateBracketedLineups(
     return best;
   };
 
+  // ── Step 4: Build result brackets (always exactly courtCount entries) ─────
   const brackets = buckets.map((bucket, i) => {
     const scores = bucket.map(c => c.player.skillScore ?? 90);
     const skillRangeMin = scores.length > 0 ? Math.min(...scores) : 0;
@@ -812,18 +806,6 @@ export function generateBracketedLineups(
       playerCount: bucket.length,
     };
   });
-
-  // Append placeholder brackets for courts beyond what players can fill
-  for (let i = effectiveCourts; i < courtCount; i++) {
-    brackets.push({
-      courtIndex: i,
-      skillRangeMin: 0,
-      skillRangeMax: 0,
-      combination: null,
-      insufficientPlayers: true,
-      playerCount: 0,
-    });
-  }
 
   return { brackets, restWarnings };
 }

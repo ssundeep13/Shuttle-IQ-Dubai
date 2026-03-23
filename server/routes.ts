@@ -1429,8 +1429,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session" });
       }
 
-      const results = [];
-      let currentQueue = await storage.getQueue(gameSession.id);
+      // ── Pre-validation pass: reject early before any mutations ────────────
+      const validatedCourts: Awaited<ReturnType<typeof storage.getCourt>>[] = [];
+      const seenCourtIds = new Set<string>();
+      const seenPlayerIds = new Set<string>();
 
       for (const { courtId, teamAssignments } of assignments) {
         const team1Count = teamAssignments.filter(a => a.team === 1).length;
@@ -1441,20 +1443,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
+        if (seenCourtIds.has(courtId)) {
+          return res.status(400).json({ error: `Court ${courtId} appears more than once in the request` });
+        }
+        seenCourtIds.add(courtId);
+
+        for (const a of teamAssignments) {
+          if (seenPlayerIds.has(a.playerId)) {
+            return res.status(400).json({ error: `Player ${a.playerId} appears in more than one court assignment` });
+          }
+          seenPlayerIds.add(a.playerId);
+        }
+
         const court = await storage.getCourt(courtId);
         if (!court) return res.status(404).json({ error: `Court ${courtId} not found` });
         if (court.status === 'occupied') {
           return res.status(400).json({ error: `Court ${court.name} is already occupied` });
         }
 
-        await storage.updateCourt(court.id, {
+        validatedCourts.push(court);
+      }
+
+      // ── Mutation pass: all validations passed, now apply changes ──────────
+      const results = [];
+      let currentQueue = await storage.getQueue(gameSession.id);
+
+      for (let idx = 0; idx < assignments.length; idx++) {
+        const { courtId, teamAssignments } = assignments[idx];
+        const court = validatedCourts[idx]!;
+
+        await storage.updateCourt(courtId, {
           status: 'occupied',
           timeRemaining: 15,
           winningTeam: null,
           startedAt: new Date(),
         });
 
-        await storage.setCourtPlayersWithTeams(court.id, teamAssignments);
+        await storage.setCourtPlayersWithTeams(courtId, teamAssignments);
 
         for (const a of teamAssignments) {
           await storage.updatePlayer(a.playerId, { status: 'playing' });
@@ -1463,7 +1488,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const assignedIds = teamAssignments.map(a => a.playerId);
         currentQueue = currentQueue.filter(id => !assignedIds.includes(id));
 
-        const updatedCourt = await storage.getCourt(court.id);
+        const updatedCourt = await storage.getCourt(courtId);
         results.push(updatedCourt);
       }
 

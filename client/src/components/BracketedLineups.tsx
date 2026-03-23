@@ -162,7 +162,7 @@ export function BracketedLineups({
             Queue split into {availableCourtCount} bracket{availableCourtCount !== 1 ? 's' : ''} — one per available court
           </p>
         </div>
-        {isActiveSession && assignableCount > 1 && (
+        {isActiveSession && assignableCount >= 1 && (
           <Button
             size="sm"
             onClick={handleAssignAll}
