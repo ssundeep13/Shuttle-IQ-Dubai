@@ -722,57 +722,37 @@ export function generateBracketedLineups(
     return -deficit;
   };
 
-  // ── Step 3: For each bucket, select top-4 by queue-priority, find best teams ──
+  // ── Step 3: For each bucket, select exactly top 4 by queue-priority, find best teams ──
   const pickBestCombo = (bucket: typeof sortedBySkill): TeamCombination | null => {
     if (bucket.length < 4) return null;
 
     // Within this skill bracket, rank by queue priority (ascending = play sooner)
+    // and take EXACTLY the top 4 — no subset search, priority is strictly honoured
     const byPriority = [...bucket].sort((a, b) => a.priority - b.priority);
-    // Consider top 8 priority candidates to generate C(n,4) player sets
-    const pool = byPriority.slice(0, Math.min(8, byPriority.length));
+    const top4Players = byPriority.slice(0, 4).map(c => c.player);
 
-    const playerSets: Player[][] = [];
-    const limit = pool.length;
-    for (let i = 0; i < limit && playerSets.length < 15; i++) {
-      for (let j = i + 1; j < limit && playerSets.length < 15; j++) {
-        for (let k = j + 1; k < limit && playerSets.length < 15; k++) {
-          for (let l = k + 1; l < limit && playerSets.length < 15; l++) {
-            playerSets.push([
-              pool[i].player, pool[j].player, pool[k].player, pool[l].player,
-            ]);
-          }
-        }
-      }
-    }
+    // Evaluate all 3 team-split permutations of those 4 players
+    const perms = getAllTeamPermutations(top4Players);
 
     let best: TeamCombination | null = null;
-    const processed = new Set<string>();
-
-    for (const playerSet of playerSets) {
-      const setKey = playerSet.map(p => p.id).sort().join('-');
-      if (processed.has(setKey)) continue;
-      processed.add(setKey);
-
-      const permutations = getAllTeamPermutations(playerSet);
-      for (const [t1, t2] of permutations) {
-        const metrics = calculateTeamMetrics(t1, t2);
-        const splitPenalty = calculateSplitPenalty(t1, t2, sessionId);
-        const equityRank = getEquityRank(t1, t2);
-        const combo: TeamCombination = {
-          team1: t1, team2: t2, ...metrics, splitPenalty, equityRank,
-          isCompromised: false, isStretchMatch: false, rank: 0,
-        };
-        if (!best) {
-          best = combo;
-        } else {
-          const beats =
-            combo.tierDispersion < best.tierDispersion ||
-            (combo.tierDispersion === best.tierDispersion && combo.skillGap < best.skillGap - 0.01) ||
-            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank < best.equityRank) ||
-            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty < best.splitPenalty) ||
-            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty === best.splitPenalty && combo.variance < best.variance);
-          if (beats) best = combo;
-        }
+    for (const [t1, t2] of perms) {
+      const metrics = calculateTeamMetrics(t1, t2);
+      const splitPenalty = calculateSplitPenalty(t1, t2, sessionId);
+      const equityRank = getEquityRank(t1, t2);
+      const combo: TeamCombination = {
+        team1: t1, team2: t2, ...metrics, splitPenalty, equityRank,
+        isCompromised: false, isStretchMatch: false, rank: 0,
+      };
+      if (!best) {
+        best = combo;
+      } else {
+        const beats =
+          combo.tierDispersion < best.tierDispersion ||
+          (combo.tierDispersion === best.tierDispersion && combo.skillGap < best.skillGap - 0.01) ||
+          (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank < best.equityRank) ||
+          (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty < best.splitPenalty) ||
+          (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty === best.splitPenalty && combo.variance < best.variance);
+        if (beats) best = combo;
       }
     }
 

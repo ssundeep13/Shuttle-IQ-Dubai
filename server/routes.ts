@@ -1464,31 +1464,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         validatedCourts.push(court);
       }
 
-      // ── Mutation pass: all validations passed, now apply changes ──────────
+      // ── Mutation pass: all validations passed, now apply changes via shared helper ──
       const results = [];
       let currentQueue = await storage.getQueue(gameSession.id);
 
       for (let idx = 0; idx < assignments.length; idx++) {
         const { courtId, teamAssignments } = assignments[idx];
-        const court = validatedCourts[idx]!;
-
-        await storage.updateCourt(courtId, {
-          status: 'occupied',
-          timeRemaining: 15,
-          winningTeam: null,
-          startedAt: new Date(),
+        const { updatedCourt, newQueue } = await assignCourtCore({
+          courtId,
+          teamAssignments,
+          sessionId: gameSession.id,
+          currentQueue,
         });
-
-        await storage.setCourtPlayersWithTeams(courtId, teamAssignments);
-
-        for (const a of teamAssignments) {
-          await storage.updatePlayer(a.playerId, { status: 'playing' });
-        }
-
-        const assignedIds = teamAssignments.map(a => a.playerId);
-        currentQueue = currentQueue.filter(id => !assignedIds.includes(id));
-
-        const updatedCourt = await storage.getCourt(courtId);
+        currentQueue = newQueue;
         results.push(updatedCourt);
       }
 
@@ -1504,6 +1492,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to batch-assign courts" });
     }
   });
+
+  // ── Shared court-assignment helper ────────────────────────────────────────
+  // Both /api/courts/:courtId/assign and /api/matchmaking/bracket-assign use
+  // this function so the mutation logic stays in one canonical place.
+  async function assignCourtCore(params: {
+    courtId: string;
+    teamAssignments: { playerId: string; team: number }[];
+    sessionId: string;
+    currentQueue: string[];
+  }): Promise<{ updatedCourt: Awaited<ReturnType<typeof storage.getCourt>>; newQueue: string[] }> {
+    const { courtId, teamAssignments, sessionId, currentQueue } = params;
+
+    await storage.updateCourt(courtId, {
+      status: 'occupied',
+      timeRemaining: 15,
+      winningTeam: null,
+      startedAt: new Date(),
+    });
+
+    await storage.setCourtPlayersWithTeams(courtId, teamAssignments);
+
+    for (const a of teamAssignments) {
+      await storage.updatePlayer(a.playerId, { status: 'playing' });
+    }
+
+    const assignedIds = teamAssignments.map(a => a.playerId);
+    const newQueue = currentQueue.filter(id => !assignedIds.includes(id));
+
+    const updatedCourt = await storage.getCourt(courtId);
+    return { updatedCourt, newQueue };
+  }
 
   // Game management routes
   app.post("/api/courts/:courtId/assign", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
@@ -1556,28 +1575,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session" });
       }
 
-      // Update court status
-      await storage.updateCourt(court.id, {
-        status: 'occupied',
-        timeRemaining: 15, // 15 minutes
-        winningTeam: null,
-        startedAt: new Date(),
-      });
-
-      // Set court players with team assignments
-      await storage.setCourtPlayersWithTeams(court.id, assignments);
-
-      // Update player statuses
-      for (const assignment of assignments) {
-        await storage.updatePlayer(assignment.playerId, { status: 'playing' });
-      }
-
+      // Delegate to shared helper for canonical mutation logic
       const currentQueue = await storage.getQueue(gameSession.id);
-      const assignedPlayerIds = assignments.map(a => a.playerId);
-      const newQueue = currentQueue.filter(id => !assignedPlayerIds.includes(id));
+      const { updatedCourt, newQueue } = await assignCourtCore({
+        courtId: court.id,
+        teamAssignments: assignments,
+        sessionId: gameSession.id,
+        currentQueue,
+      });
       await storage.setQueue(gameSession.id, newQueue);
-
-      const updatedCourt = await storage.getCourt(court.id);
       const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
       const players = (await Promise.all(
         courtPlayerData.map(async cp => {

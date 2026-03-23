@@ -43,6 +43,7 @@ interface BracketedLineupsProps {
   courts: CourtWithPlayers[];
   queuePlayerIds: string[];
   isActiveSession?: boolean;
+  onAssign: () => void;
   onAssignAll: () => void;
 }
 
@@ -69,6 +70,7 @@ export function BracketedLineups({
   courts,
   queuePlayerIds,
   isActiveSession = true,
+  onAssign,
   onAssignAll,
 }: BracketedLineupsProps) {
   const availableCourts = courts.filter(c => c.status === 'available');
@@ -87,18 +89,22 @@ export function BracketedLineups({
   });
 
   const bracketAssignMutation = useMutation({
-    mutationFn: async (assignments: { courtId: string; teamAssignments: { playerId: string; team: number }[] }[]) => {
-      return await apiRequest('POST', '/api/matchmaking/bracket-assign', {
+    mutationFn: async (payload: { assignments: { courtId: string; teamAssignments: { playerId: string; team: number }[] }[]; bulk: boolean }) => {
+      return { ...(await apiRequest('POST', '/api/matchmaking/bracket-assign', {
         sessionId,
-        assignments,
-      });
+        assignments: payload.assignments,
+      })), bulk: payload.bulk };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
-      onAssignAll();
+      if (result.bulk) {
+        onAssignAll();
+      } else {
+        onAssign();
+      }
     },
   });
 
@@ -114,7 +120,7 @@ export function BracketedLineups({
       ...bracket.combination.team2.map(p => ({ playerId: p.id, team: 2 as const })),
     ];
 
-    bracketAssignMutation.mutate([{ courtId: court.id, teamAssignments }]);
+    bracketAssignMutation.mutate({ assignments: [{ courtId: court.id, teamAssignments }], bulk: false });
   };
 
   const handleAssignAll = () => {
@@ -134,7 +140,7 @@ export function BracketedLineups({
       .filter((a): a is NonNullable<typeof a> => a !== null);
 
     if (assignments.length === 0) return;
-    bracketAssignMutation.mutate(assignments);
+    bracketAssignMutation.mutate({ assignments, bulk: true });
   };
 
   const assignableCount = data?.brackets.filter((b, i) => !b.insufficientPlayers && !!availableCourts[i]).length ?? 0;

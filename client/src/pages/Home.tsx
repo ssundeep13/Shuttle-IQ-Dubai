@@ -949,6 +949,7 @@ export default function Home() {
                   courts={courts}
                   queuePlayerIds={queue}
                   isActiveSession={!urlSessionId || session?.status === 'active' || !!session?.isSandbox}
+                  onAssign={() => addNotification('Bracket assigned to court', 'success')}
                   onAssignAll={() => addNotification('All brackets assigned to courts', 'success')}
                 />
               )}
