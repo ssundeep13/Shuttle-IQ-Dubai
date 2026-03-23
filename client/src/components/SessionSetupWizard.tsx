@@ -331,8 +331,8 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
   );
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl">
+    <div className="h-screen bg-background flex items-center justify-center p-4 overflow-hidden">
+      <Card className="w-full max-w-2xl flex flex-col max-h-[calc(100vh-2rem)] overflow-hidden">
         <CardHeader className="space-y-2">
           <div className="flex items-start justify-between">
             <div className="flex-1">
@@ -366,8 +366,8 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
 
         {step === 'session' ? (
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSessionSubmit)}>
-              <CardContent className="space-y-6">
+            <form onSubmit={form.handleSubmit(handleSessionSubmit)} className="flex flex-col flex-1 min-h-0">
+              <CardContent className="space-y-6 overflow-y-auto flex-1 min-h-0">
                 <FormField
                   control={form.control}
                   name="date"
@@ -524,7 +524,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
           </Form>
         ) : step === 'marketplace' ? (
           <>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-6 overflow-y-auto flex-1 min-h-0">
               <div className="flex items-center justify-between gap-4 p-4 rounded-lg border bg-card">
                 <div className="flex items-center gap-3">
                   <ShoppingBag className="h-5 w-5 text-muted-foreground" />
@@ -668,7 +668,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
           </>
         ) : (
           <>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-6 overflow-y-auto flex-1 min-h-0">
               <Tabs defaultValue="paste" className="w-full">
                 <TabsList className="grid w-full grid-cols-3 min-h-12 sm:min-h-10">
                   <TabsTrigger value="paste" className="min-h-12 sm:min-h-10" data-testid="tab-paste-import">
