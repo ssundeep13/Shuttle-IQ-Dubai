@@ -280,7 +280,7 @@ export default function Home() {
 
   const assignPlayersMutation = useMutation({
     mutationFn: async ({ courtId, teamAssignments }: { courtId: string; teamAssignments: { playerId: string; team: number }[] }) => {
-      return await apiRequest('POST', `/api/courts/${courtId}/assign`, { teamAssignments });
+      return await apiRequest('POST', `/api/courts/${courtId}/assign`, { teamAssignments, sessionId: session?.id });
     },
     onSuccess: (data: any, variables) => {
       queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
@@ -310,7 +310,8 @@ export default function Home() {
       return await apiRequest('POST', `/api/courts/${courtId}/end-game`, { 
         winningTeam, 
         team1Score, 
-        team2Score 
+        team2Score,
+        sessionId: session?.id,
       });
     },
     onSuccess: (data: any, variables) => {
@@ -331,8 +332,8 @@ export default function Home() {
   });
 
   const cancelGameMutation = useMutation({
-    mutationFn: async (courtId: string) => {
-      return await apiRequest('POST', `/api/courts/${courtId}/cancel-game`, {});
+    mutationFn: async ({ courtId }: { courtId: string }) => {
+      return await apiRequest('POST', `/api/courts/${courtId}/cancel-game`, { sessionId: session?.id });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
@@ -669,7 +670,7 @@ export default function Home() {
   };
 
   const handleCancelGame = (courtId: string) => {
-    cancelGameMutation.mutate(courtId);
+    cancelGameMutation.mutate({ courtId });
   };
 
   const handleRemoveFromQueue = (playerId: string) => {

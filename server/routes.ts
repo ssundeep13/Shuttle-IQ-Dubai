@@ -1368,7 +1368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Game management routes
   app.post("/api/courts/:courtId/assign", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const { playerIds, teamAssignments } = req.body;
+      const { playerIds, teamAssignments, sessionId: bodySessionId } = req.body;
       
       // Support both legacy (playerIds only) and new (teamAssignments) formats
       let assignments: { playerId: string; team: number }[];
@@ -1424,16 +1424,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updatePlayer(assignment.playerId, { status: 'playing' });
       }
 
-      // Remove from queue
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
+      // Remove from queue — resolve session (supports both active and sandbox sessions)
+      const gameSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
+      if (!gameSession) {
         return res.status(400).json({ error: "No active session" });
       }
 
-      const currentQueue = await storage.getQueue(activeSession.id);
+      const currentQueue = await storage.getQueue(gameSession.id);
       const assignedPlayerIds = assignments.map(a => a.playerId);
       const newQueue = currentQueue.filter(id => !assignedPlayerIds.includes(id));
-      await storage.setQueue(activeSession.id, newQueue);
+      await storage.setQueue(gameSession.id, newQueue);
 
       const updatedCourt = await storage.getCourt(court.id);
       const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
@@ -1453,6 +1455,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/courts/:courtId/cancel-game", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
+      const { sessionId: bodySessionId } = req.body;
       console.log(`[CANCEL-GAME] Canceling game on court ${req.params.courtId}`);
       
       const court = await storage.getCourt(req.params.courtId);
@@ -1477,18 +1480,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updatePlayer(player.id, { status: 'waiting' });
       }
 
-      // Add players back to queue (maintain their original order)
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
+      // Add players back to queue — resolve session (supports both active and sandbox sessions)
+      const gameSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
+      if (!gameSession) {
         return res.status(400).json({ error: "No active session" });
       }
 
-      const currentQueue = await storage.getQueue(activeSession.id);
+      const currentQueue = await storage.getQueue(gameSession.id);
       const newQueue = [
         ...currentQueue,
         ...players.map(p => p.id),
       ];
-      await storage.setQueue(activeSession.id, newQueue);
+      await storage.setQueue(gameSession.id, newQueue);
 
       // Reset court
       await storage.updateCourt(court.id, {
@@ -1509,7 +1514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/courts/:courtId/end-game", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const { winningTeam, team1Score, team2Score } = req.body;
+      const { winningTeam, team1Score, team2Score, sessionId: bodySessionId } = req.body;
       
       console.log(`[END-GAME] Court ${req.params.courtId}: Team ${winningTeam} wins ${team1Score}-${team2Score}`);
       
@@ -1562,8 +1567,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const winners = winningTeam === 1 ? team1 : team2;
       const losers = winningTeam === 1 ? team2 : team1;
 
-      // Get active session early — needed to check sandbox mode before ELO updates
-      const activeSession = await storage.getActiveSession();
+      // Resolve session — supports both active and sandbox sessions
+      const activeSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
       if (!activeSession) {
         return res.status(400).json({ error: "No active session" });
       }
