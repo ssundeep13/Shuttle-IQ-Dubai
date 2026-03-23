@@ -72,7 +72,7 @@ export function SuggestedLineups({
   onGroupByTierChange,
 }: SuggestedLineupsProps) {
   const [isExpanded, setIsExpanded] = useState(true);
-  const [aiMode, setAiMode] = useState(false);
+  const [aiMode, setAiMode] = useState(true);
 
   const { data, isLoading, error } = useQuery<SuggestionsResponse>({
     queryKey: ['/api/matchmaking/suggestions', sessionId, queuePlayerIds.join(','), groupByTier, aiMode],
