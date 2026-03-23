@@ -883,8 +883,8 @@ export default function Home() {
           <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800" data-testid="banner-sandbox">
             <FlaskConical className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
             <div className="flex-1">
-              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Sandbox Session</p>
-              <p className="text-xs text-amber-700 dark:text-amber-400">Scores are not tracked. All data will be permanently deleted when this session ends.</p>
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Sandbox Mode</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">Game results will not affect player scores or stats. All data will be permanently deleted when this session ends.</p>
             </div>
           </div>
         )}

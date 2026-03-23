@@ -500,18 +500,44 @@ export class DatabaseStorage implements IStorage {
 
     const gameIds = playerGames.map(g => g.gameId);
     
-    // Get game results for these games (ordered by date for streak calculation)
+    // Get game results for these games, excluding sandbox session games (ordered by date for streak calculation)
     const games = await db
       .select()
       .from(gameResults)
-      .where(inArray(gameResults.id, gameIds))
+      .where(sql`${gameResults.id} IN (${sql.join(gameIds.map(id => sql`${id}`), sql`, `)}) AND ${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`)
       .orderBy(desc(gameResults.createdAt));
 
-    // Get all participants for these games
+    // Get all participants for non-sandbox games only
+    const nonSandboxGameIds = games.map(g => g.id);
+    if (nonSandboxGameIds.length === 0) {
+      return {
+        player,
+        winRate: 0,
+        totalGames: player.gamesPlayed,
+        totalWins: player.wins,
+        currentStreak: { type: 'none', count: 0 },
+        longestWinStreak: 0,
+        longestLossStreak: 0,
+        rankBySkillScore,
+        rankByWins,
+        rankByWinRate,
+        totalPlayersRanked: allPlayers.length,
+        performanceTrend: 'stable',
+        recentWinRate: 0,
+        avgScoreDifferential: 0,
+        avgPointsFor: 0,
+        avgPointsAgainst: 0,
+        bestPartner: null,
+        frequentPartners: [],
+        rivals: [],
+        favoriteOpponents: [],
+        recentGames: []
+      };
+    }
     const allParticipants = await db
       .select()
       .from(gameParticipants)
-      .where(inArray(gameParticipants.gameId, gameIds));
+      .where(inArray(gameParticipants.gameId, nonSandboxGameIds));
 
     // Get player list for lookups
     const participantPlayerIds = Array.from(new Set(allParticipants.map(p => p.playerId)));
