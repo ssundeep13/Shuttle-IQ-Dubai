@@ -656,6 +656,20 @@ export function generateAllMatchupOptions(
   const { suggestWindow } = getWindowSizes(eligibleQueueIds.length);
   const candidateIds = eligibleQueueIds.slice(0, suggestWindow);
 
+  // Full-queue tier counts — counts same-tier players across the ENTIRE eligible queue,
+  // not just the candidate window. Used to enforce the overflow rule correctly when
+  // same-tier players exist beyond the candidate window.
+  const fullQueueTierCounts = new Map<number, number>();
+  if (groupByTier) {
+    for (const id of eligibleQueueIds) {
+      const player = allPlayers.find(p => p.id === id);
+      if (player) {
+        const ti = getConfirmedTierIndex(player.level || 'lower_intermediate');
+        fullQueueTierCounts.set(ti, (fullQueueTierCounts.get(ti) ?? 0) + 1);
+      }
+    }
+  }
+
   // ─── Build scored candidate pool ──────────────────────────────────────────
   let totalGamesThisSession = 0;
   let eligibleCount = 0;
@@ -712,14 +726,6 @@ export function generateAllMatchupOptions(
     if (n < 4) return [];
     const limit = Math.min(n, 10);
 
-    // Pool-level tier counts — used to enforce strict same-tier rule when enough players exist
-    const poolTierCounts = new Map<number, number>();
-    if (groupByTier) {
-      for (const c of candidates) {
-        poolTierCounts.set(c.tierIndex, (poolTierCounts.get(c.tierIndex) ?? 0) + 1);
-      }
-    }
-
     for (let i = 0; i < limit; i++) {
       for (let j = i + 1; j < limit; j++) {
         for (let k = j + 1; k < limit; k++) {
@@ -735,9 +741,11 @@ export function generateAllMatchupOptions(
               const majorityCount = sorted2[0][1];
               if (majorityCount < 3) continue;
               const cross = group.filter(c => c.tierIndex !== majorityTier);
-              // If the pool has ≥ 4 players of this tier, require all 4 to be same-tier (no overflow)
-              const poolCount = poolTierCounts.get(majorityTier) ?? 0;
-              if (poolCount >= 4 && cross.length > 0) continue;
+              // If the full eligible queue has ≥ 4 players of this tier, require all 4 same-tier.
+              // Uses fullQueueTierCounts (entire queue, not just window) so players beyond the
+              // candidate window are counted correctly.
+              const fullQueueCount = fullQueueTierCounts.get(majorityTier) ?? 0;
+              if (fullQueueCount >= 4 && cross.length > 0) continue;
               // 3+1 overflow: cross player must be adjacent tier only
               if (!cross.every(c => Math.abs(c.tierIndex - majorityTier) === 1)) continue;
               if (cross.length > 1) continue;
