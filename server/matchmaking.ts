@@ -644,8 +644,8 @@ export function selectOptimalPlayers(
  *      → set overflow flags (tier has <4 regular players after outlier removal).
  *   4. Build candidate window: top floor(N*50%), clamped [8,24], from priority-sorted
  *      regular pool. Filter to anchor tier only (or +2 adjacent if overflow).
- *   5. Generate C(n,4) groups from candidate pool. Apply isValidSplit (20pt normal, 25pt
- *      compromised fallback). Pick best team arrangement per group.
+ *   5. Generate C(n,4) groups from candidate pool. Evaluate all 3 team permutations per
+ *      group (no spread filter) and pick the minimum-gap arrangement.
  *   6. 5-factor sort: tierDispersion → skillGap → equityRank → splitPenalty → variance.
  *      Return top 5.
  *   Stretch matches: threshold gamesWaited ≥ 4; 40pt spread on outlier's team, 20pt on
