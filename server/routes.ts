@@ -272,6 +272,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       let bookableSession = null;
       if (marketplace && marketplace.enabled) {
+        // Sandbox sessions cannot be linked to marketplace listings
+        if (session.isSandbox) {
+          return res.status(400).json({ error: "Sandbox sessions cannot be published to the marketplace" });
+        }
         bookableSession = await storage.createBookableSession({
           title: marketplace.title || session.venueName,
           description: marketplace.description || null,
@@ -535,6 +539,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [existingGame] = await db.select().from(gameResults).where(eq(gameResults.id, gameId));
       if (!existingGame) {
         return res.status(404).json({ error: "Game not found" });
+      }
+
+      // Block score edits for sandbox session games — they have no effect on global stats
+      const gameSession = await storage.getSession(existingGame.sessionId);
+      if (gameSession?.isSandbox) {
+        return res.status(403).json({ error: "Cannot edit game results from a sandbox session" });
       }
 
       // Determine new winning team
