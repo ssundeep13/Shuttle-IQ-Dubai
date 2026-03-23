@@ -257,6 +257,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const validated = insertSessionSchema.parse(requestData);
+
+      // Reject sandbox + marketplace combination before any DB write
+      if (validated.isSandbox && marketplace && marketplace.enabled) {
+        return res.status(400).json({ error: "Sandbox sessions cannot be published to the marketplace" });
+      }
       
       const statusToCreate = validated.status || 'active';
       if (statusToCreate === 'active') {
@@ -272,10 +277,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       let bookableSession = null;
       if (marketplace && marketplace.enabled) {
-        // Sandbox sessions cannot be linked to marketplace listings
-        if (session.isSandbox) {
-          return res.status(400).json({ error: "Sandbox sessions cannot be published to the marketplace" });
-        }
         bookableSession = await storage.createBookableSession({
           title: marketplace.title || session.venueName,
           description: marketplace.description || null,
@@ -316,15 +317,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/sessions", async (req, res) => {
+  app.get("/api/sessions", async (req: AuthRequest, res) => {
     try {
       const sandbox = req.query.sandbox === 'true';
       if (sandbox) {
+        // Sandbox listing is admin-only — parse token inline for this optional-auth route
         const authHeader = req.headers.authorization;
         const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
         const user = token ? verifyAccessToken(token) : null;
-        if (!user || !['admin', 'super_admin'].includes(user.role)) {
-          return res.status(403).json({ error: "Forbidden" });
+        if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+          return res.status(403).json({ error: "Admin access required" });
         }
       }
       const sessions = await storage.getAllSessions(sandbox);
