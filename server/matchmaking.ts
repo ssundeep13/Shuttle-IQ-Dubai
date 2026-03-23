@@ -136,16 +136,19 @@ export function updatePlayerRestState(
     current.lastGameEndedAt = new Date();
     current.needsRest = current.consecutiveGames >= 2;
   } else {
-    // Fix 4: graduated reset
-    current.gamesWaited += 1;
-    if (current.gamesWaited === 1) {
-      // First game out: halve the consecutive count (lingering penalty)
-      current.consecutiveGames = Math.floor(current.consecutiveGames / 2);
-    } else {
-      // Two or more games out: full reset
-      current.consecutiveGames = 0;
+    const sittingOutNow = isSittingOut(sessionId, playerId);
+    if (!sittingOutNow) {
+      // Fix 4: graduated reset (only when NOT voluntarily sitting out)
+      current.gamesWaited += 1;
+      if (current.gamesWaited === 1) {
+        // First game out: halve the consecutive count (lingering penalty)
+        current.consecutiveGames = Math.floor(current.consecutiveGames / 2);
+      } else {
+        // Two or more games out: full reset
+        current.consecutiveGames = 0;
+      }
+      current.needsRest = current.consecutiveGames >= 2;
     }
-    current.needsRest = current.consecutiveGames >= 2;
     // Auto-clear voluntary sit-out after one game passes
     clearSittingOutPlayer(sessionId, playerId);
   }
@@ -634,8 +637,21 @@ export function selectOptimalPlayers(
 
 /**
  * Generate multiple sets of 4 players and their team combinations for the suggestions UI.
- * Fix 3: passes sessionId to findBalancedTeams() so split penalty influences ranking.
- * Fix 5: candidate window is 50% of queue length, clamped to [8, 24].
+ *
+ * Algorithm (March 2026 spec):
+ *   1. Build eligible pool: queue minus sitting-out players.
+ *   2. Compute priority for ALL eligible players using sessionAvgGames from the full pool.
+ *      Sort all by priority.
+ *   3. POOL-LEVEL tier counts from the full eligible pool → detect lone outliers (count=1)
+ *      → set overflow flags (tier has <4 regular players after outlier removal).
+ *   4. Build candidate window: top floor(N*50%), clamped [8,24], from priority-sorted
+ *      regular pool. Filter to anchor tier only (or +2 adjacent if overflow).
+ *   5. Generate C(n,4) groups from candidate pool. Apply isValidSplit (20pt normal, 25pt
+ *      compromised fallback). Pick best team arrangement per group.
+ *   6. 5-factor sort: tierDispersion → skillGap → equityRank → splitPenalty → variance.
+ *      Return top 5.
+ *   Stretch matches: threshold gamesWaited ≥ 4; 40pt spread on outlier's team, 20pt on
+ *   opposing team; one adjacent tier per ADJACENT_TIER map.
  */
 export function generateAllMatchupOptions(
   sessionId: string,
@@ -651,78 +667,128 @@ export function generateAllMatchupOptions(
 } {
   const restWarnings: string[] = [];
 
-  // Dynamic suggest window; exclude sitting-out players
+  // ADJACENT_TIER map (spec, March 2026): each tier has exactly ONE adjacent tier.
+  const ADJACENT_TIER: Record<number, number> = {
+    0: 1, // Novice → Beginner
+    1: 2, // Beginner → Intermediate (lower_intermediate)
+    2: 3, // Intermediate → Competitive (upper_intermediate)
+    3: 2, // Competitive → Intermediate
+    4: 3, // Advanced → Competitive
+    5: 4, // Professional → Advanced
+  };
+
+  // ── Step 1: Build eligible pool (exclude sitting-out; on-court absent from queue) ──
   const eligibleQueueIds = queuePlayerIds.filter(id => !isSittingOut(sessionId, id));
-  const { suggestWindow } = getWindowSizes(eligibleQueueIds.length);
-  const candidateIds = eligibleQueueIds.slice(0, suggestWindow);
 
-  // Full-queue tier counts — counts same-tier players across the ENTIRE eligible queue,
-  // not just the candidate window. Used to enforce the overflow rule correctly when
-  // same-tier players exist beyond the candidate window.
-  const fullQueueTierCounts = new Map<number, number>();
-  if (groupByTier) {
-    for (const id of eligibleQueueIds) {
-      const player = allPlayers.find(p => p.id === id);
-      if (player) {
-        const ti = getConfirmedTierIndex(player.level || 'lower_intermediate');
-        fullQueueTierCounts.set(ti, (fullQueueTierCounts.get(ti) ?? 0) + 1);
-      }
-    }
-  }
-
-  // ─── Build scored candidate pool ──────────────────────────────────────────
+  // ── Step 2: Compute priority for ALL eligible players; sessionAvgGames from full pool ──
   let totalGamesThisSession = 0;
-  let eligibleCount = 0;
-
-  const baseCandidates = candidateIds.map((playerId, index) => {
+  const allEligible = eligibleQueueIds.map((playerId, queueIndex) => {
     const player = allPlayers.find(p => p.id === playerId);
     if (!player) return null;
     const restState = getPlayerRestState(sessionId, playerId);
     totalGamesThisSession += restState.gamesThisSession;
-    eligibleCount++;
     const tierIndex = getConfirmedTierIndex(player.level || 'lower_intermediate');
-    return { player, restState, queuePosition: index, tierIndex };
+    return { player, restState, queueIndex, tierIndex };
   }).filter((c): c is NonNullable<typeof c> => c !== null);
 
-  const sessionAvgGames = eligibleCount > 0 ? totalGamesThisSession / eligibleCount : 0;
+  const sessionAvgGames = allEligible.length > 0 ? totalGamesThisSession / allEligible.length : 0;
 
-  // Score with new weights: queue ×25, wait ×6, session deficit ×40
-  const scored = baseCandidates.map(c => ({
+  const allScored = allEligible.map(c => ({
     ...c,
-    priority: calculatePlayerPriority(c.player, c.queuePosition, c.restState, sessionAvgGames),
+    priority: calculatePlayerPriority(c.player, c.queueIndex, c.restState, sessionAvgGames),
   }));
-  scored.sort((a, b) => a.priority - b.priority);
+  allScored.sort((a, b) => a.priority - b.priority);
 
-  // ─── Lone outlier detection ───────────────────────────────────────────────
-  // A lone outlier is the ONLY player of their confirmed tier in the candidate pool.
-  const tierCountMap = new Map<number, typeof scored>();
-  for (const c of scored) {
-    if (!tierCountMap.has(c.tierIndex)) tierCountMap.set(c.tierIndex, []);
-    tierCountMap.get(c.tierIndex)!.push(c);
+  // ── Step 3: POOL-LEVEL tier counts, lone outlier detection, overflow flags ──────────
+  const fullPoolTierCounts = new Map<number, number>();
+  for (const c of allScored) {
+    fullPoolTierCounts.set(c.tierIndex, (fullPoolTierCounts.get(c.tierIndex) ?? 0) + 1);
   }
 
-  const loneOutlierCandidates = scored.filter(c => (tierCountMap.get(c.tierIndex)?.length ?? 0) === 1);
-  const loneOutlierIds = new Set(loneOutlierCandidates.map(c => c.player.id));
+  // Lone outlier: any player whose tier has exactly 1 player in the full eligible pool
+  const loneOutlierIds = new Set<string>();
+  for (const c of allScored) {
+    if ((fullPoolTierCounts.get(c.tierIndex) ?? 0) === 1) {
+      loneOutlierIds.add(c.player.id);
+    }
+  }
+
+  // Overflow flags: per-tier count in the regular pool (full pool minus lone outliers)
+  const regularPoolTierCounts = new Map<number, number>();
+  for (const c of allScored) {
+    if (loneOutlierIds.has(c.player.id)) continue;
+    regularPoolTierCounts.set(c.tierIndex, (regularPoolTierCounts.get(c.tierIndex) ?? 0) + 1);
+  }
+  // needsOverflow[tier] = true when that tier has fewer than 4 regular-pool players
+  const needsOverflow = new Map<number, boolean>();
+  for (const [tier, count] of regularPoolTierCounts) {
+    needsOverflow.set(tier, count < 4);
+  }
+
+  const loneOutlierCandidates = allScored.filter(c => loneOutlierIds.has(c.player.id));
+  const regularPool = allScored.filter(c => !loneOutlierIds.has(c.player.id));
 
   const loneOutliers = loneOutlierCandidates.map(c => ({
     player: c.player,
     gamesWaited: c.restState.gamesWaited,
   }));
 
-  // Regular candidates exclude lone outliers
-  const regularCandidates = scored.filter(c => !loneOutlierIds.has(c.player.id));
+  // ── Step 4: Build candidate pool ──────────────────────────────────────────────────
+  // Window size: floor(N * 50%), clamped [8, 24], where N = full eligible pool length
+  const windowSize = Math.max(8, Math.min(24, Math.floor(allEligible.length * 0.5)));
 
-  // ─── Helper: enrich player with session state ─────────────────────────────
+  let candidatePool: typeof allScored;
+
+  if (!groupByTier) {
+    // Without tier grouping: priority-ordered window, no tier filtering
+    candidatePool = regularPool.slice(0, Math.min(windowSize, regularPool.length));
+  } else {
+    if (regularPool.length === 0) {
+      return { allCombinations: [], restWarnings, loneOutliers, stretchMatches: [] };
+    }
+    // Anchor = first player in priority-sorted regular pool
+    const anchorTier = regularPool[0].tierIndex;
+    const rawWindow = regularPool.slice(0, Math.min(windowSize, regularPool.length));
+
+    if (!needsOverflow.get(anchorTier)) {
+      // Strict mode: only anchor tier players in candidate pool
+      candidatePool = rawWindow.filter(c => c.tierIndex === anchorTier);
+    } else {
+      // Overflow mode: anchor tier + up to 2 players from adjacent tier
+      const adjacentTier = ADJACENT_TIER[anchorTier] ?? -1;
+      const tierPlayers = rawWindow.filter(c => c.tierIndex === anchorTier);
+      const adjacentPlayers = rawWindow
+        .filter(c => c.tierIndex === adjacentTier)
+        .slice(0, 2);
+      candidatePool = [...tierPlayers, ...adjacentPlayers];
+    }
+
+    if (candidatePool.length < 4) {
+      restWarnings.push('Insufficient same-tier players; cannot generate tier-grouped suggestions');
+    }
+  }
+
+  // ── Helper: enrich player with session state ───────────────────────────────────────
   const enrichPlayer = (p: Player, rs: PlayerRestState): Player => ({
     ...p,
     gamesWaited: rs.gamesWaited,
     gamesThisSession: rs.gamesThisSession,
   } as Player);
 
-  // ─── Helper: generate player groups of 4 ────────────────────────────────
-  const generatePlayerSets = (candidates: typeof scored): Player[][] => {
+  // ── Helper: compute equity rank for a group of 4 ─────────────────────────────────
+  const getEquityRank = (team1: Player[], team2: Player[]): number => {
+    // Negate sum of deficits: lower equityRank = more under-served players = preferred
+    const totalDeficit = [...team1, ...team2].reduce((sum, p) => {
+      const rs = allScored.find(c => c.player.id === p.id)?.restState;
+      return sum + (sessionAvgGames - (rs?.gamesThisSession ?? 0));
+    }, 0);
+    return -totalDeficit;
+  };
+
+  // ── Step 5a: Generate all C(n,4) groups from candidate pool ──────────────────────
+  const generatePlayerSets = (pool: typeof allScored): Player[][] => {
     const sets: Player[][] = [];
-    const n = candidates.length;
+    const n = pool.length;
     if (n < 4) return [];
     const limit = Math.min(n, 10);
 
@@ -730,28 +796,7 @@ export function generateAllMatchupOptions(
       for (let j = i + 1; j < limit; j++) {
         for (let k = j + 1; k < limit; k++) {
           for (let l = k + 1; l < limit; l++) {
-            const group = [candidates[i], candidates[j], candidates[k], candidates[l]];
-
-            if (groupByTier) {
-              // Hard tier-composition constraint
-              const tierCounts = new Map<number, number>();
-              for (const c of group) tierCounts.set(c.tierIndex, (tierCounts.get(c.tierIndex) ?? 0) + 1);
-              const sorted2 = [...tierCounts.entries()].sort((a, b) => b[1] - a[1]);
-              const majorityTier = sorted2[0][0];
-              const majorityCount = sorted2[0][1];
-              if (majorityCount < 3) continue;
-              const cross = group.filter(c => c.tierIndex !== majorityTier);
-              // If the full eligible queue has ≥ 4 players of this tier, require all 4 same-tier.
-              // Uses fullQueueTierCounts (entire queue, not just window) so players beyond the
-              // candidate window are counted correctly.
-              const fullQueueCount = fullQueueTierCounts.get(majorityTier) ?? 0;
-              if (fullQueueCount >= 4 && cross.length > 0) continue;
-              // 3+1 overflow: cross player must be adjacent tier only
-              if (!cross.every(c => Math.abs(c.tierIndex - majorityTier) === 1)) continue;
-              if (cross.length > 1) continue;
-            }
-
-            sets.push(group.map(c => c.player));
+            sets.push([pool[i].player, pool[j].player, pool[k].player, pool[l].player]);
             if (sets.length >= 20) return sets;
           }
         }
@@ -760,17 +805,7 @@ export function generateAllMatchupOptions(
     return sets;
   };
 
-  // ─── Helper: compute equity rank for a group of 4 ────────────────────────
-  const getEquityRank = (team1: Player[], team2: Player[]): number => {
-    // Negative sum of deficits → lower value = more under-served players (sort asc to prefer them)
-    const totalDeficit = [...team1, ...team2].reduce((sum, p) => {
-      const rs = scored.find(c => c.player.id === p.id)?.restState;
-      return sum + (sessionAvgGames - (rs?.gamesThisSession ?? 0));
-    }, 0);
-    return -totalDeficit; // negate: more deficit = lower equityRank = preferred
-  };
-
-  // ─── Helper: build combos from player sets with spread filter ─────────────
+  // ── Step 5b: Build best team arrangement per player set with spread filter ────────
   const buildCombinations = (playerSets: Player[][], maxSpread: number, isCompromised: boolean): TeamCombination[] => {
     const combos: TeamCombination[] = [];
     const processed = new Set<string>();
@@ -816,7 +851,6 @@ export function generateAllMatchupOptions(
       }
 
       if (best) {
-        // Rest warnings
         for (const player of playerSet) {
           const rs = getPlayerRestState(sessionId, player.id);
           if (rs.needsRest) {
@@ -831,13 +865,7 @@ export function generateAllMatchupOptions(
     return combos;
   };
 
-  // ─── Generate regular suggestions ────────────────────────────────────────
-  const playerSets = generatePlayerSets(regularCandidates);
-
-  if (groupByTier && playerSets.length === 0 && regularCandidates.length >= 4) {
-    console.warn('[Matchmaking] No valid tier-grouped sets found in candidate window; cannot suggest');
-    restWarnings.push('Insufficient same-tier players; cannot generate tier-grouped suggestions');
-  }
+  const playerSets = generatePlayerSets(candidatePool);
 
   let combinations = buildCombinations(playerSets, 20, false);
 
@@ -849,7 +877,7 @@ export function generateAllMatchupOptions(
     }
   }
 
-  // 5-factor final sort
+  // ── Step 6: 5-factor final sort ───────────────────────────────────────────────────
   combinations.sort((a, b) => {
     const tierDiff = a.tierDispersion - b.tierDispersion;
     if (tierDiff !== 0) return tierDiff;
@@ -861,114 +889,96 @@ export function generateAllMatchupOptions(
     return a.variance - b.variance;
   });
 
-  // ─── Build Stretch Matches ─────────────────────────────────────────────────
-  // Split-enumeration algorithm:
-  //   1. For each lone outlier with gamesWaited ≥ 2, evaluate both adjacent tiers.
-  //   2. For each adjacent tier that has ≥ 3 players:
-  //      a. Sort by skill score descending.
-  //      b. Generate all 3 possible team splits: each of the 3 adjacent players
-  //         can be the outlier's partner (the other 2 become opponents).
-  //         Split 1: Outlier+A1 vs A2+A3
-  //         Split 2: Outlier+A2 vs A1+A3
-  //         Split 3: Outlier+A3 vs A1+A2  (often closest game — previously ignored)
-  //      c. Validate each split against the 40pt spread limit.
-  //      d. Among all valid splits across both adjacent tiers, pick the best by
-  //         the 5-factor objective (tierDispersion → skillGap → spreadSum →
-  //         splitPenalty → variance). Skill gap is factor 2, so the closest game wins.
+  // ── Build Stretch Matches ──────────────────────────────────────────────────────────
+  // Threshold: gamesWaited ≥ 4 (spec). Adjacent tier: ADJACENT_TIER map (one per tier).
+  // Split validation: 40pt spread on outlier's team, 20pt on opposing team.
+  // Adjacent pool is taken from the FULL eligible scored pool (not the candidate window).
   const stretchMatches: TeamCombination[] = [];
-  const STRETCH_SPREAD = 40;
 
   for (const outlierCand of loneOutlierCandidates) {
-    if (outlierCand.restState.gamesWaited < 2) continue;
+    if (outlierCand.restState.gamesWaited < 4) continue;
 
     const outlierTier = outlierCand.tierIndex;
     const outlierPlayer = outlierCand.player;
 
-    const adjacentTierNums = [outlierTier - 1, outlierTier + 1].filter(t => t >= 0 && t <= 5);
+    const adjTier = ADJACENT_TIER[outlierTier];
+    if (adjTier === undefined) continue;
+
+    // Adjacent tier pool: from full eligible scored pool, excluding lone outliers,
+    // sorted by skill score descending to get closest-skill options first.
+    const adjPool = allScored
+      .filter(c => c.tierIndex === adjTier && !loneOutlierIds.has(c.player.id))
+      .sort((a, b) => (b.player.skillScore || 90) - (a.player.skillScore || 90));
+
+    if (adjPool.length < 3) continue;
 
     let bestStretch: TeamCombination | null = null;
 
-    for (const adjTier of adjacentTierNums) {
-      // Get players from this specific adjacent tier, sorted by skill desc
-      const adjPool = (tierCountMap.get(adjTier) ?? [])
-        .filter(c => !loneOutlierIds.has(c.player.id))
-        .sort((a, b) => (b.player.skillScore || 90) - (a.player.skillScore || 90));
+    // Generate all 3 possible team splits (outlier partners with each of the top 3)
+    for (let i = 0; i < 3; i++) {
+      const partnerCand = adjPool[i];
+      const opps = [adjPool[0], adjPool[1], adjPool[2]].filter((_, idx) => idx !== i);
+      const opp1Cand = opps[0];
+      const opp2Cand = opps[1];
 
-      if (adjPool.length < 3) continue;
+      const outlierTeam = [outlierPlayer, partnerCand.player];
+      const oppsTeam = [opp1Cand.player, opp2Cand.player];
 
-      // Generate all 3 possible team splits: each adjacent player can be the outlier's partner.
-      // Split i: outlier + adjPool[i] vs the other two players.
-      for (let i = 0; i < 3; i++) {
-        const partnerCand = adjPool[i];
-        const opps = [adjPool[0], adjPool[1], adjPool[2]].filter((_, idx) => idx !== i);
-        const opp1Cand = opps[0];
-        const opp2Cand = opps[1];
+      // Spec: 40pt spread on outlier's team, 20pt on opposing team (not 40+40)
+      const outlierSpread = Math.abs(
+        (outlierPlayer.skillScore || 90) - (partnerCand.player.skillScore || 90)
+      );
+      const oppsSpread = Math.abs(
+        (opp1Cand.player.skillScore || 90) - (opp2Cand.player.skillScore || 90)
+      );
+      if (outlierSpread > 40 || oppsSpread > 20) continue;
 
-        // Validate spread on both teams against the 40pt limit
-        if (!isValidSplit(
-          [outlierPlayer, partnerCand.player],
-          [opp1Cand.player, opp2Cand.player],
-          STRETCH_SPREAD
-        )) continue;
+      const metrics = calculateTeamMetrics(outlierTeam, oppsTeam);
+      const splitPenalty = calculateSplitPenalty(outlierTeam, oppsTeam, sessionId);
+      const equityRank = getEquityRank(outlierTeam, oppsTeam);
 
-        const metrics = calculateTeamMetrics(
-          [outlierPlayer, partnerCand.player],
-          [opp1Cand.player, opp2Cand.player]
-        );
-        const splitPenalty = calculateSplitPenalty(
-          [outlierPlayer, partnerCand.player],
-          [opp1Cand.player, opp2Cand.player],
-          sessionId
-        );
-        const equityRank = getEquityRank(
-          [outlierPlayer, partnerCand.player],
-          [opp1Cand.player, opp2Cand.player]
-        );
+      const candidate: TeamCombination = {
+        team1: outlierTeam,
+        team2: oppsTeam,
+        ...metrics,
+        splitPenalty,
+        equityRank,
+        isStretchMatch: true,
+        stretchMatchText: 'No same-tier partner available. This is the closest competitive match possible.',
+        outlierGamesWaited: outlierCand.restState.gamesWaited,
+        isCompromised: false,
+        rank: 0,
+      };
 
-        const candidate: TeamCombination = {
-          team1: [outlierPlayer, partnerCand.player],
-          team2: [opp1Cand.player, opp2Cand.player],
-          ...metrics,
-          splitPenalty,
-          equityRank,
-          isStretchMatch: true,
-          stretchMatchText: 'No same-tier partner available. This is the closest competitive match possible.',
-          outlierGamesWaited: outlierCand.restState.gamesWaited,
-          isCompromised: false,
-          rank: 0,
-        };
-
-        // Among all valid splits (across both adjacent tiers), pick best by 5-factor objective
-        if (!bestStretch) {
-          bestStretch = candidate;
-        } else {
-          const spreadSum = (c: TeamCombination) => c.withinTeamSpread1 + c.withinTeamSpread2;
-          const beats =
-            candidate.tierDispersion < bestStretch.tierDispersion ||
-            (candidate.tierDispersion === bestStretch.tierDispersion && candidate.skillGap < bestStretch.skillGap - 0.01) ||
-            (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) < spreadSum(bestStretch)) ||
-            (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) === spreadSum(bestStretch) && candidate.splitPenalty < bestStretch.splitPenalty) ||
-            (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) === spreadSum(bestStretch) && candidate.splitPenalty === bestStretch.splitPenalty && candidate.variance < bestStretch.variance);
-          if (beats) bestStretch = candidate;
-        }
+      if (!bestStretch) {
+        bestStretch = candidate;
+      } else {
+        const spreadSum = (c: TeamCombination) => c.withinTeamSpread1 + c.withinTeamSpread2;
+        const beats =
+          candidate.tierDispersion < bestStretch.tierDispersion ||
+          (candidate.tierDispersion === bestStretch.tierDispersion && candidate.skillGap < bestStretch.skillGap - 0.01) ||
+          (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) < spreadSum(bestStretch)) ||
+          (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) === spreadSum(bestStretch) && candidate.splitPenalty < bestStretch.splitPenalty) ||
+          (candidate.tierDispersion === bestStretch.tierDispersion && Math.abs(candidate.skillGap - bestStretch.skillGap) < 0.01 && spreadSum(candidate) === spreadSum(bestStretch) && candidate.splitPenalty === bestStretch.splitPenalty && candidate.variance < bestStretch.variance);
+        if (beats) bestStretch = candidate;
       }
     }
 
     if (!bestStretch) continue;
 
-    // Enrich player objects with session state
-    const getRestState = (p: Player) => scored.find(c => c.player.id === p.id)?.restState ?? outlierCand.restState;
+    const getRestState = (p: Player) =>
+      allScored.find(c => c.player.id === p.id)?.restState ?? outlierCand.restState;
     bestStretch.team1 = bestStretch.team1.map(p => enrichPlayer(p, getRestState(p))) as Player[];
     bestStretch.team2 = bestStretch.team2.map(p => enrichPlayer(p, getRestState(p))) as Player[];
 
     stretchMatches.push(bestStretch);
   }
 
-  // ─── Enrich regular combination player objects with session state ──────────
+  // ── Enrich regular combination player objects with session state ───────────────────
   for (const combo of combinations) {
     for (const team of [combo.team1, combo.team2]) {
       for (let i = 0; i < team.length; i++) {
-        const rs = scored.find(c => c.player.id === team[i].id)?.restState;
+        const rs = allScored.find(c => c.player.id === team[i].id)?.restState;
         if (rs) team[i] = enrichPlayer(team[i], rs);
       }
     }

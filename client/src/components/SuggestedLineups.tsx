@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { formatSkillLevel, getTierDisplayName, getSkillTier } from "@shared/utils/skillUtils";
+import { getTierDisplayName, getSkillTier } from "@shared/utils/skillUtils";
 import { apiRequest } from "@/lib/queryClient";
 import { ChevronDown, ChevronUp, Zap, Scale, Layers, Clock, Star, AlertCircle, AlertTriangle, Shuffle } from "lucide-react";
 import { useState } from "react";
@@ -115,10 +115,23 @@ export function SuggestedLineups({
     return "text-amber-600 dark:text-amber-400";
   };
 
+  const topBalance = suggestions.length > 0
+    ? getBalanceIndicator(suggestions[0].skillGap, suggestions[0].isStretchMatch, true, suggestions[0].tierDispersion)
+    : null;
+  const isTopClosestAvailable = topBalance?.label === "Closest Available";
+
   const renderSuggestionCard = (suggestion: TeamCombination, idx: number, isFirst: boolean, keyPrefix: string = "") => {
     const balance = getBalanceIndicator(suggestion.skillGap, suggestion.isStretchMatch, isFirst, suggestion.tierDispersion);
     const BalanceIcon = balance.icon;
     const isMixedTier = suggestion.tierDispersion > 0;
+
+    const cardTitle = suggestion.isStretchMatch
+      ? "Stretch Match"
+      : isFirst
+        ? balance.label
+        : isTopClosestAvailable
+          ? `Alternative ${idx + 1}`
+          : `Option ${idx + 1}`;
 
     return (
       <Card
@@ -130,7 +143,7 @@ export function SuggestedLineups({
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               <CardTitle className="text-sm">
-                {suggestion.isStretchMatch ? "Stretch Match" : isFirst ? balance.label : `Option ${idx + 1}`}
+                {cardTitle}
               </CardTitle>
               <Badge variant="outline" className={balance.color} data-testid={`badge-balance-${keyPrefix}${idx}`}>
                 <BalanceIcon className="h-3 w-3 mr-1" />
@@ -193,7 +206,7 @@ export function SuggestedLineups({
                   >
                     <span>{player.name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {player.gender?.[0]} {formatSkillLevel(player.skillScore || 90)}
+                      {player.gender?.[0]} {getTierDisplayName(player.level || 'lower_intermediate')} ({player.skillScore || 90})
                     </span>
                     {(player.gamesWaited ?? 0) >= 4 && (
                       <Badge
@@ -227,7 +240,7 @@ export function SuggestedLineups({
                   >
                     <span>{player.name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {player.gender?.[0]} {formatSkillLevel(player.skillScore || 90)}
+                      {player.gender?.[0]} {getTierDisplayName(player.level || 'lower_intermediate')} ({player.skillScore || 90})
                     </span>
                     {(player.gamesWaited ?? 0) >= 4 && (
                       <Badge
@@ -337,7 +350,7 @@ export function SuggestedLineups({
                       {outlier.player.name} ({tier}, {score}) has no same-level peers in the queue
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {outlier.gamesWaited >= 2
+                      {outlier.gamesWaited >= 4
                         ? "A Stretch Match has been generated to get them into a game."
                         : "They will be matched once more same-level players join the queue."}
                     </p>
@@ -365,9 +378,9 @@ export function SuggestedLineups({
             </div>
           )}
 
-          {/* Stretch Match cards — shown at top when outlier has waited ≥ 3 games */}
+          {/* Stretch Match cards — shown at top when outlier has waited ≥ 6 games */}
           {!isLoading && stretchMatches
-            .filter(sm => (sm.outlierGamesWaited ?? 0) >= 3)
+            .filter(sm => (sm.outlierGamesWaited ?? 0) >= 6)
             .map((sm, idx) => renderSuggestionCard(sm, idx, false, "stretch-top-"))}
 
           {/* Regular suggestion cards */}
@@ -375,9 +388,9 @@ export function SuggestedLineups({
             renderSuggestionCard(suggestion, idx, idx === 0)
           )}
 
-          {/* Stretch Match cards — shown at bottom when outlier has waited < 3 games */}
+          {/* Stretch Match cards — shown at bottom when outlier has waited < 6 games */}
           {!isLoading && stretchMatches
-            .filter(sm => (sm.outlierGamesWaited ?? 0) < 3)
+            .filter(sm => (sm.outlierGamesWaited ?? 0) < 6)
             .map((sm, idx) => renderSuggestionCard(sm, idx, false, "stretch-bottom-"))}
         </div>
       )}
