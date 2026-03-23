@@ -878,7 +878,7 @@ export function generateAllMatchupOptions(
       const opp1Cand = adjPool[1];   // 2nd highest
       const opp2Cand = adjPool[2];   // 3rd highest
 
-      // Validate: outlier–partner spread ≤ 30pt, and team2 internal spread ≤ 30pt
+      // Validate: outlier–partner spread ≤ 40pt, and team2 internal spread ≤ 40pt
       const t1Spread = Math.abs(outlierScore - (partnerCand.player.skillScore || 90));
       if (t1Spread > STRETCH_SPREAD) continue;
       if (!isValidSplit(
