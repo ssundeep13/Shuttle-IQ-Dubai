@@ -848,12 +848,12 @@ export function generateAllMatchupOptions(
   //      a. Sort by skill score descending.
   //      b. Partner = highest-scoring player (adjPlayers[0]).
   //      c. Opponents = 2nd and 3rd highest (adjPlayers[1], adjPlayers[2]).
-  //      d. Validate that both teams satisfy the 30pt spread limit.
+  //      d. Validate that both teams satisfy the 40pt spread limit.
   //      e. Keep this pairing as a candidate for this adjacent tier.
   //   3. Among valid adjacent-tier candidates, pick the best by the 5-factor
   //      objective (tierDispersion → skillGap → spreadSum → splitPenalty → variance).
   const stretchMatches: TeamCombination[] = [];
-  const STRETCH_SPREAD = 30;
+  const STRETCH_SPREAD = 40;
 
   for (const outlierCand of loneOutlierCandidates) {
     if (outlierCand.restState.gamesWaited < 2) continue;
