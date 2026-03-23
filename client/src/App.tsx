@@ -34,6 +34,7 @@ import GuestCancel from "@/pages/marketplace/GuestCancel";
 import GameHistory from "@/pages/marketplace/GameHistory";
 import JoinTheCrew from "@/pages/marketplace/JoinTheCrew";
 import ScoringGuide from "@/pages/marketplace/ScoringGuide";
+import InstagramCarousel from "@/pages/InstagramCarousel";
 
 function MarketplaceRoute({ component: Component, ...rest }: { component: React.ComponentType<any> } & Record<string, any>) {
   return (
@@ -128,6 +129,8 @@ function Router() {
       <Route path="/marketplace/scoring-guide">
         <MarketplaceRoute component={ScoringGuide} />
       </Route>
+
+      <Route path="/carousel" component={InstagramCarousel} />
 
       <Route component={NotFound} />
     </Switch>
