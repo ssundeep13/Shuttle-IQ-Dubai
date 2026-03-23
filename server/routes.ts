@@ -1381,8 +1381,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!session) return res.status(404).json({ error: "No active session" });
       }
 
+      // Cap courtCount at available courts to prevent pathological requests
+      const availableCourts = await storage.getCourtsBySession(session.id);
+      const maxCourts = Math.max(1, availableCourts.length);
       const courtCount = Number.isFinite(courtCountParam) && courtCountParam >= 1
-        ? courtCountParam
+        ? Math.min(courtCountParam, maxCourts)
         : 1;
 
       const queue = await storage.getQueue(session.id);
@@ -1435,6 +1438,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const seenPlayerIds = new Set<string>();
 
       for (const { courtId, teamAssignments } of assignments) {
+        if (teamAssignments.length !== 4) {
+          return res.status(400).json({
+            error: `Court ${courtId}: exactly 4 players required (2 per team), got ${teamAssignments.length}`,
+          });
+        }
+        const invalidTeam = teamAssignments.find(a => a.team !== 1 && a.team !== 2);
+        if (invalidTeam) {
+          return res.status(400).json({
+            error: `Court ${courtId}: team must be 1 or 2, got ${invalidTeam.team}`,
+          });
+        }
         const team1Count = teamAssignments.filter(a => a.team === 1).length;
         const team2Count = teamAssignments.filter(a => a.team === 2).length;
         if (team1Count !== 2 || team2Count !== 2) {

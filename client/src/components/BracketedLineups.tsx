@@ -222,11 +222,24 @@ export function BracketedLineups({
                       <span className="text-xs text-muted-foreground">{courtName}</span>
                     </div>
                   </CardHeader>
-                  <CardContent className="py-3 flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                    <p className="text-sm text-muted-foreground">
-                      Not enough players in this bracket ({bracket.playerCount} available, 4 needed).
-                    </p>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <p className="text-sm text-muted-foreground">
+                        Not enough players in this bracket ({bracket.playerCount} available, 4 needed).
+                      </p>
+                    </div>
+                    {isActiveSession && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        disabled
+                        data-testid={`button-assign-bracket-${i}`}
+                      >
+                        Assign to {courtName}
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               );
