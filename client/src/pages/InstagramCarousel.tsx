@@ -30,7 +30,7 @@ const diagonalAccent: React.CSSProperties = {
 function BrandBar({ slideNum }: { slideNum: number }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' }}>
-      <div style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 900, fontSize: '18px', color: WHITE, letterSpacing: '-0.02em' }}>
+      <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 900, fontSize: '18px', color: WHITE, letterSpacing: '-0.02em' }}>
         Shuttle<span style={{ color: TEAL }}>IQ</span>
       </div>
       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -416,7 +416,7 @@ export default function InstagramCarousel() {
           </button>
         </Link>
         <div style={{ width: '1px', height: '20px', background: WHITE_20 }} />
-        <div style={{ fontFamily: 'Montserrat, sans-serif', fontWeight: 700, fontSize: '15px', color: WHITE }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: '15px', color: WHITE }}>
           Shuttle<span style={{ color: TEAL }}>IQ</span>
           <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 400, fontSize: '13px', color: WHITE_60, marginLeft: '12px' }}>Instagram Carousel · 7 Slides</span>
         </div>
