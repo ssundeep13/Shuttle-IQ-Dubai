@@ -203,11 +203,6 @@ export function SuggestedLineups({
           {suggestion.isStretchMatch && suggestion.stretchMatchText && !aiCard && (
             <p className="text-xs text-muted-foreground mt-1">{suggestion.stretchMatchText}</p>
           )}
-          {aiCard && suggestion.reasoning && (
-            <p className="text-xs text-muted-foreground italic mt-1" data-testid={`reasoning-${keyPrefix}${idx}`}>
-              {suggestion.reasoning}
-            </p>
-          )}
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
@@ -279,6 +274,12 @@ export function SuggestedLineups({
               </div>
             </div>
           </div>
+
+          {aiCard && suggestion.reasoning && (
+            <p className="text-xs text-muted-foreground italic" data-testid={`reasoning-${keyPrefix}${idx}`}>
+              {suggestion.reasoning}
+            </p>
+          )}
 
           {availableCourts > 0 && isActiveSession && (
             <Button
