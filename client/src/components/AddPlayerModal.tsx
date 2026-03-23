@@ -113,7 +113,7 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
 
   const addToQueueMutation = useMutation({
     mutationFn: async (playerId: string) => {
-      return apiRequest('POST', `/api/queue/${playerId}`);
+      return apiRequest('POST', `/api/queue/${playerId}`, sessionId ? { sessionId } : undefined);
     },
     onError: () => {
       toast({

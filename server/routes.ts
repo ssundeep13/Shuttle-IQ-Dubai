@@ -1181,12 +1181,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/queue/:playerId", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
+      const { sessionId } = req.body;
+      const session = sessionId
+        ? await storage.getSession(sessionId)
+        : await storage.getActiveSession();
+      if (!session) {
         return res.status(400).json({ error: "No active session" });
       }
 
-      await storage.addToQueue(activeSession.id, req.params.playerId);
+      await storage.addToQueue(session.id, req.params.playerId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to add to queue" });
@@ -1195,16 +1198,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/queue/:playerId", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
+      const { sessionId } = req.body;
+      const session = sessionId
+        ? await storage.getSession(sessionId)
+        : await storage.getActiveSession();
+      if (!session) {
         return res.status(400).json({ error: "No active session" });
       }
 
-      await storage.removeFromQueue(activeSession.id, req.params.playerId);
+      await storage.removeFromQueue(session.id, req.params.playerId);
       
       // Clear rest state and sit-out flag when player is removed from queue
-      clearPlayerRestState(activeSession.id, req.params.playerId);
-      clearSittingOutPlayer(activeSession.id, req.params.playerId);
+      clearPlayerRestState(session.id, req.params.playerId);
+      clearSittingOutPlayer(session.id, req.params.playerId);
       
       res.status(204).send();
     } catch (error) {

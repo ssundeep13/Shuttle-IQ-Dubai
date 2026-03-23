@@ -363,7 +363,7 @@ export default function Home() {
 
   const removeFromQueueMutation = useMutation({
     mutationFn: async (playerId: string) => {
-      return await apiRequest('DELETE', `/api/queue/${playerId}`, null);
+      return await apiRequest('DELETE', `/api/queue/${playerId}`, session?.id ? { sessionId: session.id } : null);
     },
     onSuccess: (_, playerId) => {
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
