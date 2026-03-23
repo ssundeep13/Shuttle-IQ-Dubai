@@ -538,13 +538,6 @@ function calculatePlayerPriority(
   return positionScore + restPenalty + gamesPlayedPenalty - waitingBonus - sessionEquityBonus;
 }
 
-/** Within-team spread check: returns true if both teams satisfy the spread limit. */
-function isValidSplit(team1: Player[], team2: Player[], maxSpread: number): boolean {
-  const t1 = team1.map(p => p.skillScore || 90);
-  const t2 = team2.map(p => p.skillScore || 90);
-  return (Math.max(...t1) - Math.min(...t1)) <= maxSpread &&
-         (Math.max(...t2) - Math.min(...t2)) <= maxSpread;
-}
 
 /**
  * Select the best 4 players for auto-assign.
