@@ -712,6 +712,14 @@ export function generateAllMatchupOptions(
     if (n < 4) return [];
     const limit = Math.min(n, 10);
 
+    // Pool-level tier counts — used to enforce strict same-tier rule when enough players exist
+    const poolTierCounts = new Map<number, number>();
+    if (groupByTier) {
+      for (const c of candidates) {
+        poolTierCounts.set(c.tierIndex, (poolTierCounts.get(c.tierIndex) ?? 0) + 1);
+      }
+    }
+
     for (let i = 0; i < limit; i++) {
       for (let j = i + 1; j < limit; j++) {
         for (let k = j + 1; k < limit; k++) {
@@ -719,7 +727,7 @@ export function generateAllMatchupOptions(
             const group = [candidates[i], candidates[j], candidates[k], candidates[l]];
 
             if (groupByTier) {
-              // Hard tier-composition constraint: 4 same-tier OR 3+1 adjacent
+              // Hard tier-composition constraint
               const tierCounts = new Map<number, number>();
               for (const c of group) tierCounts.set(c.tierIndex, (tierCounts.get(c.tierIndex) ?? 0) + 1);
               const sorted2 = [...tierCounts.entries()].sort((a, b) => b[1] - a[1]);
@@ -727,6 +735,10 @@ export function generateAllMatchupOptions(
               const majorityCount = sorted2[0][1];
               if (majorityCount < 3) continue;
               const cross = group.filter(c => c.tierIndex !== majorityTier);
+              // If the pool has ≥ 4 players of this tier, require all 4 to be same-tier (no overflow)
+              const poolCount = poolTierCounts.get(majorityTier) ?? 0;
+              if (poolCount >= 4 && cross.length > 0) continue;
+              // 3+1 overflow: cross player must be adjacent tier only
               if (!cross.every(c => Math.abs(c.tierIndex - majorityTier) === 1)) continue;
               if (cross.length > 1) continue;
             }

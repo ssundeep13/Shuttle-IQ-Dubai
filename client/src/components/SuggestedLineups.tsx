@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { formatSkillLevel, getTierDisplayName, getSkillTier } from "@shared/utils/skillUtils";
 import { apiRequest } from "@/lib/queryClient";
-import { ChevronDown, ChevronUp, Zap, Scale, Layers, Clock, Star, AlertCircle, Shuffle } from "lucide-react";
+import { ChevronDown, ChevronUp, Zap, Scale, Layers, Clock, Star, AlertCircle, AlertTriangle, Shuffle } from "lucide-react";
 import { useState } from "react";
 
 interface PlayerInSuggestion extends Player {
@@ -90,12 +90,16 @@ export function SuggestedLineups({
   const loneOutliers = data?.loneOutliers || [];
   const stretchMatches = data?.stretchMatches || [];
 
-  const getBalanceIndicator = (skillGap: number, isStretchMatch?: boolean, isFirst?: boolean) => {
+  const getBalanceIndicator = (skillGap: number, isStretchMatch?: boolean, isFirst?: boolean, tierDispersion?: number) => {
     if (isStretchMatch) {
       return { label: "Stretch Match", icon: Shuffle, color: "text-amber-600 dark:text-amber-400" };
     }
     if (isFirst) {
-      return { label: "Best Match", icon: Star, color: "text-green-600 dark:text-green-400" };
+      const isMixedTier = (tierDispersion ?? 0) > 0;
+      if (skillGap <= 8 && !isMixedTier) {
+        return { label: "Best Match", icon: Star, color: "text-green-600 dark:text-green-400" };
+      }
+      return { label: "Closest Available", icon: AlertTriangle, color: "text-amber-600 dark:text-amber-400" };
     }
     if (skillGap < 5) {
       return { label: "Best Match", icon: Star, color: "text-green-600 dark:text-green-400" };
@@ -112,7 +116,7 @@ export function SuggestedLineups({
   };
 
   const renderSuggestionCard = (suggestion: TeamCombination, idx: number, isFirst: boolean, keyPrefix: string = "") => {
-    const balance = getBalanceIndicator(suggestion.skillGap, suggestion.isStretchMatch, isFirst);
+    const balance = getBalanceIndicator(suggestion.skillGap, suggestion.isStretchMatch, isFirst, suggestion.tierDispersion);
     const BalanceIcon = balance.icon;
     const isMixedTier = suggestion.tierDispersion > 0;
 
@@ -126,7 +130,7 @@ export function SuggestedLineups({
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               <CardTitle className="text-sm">
-                {suggestion.isStretchMatch ? "Stretch Match" : isFirst ? "Best Match" : `Option ${idx + 1}`}
+                {suggestion.isStretchMatch ? "Stretch Match" : isFirst ? balance.label : `Option ${idx + 1}`}
               </CardTitle>
               <Badge variant="outline" className={balance.color} data-testid={`badge-balance-${keyPrefix}${idx}`}>
                 <BalanceIcon className="h-3 w-3 mr-1" />
