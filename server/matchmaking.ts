@@ -842,7 +842,7 @@ export function generateAllMatchupOptions(
   });
 
   // ─── Build Stretch Matches ─────────────────────────────────────────────────
-  // Deterministic algorithm per spec:
+  // Split-enumeration algorithm:
   //   1. For each lone outlier with gamesWaited ≥ 2, evaluate both adjacent tiers.
   //   2. For each adjacent tier that has ≥ 3 players:
   //      a. Sort by skill score descending.
@@ -863,7 +863,6 @@ export function generateAllMatchupOptions(
 
     const outlierTier = outlierCand.tierIndex;
     const outlierPlayer = outlierCand.player;
-    const outlierScore = outlierPlayer.skillScore || 90;
 
     const adjacentTierNums = [outlierTier - 1, outlierTier + 1].filter(t => t >= 0 && t <= 5);
 
