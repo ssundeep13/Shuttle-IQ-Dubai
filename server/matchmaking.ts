@@ -137,17 +137,22 @@ export function updatePlayerRestState(
     current.needsRest = current.consecutiveGames >= 2;
   } else {
     const sittingOutNow = isSittingOut(sessionId, playerId);
+    // Spec: gamesWaited is NOT incremented during voluntary sit-out, but
+    // rest decay (consecutiveGames halving/reset) still applies — sitting out
+    // voluntarily still counts as a "rest round" for fatigue tracking purposes.
+    const effectiveGamesOut = current.gamesWaited + 1; // hypothetical new value
+    if (effectiveGamesOut === 1) {
+      // First game out: halve the consecutive count (lingering penalty)
+      current.consecutiveGames = Math.floor(current.consecutiveGames / 2);
+    } else {
+      // Two or more games out: full reset
+      current.consecutiveGames = 0;
+    }
+    current.needsRest = current.consecutiveGames >= 2;
+    // Only persist the gamesWaited increment when NOT voluntarily sitting out.
+    // This keeps the queue-fairness counter frozen for deliberate sit-outs.
     if (!sittingOutNow) {
-      // Fix 4: graduated reset (only when NOT voluntarily sitting out)
-      current.gamesWaited += 1;
-      if (current.gamesWaited === 1) {
-        // First game out: halve the consecutive count (lingering penalty)
-        current.consecutiveGames = Math.floor(current.consecutiveGames / 2);
-      } else {
-        // Two or more games out: full reset
-        current.consecutiveGames = 0;
-      }
-      current.needsRest = current.consecutiveGames >= 2;
+      current.gamesWaited = effectiveGamesOut;
     }
     // Auto-clear voluntary sit-out after one game passes
     clearSittingOutPlayer(sessionId, playerId);
