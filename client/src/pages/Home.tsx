@@ -904,7 +904,7 @@ export default function Home() {
                 queuePlayerIds={queue}
                 availableCourts={courts.filter(c => c.status === 'available').length}
                 onAssign={handleSuggestionAssign}
-                isActiveSession={!urlSessionId || session?.status === 'active'}
+                isActiveSession={!urlSessionId || session?.status === 'active' || !!session?.isSandbox}
                 sessionId={session?.id}
                 groupByTier={groupByTier}
                 onGroupByTierChange={setGroupByTier}
