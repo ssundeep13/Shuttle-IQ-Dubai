@@ -206,7 +206,7 @@ export function SuggestedLineups({
                   >
                     <span>{player.name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {player.gender?.[0]} {getTierDisplayName(player.level || 'lower_intermediate')} ({player.skillScore || 90})
+                      · {player.gender?.[0]} · {getTierDisplayName(player.level || 'lower_intermediate')} · ({player.skillScore || 90})
                     </span>
                     {(player.gamesWaited ?? 0) >= 4 && (
                       <Badge
@@ -240,7 +240,7 @@ export function SuggestedLineups({
                   >
                     <span>{player.name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {player.gender?.[0]} {getTierDisplayName(player.level || 'lower_intermediate')} ({player.skillScore || 90})
+                      · {player.gender?.[0]} · {getTierDisplayName(player.level || 'lower_intermediate')} · ({player.skillScore || 90})
                     </span>
                     {(player.gamesWaited ?? 0) >= 4 && (
                       <Badge

@@ -656,7 +656,9 @@ export function selectOptimalPlayers(
  *   6. 5-factor sort: tierDispersion → skillGap → equityRank → splitPenalty → variance.
  *      Return top 5.
  *   Stretch matches: threshold gamesWaited ≥ 4; 40pt spread on outlier's team, 20pt on
- *   opposing team; one adjacent tier per ADJACENT_TIER map.
+ *   opposing team; searches BOTH adjacent tiers (tier±1 clamped 0–5) to maximise coverage.
+ *   NOTE: ADJACENT_TIER map is used only for Step 4 pool-level overflow (candidate pool),
+ *   not for stretch-match search.
  */
 export function generateAllMatchupOptions(
   sessionId: string,
