@@ -1306,7 +1306,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Claude AI prompt builder ───────────────────────────────────────────────
-  function buildAIPrompt(session: {
+  function buildPrompt(session: {
     availableCourts: number;
     avgGames: number;
     players: { name: string; score: number; tier: string; gender: string; gamesThisSession: number; gamesWaited: number }[];
@@ -1338,7 +1338,7 @@ RULES (all mandatory):
      since a same-tier partner is unavailable
    - The opposing team must still meet the normal 20-point spread limit
    - Among all valid splits always pick the one with the lowest
-     skill gap — this is the most competitive game possible
+     skill gap
    - Label the card "Stretch Match" in amber so the admin knows
      a same-tier partner was unavailable
    - Show the reasoning field explaining who the outlier is and
@@ -1436,7 +1436,9 @@ Return ONLY valid JSON, no markdown, no other text:
       if (aiMode && process.env.ANTHROPIC_API_KEY) {
         try {
           // Collect player data for the prompt (queue is string[] of player IDs)
-          const queuePlayerIds = queue as string[];
+          // Exclude players who have voluntarily sat out (same as local algorithm)
+          const sittingOutIds = new Set(getSittingOutPlayers(session.id));
+          const queuePlayerIds = (queue as string[]).filter(id => !sittingOutIds.has(id));
           const queuePlayers = allPlayers.filter(p => queuePlayerIds.includes(p.id));
 
           // Build session average games from rest states
@@ -1479,7 +1481,7 @@ Return ONLY valid JSON, no markdown, no other text:
             body: JSON.stringify({
               model: "claude-sonnet-4-5",
               max_tokens: 1500,
-              messages: [{ role: "user", content: buildAIPrompt(sessionState) }],
+              messages: [{ role: "user", content: buildPrompt(sessionState) }],
             }),
           });
 
