@@ -1408,6 +1408,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Court is occupied" });
       }
 
+      // Resolve session before any mutations (prevents partial writes on invalid session)
+      const gameSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
+      if (!gameSession) {
+        return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session" });
+      }
+
       // Update court status
       await storage.updateCourt(court.id, {
         status: 'occupied',
@@ -1422,14 +1430,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update player statuses
       for (const assignment of assignments) {
         await storage.updatePlayer(assignment.playerId, { status: 'playing' });
-      }
-
-      // Remove from queue — resolve session (supports both active and sandbox sessions)
-      const gameSession = bodySessionId
-        ? await storage.getSession(bodySessionId)
-        : await storage.getActiveSession();
-      if (!gameSession) {
-        return res.status(400).json({ error: "No active session" });
       }
 
       const currentQueue = await storage.getQueue(gameSession.id);
@@ -1466,6 +1466,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Court is not occupied" });
       }
 
+      // Resolve session before any mutations (prevents partial writes on invalid session)
+      const gameSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
+      if (!gameSession) {
+        return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session" });
+      }
+
       const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
       const players = (await Promise.all(
         courtPlayerData.map(async cp => {
@@ -1478,14 +1486,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Return all players to waiting status
       for (const player of players) {
         await storage.updatePlayer(player.id, { status: 'waiting' });
-      }
-
-      // Add players back to queue — resolve session (supports both active and sandbox sessions)
-      const gameSession = bodySessionId
-        ? await storage.getSession(bodySessionId)
-        : await storage.getActiveSession();
-      if (!gameSession) {
-        return res.status(400).json({ error: "No active session" });
       }
 
       const currentQueue = await storage.getQueue(gameSession.id);
@@ -1572,7 +1572,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? await storage.getSession(bodySessionId)
         : await storage.getActiveSession();
       if (!activeSession) {
-        return res.status(400).json({ error: "No active session" });
+        return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session" });
       }
       const isSandboxSession = activeSession.isSandbox;
 
