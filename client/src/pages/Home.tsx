@@ -16,6 +16,7 @@ import { NotificationToast } from "@/components/NotificationToast";
 import { SessionSetupWizard } from "@/components/SessionSetupWizard";
 import { SessionLeaderboard } from "@/components/SessionLeaderboard";
 import { SuggestedLineups } from "@/components/SuggestedLineups";
+import { BracketedLineups } from "@/components/BracketedLineups";
 import { useActiveSession } from "@/hooks/use-active-session";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -83,6 +84,7 @@ export default function Home() {
   } | null>(null);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
   const [groupByTier, setGroupByTier] = useState(true);
+  const [matchmakingMode, setMatchmakingMode] = useState<'suggestions' | 'brackets'>('suggestions');
 
   // Fetch courts with players (only when session exists)
   const { data: courts = [], isLoading: courtsLoading } = useQuery<CourtWithPlayers[]>({
@@ -901,15 +903,56 @@ export default function Home() {
         <div className="space-y-6">
           {activeTab === 'courts' && (
             <>
-              <SuggestedLineups
-                queuePlayerIds={queue}
-                availableCourts={courts.filter(c => c.status === 'available').length}
-                onAssign={handleSuggestionAssign}
-                isActiveSession={!urlSessionId || session?.status === 'active' || !!session?.isSandbox}
-                sessionId={session?.id}
-                groupByTier={groupByTier}
-                onGroupByTierChange={setGroupByTier}
-              />
+              {/* Matchmaking mode toggle */}
+              {queue.length >= 4 && (
+                <div className="flex items-center gap-2" data-testid="matchmaking-mode-toggle">
+                  <button
+                    onClick={() => setMatchmakingMode('suggestions')}
+                    className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
+                      matchmakingMode === 'suggestions'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover-elevate'
+                    }`}
+                    data-testid="button-mode-suggestions"
+                  >
+                    Smart Suggestions
+                  </button>
+                  <button
+                    onClick={() => setMatchmakingMode('brackets')}
+                    className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
+                      matchmakingMode === 'brackets'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover-elevate'
+                    }`}
+                    data-testid="button-mode-brackets"
+                  >
+                    Skill Brackets
+                  </button>
+                </div>
+              )}
+
+              {matchmakingMode === 'suggestions' && (
+                <SuggestedLineups
+                  queuePlayerIds={queue}
+                  availableCourts={courts.filter(c => c.status === 'available').length}
+                  onAssign={handleSuggestionAssign}
+                  isActiveSession={!urlSessionId || session?.status === 'active' || !!session?.isSandbox}
+                  sessionId={session?.id}
+                  groupByTier={groupByTier}
+                  onGroupByTierChange={setGroupByTier}
+                />
+              )}
+
+              {matchmakingMode === 'brackets' && (
+                <BracketedLineups
+                  sessionId={session?.id}
+                  courts={courts}
+                  queuePlayerIds={queue}
+                  isActiveSession={!urlSessionId || session?.status === 'active' || !!session?.isSandbox}
+                  onAssignAll={() => addNotification('All brackets assigned to courts', 'success')}
+                />
+              )}
+
               <CourtManagement
                 courts={courts}
                 queuePlayers={queuePlayers}

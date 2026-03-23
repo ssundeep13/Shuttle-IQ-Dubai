@@ -32,6 +32,7 @@ import {
   selectOptimalPlayers,
   findBalancedTeams,
   generateAllMatchupOptions,
+  generateBracketedLineups,
   updatePlayerRestState,
   updatePartnerHistory,
   clearPlayerRestState,
@@ -1362,6 +1363,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Matchmaking suggestions error:', error);
       res.status(500).json({ error: "Failed to generate suggestions" });
+    }
+  });
+
+  // Bracketed court assignment suggestions
+  app.get("/api/matchmaking/bracket-suggestions", requireAuth, async (req, res) => {
+    try {
+      const sessionId = req.query.sessionId as string | undefined;
+      const courtCountParam = Number(req.query.courtCount);
+
+      let session;
+      if (sessionId) {
+        session = await storage.getSession(sessionId);
+        if (!session) return res.status(404).json({ error: "Session not found" });
+      } else {
+        session = await storage.getActiveSession();
+        if (!session) return res.status(404).json({ error: "No active session" });
+      }
+
+      const courtCount = Number.isFinite(courtCountParam) && courtCountParam >= 1
+        ? courtCountParam
+        : 1;
+
+      const queue = await storage.getQueue(session.id);
+      const allPlayers = await storage.getAllPlayers();
+
+      const gameParticipants = await storage.getSessionGameParticipants(session.id);
+      buildRestStatesFromHistory(session.id, gameParticipants, queue);
+      buildPartnerHistoryFromHistory(session.id, gameParticipants);
+
+      const { brackets, restWarnings } = generateBracketedLineups(
+        session.id,
+        queue,
+        allPlayers,
+        courtCount,
+      );
+
+      res.json({ brackets, restWarnings, queueSize: queue.length });
+    } catch (error) {
+      console.error('Bracket suggestions error:', error);
+      res.status(500).json({ error: "Failed to generate bracket suggestions" });
+    }
+  });
+
+  // Batch assign multiple courts at once (bracket-assign)
+  app.post("/api/matchmaking/bracket-assign", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        sessionId: z.string().optional(),
+        assignments: z.array(z.object({
+          courtId: z.string(),
+          teamAssignments: z.array(z.object({
+            playerId: z.string(),
+            team: z.number(),
+          })),
+        })),
+      });
+
+      const { sessionId: bodySessionId, assignments } = schema.parse(req.body);
+
+      const gameSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
+      if (!gameSession) {
+        return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session" });
+      }
+
+      const results = [];
+      let currentQueue = await storage.getQueue(gameSession.id);
+
+      for (const { courtId, teamAssignments } of assignments) {
+        const team1Count = teamAssignments.filter(a => a.team === 1).length;
+        const team2Count = teamAssignments.filter(a => a.team === 2).length;
+        if (team1Count !== 2 || team2Count !== 2) {
+          return res.status(400).json({
+            error: `Court ${courtId}: each team must have exactly 2 players`,
+          });
+        }
+
+        const court = await storage.getCourt(courtId);
+        if (!court) return res.status(404).json({ error: `Court ${courtId} not found` });
+        if (court.status === 'occupied') {
+          return res.status(400).json({ error: `Court ${court.name} is already occupied` });
+        }
+
+        await storage.updateCourt(court.id, {
+          status: 'occupied',
+          timeRemaining: 15,
+          winningTeam: null,
+          startedAt: new Date(),
+        });
+
+        await storage.setCourtPlayersWithTeams(court.id, teamAssignments);
+
+        for (const a of teamAssignments) {
+          await storage.updatePlayer(a.playerId, { status: 'playing' });
+        }
+
+        const assignedIds = teamAssignments.map(a => a.playerId);
+        currentQueue = currentQueue.filter(id => !assignedIds.includes(id));
+
+        const updatedCourt = await storage.getCourt(court.id);
+        results.push(updatedCourt);
+      }
+
+      // Persist the reduced queue once after all courts assigned
+      await storage.setQueue(gameSession.id, currentQueue);
+
+      res.json({ success: true, courts: results });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request data", details: error.errors });
+      }
+      console.error('Bracket assign error:', error);
+      res.status(500).json({ error: "Failed to batch-assign courts" });
     }
   });
 

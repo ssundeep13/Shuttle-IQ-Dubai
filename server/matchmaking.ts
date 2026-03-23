@@ -634,6 +634,201 @@ export function selectOptimalPlayers(
 }
 
 /**
+ * Bracketed court assignment: divide the queue into N equal skill brackets,
+ * one per available court, and find the best team split within each bracket.
+ *
+ * Returns one entry per court. If a bracket has fewer than 4 eligible players
+ * the entry has `insufficientPlayers: true` and no team data.
+ */
+export function generateBracketedLineups(
+  sessionId: string,
+  queuePlayerIds: string[],
+  allPlayers: Player[],
+  courtCount: number,
+): {
+  brackets: Array<{
+    courtIndex: number;         // 0-based
+    skillRangeMin: number;
+    skillRangeMax: number;
+    combination: TeamCombination | null;
+    insufficientPlayers: boolean;
+    playerCount: number;
+  }>;
+  restWarnings: string[];
+} {
+  if (courtCount < 1) return { brackets: [], restWarnings: [] };
+
+  const restWarnings: string[] = [];
+
+  // Eligible pool: queue players not sitting out who exist in allPlayers
+  const eligibleQueueIds = queuePlayerIds.filter(id => !isSittingOut(sessionId, id));
+  const eligibleCandidates = eligibleQueueIds
+    .map((playerId, queueIndex) => {
+      const player = allPlayers.find(p => p.id === playerId);
+      if (!player) return null;
+      const restState = getPlayerRestState(sessionId, playerId);
+      return { player, restState, queueIndex };
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+
+  // Sort by skill score descending (highest first → top bracket first)
+  const sorted = [...eligibleCandidates].sort(
+    (a, b) => (b.player.skillScore ?? 90) - (a.player.skillScore ?? 90),
+  );
+
+  const n = sorted.length;
+  const effectiveCourts = Math.min(courtCount, Math.floor(n / 4));
+
+  if (effectiveCourts === 0) {
+    // Not enough players for even one court — return empty brackets
+    const brackets = Array.from({ length: courtCount }, (_, i) => ({
+      courtIndex: i,
+      skillRangeMin: 0,
+      skillRangeMax: 0,
+      combination: null,
+      insufficientPlayers: true,
+      playerCount: 0,
+    }));
+    restWarnings.push('Not enough players to fill any bracket');
+    return { brackets, restWarnings };
+  }
+
+  // Divide sorted list into effectiveCourts roughly equal buckets
+  const bracketSize = Math.floor(n / effectiveCourts);
+  const remainder = n % effectiveCourts;
+
+  const buckets: typeof sorted[] = [];
+  let offset = 0;
+  for (let i = 0; i < effectiveCourts; i++) {
+    const size = bracketSize + (i < remainder ? 1 : 0);
+    buckets.push(sorted.slice(offset, offset + size));
+    offset += size;
+  }
+
+  // For each bracket find the best 4 players and optimal team split
+  const getEquityRank = (team1: Player[], team2: Player[]): number => {
+    const totalGamesThisSession = eligibleCandidates.reduce(
+      (sum, c) => sum + c.restState.gamesThisSession, 0,
+    );
+    const sessionAvgGames = eligibleCandidates.length > 0
+      ? totalGamesThisSession / eligibleCandidates.length
+      : 0;
+    const deficit = [...team1, ...team2].reduce((sum, p) => {
+      const rs = eligibleCandidates.find(c => c.player.id === p.id)?.restState;
+      return sum + (sessionAvgGames - (rs?.gamesThisSession ?? 0));
+    }, 0);
+    return -deficit;
+  };
+
+  const pickBestCombo = (bucket: typeof sorted): TeamCombination | null => {
+    if (bucket.length < 4) return null;
+
+    // Take the first 4 by skill-score order within bucket (highest to lowest)
+    // — gives the best chance of balanced teams within each bracket
+    const pool = bucket.slice(0, Math.min(10, bucket.length));
+    const playerSets: Player[][] = [];
+    const limit = Math.min(pool.length, 8);
+    for (let i = 0; i < limit; i++) {
+      for (let j = i + 1; j < limit; j++) {
+        for (let k = j + 1; k < limit; k++) {
+          for (let l = k + 1; l < limit; l++) {
+            playerSets.push([
+              pool[i].player, pool[j].player, pool[k].player, pool[l].player,
+            ]);
+            if (playerSets.length >= 15) break;
+          }
+          if (playerSets.length >= 15) break;
+        }
+        if (playerSets.length >= 15) break;
+      }
+      if (playerSets.length >= 15) break;
+    }
+
+    let best: TeamCombination | null = null;
+    const processed = new Set<string>();
+
+    for (const playerSet of playerSets) {
+      const setKey = playerSet.map(p => p.id).sort().join('-');
+      if (processed.has(setKey)) continue;
+      processed.add(setKey);
+
+      const permutations = getAllTeamPermutations(playerSet);
+      for (const [t1, t2] of permutations) {
+        const metrics = calculateTeamMetrics(t1, t2);
+        const splitPenalty = calculateSplitPenalty(t1, t2, sessionId);
+        const equityRank = getEquityRank(t1, t2);
+        const combo: TeamCombination = {
+          team1: t1, team2: t2, ...metrics, splitPenalty, equityRank,
+          isCompromised: false, isStretchMatch: false, rank: 0,
+        };
+        if (!best) {
+          best = combo;
+        } else {
+          const beats =
+            combo.tierDispersion < best.tierDispersion ||
+            (combo.tierDispersion === best.tierDispersion && combo.skillGap < best.skillGap - 0.01) ||
+            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank < best.equityRank) ||
+            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty < best.splitPenalty) ||
+            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty === best.splitPenalty && combo.variance < best.variance);
+          if (beats) best = combo;
+        }
+      }
+    }
+
+    if (best) {
+      // Enrich players with session state
+      const enrich = (p: Player): Player => {
+        const rs = eligibleCandidates.find(c => c.player.id === p.id)?.restState;
+        if (!rs) return p;
+        return { ...p, gamesWaited: rs.gamesWaited, gamesThisSession: rs.gamesThisSession } as Player;
+      };
+      best.team1 = best.team1.map(enrich);
+      best.team2 = best.team2.map(enrich);
+
+      // Collect rest warnings for assigned players
+      for (const p of [...best.team1, ...best.team2]) {
+        const rs = eligibleCandidates.find(c => c.player.id === p.id)?.restState;
+        if (rs?.needsRest) {
+          const msg = `${p.name} has played ${rs.consecutiveGames} consecutive games`;
+          if (!restWarnings.includes(msg)) restWarnings.push(msg);
+        }
+      }
+    }
+
+    return best;
+  };
+
+  const brackets = buckets.map((bucket, i) => {
+    const scores = bucket.map(c => c.player.skillScore ?? 90);
+    const skillRangeMin = scores.length > 0 ? Math.min(...scores) : 0;
+    const skillRangeMax = scores.length > 0 ? Math.max(...scores) : 0;
+    const combination = pickBestCombo(bucket);
+    return {
+      courtIndex: i,
+      skillRangeMin,
+      skillRangeMax,
+      combination,
+      insufficientPlayers: combination === null,
+      playerCount: bucket.length,
+    };
+  });
+
+  // Append placeholder brackets for courts beyond what players can fill
+  for (let i = effectiveCourts; i < courtCount; i++) {
+    brackets.push({
+      courtIndex: i,
+      skillRangeMin: 0,
+      skillRangeMax: 0,
+      combination: null,
+      insufficientPlayers: true,
+      playerCount: 0,
+    });
+  }
+
+  return { brackets, restWarnings };
+}
+
+/**
  * Generate multiple sets of 4 players and their team combinations for the suggestions UI.
  *
  * Algorithm (March 2026 spec):
