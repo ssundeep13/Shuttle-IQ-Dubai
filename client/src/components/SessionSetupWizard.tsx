@@ -44,6 +44,7 @@ interface MarketplaceData {
 
 export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWizardProps) {
   const [step, setStep] = useState<'session' | 'marketplace' | 'players'>('session');
+  const [isSandbox, setIsSandbox] = useState(false);
   const [sessionData, setSessionData] = useState<SessionFormData | null>(null);
   const [marketplaceData, setMarketplaceData] = useState<MarketplaceData>({
     enabled: false,
@@ -80,6 +81,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     setImportError(null);
     setSelectedFile(null);
     setPastedText("");
+    setIsSandbox(false);
     setStep('session');
     form.reset();
   }, []);
@@ -96,6 +98,28 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
 
   const handleSessionSubmit = async (data: SessionFormData) => {
     setSessionData(data);
+    if (isSandbox) {
+      // Sandbox sessions skip the marketplace step — go straight to players
+      setIsCreating(true);
+      setImportError(null);
+      try {
+        const payload = {
+          ...data,
+          venueLocation: data.venueLocation || null,
+          venueMapUrl: data.venueMapUrl || null,
+          status: 'draft',
+          isSandbox: true,
+        };
+        const result = await apiRequest('POST', '/api/sessions/unified', payload);
+        setCreatedSessionId(result.session.id);
+        setStep('players');
+      } catch (err: any) {
+        setImportError(err?.error || err?.message || "Failed to create sandbox session");
+      } finally {
+        setIsCreating(false);
+      }
+      return;
+    }
     setMarketplaceData(prev => ({
       ...prev,
       title: data.venueName + ' Session',
@@ -116,7 +140,8 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
         venueLocation: sessionData.venueLocation || null,
         venueMapUrl: sessionData.venueMapUrl || null,
         status: 'draft',
-        marketplace: marketplaceData.enabled ? {
+        isSandbox,
+        marketplace: isSandbox ? undefined : marketplaceData.enabled ? {
           enabled: true,
           title: marketplaceData.title,
           description: marketplaceData.description || null,
@@ -465,6 +490,25 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                     </FormItem>
                   )}
                 />
+
+                {/* Sandbox toggle */}
+                <div className={`flex items-center justify-between gap-4 p-4 rounded-lg border ${isSandbox ? 'border-amber-500/50 bg-amber-50/50 dark:bg-amber-900/10' : 'bg-card'}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      <p className="font-medium text-sm">Sandbox / Test Mode</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {isSandbox 
+                          ? 'For testing only. Will not appear in sessions or marketplace. Ending it permanently deletes all data.'
+                          : 'Enable to create a private test session invisible to players'}
+                      </p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={isSandbox}
+                    onCheckedChange={setIsSandbox}
+                    data-testid="switch-sandbox-mode"
+                  />
+                </div>
               </CardContent>
 
               <CardFooter>
@@ -473,7 +517,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                   className="w-full min-h-12 sm:min-h-10"
                   data-testid="button-continue-to-marketplace"
                 >
-                  Continue
+                  {isSandbox ? 'Continue to Players' : 'Continue'}
                 </Button>
               </CardFooter>
             </form>

@@ -12,6 +12,7 @@ export const sessions = pgTable("sessions", {
   venueMapUrl: text("venue_map_url"),
   courtCount: integer("court_count").notNull(),
   status: text("status").notNull().default('active'), // 'draft', 'active', 'upcoming', 'ended'
+  isSandbox: boolean("is_sandbox").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   endedAt: timestamp("ended_at"),
 });

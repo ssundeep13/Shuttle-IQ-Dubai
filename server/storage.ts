@@ -88,7 +88,7 @@ export interface IStorage {
   createSession(session: InsertSession): Promise<Session>;
   getSession(id: string): Promise<Session | undefined>;
   getActiveSession(): Promise<Session | undefined>;
-  getAllSessions(): Promise<Session[]>;
+  getAllSessions(includeSandbox?: boolean): Promise<Session[]>;
   endSession(id: string): Promise<Session | undefined>;
   updateSession(id: string, updates: Partial<Session>): Promise<Session | undefined>;
   deleteSession(id: string): Promise<boolean>;
@@ -261,8 +261,11 @@ export class DatabaseStorage implements IStorage {
     return session || undefined;
   }
 
-  async getAllSessions(): Promise<Session[]> {
-    return await db.select().from(sessions).orderBy(desc(sessions.createdAt));
+  async getAllSessions(includeSandbox = false): Promise<Session[]> {
+    if (includeSandbox) {
+      return await db.select().from(sessions).where(eq(sessions.isSandbox, true)).orderBy(desc(sessions.createdAt));
+    }
+    return await db.select().from(sessions).where(eq(sessions.isSandbox, false)).orderBy(desc(sessions.createdAt));
   }
 
   async endSession(id: string): Promise<Session | undefined> {

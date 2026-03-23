@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { FlaskConical } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { CourtWithPlayers, Player, Notification, AppStats, Session } from "@shared/schema";
@@ -877,6 +878,16 @@ export default function Home() {
             navigate('/admin/login');
           }}
         />
+
+        {session?.isSandbox && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800" data-testid="banner-sandbox">
+            <FlaskConical className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Sandbox Session</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">Scores are not tracked. All data will be permanently deleted when this session ends.</p>
+            </div>
+          </div>
+        )}
         
         <TabNavigation
           activeTab={activeTab}
@@ -985,11 +996,12 @@ export default function Home() {
       <AlertDialog open={showEndSessionConfirm} onOpenChange={setShowEndSessionConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>End Session?</AlertDialogTitle>
+            <AlertDialogTitle>{session?.isSandbox ? 'End Sandbox Session?' : 'End Session?'}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will end the current session and close all active games. Players will be returned to the queue.
-              Game history will be downloaded as a CSV file before the session ends.
-              This action cannot be undone.
+              {session?.isSandbox
+                ? 'This sandbox session and all its data will be permanently deleted. Continue?'
+                : 'This will end the current session and close all active games. Players will be returned to the queue. Game history will be downloaded as a CSV file before the session ends. This action cannot be undone.'
+              }
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -999,7 +1011,7 @@ export default function Home() {
               className="bg-destructive hover:bg-destructive/90"
               data-testid="button-confirm-end-session"
             >
-              End Session
+              {session?.isSandbox ? 'Delete Sandbox' : 'End Session'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

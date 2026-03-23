@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical } from 'lucide-react';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
@@ -54,12 +54,20 @@ export default function SessionsManagement() {
   const [showCreateSession, setShowCreateSession] = useState(false);
   const [wizardKey, setWizardKey] = useState(0);
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
+  const [sandboxToDelete, setSandboxToDelete] = useState<Session | null>(null);
   const [sessionToActivate, setSessionToActivate] = useState<Session | null>(null);
   const [bookingsSession, setBookingsSession] = useState<Session | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
 
   const { data: allSessions = [], isLoading } = useQuery<Session[]>({
     queryKey: ['/api/sessions'],
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  const { data: sandboxSessions = [] } = useQuery<Session[]>({
+    queryKey: ['/api/sessions', 'sandbox'],
+    queryFn: () => apiRequest('GET', '/api/sessions?sandbox=true'),
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -105,6 +113,15 @@ export default function SessionsManagement() {
     },
   });
 
+  const deleteSandboxMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest('POST', `/api/sessions/${id}/end`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions', 'sandbox'] });
+      setSandboxToDelete(null);
+    },
+  });
+
   const updatePlayerMutation = useMutation({
     mutationFn: async ({ playerId, updates }: { playerId: string; updates: Partial<Player> }) => {
       return await apiRequest('PATCH', `/api/players/${playerId}`, updates);
@@ -135,6 +152,7 @@ export default function SessionsManagement() {
 
   const handleSessionCreated = () => {
     queryClient.invalidateQueries({ queryKey: ['/api/sessions'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/sessions', 'sandbox'] });
     queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/sessions'] });
     queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
     setShowCreateSession(false);
@@ -266,10 +284,12 @@ export default function SessionsManagement() {
               activeSessions={activeSessions}
               upcomingSessions={upcomingSessions}
               endedSessions={endedSessions}
+              sandboxSessions={sandboxSessions}
               bookableSessions={bookableSessions}
               isLoading={isLoading}
               onView={(session) => navigate(`/session/${session.id}`)}
               onDelete={(session) => setSessionToDelete(session)}
+              onDeleteSandbox={(session) => setSandboxToDelete(session)}
               onViewBookings={(session) => setBookingsSession(session)}
               onActivate={(session) => setSessionToActivate(session)}
               onEdit={(session) => setEditingSession(session)}
@@ -340,6 +360,27 @@ export default function SessionsManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={!!sandboxToDelete} onOpenChange={(open) => !open && setSandboxToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End Sandbox Session?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This sandbox session and all its data will be permanently deleted. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-sandbox">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => sandboxToDelete && deleteSandboxMutation.mutate(sandboxToDelete.id)}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-delete-sandbox"
+            >
+              Delete Sandbox
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!sessionToActivate} onOpenChange={(open) => !open && setSessionToActivate(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -382,17 +423,19 @@ export default function SessionsManagement() {
 }
 
 function SessionsTabContent({ 
-  sessions, activeSessions, upcomingSessions, endedSessions, bookableSessions,
-  isLoading, onView, onDelete, onViewBookings, onActivate, onEdit, totalBookings, totalRevenue
+  sessions, activeSessions, upcomingSessions, endedSessions, sandboxSessions, bookableSessions,
+  isLoading, onView, onDelete, onDeleteSandbox, onViewBookings, onActivate, onEdit, totalBookings, totalRevenue
 }: { 
   sessions: Session[];
   activeSessions: Session[];
   upcomingSessions: Session[];
   endedSessions: Session[];
+  sandboxSessions: Session[];
   bookableSessions: BookableSessionWithAvailability[];
   isLoading: boolean;
   onView: (session: Session) => void;
   onDelete: (session: Session) => void;
+  onDeleteSandbox: (session: Session) => void;
   onViewBookings: (session: Session) => void;
   onActivate: (session: Session) => void;
   onEdit: (session: Session) => void;
@@ -508,6 +551,23 @@ function SessionsTabContent({
               getLinkedBookableSession={getLinkedBookableSession}
             />
           )}
+
+          {sandboxSessions.length > 0 && (
+            <SessionSection
+              title="Sandbox Sessions"
+              icon={<FlaskConical className="w-5 h-5 text-amber-600" />}
+              iconBg="bg-amber-100 dark:bg-amber-900/30"
+              sessions={sandboxSessions}
+              badge={<Badge className="bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-700 no-default-hover-elevate no-default-active-elevate" data-testid="badge-sandbox-count">{sandboxSessions.length}</Badge>}
+              onView={onView}
+              onDelete={onDeleteSandbox}
+              onViewBookings={onViewBookings}
+              onActivate={onActivate}
+              onEdit={onEdit}
+              getLinkedBookableSession={getLinkedBookableSession}
+              isSandbox
+            />
+          )}
         </div>
       )}
     </>
@@ -516,7 +576,7 @@ function SessionsTabContent({
 
 function SessionSection({ 
   title, icon, iconBg, sessions, badge, emptyMessage, emptySubMessage,
-  onView, onDelete, onViewBookings, onActivate, onEdit, getLinkedBookableSession
+  onView, onDelete, onViewBookings, onActivate, onEdit, getLinkedBookableSession, isSandbox
 }: {
   title: string;
   icon: React.ReactNode;
@@ -531,6 +591,7 @@ function SessionSection({
   onActivate: (session: Session) => void;
   onEdit: (session: Session) => void;
   getLinkedBookableSession: (sessionId: string) => BookableSessionWithAvailability | undefined;
+  isSandbox?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -561,6 +622,7 @@ function SessionSection({
               onViewBookings={() => onViewBookings(session)}
               onActivate={() => onActivate(session)}
               onEdit={() => onEdit(session)}
+              isSandbox={isSandbox}
             />
           ))}
         </div>
@@ -570,7 +632,7 @@ function SessionSection({
 }
 
 function SessionCard({ 
-  session, linkedBookable, onView, onDelete, onViewBookings, onActivate, onEdit
+  session, linkedBookable, onView, onDelete, onViewBookings, onActivate, onEdit, isSandbox
 }: { 
   session: Session;
   linkedBookable?: BookableSessionWithAvailability;
@@ -579,6 +641,7 @@ function SessionCard({
   onViewBookings: () => void;
   onActivate?: () => void;
   onEdit?: () => void;
+  isSandbox?: boolean;
 }) {
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
@@ -595,6 +658,12 @@ function SessionCard({
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
+              {isSandbox && (
+                <Badge className="bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-700 gap-1 no-default-hover-elevate no-default-active-elevate">
+                  <FlaskConical className="h-3 w-3" />
+                  Sandbox
+                </Badge>
+              )}
               <Badge variant={getStatusBadgeVariant(session.status)} className="capitalize">
                 {session.status}
               </Badge>

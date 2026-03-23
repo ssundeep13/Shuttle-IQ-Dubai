@@ -313,7 +313,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/sessions", async (req, res) => {
     try {
-      const sessions = await storage.getAllSessions();
+      const sandbox = req.query.sandbox === 'true';
+      const sessions = await storage.getAllSessions(sandbox);
       res.json(sessions);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch sessions" });
@@ -376,6 +377,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sessions/:id/end", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
+      const existing = await storage.getSession(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      // Sandbox sessions are permanently deleted on end — no archive, clean slate
+      if (existing.isSandbox) {
+        clearSessionRestStates(req.params.id);
+        await storage.deleteSession(req.params.id);
+        return res.json({ deleted: true, sandbox: true });
+      }
+
       const session = await storage.endSession(req.params.id);
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
@@ -1522,6 +1535,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const winners = winningTeam === 1 ? team1 : team2;
       const losers = winningTeam === 1 ? team2 : team1;
 
+      // Get active session early — needed to check sandbox mode before ELO updates
+      const activeSession = await storage.getActiveSession();
+      if (!activeSession) {
+        return res.status(400).json({ error: "No active session" });
+      }
+      const isSandboxSession = activeSession.isSandbox;
+
       // Calculate average skill scores for each team (using 10-200 scale)
       const { calculateSkillAdjustment, calculateTeamAverage, getSkillTier } = await import('@shared/utils/skillUtils');
       
@@ -1594,24 +1614,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           skillAfter,
         });
         
-        await storage.updatePlayer(player.id, {
-          gamesPlayed: player.gamesPlayed + 1,
-          wins: isWinner ? player.wins + 1 : player.wins,
-          skillScore: skillAfter,
-          level: tierResult.level,
-          tierCandidate: tierResult.tierCandidate,
-          tierCandidateGames: tierResult.tierCandidateGames,
-          status: 'waiting',
-          lastPlayedAt: now,
-          skillScoreBaseline: skillAfter, // Anchor for inactivity decay; decay is relative to this score
-          returnGamesRemaining: newReturnGamesRemaining, // Fix 6: track return boost games remaining
-        });
-      }
-
-      // Get active session
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.status(400).json({ error: "No active session" });
+        // Sandbox sessions: skip all persistent player stat updates — no score, no game count
+        if (!isSandboxSession) {
+          await storage.updatePlayer(player.id, {
+            gamesPlayed: player.gamesPlayed + 1,
+            wins: isWinner ? player.wins + 1 : player.wins,
+            skillScore: skillAfter,
+            level: tierResult.level,
+            tierCandidate: tierResult.tierCandidate,
+            tierCandidateGames: tierResult.tierCandidateGames,
+            status: 'waiting',
+            lastPlayedAt: now,
+            skillScoreBaseline: skillAfter,
+            returnGamesRemaining: newReturnGamesRemaining,
+          });
+        }
       }
 
       // Save game result
