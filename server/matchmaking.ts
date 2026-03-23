@@ -812,8 +812,11 @@ export function generateAllMatchupOptions(
     return sets;
   };
 
-  // ── Step 5b: Build best team arrangement per player set with spread filter ────────
-  const buildCombinations = (playerSets: Player[][], maxSpread: number, isCompromised: boolean): TeamCombination[] => {
+  // ── Step 5b: Build best team arrangement per player set ──────────────────────────
+  // All 3 permutations for each 4-player group are evaluated without a spread filter.
+  // The 5-factor sort (tierDispersion → skillGap → ...) picks the best arrangement,
+  // which naturally minimises the between-team skill gap for any combination of players.
+  const buildCombinations = (playerSets: Player[][]): TeamCombination[] => {
     const combos: TeamCombination[] = [];
     const processed = new Set<string>();
 
@@ -826,8 +829,6 @@ export function generateAllMatchupOptions(
       let best: TeamCombination | null = null;
 
       for (const [t1, t2] of permutations) {
-        if (!isValidSplit(t1, t2, maxSpread)) continue;
-
         const metrics = calculateTeamMetrics(t1, t2);
         const splitPenalty = calculateSplitPenalty(t1, t2, sessionId);
         const equityRank = getEquityRank(t1, t2);
@@ -838,7 +839,7 @@ export function generateAllMatchupOptions(
           ...metrics,
           splitPenalty,
           equityRank,
-          isCompromised,
+          isCompromised: false,
           isStretchMatch: false,
           rank: 0,
         };
@@ -873,16 +874,7 @@ export function generateAllMatchupOptions(
   };
 
   const playerSets = generatePlayerSets(candidatePool);
-
-  let combinations = buildCombinations(playerSets, 20, false);
-
-  // Last resort: retry at 25pt spread if no clean options exist
-  if (combinations.length === 0 && playerSets.length > 0) {
-    combinations = buildCombinations(playerSets, 25, true);
-    if (combinations.length > 0) {
-      console.warn('[Matchmaking] Using compromised spread limit (25pts)');
-    }
-  }
+  const combinations = buildCombinations(playerSets);
 
   // ── Step 6: 5-factor final sort ───────────────────────────────────────────────────
   combinations.sort((a, b) => {
