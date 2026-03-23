@@ -1,0 +1,68 @@
+Build a 7-slide Instagram carousel for ShuttleIQ as a single React project. Each slide should be 1080 x 1350 proportion, visually premium, mobile-first, and exportable as separate images.
+
+Design language:
+- Dark navy background
+- Teal/turquoise brand highlights
+- White clean typography
+- Minimal, premium, modern sports-tech aesthetic
+- Inspired by Nike, Strava, and elite startup branding
+- Add subtle grid lines and UI-style dividers in the background
+- Bold headlines, concise copy, strong spacing
+- Make every slide visually polished and consistent
+
+Create 7 slides with the following content:
+
+Slide 1:
+Headline: Progress is the Game.
+Subtext: Not just badminton. Not just games. This is improvement.
+
+Slide 2:
+Headline: Most games don’t make you better.
+Body: Random players. Uneven matchups. No score tracking. No visible growth.
+Footer: You play, but you don’t progress.
+
+Slide 3:
+Headline: Meet ShuttleIQ.
+Body: Dubai’s first algorithm-based badminton queue.
+Points: Smart matchmaking / Performance tracking / Real rankings
+
+Slide 4:
+Headline: Play. Track. Improve.
+Steps:
+1. Join a session
+2. Get matched fairly
+3. Scores are recorded
+4. Your rating evolves
+Footer: Every game counts.
+
+Slide 5:
+Headline: Built for real progress.
+Stats:
+2,400+ Games Played
+97% Match Accuracy
+#1 Badminton Queue in Dubai
+
+Slide 6:
+Headline: Stop playing random games.
+Body: Start playing with purpose, better players, real competition, and visible progress.
+Footer: Feel the difference.
+
+Slide 7:
+Headline: Ready to level up?
+Body: Book your next session on ShuttleIQ
+CTA: shuttleiq.org
+Supporting line: Dubai | All levels welcome
+
+Requirements:
+- Use reusable components for slide wrapper, headline, stat blocks, and CTA
+- Keep typography hierarchy strong
+- Ensure text is highly legible on mobile
+- Use subtle animations if helpful, but keep the design static-export friendly
+- Add an export-friendly layout so each slide can be screenshotted cleanly
+- Include a simple top brand bar or subtle ShuttleIQ identity where relevant
+- Do not overcrowd the slides
+- Make the result feel premium, sharp, and conversion-focused
+
+Also generate:
+- Instagram caption text
+- Optional reel adaptation notes
