@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { getTierDisplayName, getSkillTier } from "@shared/utils/skillUtils";
 import { apiRequest } from "@/lib/queryClient";
-import { ChevronDown, ChevronUp, Zap, Scale, Layers, Clock, Star, AlertCircle, AlertTriangle, Shuffle } from "lucide-react";
+import { ChevronDown, ChevronUp, Zap, Scale, Layers, Clock, Star, AlertCircle, AlertTriangle, Shuffle, Sparkles } from "lucide-react";
 import { useState } from "react";
 
 interface PlayerInSuggestion extends Player {
@@ -33,6 +33,9 @@ interface TeamCombination {
   outlierGamesWaited?: number;
   isCompromised?: boolean;
   rank: number;
+  courtNumber?: number;
+  reasoning?: string;
+  fromAI?: boolean;
 }
 
 interface LoneOutlier {
@@ -46,6 +49,7 @@ interface SuggestionsResponse {
   loneOutliers: LoneOutlier[];
   stretchMatches: TeamCombination[];
   queueSize: number;
+  fromAI?: boolean;
 }
 
 interface SuggestedLineupsProps {
@@ -68,13 +72,15 @@ export function SuggestedLineups({
   onGroupByTierChange,
 }: SuggestedLineupsProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [aiMode, setAiMode] = useState(false);
 
   const { data, isLoading, error } = useQuery<SuggestionsResponse>({
-    queryKey: ['/api/matchmaking/suggestions', sessionId, queuePlayerIds.join(','), groupByTier],
+    queryKey: ['/api/matchmaking/suggestions', sessionId, queuePlayerIds.join(','), groupByTier, aiMode],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (sessionId) params.set('sessionId', sessionId);
       params.set('groupByTier', String(groupByTier));
+      if (aiMode) params.set('aiMode', 'true');
       return await apiRequest('GET', `/api/matchmaking/suggestions?${params.toString()}`);
     },
     enabled: queuePlayerIds.length >= 4,
@@ -89,6 +95,7 @@ export function SuggestedLineups({
   const restWarnings = data?.restWarnings || [];
   const loneOutliers = data?.loneOutliers || [];
   const stretchMatches = data?.stretchMatches || [];
+  const isAIResponse = data?.fromAI === true;
 
   const getBalanceIndicator = (skillGap: number, isStretchMatch?: boolean, isFirst?: boolean, tierDispersion?: number) => {
     if (isStretchMatch) {
@@ -120,7 +127,7 @@ export function SuggestedLineups({
     : null;
   const isTopClosestAvailable = topBalance?.label === "Closest Available";
 
-  const renderSuggestionCard = (suggestion: TeamCombination, idx: number, isFirst: boolean, keyPrefix: string = "") => {
+  const renderSuggestionCard = (suggestion: TeamCombination, idx: number, isFirst: boolean, keyPrefix: string = "", aiCard = false) => {
     const balance = getBalanceIndicator(suggestion.skillGap, suggestion.isStretchMatch, isFirst, suggestion.tierDispersion);
     const BalanceIcon = balance.icon;
     const isMixedTier = suggestion.tierDispersion > 0;
@@ -145,6 +152,16 @@ export function SuggestedLineups({
               <CardTitle className="text-sm">
                 {cardTitle}
               </CardTitle>
+              {aiCard && (
+                <Badge
+                  variant="outline"
+                  className="text-violet-600 dark:text-violet-400 border-violet-300 dark:border-violet-700"
+                  data-testid={`badge-ai-${keyPrefix}${idx}`}
+                >
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  AI
+                </Badge>
+              )}
               <Badge variant="outline" className={balance.color} data-testid={`badge-balance-${keyPrefix}${idx}`}>
                 <BalanceIcon className="h-3 w-3 mr-1" />
                 {balance.label}
@@ -183,8 +200,13 @@ export function SuggestedLineups({
               Gap: {suggestion.skillGap.toFixed(1)}
             </CardDescription>
           </div>
-          {suggestion.isStretchMatch && suggestion.stretchMatchText && (
+          {suggestion.isStretchMatch && suggestion.stretchMatchText && !aiCard && (
             <p className="text-xs text-muted-foreground mt-1">{suggestion.stretchMatchText}</p>
+          )}
+          {aiCard && suggestion.reasoning && (
+            <p className="text-xs text-muted-foreground italic mt-1" data-testid={`reasoning-${keyPrefix}${idx}`}>
+              {suggestion.reasoning}
+            </p>
           )}
         </CardHeader>
         <CardContent className="space-y-3">
@@ -281,6 +303,24 @@ export function SuggestedLineups({
     );
   };
 
+  // Group AI suggestions by courtNumber
+  const renderAISuggestions = () => {
+    if (!isAIResponse || suggestions.length === 0) return null;
+
+    const sorted = [...suggestions].sort((a, b) => (a.courtNumber ?? 0) - (b.courtNumber ?? 0));
+
+    return sorted.map((suggestion, idx) => (
+      <div key={`ai-court-group-${idx}`} className="space-y-1">
+        {suggestion.courtNumber !== undefined && (
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide" data-testid={`ai-court-heading-${suggestion.courtNumber}`}>
+            Court {suggestion.courtNumber}
+          </p>
+        )}
+        {renderSuggestionCard(suggestion, idx, false, "ai-", true)}
+      </div>
+    ));
+  };
+
   return (
     <div className="space-y-4" data-testid="section-suggested-lineups">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -291,6 +331,18 @@ export function SuggestedLineups({
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="ai-mode"
+              checked={aiMode}
+              onCheckedChange={setAiMode}
+              data-testid="switch-ai-mode"
+            />
+            <Label htmlFor="ai-mode" className="text-sm text-muted-foreground cursor-pointer select-none flex items-center gap-1">
+              <Sparkles className="h-3 w-3" />
+              AI
+            </Label>
+          </div>
           <div className="flex items-center gap-2">
             <Switch
               id="group-by-tier"
@@ -315,54 +367,9 @@ export function SuggestedLineups({
 
       {isExpanded && (
         <div className="space-y-3">
-          {restWarnings.length > 0 && (
-            <Card className="border-orange-200 dark:border-orange-800" data-testid="card-rest-warnings">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2 text-orange-600 dark:text-orange-400">
-                  <Zap className="h-4 w-4" />
-                  Rest Warnings
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1">
-                {restWarnings.map((warning, idx) => (
-                  <p key={idx} className="text-xs text-muted-foreground" data-testid={`warning-${idx}`}>
-                    {warning}
-                  </p>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Lone outlier notice cards */}
-          {loneOutliers.map((outlier, idx) => {
-            const tier = getTierDisplayName(getSkillTier(outlier.player.skillScore || 90));
-            const score = outlier.player.skillScore || 90;
-            return (
-              <Card
-                key={`outlier-${idx}`}
-                className="border-blue-200 dark:border-blue-800"
-                data-testid={`card-lone-outlier-${idx}`}
-              >
-                <CardContent className="py-3 flex items-start gap-2">
-                  <AlertCircle className="h-4 w-4 text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                      {outlier.player.name} ({tier}, {score}) has no same-level peers in the queue
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {outlier.gamesWaited >= 4
-                        ? "A Stretch Match has been generated to get them into a game."
-                        : "They will be matched once more same-level players join the queue."}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-
           {isLoading && (
             <div className="text-center py-8 text-muted-foreground" data-testid="loading-suggestions">
-              Generating suggestions...
+              {aiMode ? "Asking AI for suggestions…" : "Generating suggestions..."}
             </div>
           )}
 
@@ -378,20 +385,73 @@ export function SuggestedLineups({
             </div>
           )}
 
-          {/* Stretch Match cards — shown at top when outlier has waited ≥ 6 games */}
-          {!isLoading && stretchMatches
-            .filter(sm => (sm.outlierGamesWaited ?? 0) >= 6)
-            .map((sm, idx) => renderSuggestionCard(sm, idx, false, "stretch-top-"))}
+          {/* AI mode: grouped by court */}
+          {!isLoading && isAIResponse && renderAISuggestions()}
 
-          {/* Regular suggestion cards */}
-          {!isLoading && suggestions.map((suggestion, idx) =>
-            renderSuggestionCard(suggestion, idx, idx === 0)
+          {/* Local mode: standard layout */}
+          {!isLoading && !isAIResponse && (
+            <>
+              {restWarnings.length > 0 && (
+                <Card className="border-orange-200 dark:border-orange-800" data-testid="card-rest-warnings">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                      <Zap className="h-4 w-4" />
+                      Rest Warnings
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1">
+                    {restWarnings.map((warning, idx) => (
+                      <p key={idx} className="text-xs text-muted-foreground" data-testid={`warning-${idx}`}>
+                        {warning}
+                      </p>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Lone outlier notice cards */}
+              {loneOutliers.map((outlier, idx) => {
+                const tier = getTierDisplayName(getSkillTier(outlier.player.skillScore || 90));
+                const score = outlier.player.skillScore || 90;
+                return (
+                  <Card
+                    key={`outlier-${idx}`}
+                    className="border-blue-200 dark:border-blue-800"
+                    data-testid={`card-lone-outlier-${idx}`}
+                  >
+                    <CardContent className="py-3 flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 text-blue-500 dark:text-blue-400 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                          {outlier.player.name} ({tier}, {score}) has no same-level peers in the queue
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {outlier.gamesWaited >= 4
+                            ? "A Stretch Match has been generated to get them into a game."
+                            : "They will be matched once more same-level players join the queue."}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+
+              {/* Stretch Match cards — shown at top when outlier has waited ≥ 6 games */}
+              {stretchMatches
+                .filter(sm => (sm.outlierGamesWaited ?? 0) >= 6)
+                .map((sm, idx) => renderSuggestionCard(sm, idx, false, "stretch-top-"))}
+
+              {/* Regular suggestion cards */}
+              {suggestions.map((suggestion, idx) =>
+                renderSuggestionCard(suggestion, idx, idx === 0)
+              )}
+
+              {/* Stretch Match cards — shown at bottom when outlier has waited < 6 games */}
+              {stretchMatches
+                .filter(sm => (sm.outlierGamesWaited ?? 0) < 6)
+                .map((sm, idx) => renderSuggestionCard(sm, idx, false, "stretch-bottom-"))}
+            </>
           )}
-
-          {/* Stretch Match cards — shown at bottom when outlier has waited < 6 games */}
-          {!isLoading && stretchMatches
-            .filter(sm => (sm.outlierGamesWaited ?? 0) < 6)
-            .map((sm, idx) => renderSuggestionCard(sm, idx, false, "stretch-bottom-"))}
         </div>
       )}
     </div>

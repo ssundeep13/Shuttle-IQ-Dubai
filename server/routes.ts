@@ -40,6 +40,8 @@ import {
   toggleSittingOut,
   getSittingOutPlayers,
   clearSittingOutPlayer,
+  getPlayerRestState,
+  getTierIndex,
   type TeamCombination
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
@@ -1303,6 +1305,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Claude AI prompt builder ───────────────────────────────────────────────
+  function buildAIPrompt(session: {
+    availableCourts: number;
+    avgGames: number;
+    players: { name: string; score: number; tier: string; gender: string; gamesThisSession: number; gamesWaited: number }[];
+  }): string {
+    const courtCount = session.availableCourts;
+    const bandSize = Math.round(100 / courtCount);
+
+    const bandLines = Array.from({ length: courtCount }, (_, i) => {
+      const from = i * bandSize + 1;
+      const to = i === courtCount - 1 ? 100 : (i + 1) * bandSize;
+      return `  Court ${i + 1}: players ranked ${from}% to ${to}% by score`;
+    }).join('\n');
+
+    return `You are the matchmaking engine for ShuttleIQ Dubai.
+Generate one court suggestion per available court.
+
+RULES (all mandatory):
+1. Never mix tiers (lower_intermediate 70-89, upper_intermediate
+   90-109, advanced 110+) unless fewer than 4 players exist in a tier
+2. Within-team score spread must not exceed 20 points
+3. Always minimise the skill gap between team averages —
+   lowest possible gap is always the best split
+4. Prioritise players with fewer games this session
+5. A player who is the only one in their tier is a lone outlier.
+   Include them in suggestions using these rules:
+   - Pair them with the player from the adjacent tier whose score
+     is closest to theirs — this minimises the within-team spread
+   - Their team's within-team spread limit is relaxed to 40 points
+     since a same-tier partner is unavailable
+   - The opposing team must still meet the normal 20-point spread limit
+   - Among all valid splits always pick the one with the lowest
+     skill gap — this is the most competitive game possible
+   - Label the card "Stretch Match" in amber so the admin knows
+     a same-tier partner was unavailable
+   - Show the reasoning field explaining who the outlier is and
+     why this is the best available pairing
+   - Do NOT exclude them — they must always appear in a suggestion
+
+COURT SKILL BAND ASSIGNMENT:
+There are ${courtCount} courts. Divide all eligible players into
+${courtCount} skill bands of ${bandSize}% each by score,
+highest scorers in Court 1:
+${bandLines}
+
+Each court suggestion must only use players from that court's band.
+If a band has fewer than 4 players, expand to the adjacent band
+and flag as Mixed Levels.
+Return suggestions in court order, Court 1 first.
+
+SESSION STATE:
+Available courts: ${courtCount}
+Session average games played: ${session.avgGames}
+
+Players (sorted by score descending):
+${session.players
+  .sort((a, b) => b.score - a.score)
+  .map((p, i) => {
+    const band = Math.ceil((i + 1) / session.players.length * courtCount);
+    return `${p.name} | score:${p.score} | tier:${p.tier} | ` +
+           `assignedCourt:${band} | ` +
+           `gamesThisSession:${p.gamesThisSession} | ` +
+           `gamesWaited:${p.gamesWaited}`;
+  }).join('\n')}
+
+Return ONLY valid JSON, no markdown, no other text:
+{
+  "suggestions": [{
+    "courtNumber": 1,
+    "label": "Best Match or Closest Available or Stretch Match",
+    "team1": [{"name":"","score":0,"tier":"","gender":""}],
+    "team2": [{"name":"","score":0,"tier":"","gender":""}],
+    "team1Avg": 0,
+    "team2Avg": 0,
+    "skillGap": 0,
+    "team1Spread": 0,
+    "team2Spread": 0,
+    "isMixedLevels": false,
+    "isStretchMatch": false,
+    "reasoning": "one sentence why this is the best split"
+  }]
+}`;
+  }
+
   // Get matchmaking suggestions for display (top 3-5 options)
   app.get("/api/matchmaking/suggestions", requireAuth, async (req, res) => {
     try {
@@ -1343,8 +1430,157 @@ export async function registerRoutes(app: Express): Promise<Server> {
       buildPartnerHistoryFromHistory(session.id, gameParticipants);
 
       const groupByTier = req.query.groupByTier !== 'false';
+      const aiMode = req.query.aiMode === 'true';
 
-      // Generate top 5 matchup options
+      // ── AI mode: try Claude first, silently fall back to local algorithm ──
+      if (aiMode && process.env.ANTHROPIC_API_KEY) {
+        try {
+          // Collect player data for the prompt (queue is string[] of player IDs)
+          const queuePlayerIds = queue as string[];
+          const queuePlayers = allPlayers.filter(p => queuePlayerIds.includes(p.id));
+
+          // Build session average games from rest states
+          const allRestStates = queuePlayers.map(p => getPlayerRestState(session.id, p.id));
+          const totalGames = allRestStates.reduce((sum, rs) => sum + (rs.gamesThisSession || 0), 0);
+          const avgGames = queuePlayers.length > 0 ? totalGames / queuePlayers.length : 0;
+
+          // Get court count (non-occupied courts)
+          const sessionCourts = await storage.getCourtsBySession(session.id);
+          const availableCourts = sessionCourts.filter(c => c.status === 'available').length;
+
+          if (availableCourts < 1) {
+            // No courts available, use local algorithm
+            throw new Error("No available courts for AI mode");
+          }
+
+          const sessionState = {
+            availableCourts,
+            avgGames: Math.round(avgGames * 10) / 10,
+            players: queuePlayers.map(p => {
+              const rs = getPlayerRestState(session.id, p.id);
+              return {
+                name: p.name,
+                score: p.skillScore || 90,
+                tier: p.level || 'lower_intermediate',
+                gender: p.gender || 'male',
+                gamesThisSession: rs.gamesThisSession || 0,
+                gamesWaited: rs.gamesWaited || 0,
+              };
+            }),
+          };
+
+          const aiResponse = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": process.env.ANTHROPIC_API_KEY,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-5",
+              max_tokens: 1500,
+              messages: [{ role: "user", content: buildAIPrompt(sessionState) }],
+            }),
+          });
+
+          if (!aiResponse.ok) {
+            throw new Error(`Anthropic API error: ${aiResponse.status}`);
+          }
+
+          const aiData = await aiResponse.json() as { content: { text: string }[] };
+          const rawText = aiData.content[0].text.replace(/```json|```/g, "").trim();
+          const parsed = JSON.parse(rawText) as {
+            suggestions: {
+              courtNumber: number;
+              label: string;
+              team1: { name: string; score: number; tier: string; gender: string }[];
+              team2: { name: string; score: number; tier: string; gender: string }[];
+              team1Avg: number;
+              team2Avg: number;
+              skillGap: number;
+              team1Spread: number;
+              team2Spread: number;
+              isMixedLevels: boolean;
+              isStretchMatch: boolean;
+              reasoning: string;
+            }[];
+          };
+
+          if (!Array.isArray(parsed.suggestions)) {
+            throw new Error("AI response missing suggestions array");
+          }
+
+          // Fallback: if Claude returns fewer suggestions than available courts
+          if (parsed.suggestions.length < availableCourts) {
+            throw new Error(`AI returned ${parsed.suggestions.length} suggestions for ${availableCourts} courts — falling back`);
+          }
+
+          // Normalise: map player names → IDs from allPlayers (case-insensitive)
+          const playersByNameLower = new Map<string, typeof allPlayers[0]>();
+          for (const p of allPlayers) {
+            playersByNameLower.set(p.name.toLowerCase(), p);
+          }
+
+          const normalised = parsed.suggestions.map(sug => {
+            const resolveTeam = (teamRaw: { name: string; score: number; tier: string; gender: string }[]) =>
+              teamRaw.map(raw => {
+                const found = playersByNameLower.get(raw.name.toLowerCase());
+                if (!found) throw new Error(`Unknown player name from AI: "${raw.name}"`);
+                return found;
+              });
+
+            const team1 = resolveTeam(sug.team1);
+            const team2 = resolveTeam(sug.team2);
+
+            const scores1 = team1.map(p => p.skillScore || 90);
+            const scores2 = team2.map(p => p.skillScore || 90);
+            const avg1 = scores1.reduce((a, b) => a + b, 0) / scores1.length;
+            const avg2 = scores2.reduce((a, b) => a + b, 0) / scores2.length;
+            const spread1 = Math.max(...scores1) - Math.min(...scores1);
+            const spread2 = Math.max(...scores2) - Math.min(...scores2);
+            const gap = Math.abs(avg1 - avg2);
+
+            const allTierIndices = [...team1, ...team2].map(p => getTierIndex(p.skillScore || 90));
+            const tierDispersion = Math.max(...allTierIndices) - Math.min(...allTierIndices);
+
+            return {
+              team1,
+              team2,
+              team1Avg: avg1,
+              team2Avg: avg2,
+              skillGap: gap,
+              variance: 0,
+              tierDispersion,
+              splitPenalty: 0,
+              crossTierPenalty: tierDispersion > 0 ? 1 : 0,
+              withinTeamSpread1: spread1,
+              withinTeamSpread2: spread2,
+              equityRank: 0,
+              isStretchMatch: sug.isStretchMatch,
+              stretchMatchText: sug.isStretchMatch ? sug.reasoning : undefined,
+              isCompromised: false,
+              rank: sug.courtNumber,
+              courtNumber: sug.courtNumber,
+              reasoning: sug.reasoning,
+              fromAI: true,
+            };
+          });
+
+          return res.json({
+            suggestions: normalised,
+            restWarnings: [],
+            loneOutliers: [],
+            stretchMatches: [],
+            queueSize: queue.length,
+            fromAI: true,
+          });
+        } catch (aiError) {
+          console.warn('[AI Suggestions] Falling back to local algorithm:', (aiError as Error).message);
+          // Fall through to local algorithm below
+        }
+      }
+
+      // Generate top 5 matchup options (local algorithm)
       const { allCombinations, restWarnings, loneOutliers, stretchMatches } = generateAllMatchupOptions(
         session.id,
         queue,

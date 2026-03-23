@@ -72,6 +72,9 @@ export interface TeamCombination {
   outlierGamesWaited?: number;// gamesWaited of the lone outlier in this stretch match
   isCompromised?: boolean;    // true if generated under the relaxed 25pt spread limit
   rank: number;
+  courtNumber?: number;       // court number assigned by AI mode (1-based)
+  reasoning?: string;         // AI-generated explanation for this suggestion
+  fromAI?: boolean;           // true if this suggestion came from the Claude AI
 }
 
 /**
