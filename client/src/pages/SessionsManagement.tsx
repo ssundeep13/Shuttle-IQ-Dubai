@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation } from 'wouter';
 import { format } from 'date-fns';
@@ -1373,7 +1374,7 @@ function PlayerRegistrySubTab({ players }: { players: Player[] }) {
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
                       <span>{player.gender === 'Male' ? 'M' : 'F'}</span>
-                      <span>{player.level}</span>
+                      <span>{getTierDisplayName(player.level)}</span>
                       <span>{player.gamesPlayed} games</span>
                       <span>{player.wins} wins</span>
                       <LastActiveIndicator lastPlayedAt={player.lastPlayedAt ?? null} />
@@ -1556,7 +1557,7 @@ function MarketplaceUsersSubTab() {
                           <div key={player.id} className="flex items-center justify-between p-2 rounded-md hover-elevate">
                             <div>
                               <span className="font-medium text-sm">{player.name}</span>
-                              <span className="text-xs text-muted-foreground ml-2">{player.shuttleIqId} - {player.level}</span>
+                              <span className="text-xs text-muted-foreground ml-2">{player.shuttleIqId} - {getTierDisplayName(player.level)}</span>
                             </div>
                             <Button
                               size="sm"

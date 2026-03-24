@@ -354,7 +354,7 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
                   <p className="text-sm font-medium truncate" data-testid={`text-player-name-${idx}`}>{player.name}</p>
                   {player.level ? (
                     <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded capitalize mt-0.5 ${levelColor}`}>
-                      {player.level}
+                      {getTierDisplayName(player.level)}
                     </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">Player</span>
