@@ -881,8 +881,9 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
       toast({ title: 'Spot confirmed', description: 'Player has been moved from waitlist to confirmed.' });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', linkedBookable?.id, 'bookings'] });
     },
-    onError: (err: any) => {
-      const msg = err?.error === 'session_full'
+    onError: (err: unknown) => {
+      const isSessionFull = typeof err === 'object' && err !== null && (err as { error?: string }).error === 'session_full';
+      const msg = isSessionFull
         ? 'Session is still full — cancel another booking first.'
         : 'Failed to confirm spot';
       toast({ title: msg, variant: 'destructive' });
