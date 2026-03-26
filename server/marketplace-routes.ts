@@ -1436,6 +1436,62 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Admin: manually promote a waitlisted booking when capacity opens up
+  app.post("/api/marketplace/bookings/:id/admin-promote", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.status !== 'waitlisted') {
+        return res.status(400).json({ error: "Booking is not waitlisted" });
+      }
+
+      const bookableSession = await storage.getBookableSession(booking.sessionId);
+      if (!bookableSession) return res.status(404).json({ error: "Session not found" });
+
+      // Check capacity: count confirmed/attended/pending_payment spots
+      const currentCount = await storage.getBookingCountForSession(booking.sessionId);
+      const spotsNeeded = booking.spotsBooked ?? 1;
+      if (currentCount + spotsNeeded > bookableSession.capacity) {
+        return res.status(409).json({ error: "session_full", message: "Session is still full — cancel another booking first." });
+      }
+
+      // Promote the booking
+      await storage.updateBooking(booking.id, {
+        status: 'confirmed',
+        waitlistPosition: null,
+        promotedAt: new Date(),
+      });
+
+      // Confirm all pending guest slots
+      const slots = await storage.getBookingGuests(booking.id);
+      for (const slot of slots) {
+        if (slot.status !== 'confirmed') {
+          await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
+        }
+      }
+
+      // Re-number remaining waitlisted bookings for this session
+      const stillWaitlisted = await storage.getWaitlistedBookingsForSession(booking.sessionId);
+      for (let i = 0; i < stillWaitlisted.length; i++) {
+        await storage.updateBooking(stillWaitlisted[i].id, { waitlistPosition: i + 1 });
+      }
+
+      // Send confirmation email (fire-and-forget)
+      try {
+        const user = await storage.getMarketplaceUser(booking.userId);
+        if (user) {
+          sendBookingConfirmationEmail(user.email, user.name, bookableSession, booking.paymentMethod as 'ziina' | 'cash', booking.amountAed).catch(() => {});
+        }
+      } catch (emailErr) { console.error('[Email] admin-promote email failed:', emailErr); }
+
+      const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+      res.json({ confirmed: true, booking: bookingWithDetails });
+    } catch (error: any) {
+      console.error('Admin promote error:', error);
+      res.status(500).json({ error: "Failed to promote booking" });
+    }
+  });
+
   // Public (authenticated players): get confirmed player list for a session
   app.get("/api/marketplace/sessions/:id/players", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {

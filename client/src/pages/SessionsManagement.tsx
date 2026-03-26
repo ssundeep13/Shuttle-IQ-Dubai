@@ -867,6 +867,28 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     onError: () => toast({ title: 'Failed to confirm booking', variant: 'destructive' }),
   });
 
+  const adminPromoteMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      const res = await fetch(`/api/marketplace/bookings/${bookingId}/admin-promote`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw data;
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: 'Spot confirmed', description: 'Player has been moved from waitlist to confirmed.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', linkedBookable?.id, 'bookings'] });
+    },
+    onError: (err: any) => {
+      const msg = err?.error === 'session_full'
+        ? 'Session is still full — cancel another booking first.'
+        : 'Failed to confirm spot';
+      toast({ title: msg, variant: 'destructive' });
+    },
+  });
+
   const { data: allPlayers = [] } = useQuery<Player[]>({ queryKey: ['/api/players'] });
   const playerSiqMap = Object.fromEntries(
     allPlayers.filter(p => p.shuttleIqId).map(p => [p.id, p.shuttleIqId!])
@@ -1161,7 +1183,19 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                                 #{b.waitlistPosition}
                               </Badge>
                             </div>
-                            <p className="text-xs text-muted-foreground mt-1.5">No payment — waiting for a spot to open</p>
+                            <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                              <p className="text-xs text-muted-foreground">No payment — waiting for a spot to open</p>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1 border-green-500/40 text-green-700 dark:text-green-400"
+                                onClick={() => adminPromoteMutation.mutate(b.id)}
+                                disabled={adminPromoteMutation.isPending}
+                                data-testid={`button-promote-waitlist-${b.id}`}
+                              >
+                                <CheckCircle className="h-3 w-3" /> Confirm Spot
+                              </Button>
+                            </div>
                           </CardContent>
                         </Card>
                       ))}
