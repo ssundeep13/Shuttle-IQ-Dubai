@@ -1462,10 +1462,10 @@ export function registerMarketplaceRoutes(app: Express) {
         promotedAt: new Date(),
       });
 
-      // Confirm all pending guest slots
+      // Confirm all pending guest slots (leave cancelled slots untouched)
       const slots = await storage.getBookingGuests(booking.id);
       for (const slot of slots) {
-        if (slot.status !== 'confirmed') {
+        if (slot.status === 'pending') {
           await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
         }
       }
