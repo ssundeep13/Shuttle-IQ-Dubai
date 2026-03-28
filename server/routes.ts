@@ -2444,55 +2444,37 @@ Return ONLY valid JSON, no markdown, no other text:
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      // Get all non-sandbox games from the last 30 days
-      const recentGames = await db
-        .select()
-        .from(gameResults)
-        .where(sql`${gameResults.createdAt} >= ${thirtyDaysAgo} AND ${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`);
-
-      if (recentGames.length === 0) {
-        return res.json([]);
-      }
-
-      const gameIds = recentGames.map(g => g.id);
-      const participants = await db
-        .select()
-        .from(gameParticipants)
-        .where(sql`${gameParticipants.gameId} IN (${sql.join(gameIds.map(id => sql`${id}`), sql`, `)})`);
-
-      // Calculate net score gain per player
-      const gainMap = new Map<string, { gain: number; games: number }>();
-      for (const p of participants) {
-        const delta = (p.skillScoreAfter ?? p.skillScoreBefore) - p.skillScoreBefore;
-        const existing = gainMap.get(p.playerId) ?? { gain: 0, games: 0 };
-        gainMap.set(p.playerId, { gain: existing.gain + delta, games: existing.games + 1 });
-      }
-
-      if (gainMap.size === 0) {
-        return res.json([]);
-      }
-
-      const allPlayers = await storage.getAllPlayers();
-      const result = allPlayers
-        .filter(p => gainMap.has(p.id))
-        .map(p => {
-          const stats = gainMap.get(p.id)!;
-          return {
-            id: p.id,
-            name: p.name,
-            level: p.level,
-            skillScore: p.skillScore,
-            shuttleIqId: p.shuttleIqId,
-            gender: p.gender,
-            wins: p.wins,
-            gamesPlayed: p.gamesPlayed,
-            scoreGain: stats.gain,
-            gamesInWindow: stats.games,
-          };
+      // Single grouped join: participants → games (30 days, non-sandbox) → players
+      const rows = await db
+        .select({
+          id: players.id,
+          name: players.name,
+          level: players.level,
+          skillScore: players.skillScore,
+          shuttleIqId: players.shuttleIqId,
+          gender: players.gender,
+          wins: players.wins,
+          gamesPlayed: players.gamesPlayed,
+          scoreGain: sql<number>`SUM(${gameParticipants.skillScoreAfter} - ${gameParticipants.skillScoreBefore})`.as('score_gain'),
+          gamesInWindow: sql<number>`COUNT(*)`.as('games_in_window'),
         })
-        .sort((a, b) => b.scoreGain - a.scoreGain);
+        .from(gameParticipants)
+        .innerJoin(gameResults, eq(gameParticipants.gameId, gameResults.id))
+        .innerJoin(sessions, eq(gameResults.sessionId, sessions.id))
+        .innerJoin(players, eq(gameParticipants.playerId, players.id))
+        .where(
+          and(
+            sql`${gameResults.createdAt} >= ${thirtyDaysAgo}`,
+            sql`${sessions.isSandbox} = false`
+          )
+        )
+        .groupBy(
+          players.id, players.name, players.level, players.skillScore,
+          players.shuttleIqId, players.gender, players.wins, players.gamesPlayed
+        )
+        .orderBy(desc(sql`score_gain`));
 
-      res.json(result);
+      res.json(rows);
     } catch (error) {
       console.error('[STATS-MOST-IMPROVED] Error:', error);
       res.status(500).json({ error: "Failed to fetch most improved stats" });
