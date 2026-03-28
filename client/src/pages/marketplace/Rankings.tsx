@@ -36,8 +36,10 @@ interface MostImprovedPlayer {
   gamesInWindow: number;
 }
 
+type PlayerEntry = Player | PlayerWithWeekStats | PlayerWithMonthStats;
+
 interface RankedEntry {
-  player: Player | MostImprovedPlayer;
+  player: PlayerEntry | MostImprovedPlayer;
   primaryStat: number;
   primaryLabel: string;
   secondaryLine: string;
@@ -82,6 +84,10 @@ const sortModes: { value: SortMode; label: string; icon: typeof Trophy }[] = [
   { value: 'most-improved', label: 'Most Improved', icon: TrendingUp },
 ];
 
+function winPct(wins: number, games: number): number {
+  return games > 0 ? Math.round((wins / games) * 100) : 0;
+}
+
 export default function Rankings() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all-time');
   const [sortMode, setSortMode] = useState<SortMode>('rank');
@@ -122,74 +128,80 @@ export default function Rankings() {
 
   if (isMostImproved && mostImprovedData) {
     ranked = mostImprovedData.map(p => ({
-      player: p as unknown as Player,
+      player: p,
       primaryStat: p.scoreGain,
       primaryLabel: p.scoreGain === 1 ? 'pt gained' : 'pts gained',
       secondaryLine: `${p.gamesInWindow} ${p.gamesInWindow === 1 ? 'game' : 'games'} in last 30 days`,
     }));
   } else if (!isMostImproved) {
-    let sourcePlayers: Player[] | PlayerWithWeekStats[] | PlayerWithMonthStats[] | undefined;
-
-    if (timeFilter === 'all-time') sourcePlayers = allTimePlayers;
-    else if (timeFilter === 'this-month') sourcePlayers = monthPlayers;
-    else sourcePlayers = weekPlayers;
-
-    if (sourcePlayers) {
-      if (sortMode === 'win-pct') {
-        const filtered = (sourcePlayers as Player[]).filter(p => {
-          if (timeFilter === 'this-month') return (p as PlayerWithMonthStats).gamesPlayedInMonth > 0;
-          if (timeFilter === 'this-week') return (p as PlayerWithWeekStats).gamesPlayedThisWeek > 0;
-          return p.gamesPlayed > 0;
-        });
-
-        ranked = filtered
-          .map(p => {
-            let w = p.wins, g = p.gamesPlayed;
-            if (timeFilter === 'this-month') { w = (p as PlayerWithMonthStats).winsInMonth; g = (p as PlayerWithMonthStats).gamesPlayedInMonth; }
-            if (timeFilter === 'this-week') { w = (p as PlayerWithWeekStats).winsThisWeek; g = (p as PlayerWithWeekStats).gamesPlayedThisWeek; }
-            const pct = g > 0 ? Math.round((w / g) * 100) : 0;
-            return { player: p, pct, wins: w, losses: g - w, games: g };
-          })
-          .sort((a, b) => b.pct - a.pct || b.games - a.games)
-          .map(({ player, pct, wins, losses, games }) => ({
+    if (sortMode === 'rank') {
+      // Always sort by skill score DESC across all time periods
+      if (timeFilter === 'all-time' && allTimePlayers) {
+        ranked = allTimePlayers
+          .filter(p => p.gamesPlayed > 0)
+          .sort((a, b) => b.skillScore - a.skillScore)
+          .map(p => ({
+            player: p,
+            primaryStat: p.skillScore,
+            primaryLabel: 'skill score',
+            secondaryLine: `${p.wins}W / ${p.gamesPlayed - p.wins}L · ${winPct(p.wins, p.gamesPlayed)}% win rate`,
+          }));
+      } else if (timeFilter === 'this-month' && monthPlayers) {
+        ranked = monthPlayers
+          .filter(p => p.gamesPlayedInMonth > 0)
+          .sort((a, b) => b.skillScore - a.skillScore)
+          .map(p => ({
+            player: p,
+            primaryStat: p.skillScore,
+            primaryLabel: 'skill score',
+            secondaryLine: `${p.gamesPlayedInMonth} games this month · ${p.winsInMonth}W`,
+          }));
+      } else if (timeFilter === 'this-week' && weekPlayers) {
+        ranked = weekPlayers
+          .filter(p => p.gamesPlayedThisWeek > 0)
+          .sort((a, b) => b.skillScore - a.skillScore)
+          .map(p => ({
+            player: p,
+            primaryStat: p.skillScore,
+            primaryLabel: 'skill score',
+            secondaryLine: `${p.gamesPlayedThisWeek} games this week · ${p.winsThisWeek}W`,
+          }));
+      }
+    } else {
+      // win-pct mode — sort by win percentage for the selected time period
+      if (timeFilter === 'all-time' && allTimePlayers) {
+        ranked = allTimePlayers
+          .filter(p => p.gamesPlayed > 0)
+          .map(p => ({ player: p, pct: winPct(p.wins, p.gamesPlayed) }))
+          .sort((a, b) => b.pct - a.pct || b.player.gamesPlayed - a.player.gamesPlayed)
+          .map(({ player, pct }) => ({
             player,
             primaryStat: pct,
             primaryLabel: 'win %',
-            secondaryLine: `${wins}W / ${losses}L (${games} games)`,
+            secondaryLine: `${player.wins}W / ${player.gamesPlayed - player.wins}L (${player.gamesPlayed} games)`,
           }));
-      } else {
-        // rank mode — sort by skill score (all-time), or wins this period
-        if (timeFilter === 'all-time') {
-          ranked = (sourcePlayers as Player[])
-            .filter(p => p.gamesPlayed > 0)
-            .sort((a, b) => b.skillScore - a.skillScore)
-            .map(p => ({
-              player: p,
-              primaryStat: p.skillScore,
-              primaryLabel: 'skill score',
-              secondaryLine: `${p.wins}W / ${p.gamesPlayed - p.wins}L (${p.gamesPlayed > 0 ? Math.round((p.wins / p.gamesPlayed) * 100) : 0}%)`,
-            }));
-        } else if (timeFilter === 'this-month') {
-          ranked = (sourcePlayers as PlayerWithMonthStats[])
-            .filter(p => p.gamesPlayedInMonth > 0)
-            .sort((a, b) => b.winsInMonth - a.winsInMonth || b.gamesPlayedInMonth - a.gamesPlayedInMonth)
-            .map(p => ({
-              player: p,
-              primaryStat: p.winsInMonth,
-              primaryLabel: p.winsInMonth === 1 ? 'win' : 'wins',
-              secondaryLine: `${p.gamesPlayedInMonth} games (${p.gamesPlayedInMonth > 0 ? Math.round((p.winsInMonth / p.gamesPlayedInMonth) * 100) : 0}%)`,
-            }));
-        } else {
-          ranked = (sourcePlayers as PlayerWithWeekStats[])
-            .filter(p => p.gamesPlayedThisWeek > 0)
-            .sort((a, b) => b.winsThisWeek - a.winsThisWeek || b.gamesPlayedThisWeek - a.gamesPlayedThisWeek)
-            .map(p => ({
-              player: p,
-              primaryStat: p.winsThisWeek,
-              primaryLabel: p.winsThisWeek === 1 ? 'win' : 'wins',
-              secondaryLine: `${p.gamesPlayedThisWeek} games (${p.gamesPlayedThisWeek > 0 ? Math.round((p.winsThisWeek / p.gamesPlayedThisWeek) * 100) : 0}%)`,
-            }));
-        }
+      } else if (timeFilter === 'this-month' && monthPlayers) {
+        ranked = monthPlayers
+          .filter(p => p.gamesPlayedInMonth > 0)
+          .map(p => ({ player: p, pct: winPct(p.winsInMonth, p.gamesPlayedInMonth) }))
+          .sort((a, b) => b.pct - a.pct || b.player.gamesPlayedInMonth - a.player.gamesPlayedInMonth)
+          .map(({ player, pct }) => ({
+            player,
+            primaryStat: pct,
+            primaryLabel: 'win %',
+            secondaryLine: `${player.winsInMonth}W / ${player.gamesPlayedInMonth - player.winsInMonth}L (${player.gamesPlayedInMonth} games)`,
+          }));
+      } else if (timeFilter === 'this-week' && weekPlayers) {
+        ranked = weekPlayers
+          .filter(p => p.gamesPlayedThisWeek > 0)
+          .map(p => ({ player: p, pct: winPct(p.winsThisWeek, p.gamesPlayedThisWeek) }))
+          .sort((a, b) => b.pct - a.pct || b.player.gamesPlayedThisWeek - a.player.gamesPlayedThisWeek)
+          .map(({ player, pct }) => ({
+            player,
+            primaryStat: pct,
+            primaryLabel: 'win %',
+            secondaryLine: `${player.winsThisWeek}W / ${player.gamesPlayedThisWeek - player.winsThisWeek}L (${player.gamesPlayedThisWeek} games)`,
+          }));
       }
     }
   }
@@ -218,7 +230,7 @@ export default function Rankings() {
         </motion.div>
 
         <motion.div variants={fadeInUp} className="space-y-2 mb-6">
-          <div className={`flex items-center gap-2 flex-wrap transition-opacity ${isMostImproved ? 'opacity-40 pointer-events-none' : ''}`}>
+          <div className={`flex items-center gap-2 flex-wrap transition-opacity ${isMostImproved ? 'opacity-40 pointer-events-none select-none' : ''}`}>
             {timeFilters.map(f => {
               const Icon = f.icon;
               const isActive = timeFilter === f.value;
@@ -241,7 +253,7 @@ export default function Rankings() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Sort by</span>
+            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide mr-1">Sort by</span>
             {sortModes.map(m => {
               const Icon = m.icon;
               const isActive = sortMode === m.value;
@@ -290,7 +302,8 @@ export default function Rankings() {
                       if (!entry) return <div key={podiumIdx} />;
                       const colors = podiumColors[podiumIdx];
                       const rank = podiumIdx + 1;
-                      const statDisplay = sortMode === 'most-improved' && entry.primaryStat > 0
+                      const isMI = sortMode === 'most-improved';
+                      const statDisplay = isMI && entry.primaryStat > 0
                         ? `+${entry.primaryStat}`
                         : `${entry.primaryStat}`;
                       return (
@@ -332,7 +345,8 @@ export default function Rankings() {
                     <CardContent className="p-0">
                       <div className="divide-y">
                         {rest.map((entry, index) => {
-                          const statDisplay = sortMode === 'most-improved' && entry.primaryStat > 0
+                          const isMI = sortMode === 'most-improved';
+                          const statDisplay = isMI && entry.primaryStat > 0
                             ? `+${entry.primaryStat}`
                             : `${entry.primaryStat}`;
                           return (
