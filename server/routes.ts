@@ -2438,6 +2438,67 @@ Return ONLY valid JSON, no markdown, no other text:
     }
   });
 
+  // Most improved players in last 30 days (by net skill score gain)
+  app.get("/api/stats/most-improved", async (req, res) => {
+    try {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Get all non-sandbox games from the last 30 days
+      const recentGames = await db
+        .select()
+        .from(gameResults)
+        .where(sql`${gameResults.createdAt} >= ${thirtyDaysAgo} AND ${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`);
+
+      if (recentGames.length === 0) {
+        return res.json([]);
+      }
+
+      const gameIds = recentGames.map(g => g.id);
+      const participants = await db
+        .select()
+        .from(gameParticipants)
+        .where(sql`${gameParticipants.gameId} IN (${sql.join(gameIds.map(id => sql`${id}`), sql`, `)})`);
+
+      // Calculate net score gain per player
+      const gainMap = new Map<string, { gain: number; games: number }>();
+      for (const p of participants) {
+        const delta = (p.skillScoreAfter ?? p.skillScoreBefore) - p.skillScoreBefore;
+        const existing = gainMap.get(p.playerId) ?? { gain: 0, games: 0 };
+        gainMap.set(p.playerId, { gain: existing.gain + delta, games: existing.games + 1 });
+      }
+
+      if (gainMap.size === 0) {
+        return res.json([]);
+      }
+
+      const allPlayers = await storage.getAllPlayers();
+      const result = allPlayers
+        .filter(p => gainMap.has(p.id))
+        .map(p => {
+          const stats = gainMap.get(p.id)!;
+          return {
+            id: p.id,
+            name: p.name,
+            level: p.level,
+            skillScore: p.skillScore,
+            shuttleIqId: p.shuttleIqId,
+            gender: p.gender,
+            wins: p.wins,
+            gamesPlayed: p.gamesPlayed,
+            scoreGain: stats.gain,
+            gamesInWindow: stats.games,
+          };
+        })
+        .sort((a, b) => b.scoreGain - a.scoreGain);
+
+      res.json(result);
+    } catch (error) {
+      console.error('[STATS-MOST-IMPROVED] Error:', error);
+      res.status(500).json({ error: "Failed to fetch most improved stats" });
+    }
+  });
+
   // Reset all games endpoint
   app.delete("/api/game-history", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {

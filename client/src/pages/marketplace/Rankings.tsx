@@ -5,12 +5,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Trophy, Medal, Calendar, CalendarDays, CalendarRange } from 'lucide-react';
+import { Trophy, Medal, Calendar, CalendarDays, CalendarRange, Percent, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Player } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 
 type TimeFilter = 'all-time' | 'this-month' | 'this-week';
+type SortMode = 'rank' | 'win-pct' | 'most-improved';
 
 interface PlayerWithWeekStats extends Player {
   gamesPlayedThisWeek: number;
@@ -22,8 +23,21 @@ interface PlayerWithMonthStats extends Player {
   winsInMonth: number;
 }
 
+interface MostImprovedPlayer {
+  id: string;
+  name: string;
+  level: string;
+  skillScore: number;
+  shuttleIqId: string | null;
+  gender: string | null;
+  wins: number;
+  gamesPlayed: number;
+  scoreGain: number;
+  gamesInWindow: number;
+}
+
 interface RankedEntry {
-  player: Player;
+  player: Player | MostImprovedPlayer;
   primaryStat: number;
   primaryLabel: string;
   secondaryLine: string;
@@ -56,81 +70,142 @@ const podiumColors = [
   { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-600 dark:text-amber-400', medal: 'text-amber-600 dark:text-amber-400' },
 ];
 
-const filters: { value: TimeFilter; label: string; icon: typeof Trophy }[] = [
+const timeFilters: { value: TimeFilter; label: string; icon: typeof Trophy }[] = [
   { value: 'all-time', label: 'All Time', icon: Calendar },
   { value: 'this-month', label: 'This Month', icon: CalendarDays },
   { value: 'this-week', label: 'This Week', icon: CalendarRange },
 ];
 
+const sortModes: { value: SortMode; label: string; icon: typeof Trophy }[] = [
+  { value: 'rank', label: 'Rank', icon: Trophy },
+  { value: 'win-pct', label: 'Win %', icon: Percent },
+  { value: 'most-improved', label: 'Most Improved', icon: TrendingUp },
+];
+
 export default function Rankings() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all-time');
+  const [sortMode, setSortMode] = useState<SortMode>('rank');
 
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
 
+  const isMostImproved = sortMode === 'most-improved';
+
   const { data: allTimePlayers, isLoading: loadingAllTime } = useQuery<Player[]>({
     queryKey: ['/api/players'],
-    enabled: timeFilter === 'all-time',
+    enabled: !isMostImproved && timeFilter === 'all-time',
   });
 
   const { data: monthPlayers, isLoading: loadingMonth } = useQuery<PlayerWithMonthStats[]>({
     queryKey: ['/api/stats/month', currentYear, currentMonth],
-    enabled: timeFilter === 'this-month',
+    enabled: !isMostImproved && timeFilter === 'this-month',
   });
 
   const { data: weekPlayers, isLoading: loadingWeek } = useQuery<PlayerWithWeekStats[]>({
     queryKey: ['/api/stats/week'],
-    enabled: timeFilter === 'this-week',
+    enabled: !isMostImproved && timeFilter === 'this-week',
   });
 
-  const isLoading =
-    (timeFilter === 'all-time' && loadingAllTime) ||
-    (timeFilter === 'this-month' && loadingMonth) ||
-    (timeFilter === 'this-week' && loadingWeek);
+  const { data: mostImprovedData, isLoading: loadingImproved } = useQuery<MostImprovedPlayer[]>({
+    queryKey: ['/api/stats/most-improved'],
+    enabled: isMostImproved,
+  });
+
+  const isLoading = isMostImproved
+    ? loadingImproved
+    : (timeFilter === 'all-time' && loadingAllTime) ||
+      (timeFilter === 'this-month' && loadingMonth) ||
+      (timeFilter === 'this-week' && loadingWeek);
 
   let ranked: RankedEntry[] = [];
 
-  if (timeFilter === 'all-time' && allTimePlayers) {
-    ranked = allTimePlayers
-      .filter(p => p.gamesPlayed > 0)
-      .sort((a, b) => b.skillScore - a.skillScore)
-      .map(p => ({
-        player: p,
-        primaryStat: p.skillScore,
-        primaryLabel: 'skill score',
-        secondaryLine: `${p.wins}W / ${p.gamesPlayed - p.wins}L (${p.gamesPlayed > 0 ? Math.round((p.wins / p.gamesPlayed) * 100) : 0}%)`,
-      }));
-  } else if (timeFilter === 'this-month' && monthPlayers) {
-    ranked = monthPlayers
-      .filter(p => p.gamesPlayedInMonth > 0)
-      .sort((a, b) => b.winsInMonth - a.winsInMonth || b.gamesPlayedInMonth - a.gamesPlayedInMonth)
-      .map(p => ({
-        player: p,
-        primaryStat: p.winsInMonth,
-        primaryLabel: p.winsInMonth === 1 ? 'win' : 'wins',
-        secondaryLine: `${p.gamesPlayedInMonth} games (${p.gamesPlayedInMonth > 0 ? Math.round((p.winsInMonth / p.gamesPlayedInMonth) * 100) : 0}%)`,
-      }));
-  } else if (timeFilter === 'this-week' && weekPlayers) {
-    ranked = weekPlayers
-      .filter(p => p.gamesPlayedThisWeek > 0)
-      .sort((a, b) => b.winsThisWeek - a.winsThisWeek || b.gamesPlayedThisWeek - a.gamesPlayedThisWeek)
-      .map(p => ({
-        player: p,
-        primaryStat: p.winsThisWeek,
-        primaryLabel: p.winsThisWeek === 1 ? 'win' : 'wins',
-        secondaryLine: `${p.gamesPlayedThisWeek} games (${p.gamesPlayedThisWeek > 0 ? Math.round((p.winsThisWeek / p.gamesPlayedThisWeek) * 100) : 0}%)`,
-      }));
+  if (isMostImproved && mostImprovedData) {
+    ranked = mostImprovedData.map(p => ({
+      player: p as unknown as Player,
+      primaryStat: p.scoreGain,
+      primaryLabel: p.scoreGain === 1 ? 'pt gained' : 'pts gained',
+      secondaryLine: `${p.gamesInWindow} ${p.gamesInWindow === 1 ? 'game' : 'games'} in last 30 days`,
+    }));
+  } else if (!isMostImproved) {
+    let sourcePlayers: Player[] | PlayerWithWeekStats[] | PlayerWithMonthStats[] | undefined;
+
+    if (timeFilter === 'all-time') sourcePlayers = allTimePlayers;
+    else if (timeFilter === 'this-month') sourcePlayers = monthPlayers;
+    else sourcePlayers = weekPlayers;
+
+    if (sourcePlayers) {
+      if (sortMode === 'win-pct') {
+        const filtered = (sourcePlayers as Player[]).filter(p => {
+          if (timeFilter === 'this-month') return (p as PlayerWithMonthStats).gamesPlayedInMonth > 0;
+          if (timeFilter === 'this-week') return (p as PlayerWithWeekStats).gamesPlayedThisWeek > 0;
+          return p.gamesPlayed > 0;
+        });
+
+        ranked = filtered
+          .map(p => {
+            let w = p.wins, g = p.gamesPlayed;
+            if (timeFilter === 'this-month') { w = (p as PlayerWithMonthStats).winsInMonth; g = (p as PlayerWithMonthStats).gamesPlayedInMonth; }
+            if (timeFilter === 'this-week') { w = (p as PlayerWithWeekStats).winsThisWeek; g = (p as PlayerWithWeekStats).gamesPlayedThisWeek; }
+            const pct = g > 0 ? Math.round((w / g) * 100) : 0;
+            return { player: p, pct, wins: w, losses: g - w, games: g };
+          })
+          .sort((a, b) => b.pct - a.pct || b.games - a.games)
+          .map(({ player, pct, wins, losses, games }) => ({
+            player,
+            primaryStat: pct,
+            primaryLabel: 'win %',
+            secondaryLine: `${wins}W / ${losses}L (${games} games)`,
+          }));
+      } else {
+        // rank mode — sort by skill score (all-time), or wins this period
+        if (timeFilter === 'all-time') {
+          ranked = (sourcePlayers as Player[])
+            .filter(p => p.gamesPlayed > 0)
+            .sort((a, b) => b.skillScore - a.skillScore)
+            .map(p => ({
+              player: p,
+              primaryStat: p.skillScore,
+              primaryLabel: 'skill score',
+              secondaryLine: `${p.wins}W / ${p.gamesPlayed - p.wins}L (${p.gamesPlayed > 0 ? Math.round((p.wins / p.gamesPlayed) * 100) : 0}%)`,
+            }));
+        } else if (timeFilter === 'this-month') {
+          ranked = (sourcePlayers as PlayerWithMonthStats[])
+            .filter(p => p.gamesPlayedInMonth > 0)
+            .sort((a, b) => b.winsInMonth - a.winsInMonth || b.gamesPlayedInMonth - a.gamesPlayedInMonth)
+            .map(p => ({
+              player: p,
+              primaryStat: p.winsInMonth,
+              primaryLabel: p.winsInMonth === 1 ? 'win' : 'wins',
+              secondaryLine: `${p.gamesPlayedInMonth} games (${p.gamesPlayedInMonth > 0 ? Math.round((p.winsInMonth / p.gamesPlayedInMonth) * 100) : 0}%)`,
+            }));
+        } else {
+          ranked = (sourcePlayers as PlayerWithWeekStats[])
+            .filter(p => p.gamesPlayedThisWeek > 0)
+            .sort((a, b) => b.winsThisWeek - a.winsThisWeek || b.gamesPlayedThisWeek - a.gamesPlayedThisWeek)
+            .map(p => ({
+              player: p,
+              primaryStat: p.winsThisWeek,
+              primaryLabel: p.winsThisWeek === 1 ? 'win' : 'wins',
+              secondaryLine: `${p.gamesPlayedThisWeek} games (${p.gamesPlayedThisWeek > 0 ? Math.round((p.winsThisWeek / p.gamesPlayedThisWeek) * 100) : 0}%)`,
+            }));
+        }
+      }
+    }
   }
 
   const topThree = ranked.slice(0, 3);
   const rest = ranked.slice(3);
 
-  const emptyLabel = timeFilter === 'all-time'
+  const emptyLabel = isMostImproved
+    ? 'No games recorded in the last 30 days.'
+    : timeFilter === 'all-time'
     ? 'Players need to complete games to appear here.'
     : timeFilter === 'this-month'
     ? 'No games recorded this month yet.'
     : 'No games recorded this week yet.';
+
+  const animationKey = `${timeFilter}-${sortMode}`;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -142,28 +217,53 @@ export default function Rankings() {
           <p className="text-muted-foreground mt-1">Global ShuttleIQ player leaderboard</p>
         </motion.div>
 
-        <motion.div variants={fadeInUp} className="flex items-center gap-2 mb-6 flex-wrap">
-          {filters.map(f => {
-            const Icon = f.icon;
-            const isActive = timeFilter === f.value;
-            return (
-              <Button
-                key={f.value}
-                variant={isActive ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setTimeFilter(f.value)}
-                data-testid={`filter-${f.value}`}
-              >
-                <Icon className="h-3.5 w-3.5 mr-1.5" />
-                {f.label}
-              </Button>
-            );
-          })}
+        <motion.div variants={fadeInUp} className="space-y-2 mb-6">
+          <div className={`flex items-center gap-2 flex-wrap transition-opacity ${isMostImproved ? 'opacity-40 pointer-events-none' : ''}`}>
+            {timeFilters.map(f => {
+              const Icon = f.icon;
+              const isActive = timeFilter === f.value;
+              return (
+                <Button
+                  key={f.value}
+                  variant={isActive ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setTimeFilter(f.value)}
+                  data-testid={`filter-${f.value}`}
+                >
+                  <Icon className="h-3.5 w-3.5 mr-1.5" />
+                  {f.label}
+                </Button>
+              );
+            })}
+            {isMostImproved && (
+              <span className="text-xs text-muted-foreground ml-1">Last 30 days</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Sort by</span>
+            {sortModes.map(m => {
+              const Icon = m.icon;
+              const isActive = sortMode === m.value;
+              return (
+                <Button
+                  key={m.value}
+                  variant={isActive ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSortMode(m.value)}
+                  data-testid={`sort-${m.value}`}
+                >
+                  <Icon className="h-3.5 w-3.5 mr-1.5" />
+                  {m.label}
+                </Button>
+              );
+            })}
+          </div>
         </motion.div>
 
         <AnimatePresence mode="wait">
           <motion.div
-            key={timeFilter}
+            key={animationKey}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
@@ -190,6 +290,9 @@ export default function Rankings() {
                       if (!entry) return <div key={podiumIdx} />;
                       const colors = podiumColors[podiumIdx];
                       const rank = podiumIdx + 1;
+                      const statDisplay = sortMode === 'most-improved' && entry.primaryStat > 0
+                        ? `+${entry.primaryStat}`
+                        : `${entry.primaryStat}`;
                       return (
                         <motion.div key={entry.player.id} variants={fadeInUp}>
                           <Link href={`/marketplace/players/${entry.player.id}`}>
@@ -206,7 +309,7 @@ export default function Rankings() {
                                   {entry.player.name}
                                 </p>
                                 <p className="text-2xl font-extrabold mt-1" data-testid={`text-player-score-${entry.player.id}`}>
-                                  {entry.primaryStat}
+                                  {statDisplay}
                                 </p>
                                 <p className="text-[10px] text-muted-foreground -mt-0.5">{entry.primaryLabel}</p>
                                 <Badge variant="outline" className={`text-xs mt-2 ${levelColor(entry.player.level)}`}>
@@ -228,36 +331,41 @@ export default function Rankings() {
                   <Card>
                     <CardContent className="p-0">
                       <div className="divide-y">
-                        {rest.map((entry, index) => (
-                          <Link key={entry.player.id} href={`/marketplace/players/${entry.player.id}`}>
-                            <motion.div
-                              variants={fadeInUp}
-                              className="flex items-center gap-3 px-4 py-3 hover-elevate cursor-pointer"
-                              data-testid={`row-player-${entry.player.id}`}
-                            >
-                              <div className="w-8 text-center shrink-0">
-                                <span className="text-sm text-muted-foreground font-medium">{index + 4}</span>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium truncate" data-testid={`text-player-name-${entry.player.id}`}>
-                                  {entry.player.name}
+                        {rest.map((entry, index) => {
+                          const statDisplay = sortMode === 'most-improved' && entry.primaryStat > 0
+                            ? `+${entry.primaryStat}`
+                            : `${entry.primaryStat}`;
+                          return (
+                            <Link key={entry.player.id} href={`/marketplace/players/${entry.player.id}`}>
+                              <motion.div
+                                variants={fadeInUp}
+                                className="flex items-center gap-3 px-4 py-3 hover-elevate cursor-pointer"
+                                data-testid={`row-player-${entry.player.id}`}
+                              >
+                                <div className="w-8 text-center shrink-0">
+                                  <span className="text-sm text-muted-foreground font-medium">{index + 4}</span>
                                 </div>
-                                <div className="text-xs text-muted-foreground">{entry.player.shuttleIqId}</div>
-                              </div>
-                              <div className="text-right shrink-0 space-y-1">
-                                <div className="font-semibold" data-testid={`text-player-score-${entry.player.id}`}>
-                                  {entry.primaryStat} <span className="text-xs font-normal text-muted-foreground">{entry.primaryLabel}</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium truncate" data-testid={`text-player-name-${entry.player.id}`}>
+                                    {entry.player.name}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">{entry.player.shuttleIqId}</div>
                                 </div>
-                                <Badge variant="outline" className={`text-xs ${levelColor(entry.player.level)}`}>
-                                  {getTierDisplayName(entry.player.level)}
-                                </Badge>
-                              </div>
-                              <div className="text-right shrink-0 text-sm text-muted-foreground w-24">
-                                <div>{entry.secondaryLine}</div>
-                              </div>
-                            </motion.div>
-                          </Link>
-                        ))}
+                                <div className="text-right shrink-0 space-y-1">
+                                  <div className="font-semibold" data-testid={`text-player-score-${entry.player.id}`}>
+                                    {statDisplay} <span className="text-xs font-normal text-muted-foreground">{entry.primaryLabel}</span>
+                                  </div>
+                                  <Badge variant="outline" className={`text-xs ${levelColor(entry.player.level)}`}>
+                                    {getTierDisplayName(entry.player.level)}
+                                  </Badge>
+                                </div>
+                                <div className="text-right shrink-0 text-sm text-muted-foreground w-24">
+                                  <div>{entry.secondaryLine}</div>
+                                </div>
+                              </motion.div>
+                            </Link>
+                          );
+                        })}
                       </div>
                     </CardContent>
                   </Card>
