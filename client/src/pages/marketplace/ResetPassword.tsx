@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { CheckCircle2, KeyRound, XCircle } from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, KeyRound, XCircle } from 'lucide-react';
 
 export default function ResetPassword() {
   const [, setLocation] = useLocation();
@@ -16,6 +16,8 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const token = new URLSearchParams(window.location.search).get('token');
 
@@ -87,14 +89,24 @@ export default function ResetPassword() {
                   <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                   <Input
                     id="new-password"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     placeholder="At least 6 characters"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-9"
+                    className="pl-9 pr-10"
                     required
                     data-testid="input-new-password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    data-testid="button-toggle-new-password"
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
               <div className="space-y-2">
@@ -103,14 +115,24 @@ export default function ResetPassword() {
                   <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                   <Input
                     id="confirm-password"
-                    type="password"
+                    type={showConfirm ? 'text' : 'password'}
                     placeholder="Repeat your password"
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
-                    className="pl-9"
+                    className="pl-9 pr-10"
                     required
                     data-testid="input-confirm-password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    data-testid="button-toggle-confirm-password"
+                    tabIndex={-1}
+                    aria-label={showConfirm ? 'Hide password' : 'Show password'}
+                  >
+                    {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
               {error && (
