@@ -7,8 +7,8 @@ import { queryClient } from '@/lib/queryClient';
 import type { BookingWithDetails } from '@shared/schema';
 import { InstallAppBar } from '@/components/InstallAppBar';
 
-const MAX_ATTEMPTS = 4;
-const RETRY_DELAY_MS = 2500;
+const MAX_ATTEMPTS = 10;
+const RETRY_DELAY_MS = 3000;
 const REDIRECT_DELAY_S = 3;
 
 function sleep(ms: number) {
@@ -120,7 +120,7 @@ export default function CheckoutSuccess() {
 
   const verifyingLabel = attempt > 0
     ? `Checking with payment provider… (attempt ${attempt + 1} of ${MAX_ATTEMPTS})`
-    : 'Verifying your payment…';
+    : 'Verifying your payment… This may take up to 30 seconds';
 
   return (
     <>
