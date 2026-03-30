@@ -67,3 +67,7 @@ export function isZiinaPaymentSuccessful(status: string): boolean {
   const s = (status || '').toLowerCase();
   return ['completed', 'paid', 'succeeded', 'success', 'authorized', 'captured', 'approved'].includes(s);
 }
+
+export async function registerZiinaWebhook(webhookUrl: string, secret: string): Promise<{ success: boolean; error?: string }> {
+  return ziinaRequest('POST', '/webhook', { url: webhookUrl, secret });
+}

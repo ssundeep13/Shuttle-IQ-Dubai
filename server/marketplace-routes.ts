@@ -19,7 +19,7 @@ import {
   hashPassword,
   verifyRefreshToken,
 } from "./auth/utils";
-import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaClient";
+import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook } from "./ziinaClient";
 
 export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
@@ -1831,6 +1831,34 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({ message: "Seed data created", count: sessions.length });
     } catch (error) {
       res.status(500).json({ error: "Failed to seed data" });
+    }
+  });
+
+  // ============================================================
+  // ADMIN: Register Ziina webhook (one-time setup)
+  // ============================================================
+
+  app.post("/api/admin/ziina/register-webhook", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const webhookSecret = process.env.ZIINA_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        return res.status(400).json({
+          error: "ZIINA_WEBHOOK_SECRET is not set. Add it to Replit Secrets first.",
+        });
+      }
+
+      const baseUrl = process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
+        : `http://localhost:${process.env.PORT || 5000}`;
+
+      const webhookUrl = `${baseUrl}/api/webhooks/ziina`;
+      console.log(`[Admin] Registering Ziina webhook at: ${webhookUrl}`);
+
+      const result = await registerZiinaWebhook(webhookUrl, webhookSecret);
+      res.json({ registered: true, webhookUrl, ziina: result });
+    } catch (err: any) {
+      console.error("[Admin] Ziina webhook registration failed:", err);
+      res.status(500).json({ error: err.message || "Failed to register Ziina webhook" });
     }
   });
 }
