@@ -20,6 +20,7 @@ import {
   verifyRefreshToken,
 } from "./auth/utils";
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook } from "./ziinaClient";
+import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 
 export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
@@ -737,77 +738,16 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(400).json({ error: "No payment associated with this booking" });
       }
 
+      // Re-fetch the latest payment status from Ziina before confirming.
       const paymentIntent = await retrieveZiinaPaymentIntent(booking.ziinaPaymentIntentId);
 
       if (isZiinaPaymentSuccessful(paymentIntent.status)) {
-        const wasAlreadyConfirmed = booking.status === 'confirmed';
+        // Delegate to the shared confirmation logic (also used by the webhook handler).
+        const result = await confirmZiinaBookingByIntentId(booking.ziinaPaymentIntentId, paymentIntent.status);
 
-        // Re-check capacity before confirming (since pending bookings no longer
-        // count toward capacity, two users could race for the last spot).
-        // Skip for pending_payment bookings — they were explicitly promoted from the
-        // waitlist and already have a reserved spot.
-        if (!wasAlreadyConfirmed && booking.status !== 'pending_payment') {
-          const sessionForCapacity = await storage.getBookableSessionWithAvailability(booking.sessionId);
-          const neededSpots = booking.spotsBooked ?? 1;
-          if (sessionForCapacity && sessionForCapacity.spotsRemaining < neededSpots) {
-            // Session is now full — move to waitlist instead
-            const waitlistCount = await storage.getWaitlistCountForSession(booking.sessionId);
-            await storage.updateBooking(booking.id, { status: 'waitlisted', waitlistPosition: waitlistCount + 1 });
-            const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
-            return res.json({ confirmed: false, waitlisted: true, booking: bookingWithDetails, status: 'session_full' });
-          }
-        }
-
-        await storage.updateBooking(booking.id, { status: 'confirmed' });
-
-        const existingPayments = await storage.getPaymentsByBookingId(booking.id);
-        const alreadyRecorded = existingPayments.some(p => p.ziinaPaymentIntentId === paymentIntent.id);
-        if (!alreadyRecorded) {
-          await storage.createPayment({
-            bookingId: booking.id,
-            ziinaPaymentIntentId: paymentIntent.id,
-            amount: booking.amountAed,
-            currency: 'aed',
-            status: 'completed',
-          });
-        }
-
-        // Fire-and-forget booking confirmation email (only on first confirm, fully isolated)
-        if (!wasAlreadyConfirmed) {
-          try {
-            const ziinaUser = await storage.getMarketplaceUser(booking.userId);
-            const ziinaSession = await storage.getBookableSession(booking.sessionId);
-            if (ziinaUser && ziinaSession) {
-              sendBookingConfirmationEmail(ziinaUser.email, ziinaUser.name, ziinaSession, 'ziina', booking.amountAed).catch(() => {});
-
-              // Confirm all pending slot rows and send guest emails (non-primary only)
-              const pendingGuests = await storage.getBookingGuests(booking.id);
-              const guestBaseUrl = process.env.REPLIT_DOMAINS
-                ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-                : 'http://localhost:5000';
-              for (const guest of pendingGuests) {
-                if (guest.status === 'pending') {
-                  await storage.updateBookingGuest(guest.id, { status: 'confirmed' });
-                  // Primary booker slot — no guest email (they get the booking confirmation)
-                  if (!guest.isPrimary && guest.email && guest.cancellationToken) {
-                    const cancelGuestUrl = `${guestBaseUrl}/marketplace/guests/cancel/${guest.cancellationToken}`;
-                    const signupUrl = `${guestBaseUrl}/marketplace/signup?email=${encodeURIComponent(guest.email)}`;
-                    sendGuestBookingEmail(guest.email, guest.name, ziinaUser.name, ziinaSession, cancelGuestUrl, signupUrl).catch(() => {});
-                  }
-                  // Notify linked non-primary guest of their confirmed spot
-                  if (!guest.isPrimary && guest.linkedUserId) {
-                    await storage.createMarketplaceNotification({
-                      userId: guest.linkedUserId,
-                      type: 'guest_booking_confirmed',
-                      title: 'You have a booking!',
-                      message: `${ziinaUser.name} added you as a guest for "${ziinaSession.title}" on ${new Date(ziinaSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${ziinaSession.venueName}.`,
-                      relatedBookingId: booking.id,
-                    });
-                  }
-                }
-              }
-            }
-          } catch (emailErr) { console.error('[Email] ziina booking confirm lookup failed:', emailErr); }
+        if (result.waitlisted) {
+          const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+          return res.json({ confirmed: false, waitlisted: true, booking: bookingWithDetails, status: 'session_full' });
         }
 
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
