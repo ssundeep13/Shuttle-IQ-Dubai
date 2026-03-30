@@ -116,26 +116,27 @@ export function registerZiinaWebhookRoute(app: Express) {
         "";
 
       if (webhookSecret) {
-        if (sigHeader) {
-          const expectedSig = crypto
-            .createHmac("sha256", webhookSecret)
-            .update(rawBody)
-            .digest("hex");
+        // Secret is configured — signature is REQUIRED. Missing or invalid signature
+        // means we acknowledge receipt (200) but do not process the event.
+        if (!sigHeader) {
+          console.warn("[Ziina Webhook] Secret is configured but X-Hmac-Signature header is missing — ignoring event");
+          return res.status(200).json({ received: true });
+        }
 
-          const sigBuf = Buffer.from(sigHeader, "utf8");
-          const expectedBuf = Buffer.from(expectedSig, "utf8");
-          const signaturesMatch =
-            sigBuf.length === expectedBuf.length &&
-            crypto.timingSafeEqual(sigBuf, expectedBuf);
+        const expectedSig = crypto
+          .createHmac("sha256", webhookSecret)
+          .update(rawBody)
+          .digest("hex");
 
-          if (!signaturesMatch) {
-            console.warn("[Ziina Webhook] Invalid HMAC signature — request rejected");
-            return res.status(400).send("Invalid signature");
-          }
-        } else {
-          // No signature header present — log a warning but still process in case
-          // Ziina doesn't send signatures for test-mode events.
-          console.warn("[Ziina Webhook] No X-Hmac-Signature header present; processing without verification");
+        const sigBuf = Buffer.from(sigHeader, "utf8");
+        const expectedBuf = Buffer.from(expectedSig, "utf8");
+        const signaturesMatch =
+          sigBuf.length === expectedBuf.length &&
+          crypto.timingSafeEqual(sigBuf, expectedBuf);
+
+        if (!signaturesMatch) {
+          console.warn("[Ziina Webhook] Invalid HMAC signature — ignoring event");
+          return res.status(200).json({ received: true });
         }
       } else {
         console.warn("[Ziina Webhook] ZIINA_WEBHOOK_SECRET not set — skipping signature verification");
@@ -145,8 +146,8 @@ export function registerZiinaWebhookRoute(app: Express) {
       try {
         payload = JSON.parse(rawBody.toString("utf8"));
       } catch {
-        console.error("[Ziina Webhook] Failed to parse JSON body");
-        return res.status(400).send("Invalid JSON");
+        console.error("[Ziina Webhook] Failed to parse JSON body — ignoring event");
+        return res.status(200).json({ received: true });
       }
 
       // Ziina sends: { event: "payment_intent.status.updated", payment_intent: { id, status, ... } }
@@ -158,8 +159,13 @@ export function registerZiinaWebhookRoute(app: Express) {
 
       console.log(`[Ziina Webhook] Received event="${eventType}" intentId="${intentId}" status="${intentStatus}"`);
 
+      // Only process payment_intent.status.updated events (ignore everything else).
+      if (eventType && eventType !== "payment_intent.status.updated") {
+        return res.status(200).json({ received: true });
+      }
+
       if (!intentId || !intentStatus) {
-        // Not an actionable event — acknowledge and ignore.
+        // Not enough info to act — acknowledge and ignore.
         return res.status(200).json({ received: true });
       }
 
