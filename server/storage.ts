@@ -135,6 +135,7 @@ export interface IStorage {
   getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByLinkedPlayerId(playerId: string): Promise<MarketplaceUser | undefined>;
+  getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined>;
   searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
   getAllMarketplaceUsers(): Promise<MarketplaceUser[]>;
@@ -997,6 +998,14 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(marketplaceUsers)
       .where(eq(marketplaceUsers.linkedPlayerId, playerId));
+    return user || undefined;
+  }
+
+  async getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined> {
+    const [user] = await db
+      .select()
+      .from(marketplaceUsers)
+      .where(eq(marketplaceUsers.googleId, googleId));
     return user || undefined;
   }
 

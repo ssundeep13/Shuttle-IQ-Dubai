@@ -18,6 +18,7 @@ interface MarketplaceAuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, name: string, phone?: string) => Promise<void>;
+  loginWithTokens: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
 }
@@ -143,6 +144,14 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     }
   };
 
+  const loginWithTokens = async (accessToken: string, refreshToken: string) => {
+    setAccessToken(accessToken);
+    setRefreshToken(refreshToken);
+    localStorage.setItem('mp_accessToken', accessToken);
+    localStorage.setItem('mp_refreshToken', refreshToken);
+    queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+  };
+
   const logout = async () => {
     try {
       if (accessToken && refreshToken) {
@@ -169,6 +178,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
         isAuthenticated: !!user,
         login,
         signup,
+        loginWithTokens,
         logout,
         error,
       }}

@@ -34,6 +34,7 @@ import GuestCancel from "@/pages/marketplace/GuestCancel";
 import GameHistory from "@/pages/marketplace/GameHistory";
 import JoinTheCrew from "@/pages/marketplace/JoinTheCrew";
 import ScoringGuide from "@/pages/marketplace/ScoringGuide";
+import GoogleAuthCallback from "@/pages/marketplace/GoogleAuthCallback";
 import InstagramCarousel from "@/pages/InstagramCarousel";
 
 function MarketplaceRoute({ component: Component, ...rest }: { component: React.ComponentType<any> } & Record<string, any>) {
@@ -128,6 +129,9 @@ function Router() {
       </Route>
       <Route path="/marketplace/scoring-guide">
         <MarketplaceRoute component={ScoringGuide} />
+      </Route>
+      <Route path="/marketplace/auth/callback">
+        <MarketplaceRoute component={GoogleAuthCallback} />
       </Route>
 
       <Route path="/carousel" component={InstagramCarousel} />

@@ -239,7 +239,7 @@ export type AuthSession = typeof authSessions.$inferSelect;
 export const marketplaceUsers = pgTable("marketplace_users", {
   id: varchar("id").primaryKey(),
   email: text("email").notNull().unique(),
-  passwordHash: text("password_hash").notNull(),
+  passwordHash: text("password_hash"),
   name: text("name").notNull(),
   phone: text("phone"),
   linkedPlayerId: varchar("linked_player_id"),
@@ -248,6 +248,7 @@ export const marketplaceUsers = pgTable("marketplace_users", {
   lastLoginAt: timestamp("last_login_at"),
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
+  googleId: text("google_id").unique(),
 });
 
 export const insertMarketplaceUserSchema = createInsertSchema(marketplaceUsers).omit({ id: true, createdAt: true, lastLoginAt: true });

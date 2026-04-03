@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./scheduler";
@@ -13,6 +14,7 @@ registerZiinaWebhookRoute(app);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
 
 // Warn at startup if ZIINA_WEBHOOK_SECRET is missing while Ziina is configured.
 if (process.env.ZIINA_API_TOKEN && !process.env.ZIINA_WEBHOOK_SECRET) {

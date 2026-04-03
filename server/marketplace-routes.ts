@@ -21,6 +21,7 @@ import {
 } from "./auth/utils";
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook } from "./ziinaClient";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
+import { OAuth2Client } from "google-auth-library";
 
 export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
@@ -94,6 +95,9 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
+      if (!user.passwordHash) {
+        return res.status(401).json({ error: "This account uses Google sign-in. Please use 'Continue with Google'." });
+      }
       const valid = await comparePassword(password, user.passwordHash);
       if (!valid) {
         return res.status(401).json({ error: "Invalid credentials" });
@@ -238,6 +242,115 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({ success: true, message: "Password updated. You can now log in." });
     } catch (error) {
       res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+
+  // ============================================================
+  // GOOGLE OAUTH
+  // ============================================================
+
+  function getGoogleOAuthClient() {
+    const clientId = process.env.GOOGLE_CLIENT_ID!;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+    const domains = process.env.REPLIT_DOMAINS?.split(',')[0];
+    const redirectUri = domains
+      ? `https://${domains}/api/marketplace/auth/google/callback`
+      : 'http://localhost:5000/api/marketplace/auth/google/callback';
+    return { client: new OAuth2Client(clientId, clientSecret, redirectUri), redirectUri };
+  }
+
+  app.get("/api/marketplace/auth/google", (req, res) => {
+    try {
+      const { client } = getGoogleOAuthClient();
+      const state = randomUUID();
+      res.cookie('google_oauth_state', state, { httpOnly: true, maxAge: 10 * 60 * 1000, sameSite: 'lax' });
+      const url = client.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['openid', 'email', 'profile'],
+        state,
+        prompt: 'select_account',
+      });
+      res.redirect(url);
+    } catch (error) {
+      console.error('Google OAuth init error:', error);
+      res.redirect('/marketplace/login?error=google_failed');
+    }
+  });
+
+  app.get("/api/marketplace/auth/google/callback", async (req, res) => {
+    try {
+      const { code, state, error: oauthError } = req.query as Record<string, string>;
+
+      if (oauthError) {
+        return res.redirect('/marketplace/login?error=google_failed');
+      }
+
+      const storedState = req.cookies?.google_oauth_state;
+      if (!storedState || storedState !== state) {
+        return res.redirect('/marketplace/login?error=google_failed');
+      }
+      res.clearCookie('google_oauth_state');
+
+      const { client } = getGoogleOAuthClient();
+      const { tokens } = await client.getToken(code);
+      client.setCredentials(tokens);
+
+      const ticket = await client.verifyIdToken({
+        idToken: tokens.id_token!,
+        audience: process.env.GOOGLE_CLIENT_ID!,
+      });
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email) {
+        return res.redirect('/marketplace/login?error=google_failed');
+      }
+
+      const { sub: googleId, email, name: googleName } = payload;
+      const displayName = googleName || email.split('@')[0];
+
+      // Look up or create marketplace user
+      let user = await storage.getMarketplaceUserByGoogleId(googleId);
+      if (!user) {
+        user = await storage.getMarketplaceUserByEmail(email);
+        if (user) {
+          // Existing email/password account — attach Google ID
+          await storage.updateMarketplaceUser(user.id, { googleId });
+          user = { ...user, googleId };
+        } else {
+          // Brand new account via Google
+          user = await storage.createMarketplaceUser({
+            email,
+            passwordHash: null,
+            name: displayName,
+            phone: null,
+            linkedPlayerId: null,
+            role: 'player',
+            googleId,
+          });
+          // Fire-and-forget welcome email
+          const marketplaceUrl = process.env.REPLIT_DOMAINS
+            ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/marketplace`
+            : 'http://localhost:5000/marketplace';
+          sendWelcomeEmail(user.email, user.name, marketplaceUrl).catch(() => {});
+          // Retroactive guest linking
+          storage.linkGuestsByEmail(user.email, user.id).catch(() => {});
+        }
+      }
+
+      await storage.updateMarketplaceUser(user.id, { lastLoginAt: new Date() });
+
+      const jwtPayload = { userId: user.id, email: user.email, role: 'marketplace_player' };
+      const accessToken = generateAccessToken(jwtPayload);
+      const refreshToken = generateRefreshToken(jwtPayload);
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+      await storage.createMarketplaceAuthSession(user.id, refreshToken, expiresAt);
+
+      const params = new URLSearchParams({ accessToken, refreshToken });
+      res.redirect(`/marketplace/auth/callback?${params.toString()}`);
+    } catch (error) {
+      console.error('Google OAuth callback error:', error);
+      res.redirect('/marketplace/login?error=google_failed');
     }
   });
 

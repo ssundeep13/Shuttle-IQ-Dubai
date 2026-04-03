@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff } from 'lucide-react';
+import { SiGoogle } from 'react-icons/si';
 
 export default function MarketplaceSignup() {
   const { signup } = useMarketplaceAuth();
@@ -47,6 +48,27 @@ export default function MarketplaceSignup() {
           <CardDescription>Join the ShuttleIQ community</CardDescription>
         </CardHeader>
         <CardContent>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full gap-2 mb-2"
+            onClick={() => { window.location.href = '/api/marketplace/auth/google'; }}
+            data-testid="button-google-signup"
+          >
+            <SiGoogle className="h-4 w-4" />
+            Continue with Google
+          </Button>
+          <p className="text-xs text-muted-foreground text-center mb-4">
+            Google sign-up doesn't require a phone number. You can add it later in your profile.
+          </p>
+          <div className="relative mb-4">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">or sign up with email</span>
+            </div>
+          </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
