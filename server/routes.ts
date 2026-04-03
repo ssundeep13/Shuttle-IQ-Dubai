@@ -373,7 +373,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const sessionDateOnly = new Date(Date.UTC(sessionDate.getUTCFullYear(), sessionDate.getUTCMonth(), sessionDate.getUTCDate()));
           const todayDateOnly = new Date(Date.UTC(todayUTC.getUTCFullYear(), todayUTC.getUTCMonth(), todayUTC.getUTCDate()));
           if (sessionDateOnly > todayDateOnly) {
-            const formatted = sessionDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+            // Match frontend date-fns PPP format: "April 4th, 2026"
+            const day = sessionDate.getUTCDate();
+            const suffix = day >= 11 && day <= 13 ? 'th' : ['th','st','nd','rd','th'][Math.min(day % 10, 4)];
+            const month = sessionDate.toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' });
+            const year = sessionDate.getUTCFullYear();
+            const formatted = `${month} ${day}${suffix}, ${year}`;
             return res.status(400).json({ error: `This session can only be activated on or after ${formatted}` });
           }
         }
