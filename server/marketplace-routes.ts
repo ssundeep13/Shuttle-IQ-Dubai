@@ -304,6 +304,11 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.redirect('/marketplace/login?error=google_failed');
       }
 
+      if (!payload.email_verified) {
+        console.warn('[Google OAuth] Rejected unverified email:', payload.email);
+        return res.redirect('/marketplace/login?error=google_email_unverified');
+      }
+
       const { sub: googleId, email, name: googleName } = payload;
       const displayName = googleName || email.split('@')[0];
 
