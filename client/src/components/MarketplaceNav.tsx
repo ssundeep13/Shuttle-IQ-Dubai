@@ -4,7 +4,6 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -18,7 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Menu, User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History } from 'lucide-react';
+import { User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MarketplaceNotification } from '@shared/schema';
 
@@ -154,7 +153,6 @@ function NotificationBell() {
 export function MarketplaceNav() {
   const { isAuthenticated, user, logout } = useMarketplaceAuth();
   const [location] = useLocation();
-  const [open, setOpen] = useState(false);
 
   const isActive = (href: string) => {
     if (href === '/') return location === '/' || location === '/marketplace';
@@ -233,77 +231,9 @@ export function MarketplaceNav() {
           )}
         </div>
 
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild className="md:hidden ml-auto">
-            <Button variant="ghost" size="icon" data-testid="button-mobile-menu">
-              <Menu className="h-5 w-5" />
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="right" className="w-72">
-            <div className="flex flex-col gap-1 mt-6">
-              {isAuthenticated && (
-                <div className="flex items-center gap-3 px-3 py-2 mb-2">
-                  <Avatar className="h-9 w-9">
-                    <AvatarFallback className="text-sm bg-secondary text-secondary-foreground font-semibold">
-                      {getInitials(user?.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold truncate">{user?.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-                  </div>
-                </div>
-              )}
-
-              {activeLinks.map((link) => (
-                <Link key={link.href} href={link.href} onClick={() => setOpen(false)}>
-                  <Button
-                    variant={isActive(link.href) ? 'secondary' : 'ghost'}
-                    className="w-full justify-start gap-2"
-                    data-testid={`link-mobile-${link.label.toLowerCase().replace(/\s/g, '-')}`}
-                  >
-                    <link.icon className="h-4 w-4" />
-                    {link.label}
-                  </Button>
-                </Link>
-              ))}
-
-              {isAuthenticated && (
-                <>
-                  <div className="h-px bg-border my-2" />
-                  {authMenuLinks.filter(l => !activeLinks.some(a => a.href === l.href)).map((link) => (
-                    <Link key={link.href} href={link.href} onClick={() => setOpen(false)}>
-                      <Button
-                        variant={isActive(link.href) ? 'secondary' : 'ghost'}
-                        className="w-full justify-start gap-2"
-                        data-testid={`link-mobile-${link.label.toLowerCase().replace(/\s/g, '-')}`}
-                      >
-                        <link.icon className="h-4 w-4" />
-                        {link.label}
-                      </Button>
-                    </Link>
-                  ))}
-                  <div className="h-px bg-border my-2" />
-                  <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => { logout(); setOpen(false); }} data-testid="button-mobile-logout">
-                    <LogOut className="h-4 w-4" /> Log Out
-                  </Button>
-                </>
-              )}
-
-              {!isAuthenticated && (
-                <>
-                  <div className="h-px bg-border my-2" />
-                  <Link href="/marketplace/login" onClick={() => setOpen(false)}>
-                    <Button variant="ghost" className="w-full justify-start" data-testid="button-mobile-login">Log In</Button>
-                  </Link>
-                  <Link href="/marketplace/signup" onClick={() => setOpen(false)}>
-                    <Button className="w-full justify-start" data-testid="button-mobile-signup">Sign Up</Button>
-                  </Link>
-                </>
-              )}
-            </div>
-          </SheetContent>
-        </Sheet>
+        <div className="md:hidden ml-auto flex items-center gap-2">
+          {isAuthenticated && <NotificationBell />}
+        </div>
       </div>
     </header>
   );
