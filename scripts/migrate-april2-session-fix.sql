@@ -1,5 +1,6 @@
 -- Migration: Fix April 2 session data
--- Run date: 2026-04-03 (already executed on production DB)
+-- Run date: 2026-04-03
+-- Status: ALREADY EXECUTED on production DB — DO NOT RUN AGAIN (not idempotent)
 --
 -- What happened: The host accidentally activated the April 4th queue session
 -- (7e0ae3ba) on April 2nd and played all 36 games under the wrong session.
