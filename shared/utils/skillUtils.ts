@@ -128,6 +128,15 @@ function getTierBounds(score: number): { lower: number; upper: number } {
  * Calculate post-game skill score.
  * Applies: contribution factor (Fix 1), K-factor with calibration/return boost
  * (Fix 2 / Fix 6), tier boundary protection, and calibration cap.
+ *
+ * Tier boundary rules:
+ *   WIN:  If newScore would cross into the next tier and opponents are below
+ *         that tier, cap newScore at playerBounds.upper (the exact boundary).
+ *         This allows gradual crossing — a player at the ceiling (e.g. 89) CAN
+ *         earn points and reach 90 through consistent wins, but cannot skip
+ *         multiple tiers in one game.
+ *   LOSS: If newScore would drop below the current tier floor and opponents are
+ *         in the same or higher tier, floor at playerBounds.lower (no unfair drop).
  */
 export function calculateSkillAdjustment(
   playerScore: number,
@@ -176,7 +185,9 @@ export function calculateSkillAdjustment(
   if (won && newScore >= playerBounds.upper) {
     const targetTierIndex = tierOrder.indexOf(getSkillTier(playerBounds.upper));
     const opponentTierIndex = tierOrder.indexOf(opponentTier);
-    if (opponentTierIndex < targetTierIndex) newScore = playerBounds.upper - 1;
+    // Cap at the boundary itself (not boundary-1) so players at the ceiling can
+    // still earn points and gradually cross into the next tier.
+    if (opponentTierIndex < targetTierIndex) newScore = Math.min(newScore, playerBounds.upper);
   } else if (!won && newScore < playerBounds.lower) {
     const currentTierIndex = tierOrder.indexOf(playerTier);
     const opponentTierIndex = tierOrder.indexOf(opponentTier);
