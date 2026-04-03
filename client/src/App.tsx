@@ -9,9 +9,39 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { MarketplaceProtectedRoute } from "@/components/MarketplaceProtectedRoute";
 import { RootRedirect } from "@/components/RootRedirect";
 import { MarketplaceLayout } from "@/pages/marketplace/MarketplaceLayout";
-import { Component, lazy, Suspense, useEffect, useState } from "react";
+import { Component, useEffect, useState } from "react";
 import type { ReactNode, ErrorInfo } from "react";
-import { Loader2, WifiOff, RefreshCw } from "lucide-react";
+import { WifiOff, RefreshCw } from "lucide-react";
+
+// Page imports — static so the bundle is always available regardless of
+// network conditions or service-worker state.
+import Home from "@/pages/Home";
+import NotFound from "@/pages/not-found";
+import Login from "@/pages/Login";
+import SessionsManagement from "@/pages/SessionsManagement";
+import PlayerProfile from "@/pages/PlayerProfile";
+import PlayerRegistry from "@/pages/PlayerRegistry";
+import MarketplaceHome from "@/pages/marketplace/MarketplaceHome";
+import MarketplaceLogin from "@/pages/marketplace/MarketplaceLogin";
+import MarketplaceSignup from "@/pages/marketplace/MarketplaceSignup";
+import BookSessions from "@/pages/marketplace/BookSessions";
+import SessionDetails from "@/pages/marketplace/SessionDetails";
+import MyBookings from "@/pages/marketplace/MyBookings";
+import MyScores from "@/pages/marketplace/MyScores";
+import Rankings from "@/pages/marketplace/Rankings";
+import Profile from "@/pages/marketplace/Profile";
+import Dashboard from "@/pages/marketplace/Dashboard";
+import Checkout from "@/pages/marketplace/Checkout";
+import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
+import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
+import PlayerPublicProfile from "@/pages/marketplace/PlayerPublicProfile";
+import ResetPassword from "@/pages/marketplace/ResetPassword";
+import GuestCancel from "@/pages/marketplace/GuestCancel";
+import GameHistory from "@/pages/marketplace/GameHistory";
+import JoinTheCrew from "@/pages/marketplace/JoinTheCrew";
+import ScoringGuide from "@/pages/marketplace/ScoringGuide";
+import GoogleAuthCallback from "@/pages/marketplace/GoogleAuthCallback";
+import InstagramCarousel from "@/pages/InstagramCarousel";
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   constructor(props: { children: ReactNode }) {
@@ -23,15 +53,8 @@ class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
     return { hasError: true };
   }
 
-  componentDidCatch(error: Error, _info: ErrorInfo) {
-    if (
-      error.message.includes("dynamically imported module") ||
-      error.message.includes("Failed to fetch") ||
-      error.message.includes("Loading chunk") ||
-      error.name === "ChunkLoadError"
-    ) {
-      window.location.reload();
-    }
+  componentDidCatch(_error: Error, _info: ErrorInfo) {
+    // Nothing needed — static imports won't throw chunk-load errors
   }
 
   render() {
@@ -52,44 +75,6 @@ class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
     }
     return this.props.children;
   }
-}
-
-// Lazy-load every page so Vite creates separate JS chunks per route.
-// Only the chunk for the page the user visits is downloaded — not the whole app.
-const Home = lazy(() => import("@/pages/Home"));
-const NotFound = lazy(() => import("@/pages/not-found"));
-const Login = lazy(() => import("@/pages/Login"));
-const SessionsManagement = lazy(() => import("@/pages/SessionsManagement"));
-const PlayerProfile = lazy(() => import("@/pages/PlayerProfile"));
-const PlayerRegistry = lazy(() => import("@/pages/PlayerRegistry"));
-const MarketplaceHome = lazy(() => import("@/pages/marketplace/MarketplaceHome"));
-const MarketplaceLogin = lazy(() => import("@/pages/marketplace/MarketplaceLogin"));
-const MarketplaceSignup = lazy(() => import("@/pages/marketplace/MarketplaceSignup"));
-const BookSessions = lazy(() => import("@/pages/marketplace/BookSessions"));
-const SessionDetails = lazy(() => import("@/pages/marketplace/SessionDetails"));
-const MyBookings = lazy(() => import("@/pages/marketplace/MyBookings"));
-const MyScores = lazy(() => import("@/pages/marketplace/MyScores"));
-const Rankings = lazy(() => import("@/pages/marketplace/Rankings"));
-const Profile = lazy(() => import("@/pages/marketplace/Profile"));
-const Dashboard = lazy(() => import("@/pages/marketplace/Dashboard"));
-const Checkout = lazy(() => import("@/pages/marketplace/Checkout"));
-const CheckoutSuccess = lazy(() => import("@/pages/marketplace/CheckoutSuccess"));
-const CheckoutCancel = lazy(() => import("@/pages/marketplace/CheckoutCancel"));
-const PlayerPublicProfile = lazy(() => import("@/pages/marketplace/PlayerPublicProfile"));
-const ResetPassword = lazy(() => import("@/pages/marketplace/ResetPassword"));
-const GuestCancel = lazy(() => import("@/pages/marketplace/GuestCancel"));
-const GameHistory = lazy(() => import("@/pages/marketplace/GameHistory"));
-const JoinTheCrew = lazy(() => import("@/pages/marketplace/JoinTheCrew"));
-const ScoringGuide = lazy(() => import("@/pages/marketplace/ScoringGuide"));
-const GoogleAuthCallback = lazy(() => import("@/pages/marketplace/GoogleAuthCallback"));
-const InstagramCarousel = lazy(() => import("@/pages/InstagramCarousel"));
-
-function PageLoader() {
-  return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-    </div>
-  );
 }
 
 /**
@@ -119,8 +104,6 @@ function ConnectionBanner() {
       }
     }
 
-    // Give the page a head-start before the first ping so it doesn't flash
-    // on fast connections.
     const initialTimer = setTimeout(check, 1500);
 
     return () => {
@@ -165,7 +148,6 @@ function MarketplaceAuthRoute({ component: Component }: { component: React.Compo
 function Router() {
   return (
     <RouteErrorBoundary>
-      <Suspense fallback={<PageLoader />}>
       <Switch>
         <Route path="/" component={RootRedirect}/>
         <Route path="/admin/login" component={Login} />
@@ -247,7 +229,6 @@ function Router() {
 
         <Route component={NotFound} />
       </Switch>
-      </Suspense>
     </RouteErrorBoundary>
   );
 }
