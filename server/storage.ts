@@ -326,11 +326,13 @@ export class DatabaseStorage implements IStorage {
     // 5. Delete queue entries
     await db.delete(queueEntries).where(eq(queueEntries.sessionId, id));
     
-    // 6. Delete linked bookable sessions and their bookings/payments
+    // 6. Delete linked bookable sessions and their bookings/payments/guests
     const linkedBookableSessions = await db.select().from(bookableSessions).where(eq(bookableSessions.linkedSessionId, id));
     for (const bs of linkedBookableSessions) {
       const linkedBookings = await db.select().from(bookings).where(eq(bookings.sessionId, bs.id));
       for (const booking of linkedBookings) {
+        // booking_guests has FK on booking_id — must delete before bookings
+        await db.delete(bookingGuests).where(eq(bookingGuests.bookingId, booking.id));
         await db.delete(payments).where(eq(payments.bookingId, booking.id));
       }
       await db.delete(bookings).where(eq(bookings.sessionId, bs.id));
