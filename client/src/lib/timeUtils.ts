@@ -34,20 +34,7 @@ export function getRelativeTimeLabel(date: Date | string, startTime: string): st
 
   const now = new Date();
   const diffMs = sessionDateTime.getTime() - now.getTime();
-
   if (diffMs <= 0) return '';
-
-  const diffHours = diffMs / (1000 * 60 * 60);
-
-  if (diffHours < 1) {
-    const mins = Math.max(1, Math.round(diffMs / 60000));
-    return `In ${mins} minute${mins !== 1 ? 's' : ''}`;
-  }
-
-  if (diffHours < 24) {
-    const hours = Math.floor(diffHours);
-    return `In ${hours} hour${hours !== 1 ? 's' : ''}`;
-  }
 
   const todayMidnight = new Date();
   todayMidnight.setHours(0, 0, 0, 0);
@@ -56,7 +43,19 @@ export function getRelativeTimeLabel(date: Date | string, startTime: string): st
     (sessionMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24)
   );
 
-  if (daysDiff === 0) return `Today at ${startTime}`;
+  if (daysDiff === 0) {
+    const diffHours = diffMs / (1000 * 60 * 60);
+    if (diffHours < 1) {
+      const mins = Math.max(1, Math.round(diffMs / 60000));
+      return `In ${mins} minute${mins !== 1 ? 's' : ''}`;
+    }
+    if (diffHours < 6) {
+      const hours = Math.floor(diffHours);
+      return `In ${hours} hour${hours !== 1 ? 's' : ''}`;
+    }
+    return `Today at ${startTime}`;
+  }
+
   if (daysDiff === 1) return `Tomorrow at ${startTime}`;
   if (daysDiff < 7) return `In ${daysDiff} days`;
 
