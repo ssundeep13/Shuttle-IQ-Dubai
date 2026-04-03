@@ -96,7 +96,14 @@ export const queryClient = new QueryClient({
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
-      retry: false,
+      // Retry once on network errors (e.g. cold-start / server waking up),
+      // but never retry on HTTP errors like 401/403/404/500.
+      retry: (failureCount, error) => {
+        if (failureCount >= 1) return false;
+        const msg = String((error as any)?.message ?? error ?? "");
+        return msg.includes("Failed to fetch") || msg.toLowerCase().includes("network");
+      },
+      retryDelay: 2000,
     },
     mutations: {
       retry: false,

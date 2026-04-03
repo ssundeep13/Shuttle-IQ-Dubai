@@ -55,6 +55,11 @@ Preferred communication style: Simple, everyday language.
 - **Single Active Session Model**: Simplifies user experience and prevents data conflicts, while allowing read-only access to historical sessions.
 - **Query Guards**: `enabled: hasSession` guards on all session-dependent queries prevent premature API calls.
 - **Modular Architecture**: Utilizes pattern-based development with clear separation of concerns.
+- **Performance**:
+    - **Route-level code splitting**: All page components in `App.tsx` use `React.lazy()` + `Suspense`. Vite emits a separate JS chunk per route; users only download code for pages they visit.
+    - **Vendor chunk grouping**: `vite.config.ts` `rollupOptions.output.manualChunks` groups React, TanStack Query, Radix UI, and Lucide into stable vendor chunks that browsers cache across app deployments.
+    - **Query caching**: TanStack Query `staleTime: Infinity` prevents unnecessary re-fetches; `refetchOnWindowFocus: false` prevents refetch on tab focus. Queries retry once (2s delay) on network errors to handle cold-start scenarios.
+    - **Health endpoint**: `GET /api/health` returns `{ok:true}` instantly without touching the DB. Useful for uptime monitors (e.g. UptimeRobot) to keep the server warm and prevent cold-start delays.
 
 ### External Dependencies
 

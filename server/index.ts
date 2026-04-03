@@ -16,6 +16,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
+// Lightweight health-check — responds instantly without touching the DB.
+// External uptime monitors (e.g. UptimeRobot) can ping this every 5 minutes
+// to keep the server warm and prevent cold-start delays for real users.
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
 // Warn at startup if ZIINA_WEBHOOK_SECRET is missing while Ziina is configured.
 if (process.env.ZIINA_API_TOKEN && !process.env.ZIINA_WEBHOOK_SECRET) {
   console.warn(
