@@ -32,6 +32,7 @@ import { EditSessionModal } from '@/components/EditSessionModal';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails } from '@shared/schema';
 import { UserCheck } from 'lucide-react';
 
@@ -746,17 +747,45 @@ function SessionCard({
               View Bookings
             </Button>
           )}
-          {(session.status === 'draft' || session.status === 'upcoming') && onActivate && (
-            <Button 
-              size="sm" 
-              variant="outline"
-              onClick={onActivate}
-              data-testid={`button-activate-${session.id}`}
-            >
-              <Play className="w-4 h-4 mr-1" />
-              Activate
-            </Button>
-          )}
+          {(session.status === 'draft' || session.status === 'upcoming') && onActivate && (() => {
+            const sessionDate = new Date(session.date);
+            const today = new Date();
+            const sessionDateOnly = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate());
+            const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            const isFuture = sessionDateOnly > todayDateOnly;
+            const formattedDate = format(sessionDate, 'PPP');
+            return isFuture ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      disabled
+                      data-testid={`button-activate-${session.id}`}
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      <Play className="w-4 h-4 mr-1" />
+                      Activate
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Available to activate on {formattedDate}</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={onActivate}
+                data-testid={`button-activate-${session.id}`}
+              >
+                <Play className="w-4 h-4 mr-1" />
+                Activate
+              </Button>
+            );
+          })()}
           {(session.status === 'draft' || session.status === 'upcoming') && onEdit && (
             <Button 
               size="sm" 

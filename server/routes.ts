@@ -359,6 +359,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (req.body.status === 'active' && session.status !== 'active') {
+        // Date-lock: session can only be activated on or after its scheduled date
+        if (session.date) {
+          const sessionDate = new Date(session.date);
+          const todayUTC = new Date();
+          // Compare date-only (year/month/day) in UTC
+          const sessionDateOnly = new Date(Date.UTC(sessionDate.getUTCFullYear(), sessionDate.getUTCMonth(), sessionDate.getUTCDate()));
+          const todayDateOnly = new Date(Date.UTC(todayUTC.getUTCFullYear(), todayUTC.getUTCMonth(), todayUTC.getUTCDate()));
+          if (sessionDateOnly > todayDateOnly) {
+            const formatted = sessionDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+            return res.status(400).json({ error: `This session can only be activated on or after ${formatted}.` });
+          }
+        }
+
         const existingActive = await storage.getActiveSession();
         if (existingActive && existingActive.id !== req.params.id) {
           return res.status(409).json({ 
