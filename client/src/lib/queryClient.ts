@@ -95,13 +95,15 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      // Retry once on network errors (e.g. cold-start / server waking up),
-      // but never retry on HTTP errors like 401/403/404/500.
+      // Cache data for 60 s so navigating back to a recently visited page
+      // reuses the cached result instead of re-fetching.
+      staleTime: 60 * 1000,
+      // Retry once (after 2 s) on network errors only — e.g. when the server
+      // is waking up from a cold start. Never retry on HTTP errors (401/404/500).
       retry: (failureCount, error) => {
         if (failureCount >= 1) return false;
-        const msg = String((error as any)?.message ?? error ?? "");
-        return msg.includes("Failed to fetch") || msg.toLowerCase().includes("network");
+        const message = error instanceof Error ? error.message : "";
+        return message === "Failed to fetch" || message.toLowerCase().includes("network");
       },
       retryDelay: 2000,
     },

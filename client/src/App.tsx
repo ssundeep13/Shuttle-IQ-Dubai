@@ -9,8 +9,8 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { MarketplaceProtectedRoute } from "@/components/MarketplaceProtectedRoute";
 import { RootRedirect } from "@/components/RootRedirect";
 import { MarketplaceLayout } from "@/pages/marketplace/MarketplaceLayout";
-import { lazy, Suspense } from "react";
-import { Loader2 } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Loader2, WifiOff } from "lucide-react";
 
 // Lazy-load every page so Vite creates separate JS chunks per route.
 // Only the chunk for the page the user visits is downloaded — not the whole app.
@@ -46,6 +46,58 @@ function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+/**
+ * Shows a slim "Connecting…" banner if the server doesn't respond within
+ * 1.5 s of the first page load (cold-start scenario). Disappears automatically
+ * once the health-check ping succeeds. Retries every 3 s.
+ */
+function ConnectionBanner() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    let retryTimer: ReturnType<typeof setTimeout>;
+    let mounted = true;
+
+    async function check() {
+      try {
+        const res = await fetch("/api/health");
+        if (mounted) {
+          setVisible(!res.ok);
+          if (!res.ok) retryTimer = setTimeout(check, 3000);
+        }
+      } catch {
+        if (mounted) {
+          setVisible(true);
+          retryTimer = setTimeout(check, 3000);
+        }
+      }
+    }
+
+    // Give the page a head-start before the first ping so it doesn't flash
+    // on fast connections.
+    const initialTimer = setTimeout(check, 1500);
+
+    return () => {
+      mounted = false;
+      clearTimeout(initialTimer);
+      clearTimeout(retryTimer);
+    };
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 bg-amber-500 text-white text-sm py-2 px-4"
+    >
+      <WifiOff className="w-4 h-4 shrink-0" />
+      <span>Connecting to server — please wait a moment…</span>
     </div>
   );
 }
@@ -162,6 +214,7 @@ function App() {
       <AuthProvider>
         <MarketplaceAuthProvider>
           <TooltipProvider>
+            <ConnectionBanner />
             <Toaster />
             <Router />
           </TooltipProvider>
