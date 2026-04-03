@@ -156,8 +156,11 @@ export default function Profile() {
                 ) : (
                   <div className="space-y-4">
                     <p className="text-sm text-muted-foreground">
-                      Link your account to a ShuttleIQ player profile to view your scores, rankings, and match history.
+                      Link your account to your ShuttleIQ player profile to unlock your scores, rankings, and match history.
                     </p>
+                    <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">What's a ShuttleIQ ID?</span> It's a unique code (e.g. SIQ-00081) assigned to you by your session organiser. Ask them if you don't have one yet — they can look it up in the admin dashboard.
+                    </div>
                     <div className="flex gap-2">
                       <Input
                         placeholder="Search by name or ShuttleIQ ID..."

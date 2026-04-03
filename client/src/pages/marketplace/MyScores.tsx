@@ -164,10 +164,13 @@ export default function MyScores() {
         <Card>
           <CardContent className="p-8 text-center">
             <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <h3 className="font-semibold mb-2">Link your ShuttleIQ profile</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Connect your marketplace account to your ShuttleIQ player profile to view your scores and rankings.
+            <h3 className="font-semibold mb-2">Link your ShuttleIQ profile to see your scores</h3>
+            <p className="text-sm text-muted-foreground mb-3 max-w-sm mx-auto">
+              Connect your account to unlock your stats, rankings, and full match history.
             </p>
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground mb-5 max-w-sm mx-auto text-left">
+              <span className="font-medium text-foreground">What's a ShuttleIQ ID?</span> It's a unique code (e.g. SIQ-00081) assigned to you by your session organiser. Ask them if you don't have one yet.
+            </div>
             <Link href="/marketplace/profile">
               <Button data-testid="button-link-profile">Go to Profile Settings</Button>
             </Link>

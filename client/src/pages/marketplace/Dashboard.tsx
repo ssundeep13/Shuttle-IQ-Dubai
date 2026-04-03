@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag } from '@shared/schema';
@@ -22,6 +22,127 @@ const fadeInUp = {
 const stagger = {
   visible: { transition: { staggerChildren: 0.06 } },
 };
+
+function GettingStartedCard({
+  bookings,
+  linkedPlayerId,
+  bookingsLoading,
+}: {
+  bookings: BookingWithDetails[] | undefined;
+  linkedPlayerId: string | null;
+  bookingsLoading: boolean;
+}) {
+  const [browsed, setBrowsed] = useState(() =>
+    localStorage.getItem('siq_onboarding_browsed') === 'true'
+  );
+
+  const step1Done = browsed;
+  const step2Done = (bookings || []).some(b => b.status === 'confirmed');
+  const step3Done = !!linkedPlayerId;
+  const completedCount = [step1Done, step2Done, step3Done].filter(Boolean).length;
+  const allDone = completedCount === 3;
+
+  if (bookingsLoading || allDone) return null;
+
+  const handleBrowseClick = () => {
+    localStorage.setItem('siq_onboarding_browsed', 'true');
+    setBrowsed(true);
+  };
+
+  const steps = [
+    {
+      done: step1Done,
+      label: 'Browse upcoming sessions',
+      desc: 'Find a session at a venue near you',
+      btnLabel: 'Browse Sessions',
+      href: '/marketplace/book',
+      onClick: handleBrowseClick,
+    },
+    {
+      done: step2Done,
+      label: 'Book your first session',
+      desc: 'Reserve your spot and get on the court',
+      btnLabel: 'Find a Session',
+      href: '/marketplace/book',
+      onClick: undefined,
+    },
+    {
+      done: step3Done,
+      label: 'Link your ShuttleIQ ID to track stats',
+      desc: 'Connect your profile to unlock scores and rankings',
+      btnLabel: 'Link Profile',
+      href: '/marketplace/profile',
+      onClick: undefined,
+    },
+  ];
+
+  return (
+    <Card data-testid="card-getting-started">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-secondary" />
+            Getting Started
+          </CardTitle>
+          <span className="text-xs text-muted-foreground" data-testid="text-onboarding-progress">
+            {completedCount} of 3 complete
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full bg-secondary rounded-full transition-all duration-500"
+            style={{ width: `${(completedCount / 3) * 100}%` }}
+            data-testid="progress-onboarding"
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {steps.map((step, i) => (
+          <div
+            key={i}
+            className={`flex items-start gap-3 ${step.done ? 'opacity-50' : ''}`}
+            data-testid={`step-onboarding-${i + 1}`}
+          >
+            <div
+              className={`flex-shrink-0 flex items-center justify-center h-7 w-7 rounded-full border-2 mt-0.5 transition-colors ${
+                step.done
+                  ? 'bg-secondary border-secondary'
+                  : 'border-border bg-background'
+              }`}
+            >
+              {step.done ? (
+                <Check className="h-3.5 w-3.5 text-secondary-foreground" />
+              ) : (
+                <span className="text-xs font-bold text-muted-foreground">{i + 1}</span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-medium leading-snug ${step.done ? 'line-through text-muted-foreground' : ''}`}>
+                {step.label}
+              </p>
+              {!step.done && (
+                <>
+                  <p className="text-xs text-muted-foreground mt-0.5">{step.desc}</p>
+                  <Link href={step.href} onClick={step.onClick}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2 h-7 text-xs gap-1"
+                      data-testid={`button-onboarding-step-${i + 1}`}
+                    >
+                      {step.btnLabel}
+                      <ArrowRight className="h-3 w-3" />
+                    </Button>
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -105,6 +226,14 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
+            <motion.div variants={fadeInUp}>
+              <GettingStartedCard
+                bookings={bookings}
+                linkedPlayerId={linkedPlayerId}
+                bookingsLoading={bookingsLoading}
+              />
+            </motion.div>
+
             {linkedPlayerId && untaggedCount > 0 && (
               <motion.div variants={fadeInUp}>
                 <Link href="/marketplace/my-scores">
