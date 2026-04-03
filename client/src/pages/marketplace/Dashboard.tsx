@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag } from '@shared/schema';
@@ -27,13 +27,21 @@ function GettingStartedCard({
   bookings,
   linkedPlayerId,
   bookingsLoading,
+  userId,
 }: {
   bookings: BookingWithDetails[] | undefined;
   linkedPlayerId: string | null;
   bookingsLoading: boolean;
+  userId: string;
 }) {
+  const browsedKey = `siq_onboarding_browsed_${userId}`;
+  const dismissedKey = `siq_onboarding_dismissed_${userId}`;
+
   const [browsed, setBrowsed] = useState(() =>
-    localStorage.getItem('siq_onboarding_browsed') === 'true'
+    localStorage.getItem(browsedKey) === 'true'
+  );
+  const [dismissed, setDismissed] = useState(() =>
+    localStorage.getItem(dismissedKey) === 'true'
   );
 
   const step1Done = browsed;
@@ -42,11 +50,16 @@ function GettingStartedCard({
   const completedCount = [step1Done, step2Done, step3Done].filter(Boolean).length;
   const allDone = completedCount === 3;
 
-  if (bookingsLoading || allDone) return null;
+  if (bookingsLoading || allDone || dismissed) return null;
 
   const handleBrowseClick = () => {
-    localStorage.setItem('siq_onboarding_browsed', 'true');
+    localStorage.setItem(browsedKey, 'true');
     setBrowsed(true);
+  };
+
+  const handleDismiss = () => {
+    localStorage.setItem(dismissedKey, 'true');
+    setDismissed(true);
   };
 
   const steps = [
@@ -84,9 +97,20 @@ function GettingStartedCard({
             <Sparkles className="h-4 w-4 text-secondary" />
             Getting Started
           </CardTitle>
-          <span className="text-xs text-muted-foreground" data-testid="text-onboarding-progress">
-            {completedCount} of 3 complete
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground" data-testid="text-onboarding-progress">
+              {completedCount} of 3 complete
+            </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={handleDismiss}
+              data-testid="button-dismiss-onboarding"
+              aria-label="Dismiss getting started"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
           <div
@@ -226,13 +250,16 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <motion.div variants={fadeInUp}>
-              <GettingStartedCard
-                bookings={bookings}
-                linkedPlayerId={linkedPlayerId}
-                bookingsLoading={bookingsLoading}
-              />
-            </motion.div>
+            {user && (
+              <motion.div variants={fadeInUp}>
+                <GettingStartedCard
+                  bookings={bookings}
+                  linkedPlayerId={linkedPlayerId}
+                  bookingsLoading={bookingsLoading}
+                  userId={user.id}
+                />
+              </motion.div>
+            )}
 
             {linkedPlayerId && untaggedCount > 0 && (
               <motion.div variants={fadeInUp}>
