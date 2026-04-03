@@ -1,14 +1,13 @@
-const CACHE_NAME = 'shuttleiq-v3';
+const CACHE_NAME = 'shuttleiq-v4';
 
 const PRECACHE_URLS = [
-  '/',
   '/manifest.webmanifest',
   '/apple-touch-icon.png',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
 ];
 
-// ── Install: pre-cache app shell ─────────────────────────────────────────────
+// ── Install: pre-cache static app shell assets ────────────────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
@@ -16,7 +15,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// ── Activate: purge old caches ───────────────────────────────────────────────
+// ── Activate: purge ALL old caches ───────────────────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -30,7 +29,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// ── Fetch: routing strategies ────────────────────────────────────────────────
+// ── Fetch: routing strategies ────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -47,10 +46,28 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/src/')) return;
   if (url.pathname.startsWith('/@')) return;
 
-  // ── 1. Static assets (icons, manifest) → cache-first ─────────────────────
+  // ── 1. Vite JS/CSS chunks → network-first, cache as fallback ─────────────
+  //    Chunks use content-hash filenames so they are immutable, but we
+  //    always try the network first so a fresh deployment is never blocked
+  //    by stale cache entries for old (now-gone) hash filenames.
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // ── 2. Static icons / manifest → cache-first (truly immutable) ───────────
   if (
     url.pathname.startsWith('/icons/') ||
-    url.pathname.startsWith('/assets/') ||
     url.pathname === '/apple-touch-icon.png' ||
     url.pathname === '/manifest.webmanifest'
   ) {
@@ -60,27 +77,27 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // ── 2. HTML navigation (app shell) → stale-while-revalidate ─────────────
-  //    Serve from cache immediately for fast load; revalidate in background.
+  // ── 3. HTML navigation (app shell) → network-first with cache fallback ───
+  //    Always try to get fresh HTML so the index.html always references the
+  //    latest chunk filenames after a deployment.
   if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match('/');
-        const networkFetch = fetch(request).then((response) => {
+      fetch(request)
+        .then((response) => {
           if (response && response.status === 200) {
-            cache.put(request, response.clone());
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           }
           return response;
-        }).catch(() => cached);
-
-        // Return cached shell immediately; background-update the cache
-        return cached || networkFetch;
-      })
+        })
+        .catch(() =>
+          caches.match(request).then((cached) => cached || caches.match('/'))
+        )
     );
     return;
   }
 
-  // ── 3. JS/CSS/other assets → network-first with cache fallback ────────────
+  // ── 4. Everything else → network-first with cache fallback ───────────────
   event.respondWith(
     fetch(request)
       .then((response) => {
