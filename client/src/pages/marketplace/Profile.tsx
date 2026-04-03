@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 
@@ -27,7 +27,7 @@ interface PlayerSearchResult {
 }
 
 export default function Profile() {
-  const { user } = useMarketplaceAuth();
+  const { user, logout } = useMarketplaceAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
@@ -216,6 +216,30 @@ export default function Profile() {
                     )}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          <motion.div variants={fadeInUp}>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <LogOut className="h-4 w-4 text-secondary" /> Account
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Sign out of your ShuttleIQ account on this device.
+                </p>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={logout}
+                  data-testid="button-logout"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Log Out
+                </Button>
               </CardContent>
             </Card>
           </motion.div>

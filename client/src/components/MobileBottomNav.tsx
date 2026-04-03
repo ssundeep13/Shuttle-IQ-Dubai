@@ -1,12 +1,12 @@
 import { Link, useLocation } from 'wouter';
-import { Home, Calendar, Bookmark, LayoutDashboard, Trophy, LogIn } from 'lucide-react';
+import { Home, Calendar, Bookmark, LayoutDashboard, Trophy, LogIn, BarChart2 } from 'lucide-react';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 
 const authTabs = [
-  { href: '/', label: 'Home', icon: Home },
+  { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
   { href: '/marketplace/my-bookings', label: 'My Bookings', icon: Bookmark },
-  { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/marketplace/my-scores', label: 'Stats', icon: BarChart2 },
 ];
 
 const guestTabs = [
@@ -25,7 +25,13 @@ export function MobileBottomNav() {
   const isActive = (href: string) => {
     if (href === '/') return location === '/' || location === '/marketplace';
     if (href === '/marketplace/dashboard') return location === '/marketplace/dashboard';
-    return location.startsWith(href) && href !== '/marketplace/dashboard';
+    if (href === '/marketplace/book') {
+      return location === '/marketplace/book' || location.startsWith('/marketplace/sessions/') || location.startsWith('/marketplace/checkout/');
+    }
+    if (href === '/marketplace/my-scores') {
+      return location === '/marketplace/my-scores' || location === '/marketplace/game-history';
+    }
+    return location.startsWith(href);
   };
 
   return (

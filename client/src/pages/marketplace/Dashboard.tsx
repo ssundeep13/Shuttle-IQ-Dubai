@@ -234,18 +234,27 @@ export default function Dashboard() {
     <div className="max-w-5xl mx-auto px-4 py-8">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-8">
-          <div className="flex items-center gap-4">
-            <Avatar className="h-12 w-12">
-              <AvatarFallback className="bg-secondary text-secondary-foreground font-bold text-lg">
-                {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <h1 className="text-2xl font-bold" data-testid="text-dashboard-greeting">
-                {greeting()}, {user?.name?.split(' ')[0]}
-              </h1>
-              <p className="text-muted-foreground text-sm">Here's your ShuttleIQ overview</p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <Avatar className="h-12 w-12">
+                <AvatarFallback className="bg-secondary text-secondary-foreground font-bold text-lg">
+                  {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <h1 className="text-2xl font-bold" data-testid="text-dashboard-greeting">
+                  {greeting()}, {user?.name?.split(' ')[0]}
+                </h1>
+                <p className="text-muted-foreground text-sm">Here's your ShuttleIQ overview</p>
+              </div>
             </div>
+            <Link href="/marketplace/profile" className="md:hidden shrink-0" data-testid="link-profile-avatar">
+              <Avatar className="h-9 w-9 hover-elevate cursor-pointer">
+                <AvatarFallback className="bg-muted text-muted-foreground font-semibold text-sm">
+                  {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                </AvatarFallback>
+              </Avatar>
+            </Link>
           </div>
         </motion.div>
 
