@@ -9,8 +9,50 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { MarketplaceProtectedRoute } from "@/components/MarketplaceProtectedRoute";
 import { RootRedirect } from "@/components/RootRedirect";
 import { MarketplaceLayout } from "@/pages/marketplace/MarketplaceLayout";
-import { lazy, Suspense, useEffect, useState } from "react";
-import { Loader2, WifiOff } from "lucide-react";
+import { Component, lazy, Suspense, useEffect, useState } from "react";
+import type { ReactNode, ErrorInfo } from "react";
+import { Loader2, WifiOff, RefreshCw } from "lucide-react";
+
+class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo) {
+    if (
+      error.message.includes("dynamically imported module") ||
+      error.message.includes("Failed to fetch") ||
+      error.message.includes("Loading chunk") ||
+      error.name === "ChunkLoadError"
+    ) {
+      window.location.reload();
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8 text-center">
+          <h2 className="text-lg font-semibold">Something went wrong loading this page</h2>
+          <p className="text-sm text-muted-foreground">This may be a temporary issue. Reloading usually fixes it.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Reload page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Lazy-load every page so Vite creates separate JS chunks per route.
 // Only the chunk for the page the user visits is downloaded — not the whole app.
@@ -122,7 +164,8 @@ function MarketplaceAuthRoute({ component: Component }: { component: React.Compo
 
 function Router() {
   return (
-    <Suspense fallback={<PageLoader />}>
+    <RouteErrorBoundary>
+      <Suspense fallback={<PageLoader />}>
       <Switch>
         <Route path="/" component={RootRedirect}/>
         <Route path="/admin/login" component={Login} />
@@ -204,7 +247,8 @@ function Router() {
 
         <Route component={NotFound} />
       </Switch>
-    </Suspense>
+      </Suspense>
+    </RouteErrorBoundary>
   );
 }
 
