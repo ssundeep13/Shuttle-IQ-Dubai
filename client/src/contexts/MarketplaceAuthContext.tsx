@@ -149,7 +149,22 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     setRefreshToken(refreshToken);
     localStorage.setItem('mp_accessToken', accessToken);
     localStorage.setItem('mp_refreshToken', refreshToken);
-    queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+
+    // Immediately fetch the user profile using the new token and populate the
+    // query cache. This ensures isAuthenticated is true before the caller
+    // navigates, preventing the protected-route race condition where user=null
+    // causes an unwanted redirect back to /marketplace/login.
+    try {
+      const response = await fetch('/api/marketplace/auth/me', {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      });
+      if (response.ok) {
+        const userData = await response.json();
+        queryClient.setQueryData(['/api/marketplace/auth/me'], userData);
+      }
+    } catch {
+      // Non-fatal — the query will self-heal on the next render cycle
+    }
   };
 
   const logout = async () => {
