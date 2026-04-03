@@ -58,7 +58,7 @@ Preferred communication style: Simple, everyday language.
 - **Performance**:
     - **Route-level code splitting**: All page components in `App.tsx` use `React.lazy()` + `Suspense`. Vite emits a separate JS chunk per route; users only download code for pages they visit.
     - **Vendor chunk grouping**: `vite.config.ts` `rollupOptions.output.manualChunks` groups React, TanStack Query, Radix UI, and Lucide into stable vendor chunks that browsers cache across app deployments.
-    - **Query caching**: TanStack Query `staleTime: Infinity` prevents unnecessary re-fetches; `refetchOnWindowFocus: false` prevents refetch on tab focus. Queries retry once (2s delay) on network errors to handle cold-start scenarios.
+    - **Query caching**: TanStack Query `staleTime: 60 * 1000` (60 s) caches data so navigating back to a recently visited page reuses results; `refetchOnWindowFocus: false` prevents refetch on tab focus. Queries retry once (2 s delay) on network errors ("Failed to fetch") to handle cold-start scenarios.
     - **Health endpoint**: `GET /api/health` returns `{ok:true}` instantly without touching the DB. Useful for uptime monitors (e.g. UptimeRobot) to keep the server warm and prevent cold-start delays.
 
 ### External Dependencies
