@@ -276,10 +276,17 @@ export function registerMarketplaceRoutes(app: Express) {
     return !!process.env.REPLIT_DOMAINS || process.env.NODE_ENV === 'production';
   }
 
+  // Strip default ports from a host string so comparisons are reliable
+  // e.g. "example.com:443" → "example.com", "localhost:80" → "localhost"
+  function normalizeHost(host: string): string {
+    return host.replace(/:443$/, '').replace(/:80$/, '');
+  }
+
   app.get("/api/marketplace/auth/google", (req, res) => {
     try {
       const canonicalDomain = getOAuthCanonicalDomain();
-      const currentHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+      const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+      const currentHost = normalizeHost(rawHost);
 
       // If the user is not on the canonical OAuth domain, redirect them there first.
       // This ensures the state CSRF cookie is always set on the same domain as the
