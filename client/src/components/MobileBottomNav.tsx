@@ -5,7 +5,7 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 const authTabs = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
-  { href: '/marketplace/my-bookings', label: 'Bookings', icon: Bookmark },
+  { href: '/marketplace/my-bookings', label: 'My Bookings', icon: Bookmark },
   { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 ];
 
