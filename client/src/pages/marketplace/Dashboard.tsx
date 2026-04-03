@@ -235,8 +235,8 @@ export default function Dashboard() {
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-8">
           <div className="flex items-center gap-4">
-            <Link href="/marketplace/profile" data-testid="link-profile-avatar" className="shrink-0">
-              <Avatar className="h-12 w-12 hover-elevate cursor-pointer">
+            <Link href="/marketplace/profile" data-testid="link-profile-avatar" className="shrink-0 cursor-pointer md:pointer-events-none md:cursor-default">
+              <Avatar className="h-12 w-12">
                 <AvatarFallback className="bg-secondary text-secondary-foreground font-bold text-lg">
                   {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                 </AvatarFallback>
