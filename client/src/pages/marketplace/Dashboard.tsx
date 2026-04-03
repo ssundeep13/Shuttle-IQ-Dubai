@@ -7,7 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer } from 'lucide-react';
+import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag } from '@shared/schema';
@@ -300,6 +301,15 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between gap-4 flex-wrap">
                       <div className="space-y-1.5">
                         <p className="font-semibold" data-testid="text-next-session-title">{nextBooking.session.title}</p>
+                        {(() => {
+                          const rel = getRelativeTimeLabel(nextBooking.session.date as unknown as string, nextBooking.session.startTime);
+                          return rel ? (
+                            <div className="flex items-center gap-1.5 text-sm font-medium text-secondary" data-testid="text-next-session-relative">
+                              <Timer className="h-3.5 w-3.5 shrink-0" />
+                              {rel}
+                            </div>
+                          ) : null;
+                        })()}
                         <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3.5 w-3.5" />
@@ -308,6 +318,7 @@ export default function Dashboard() {
                           <span className="flex items-center gap-1">
                             <Clock className="h-3.5 w-3.5" />
                             {nextBooking.session.startTime}
+                            {nextBooking.session.endTime ? ` – ${nextBooking.session.endTime}` : ''}
                           </span>
                           <span className="flex items-center gap-1">
                             <MapPin className="h-3.5 w-3.5" />

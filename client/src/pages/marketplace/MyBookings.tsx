@@ -20,6 +20,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X } from 'lucide-react';
+import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, BookingGuest } from '@shared/schema';
@@ -307,6 +308,17 @@ export default function MyBookings() {
               </div>
             </div>
 
+            {(() => {
+              const relTime = !isPast
+                ? getRelativeTimeLabel(booking.session.date as unknown as string, booking.session.startTime)
+                : '';
+              return relTime ? (
+                <div className="flex items-center gap-1.5 text-sm font-medium text-secondary mb-2" data-testid={`text-booking-relative-${booking.id}`}>
+                  <Timer className="h-3.5 w-3.5 shrink-0" />
+                  {relTime}
+                </div>
+              ) : null;
+            })()}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm text-muted-foreground mb-4">
               <div className="flex items-center gap-2">
                 <Calendar className="h-3.5 w-3.5 shrink-0" />
@@ -314,7 +326,7 @@ export default function MyBookings() {
               </div>
               <div className="flex items-center gap-2">
                 <Clock className="h-3.5 w-3.5 shrink-0" />
-                <span>{booking.session.startTime} - {booking.session.endTime}</span>
+                <span>{booking.session.startTime}{booking.session.endTime ? ` – ${booking.session.endTime}` : ''}</span>
               </div>
               <div className="flex items-center gap-2">
                 <MapPin className="h-3.5 w-3.5 shrink-0" />

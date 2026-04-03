@@ -833,6 +833,11 @@ export default function SessionDetails() {
                   <CardTitle className="text-2xl mb-1" data-testid="text-session-title">{session.title}</CardTitle>
                   <p className="text-sm text-muted-foreground">
                     {format(new Date(session.date), 'EEEE, MMMM d, yyyy')}
+                    {session.startTime && (
+                      <span className="ml-1">
+                        · {session.startTime}{session.endTime ? ` – ${session.endTime}` : ''}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <Badge
@@ -847,7 +852,7 @@ export default function SessionDetails() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {([
                   { icon: Calendar, label: 'Date', value: format(new Date(session.date), 'EEEE, MMMM d, yyyy') },
-                  { icon: Clock, label: 'Time', value: `${session.startTime} - ${session.endTime}` },
+                  { icon: Clock, label: 'Time', value: session.endTime ? `${session.startTime} – ${session.endTime}` : session.startTime },
                   { icon: MapPin, label: 'Venue', value: session.venueName, sub: session.venueLocation, mapUrl: session.venueMapUrl },
                   { icon: Users, label: 'Capacity', value: `${session.courtCount} courts, ${session.capacity} max players` },
                   { icon: Banknote, label: 'Price', value: `AED ${session.priceAed} per player` },
