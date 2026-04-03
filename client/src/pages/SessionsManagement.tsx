@@ -752,7 +752,7 @@ function SessionCard({
             const today = new Date();
             const sessionDateOnly = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate());
             const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-            const isFuture = sessionDateOnly > todayDateOnly;
+            const isFuture = !session.isSandbox && sessionDateOnly > todayDateOnly;
             const formattedDate = format(sessionDate, 'PPP');
             return isFuture ? (
               <Tooltip>
