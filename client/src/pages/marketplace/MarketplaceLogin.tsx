@@ -180,7 +180,11 @@ export default function MarketplaceLogin() {
                 type="button"
                 variant="outline"
                 className="w-full gap-2"
-                onClick={() => { window.location.href = '/api/marketplace/auth/google'; }}
+                onClick={() => {
+                  const from = new URLSearchParams(window.location.search).get('from') || '';
+                  const qs = from ? `?returnPath=${encodeURIComponent(from)}` : '';
+                  window.location.href = `/api/marketplace/auth/google${qs}`;
+                }}
                 data-testid="button-google-login"
               >
                 <SiGoogle className="h-4 w-4" />

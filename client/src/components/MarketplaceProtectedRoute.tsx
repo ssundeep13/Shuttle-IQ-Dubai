@@ -1,9 +1,10 @@
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Redirect } from 'wouter';
+import { Redirect, useLocation } from 'wouter';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export function MarketplaceProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useMarketplaceAuth();
+  const [location] = useLocation();
 
   if (isLoading) {
     return (
@@ -15,7 +16,10 @@ export function MarketplaceProtectedRoute({ children }: { children: React.ReactN
   }
 
   if (!isAuthenticated) {
-    return <Redirect to="/marketplace/login" />;
+    const loginUrl = location && location !== '/marketplace/login'
+      ? `/marketplace/login?from=${encodeURIComponent(location)}`
+      : '/marketplace/login';
+    return <Redirect to={loginUrl} />;
   }
 
   return <>{children}</>;

@@ -249,21 +249,70 @@ export function registerMarketplaceRoutes(app: Express) {
   // GOOGLE OAUTH
   // ============================================================
 
+  // The domain registered in Google Cloud Console for the OAuth callback.
+  // Always use the *.replit.app domain so the callback URI never changes.
+  function getOAuthCanonicalDomain(): string {
+    const replitDomains = (process.env.REPLIT_DOMAINS || '').split(',').map((d) => d.trim()).filter(Boolean);
+    return replitDomains.find((d) => d.endsWith('.replit.app')) || replitDomains[0] || '';
+  }
+
+  // All domains this deployment serves — used to validate return domains.
+  function getAllowedReturnDomains(): string[] {
+    const replitDomains = (process.env.REPLIT_DOMAINS || '').split(',').map((d) => d.trim()).filter(Boolean);
+    return [...replitDomains, 'localhost:5000', 'localhost'];
+  }
+
   function getGoogleOAuthClient() {
     const clientId = process.env.GOOGLE_CLIENT_ID!;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-    const domains = process.env.REPLIT_DOMAINS?.split(',')[0];
-    const redirectUri = domains
-      ? `https://${domains}/api/marketplace/auth/google/callback`
+    const canonicalDomain = getOAuthCanonicalDomain();
+    const redirectUri = canonicalDomain
+      ? `https://${canonicalDomain}/api/marketplace/auth/google/callback`
       : 'http://localhost:5000/api/marketplace/auth/google/callback';
     return { client: new OAuth2Client(clientId, clientSecret, redirectUri), redirectUri };
   }
 
+  function isSecureContext(): boolean {
+    return !!process.env.REPLIT_DOMAINS || process.env.NODE_ENV === 'production';
+  }
+
   app.get("/api/marketplace/auth/google", (req, res) => {
     try {
+      const canonicalDomain = getOAuthCanonicalDomain();
+      const currentHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+
+      // If the user is not on the canonical OAuth domain, redirect them there first.
+      // This ensures the state CSRF cookie is always set on the same domain as the
+      // Google callback URI, preventing cross-domain cookie failures.
+      if (canonicalDomain && currentHost && currentHost !== canonicalDomain) {
+        const allowedDomains = getAllowedReturnDomains();
+        const returnDomain = allowedDomains.includes(currentHost) ? currentHost : null;
+        const qs = new URLSearchParams();
+        if (returnDomain) qs.set('returnDomain', returnDomain);
+        const returnPath = (req.query.returnPath as string) || '';
+        if (returnPath) qs.set('returnPath', returnPath);
+        return res.redirect(`https://${canonicalDomain}/api/marketplace/auth/google?${qs.toString()}`);
+      }
+
       const { client } = getGoogleOAuthClient();
       const state = randomUUID();
-      res.cookie('google_oauth_state', state, { httpOnly: true, maxAge: 10 * 60 * 1000, sameSite: 'lax' });
+      const secure = isSecureContext();
+      const cookieOpts = { httpOnly: true, maxAge: 10 * 60 * 1000, sameSite: 'lax' as const, secure };
+
+      res.cookie('google_oauth_state', state, cookieOpts);
+
+      // Persist the originating domain and return path so we can redirect
+      // the user back to the right place after a successful login.
+      const returnDomain = req.query.returnDomain as string | undefined;
+      const returnPath = req.query.returnPath as string | undefined;
+
+      if (returnDomain && getAllowedReturnDomains().includes(returnDomain)) {
+        res.cookie('oauth_return_domain', returnDomain, cookieOpts);
+      }
+      if (returnPath && returnPath.startsWith('/marketplace/') && returnPath.length < 300) {
+        res.cookie('oauth_return_path', returnPath, cookieOpts);
+      }
+
       const url = client.generateAuthUrl({
         access_type: 'offline',
         scope: ['openid', 'email', 'profile'],
@@ -281,15 +330,27 @@ export function registerMarketplaceRoutes(app: Express) {
     try {
       const { code, state, error: oauthError } = req.query as Record<string, string>;
 
+      const secure = isSecureContext();
+      const clearOpts = { httpOnly: true, sameSite: 'lax' as const, secure };
+
       if (oauthError) {
         return res.redirect('/marketplace/login?error=google_failed');
       }
 
       const storedState = req.cookies?.google_oauth_state;
       if (!storedState || storedState !== state) {
+        console.warn('[Google OAuth] State mismatch — possible cookie domain issue or user retried mid-flow');
         return res.redirect('/marketplace/login?error=google_failed');
       }
-      res.clearCookie('google_oauth_state');
+
+      // Clear CSRF state cookie
+      res.clearCookie('google_oauth_state', clearOpts);
+
+      // Read and clear return-context cookies
+      const returnDomain: string | undefined = req.cookies?.oauth_return_domain;
+      const returnPath: string | undefined = req.cookies?.oauth_return_path;
+      res.clearCookie('oauth_return_domain', clearOpts);
+      res.clearCookie('oauth_return_path', clearOpts);
 
       const { client } = getGoogleOAuthClient();
       const { tokens } = await client.getToken(code);
@@ -352,6 +413,15 @@ export function registerMarketplaceRoutes(app: Express) {
       await storage.createMarketplaceAuthSession(user.id, refreshToken, expiresAt);
 
       const params = new URLSearchParams({ accessToken, refreshToken });
+      if (returnPath) params.set('returnPath', returnPath);
+
+      // Redirect back to the originating domain if it differs from canonical
+      const allowedDomains = getAllowedReturnDomains();
+      if (returnDomain && allowedDomains.includes(returnDomain)) {
+        const scheme = returnDomain.startsWith('localhost') ? 'http' : 'https';
+        return res.redirect(`${scheme}://${returnDomain}/marketplace/auth/callback?${params.toString()}`);
+      }
+
       res.redirect(`/marketplace/auth/callback?${params.toString()}`);
     } catch (error) {
       console.error('Google OAuth callback error:', error);

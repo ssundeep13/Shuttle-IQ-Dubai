@@ -24,10 +24,13 @@ export default function GoogleAuthCallback() {
       return;
     }
 
+    const returnPath = params.get('returnPath');
+    const destination = returnPath && returnPath.startsWith('/marketplace/') ? returnPath : '/marketplace/dashboard';
+
     loginWithTokens(accessToken, refreshToken)
       .then(() => {
         toast({ title: 'Signed in with Google!' });
-        setLocation('/marketplace/dashboard');
+        setLocation(destination);
       })
       .catch(() => {
         toast({ title: 'Sign-in failed', description: 'Please try again.', variant: 'destructive' });
