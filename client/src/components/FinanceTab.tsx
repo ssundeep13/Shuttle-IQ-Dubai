@@ -1082,11 +1082,9 @@ function ZiinaPaymentsSection() {
                     </td>
                     <td className="p-3 hidden sm:table-cell text-muted-foreground whitespace-nowrap">
                       <p>{format(new Date(pmt.sessionDate), 'dd MMM yyyy')}</p>
-                      {pmt.completedAt && (
-                        <p className="text-xs">
-                          Paid {format(new Date(pmt.completedAt), 'dd MMM')}
-                        </p>
-                      )}
+                      <p className="text-xs">
+                        Paid {format(new Date(pmt.completedAt ?? pmt.createdAt), 'dd MMM')}
+                      </p>
                     </td>
                     <td className="p-3 hidden lg:table-cell">
                       {pmt.ziinaPaymentIntentId ? (

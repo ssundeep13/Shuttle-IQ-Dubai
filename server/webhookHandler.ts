@@ -49,12 +49,14 @@ export async function confirmZiinaBookingByIntentId(
   const existingPayments = await storage.getPaymentsByBookingId(booking.id);
   const alreadyRecorded = existingPayments.some((p) => p.ziinaPaymentIntentId === intentId);
   if (!alreadyRecorded) {
+    const now = new Date();
     await storage.createPayment({
       bookingId: booking.id,
       ziinaPaymentIntentId: intentId,
       amount: booking.amountAed,
       currency: "aed",
       status: "completed",
+      completedAt: now,
     });
   }
 
