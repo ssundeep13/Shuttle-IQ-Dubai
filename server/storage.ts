@@ -723,7 +723,9 @@ export class DatabaseStorage implements IStorage {
       return {
         gameId: game.id,
         sessionId: game.sessionId,
+        partnerId: partner ? partner.playerId : null,
         partnerName: partner ? (playerMap.get(partner.playerId)?.name || 'Unknown') : 'Solo',
+        opponentIds: opponents.map(o => o.playerId),
         opponentNames: opponents.map(o => playerMap.get(o.playerId)?.name || 'Unknown'),
         won: game.winningTeam === playerTeam,
         score: `${game.team1Score}-${game.team2Score}`,

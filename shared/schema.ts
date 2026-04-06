@@ -104,7 +104,9 @@ export interface PlayerStats {
   recentGames: Array<{
     gameId: string;
     sessionId: string;
+    partnerId: string | null;
     partnerName: string;
+    opponentIds: string[];
     opponentNames: string[];
     won: boolean;
     score: string;

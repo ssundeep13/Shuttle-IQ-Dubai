@@ -669,50 +669,90 @@ export default function MyScores() {
                       ? game.skillScoreAfter - game.skillScoreBefore
                       : null;
                     const gameDate = game.date ? format(new Date(game.date), 'M/d/yyyy') : '';
+                    const tagGameDate = game.date ? new Date(game.date) : null;
+                    const withinWindow = !!linkedPlayerId && tagGameDate && tagGameDate >= thirtyDaysAgo;
+                    const canTag = withinWindow && !taggedGameSet.has(game.gameId);
+                    const alreadyTagged = taggedGameSet.has(game.gameId);
+                    const expired = !!linkedPlayerId && tagGameDate && tagGameDate < thirtyDaysAgo && !alreadyTagged;
+
                     return (
                       <div
                         key={game.gameId}
-                        className={`flex items-center gap-3 py-3.5 border-b last:border-0 pl-3 rounded-l-sm border-l-[3px] ${game.won ? 'border-l-teal-500' : 'border-l-red-400'}`}
+                        className={`py-3 border-b last:border-0 pl-3 rounded-l-sm border-l-[3px] ${game.won ? 'border-l-teal-500' : 'border-l-red-400'}`}
                         data-testid={`row-game-${game.gameId}`}
                       >
-                        <div className="shrink-0">
-                          {game.won ? (
-                            <CheckCircle2 className="h-5 w-5 text-teal-600" />
-                          ) : (
-                            <XCircle className="h-5 w-5 text-red-400" />
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className={`text-sm font-semibold ${game.won ? 'text-teal-700 dark:text-teal-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {game.won ? 'Won' : 'Lost'} {game.score}
+                        {/* Row 1: outcome + score (left) · date (right) */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {game.won ? (
+                              <CheckCircle2 className="h-4 w-4 shrink-0 text-teal-600" />
+                            ) : (
+                              <XCircle className="h-4 w-4 shrink-0 text-red-400" />
+                            )}
+                            <span className={`text-sm font-semibold ${game.won ? 'text-teal-700 dark:text-teal-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {game.won ? 'Won' : 'Lost'} {game.score}
+                            </span>
                           </div>
-                          <div className="text-xs text-muted-foreground truncate">
-                            Partner: <span className="font-medium text-foreground">{game.partnerName}</span> &middot; vs{' '}
-                            <span className="font-medium text-foreground">{game.opponentNames.join(' & ')}</span>
-                          </div>
+                          <span className="text-xs text-muted-foreground shrink-0">{gameDate}</span>
                         </div>
-                        <div className="text-right shrink-0">
-                          <div className="text-xs text-muted-foreground">{gameDate}</div>
-                          {eloChange !== null && eloChange !== 0 && (
-                            <Badge
-                              variant="outline"
-                              className={`text-xs no-default-hover-elevate no-default-active-elevate ${eloChange > 0 ? 'bg-green-500/10 text-green-600 border-green-500/20 dark:text-green-400' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}
+
+                        {/* Row 2: partner name (full, linked) */}
+                        <div className="mt-1 text-xs text-muted-foreground pl-6">
+                          Partner:{' '}
+                          {game.partnerId ? (
+                            <Link
+                              href={`/marketplace/players/${game.partnerId}`}
+                              className="font-medium text-foreground underline-offset-2 hover:underline"
+                              data-testid={`link-partner-${game.partnerId}`}
                             >
-                              {eloChange > 0 ? '+' : ''}{eloChange}
-                            </Badge>
+                              {game.partnerName}
+                            </Link>
+                          ) : (
+                            <span className="font-medium text-foreground">{game.partnerName}</span>
                           )}
                         </div>
-                        {(() => {
-                          const gameDate = game.date ? new Date(game.date) : null;
-                          const withinWindow = !!linkedPlayerId && gameDate && gameDate >= thirtyDaysAgo;
-                          const canTag = withinWindow && !taggedGameSet.has(game.gameId);
-                          const alreadyTagged = taggedGameSet.has(game.gameId);
-                          const expired = !!linkedPlayerId && gameDate && gameDate < thirtyDaysAgo && !alreadyTagged;
-                          if (expired) {
+
+                        {/* Row 3: opponent names (full, each individually linked) */}
+                        <div className="mt-0.5 text-xs text-muted-foreground pl-6">
+                          vs{' '}
+                          {game.opponentNames.map((name, idx) => {
+                            const opId = game.opponentIds?.[idx];
                             return (
+                              <span key={opId || idx}>
+                                {idx > 0 && <span className="mx-0.5 text-muted-foreground/60">&amp;</span>}
+                                {opId ? (
+                                  <Link
+                                    href={`/marketplace/players/${opId}`}
+                                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                                    data-testid={`link-opponent-${opId}`}
+                                  >
+                                    {name}
+                                  </Link>
+                                ) : (
+                                  <span className="font-medium text-foreground">{name}</span>
+                                )}
+                              </span>
+                            );
+                          })}
+                        </div>
+
+                        {/* Row 4: ELO badge (left) · tag + flag actions (right) */}
+                        <div className="mt-1.5 pl-6 flex items-center justify-between gap-2">
+                          <div>
+                            {eloChange !== null && eloChange !== 0 && (
+                              <Badge
+                                variant="outline"
+                                className={`text-xs no-default-hover-elevate no-default-active-elevate ${eloChange > 0 ? 'bg-green-500/10 text-green-600 border-green-500/20 dark:text-green-400' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}
+                              >
+                                {eloChange > 0 ? '+' : ''}{eloChange}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            {expired ? (
                               <UITooltip>
                                 <UITooltipTrigger asChild>
-                                  <span className="shrink-0 inline-flex" data-testid={`button-tag-game-${game.gameId}`}>
+                                  <span className="inline-flex" data-testid={`button-tag-game-${game.gameId}`}>
                                     <Button
                                       variant="ghost"
                                       size="icon"
@@ -726,42 +766,41 @@ export default function MyScores() {
                                 </UITooltipTrigger>
                                 <UITooltipContent side="left">Tagging closed after 30 days</UITooltipContent>
                               </UITooltip>
-                            );
-                          }
-                          return (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className={`shrink-0 ${alreadyTagged ? 'text-teal-500' : canTag ? 'text-muted-foreground/60' : 'invisible'}`}
-                              onClick={() => canTag && setTaggingGameId(game.gameId)}
-                              disabled={!canTag && !alreadyTagged}
-                              data-testid={`button-tag-game-${game.gameId}`}
-                            >
-                              {alreadyTagged ? <Check className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
-                            </Button>
-                          );
-                        })()}
-                        {flaggedGameIds.has(game.gameId) ? (
-                          <Badge
-                            variant="outline"
-                            className="text-xs shrink-0 text-muted-foreground border-muted-foreground/30 no-default-hover-elevate no-default-active-elevate"
-                            data-testid={`badge-flagged-${game.gameId}`}
-                          >
-                            <Flag className="h-3 w-3 mr-1" />
-                            Flagged
-                          </Badge>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="shrink-0 text-muted-foreground/50"
-                            onClick={() => { setFlaggingGameId(game.gameId); setFlagNote(''); }}
-                            title="Flag incorrect score"
-                            data-testid={`button-flag-game-${game.gameId}`}
-                          >
-                            <Flag className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={alreadyTagged ? 'text-teal-500' : canTag ? 'text-muted-foreground/60' : 'invisible'}
+                                onClick={() => canTag && setTaggingGameId(game.gameId)}
+                                disabled={!canTag && !alreadyTagged}
+                                data-testid={`button-tag-game-${game.gameId}`}
+                              >
+                                {alreadyTagged ? <Check className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
+                              </Button>
+                            )}
+                            {flaggedGameIds.has(game.gameId) ? (
+                              <Badge
+                                variant="outline"
+                                className="text-xs text-muted-foreground border-muted-foreground/30 no-default-hover-elevate no-default-active-elevate"
+                                data-testid={`badge-flagged-${game.gameId}`}
+                              >
+                                <Flag className="h-3 w-3 mr-1" />
+                                Flagged
+                              </Badge>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-muted-foreground/50"
+                                onClick={() => { setFlaggingGameId(game.gameId); setFlagNote(''); }}
+                                title="Flag incorrect score"
+                                data-testid={`button-flag-game-${game.gameId}`}
+                              >
+                                <Flag className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
