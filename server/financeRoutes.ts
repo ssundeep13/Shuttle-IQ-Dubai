@@ -46,6 +46,9 @@ export function registerFinanceRoutes(app: Express): void {
       if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
         return res.status(400).json({ error: "Invalid date. Use YYYY-MM-DD format." });
       }
+      if (fromDate > toDate) {
+        return res.status(400).json({ error: "'from' date must be before or equal to 'to' date." });
+      }
 
       const summary = await storage.getFinanceSummary(fromDate, toDate);
       res.json(summary);
@@ -126,6 +129,17 @@ export function registerFinanceRoutes(app: Express): void {
       const { from, to, categoryId } = req.query as Record<string, string>;
       const fromDate = from ? new Date(from) : undefined;
       const toDate = to ? new Date(to) : undefined;
+
+      if (from && isNaN(fromDate!.getTime())) {
+        return res.status(400).json({ error: "Invalid 'from' date. Use YYYY-MM-DD format." });
+      }
+      if (to && isNaN(toDate!.getTime())) {
+        return res.status(400).json({ error: "Invalid 'to' date. Use YYYY-MM-DD format." });
+      }
+      if (fromDate && toDate && fromDate > toDate) {
+        return res.status(400).json({ error: "'from' date must be before or equal to 'to' date." });
+      }
+
       const list = await storage.getAllExpenses({
         from: fromDate,
         to: toDate,
