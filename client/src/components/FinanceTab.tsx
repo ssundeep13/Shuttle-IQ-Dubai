@@ -909,9 +909,7 @@ function PendingPaymentsSection() {
                       {bk.sessionStartTime && (
                         <span className="ml-1 text-xs">{bk.sessionStartTime}</span>
                       )}
-                      {bk.spotsBooked > 1 && (
-                        <p className="text-xs">{bk.spotsBooked} spots</p>
-                      )}
+                      <p className="text-xs">{bk.spotsBooked} spot{bk.spotsBooked !== 1 ? 's' : ''}</p>
                     </td>
                     <td className="p-3 text-right font-semibold">
                       {fmtAed(bk.amountAed)}
@@ -1017,10 +1015,6 @@ export default function FinanceTab() {
             <BarChart3 className="w-4 h-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="pending" className="flex items-center gap-2" data-testid="subtab-finance-pending">
-            <Clock className="w-4 h-4" />
-            Pending Payments
-          </TabsTrigger>
           <TabsTrigger value="expenses" className="flex items-center gap-2" data-testid="subtab-finance-expenses">
             <ListOrdered className="w-4 h-4" />
             Expenses
@@ -1028,6 +1022,10 @@ export default function FinanceTab() {
           <TabsTrigger value="categories" className="flex items-center gap-2" data-testid="subtab-finance-categories">
             <Settings2 className="w-4 h-4" />
             Categories
+          </TabsTrigger>
+          <TabsTrigger value="pending" className="flex items-center gap-2" data-testid="subtab-finance-pending">
+            <Clock className="w-4 h-4" />
+            Pending Payments
           </TabsTrigger>
         </TabsList>
 
