@@ -107,7 +107,7 @@ export function registerFinanceRoutes(app: Express): void {
       // Check if any expenses reference this category
       const linked = await storage.getAllExpenses({ categoryId: req.params.id });
       if (linked.length > 0) {
-        return res.status(409).json({
+        return res.status(403).json({
           error: `Cannot delete: ${linked.length} expense(s) use this category. Reassign them first.`,
         });
       }
