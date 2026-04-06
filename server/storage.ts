@@ -209,6 +209,9 @@ export interface IStorage {
   getPlayerTagsForGame(gameResultId: string, taggedByPlayerId: string): Promise<PlayerTag[]>;
   getTaggedGameIds(taggedByPlayerId: string): Promise<string[]>;
   getGameParticipantInfo(gameResultId: string): Promise<GameParticipantInfo[]>;
+
+  // Public analytics
+  getPublicAnalytics(options: { sessionId?: string; from?: Date; to?: Date }): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1657,6 +1660,150 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(players, eq(gameParticipants.playerId, players.id))
       .where(eq(gameParticipants.gameId, gameResultId));
     return rows;
+  }
+
+  async getPublicAnalytics({ sessionId, from, to }: { sessionId?: string; from?: Date; to?: Date }) {
+    const conditions: any[] = [];
+    if (sessionId) conditions.push(eq(bookings.sessionId, sessionId));
+    if (from) conditions.push(gte(bookings.createdAt, from));
+    if (to) conditions.push(lt(bookings.createdAt, to));
+
+    const rows = await db
+      .select({
+        id: bookings.id,
+        sessionId: bookings.sessionId,
+        status: bookings.status,
+        paymentMethod: bookings.paymentMethod,
+        amountAed: bookings.amountAed,
+        cashPaid: bookings.cashPaid,
+        spotsBooked: bookings.spotsBooked,
+        lateFeeApplied: bookings.lateFeeApplied,
+        createdAt: bookings.createdAt,
+        sessionTitle: bookableSessions.title,
+        sessionDate: bookableSessions.date,
+        sessionStartTime: bookableSessions.startTime,
+        sessionEndTime: bookableSessions.endTime,
+        sessionVenue: bookableSessions.venueName,
+        sessionPriceAed: bookableSessions.priceAed,
+        sessionCapacity: bookableSessions.capacity,
+      })
+      .from(bookings)
+      .innerJoin(bookableSessions, eq(bookings.sessionId, bookableSessions.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(bookings.createdAt));
+
+    const isActive = (b: typeof rows[0]) => ['confirmed', 'attended'].includes(b.status);
+    const confirmed = rows.filter(isActive);
+    const waitlisted = rows.filter(b => b.status === 'waitlisted');
+    const cancelled = rows.filter(b => b.status === 'cancelled');
+
+    const cardBookings = confirmed.filter(b => b.paymentMethod === 'ziina');
+    const cashBookings = confirmed.filter(b => b.paymentMethod === 'cash');
+    const cashPaid = cashBookings.filter(b => b.cashPaid);
+    const cashPending = cashBookings.filter(b => !b.cashPaid);
+
+    const sum = (arr: typeof rows, field: 'amountAed' | 'spotsBooked') =>
+      arr.reduce((s, b) => s + b[field], 0);
+
+    // Per-session breakdown
+    const sessionMap = new Map<string, typeof rows>();
+    for (const b of rows) {
+      if (!sessionMap.has(b.sessionId)) sessionMap.set(b.sessionId, []);
+      sessionMap.get(b.sessionId)!.push(b);
+    }
+
+    const sessionBreakdowns = Array.from(sessionMap.entries())
+      .map(([sid, bkgs]) => {
+        const conf = bkgs.filter(isActive);
+        const wait = bkgs.filter(b => b.status === 'waitlisted');
+        const canc = bkgs.filter(b => b.status === 'cancelled');
+        const first = bkgs[0];
+        return {
+          id: sid,
+          title: first.sessionTitle,
+          date: first.sessionDate,
+          startTime: first.sessionStartTime,
+          endTime: first.sessionEndTime,
+          venue: first.sessionVenue,
+          pricePerSpotAed: first.sessionPriceAed,
+          capacity: first.sessionCapacity,
+          confirmed: {
+            bookings: conf.length,
+            spots: sum(conf, 'spotsBooked'),
+            revenueAed: sum(conf, 'amountAed'),
+            collectedAed:
+              sum(conf.filter(b => b.paymentMethod === 'ziina'), 'amountAed') +
+              sum(conf.filter(b => b.paymentMethod === 'cash' && b.cashPaid), 'amountAed'),
+            pendingCashAed: sum(conf.filter(b => b.paymentMethod === 'cash' && !b.cashPaid), 'amountAed'),
+          },
+          waitlisted: {
+            bookings: wait.length,
+            spots: sum(wait, 'spotsBooked'),
+          },
+          cancelled: {
+            bookings: canc.length,
+            spots: sum(canc, 'spotsBooked'),
+            lateFeesAed: sum(canc.filter(b => b.lateFeeApplied), 'amountAed'),
+          },
+        };
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Monthly summary (by booking creation month, confirmed only)
+    const monthMap = new Map<string, typeof rows>();
+    for (const b of confirmed) {
+      const m = b.createdAt.toISOString().substring(0, 7);
+      if (!monthMap.has(m)) monthMap.set(m, []);
+      monthMap.get(m)!.push(b);
+    }
+    const monthly = Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, bkgs]) => ({
+        month,
+        confirmedBookings: bkgs.length,
+        totalSpotsBooked: sum(bkgs, 'spotsBooked'),
+        revenueChargedAed: sum(bkgs, 'amountAed'),
+        revenueCollectedAed:
+          sum(bkgs.filter(b => b.paymentMethod === 'ziina'), 'amountAed') +
+          sum(bkgs.filter(b => b.paymentMethod === 'cash' && b.cashPaid), 'amountAed'),
+        revenuePendingCashAed: sum(bkgs.filter(b => b.paymentMethod === 'cash' && !b.cashPaid), 'amountAed'),
+      }));
+
+    return {
+      generatedAt: new Date().toISOString(),
+      filters: {
+        sessionId: sessionId ?? null,
+        from: from?.toISOString() ?? null,
+        to: to?.toISOString() ?? null,
+      },
+      totals: {
+        confirmedBookings: confirmed.length,
+        totalSpotsBooked: sum(confirmed, 'spotsBooked'),
+        revenueChargedAed: sum(confirmed, 'amountAed'),
+        revenueCollectedAed:
+          sum(cardBookings, 'amountAed') + sum(cashPaid, 'amountAed'),
+        revenuePendingCashAed: sum(cashPending, 'amountAed'),
+        cancelledBookings: cancelled.length,
+        lateFeesRetainedAed: sum(cancelled.filter(b => b.lateFeeApplied), 'amountAed'),
+        waitlistedBookings: waitlisted.length,
+        byPaymentMethod: {
+          card: {
+            bookings: cardBookings.length,
+            spotsBooked: sum(cardBookings, 'spotsBooked'),
+            amountAed: sum(cardBookings, 'amountAed'),
+          },
+          cash: {
+            bookings: cashBookings.length,
+            spotsBooked: sum(cashBookings, 'spotsBooked'),
+            amountAed: sum(cashBookings, 'amountAed'),
+            collectedAed: sum(cashPaid, 'amountAed'),
+            pendingAed: sum(cashPending, 'amountAed'),
+          },
+        },
+      },
+      sessions: sessionBreakdowns,
+      monthly,
+    };
   }
 }
 

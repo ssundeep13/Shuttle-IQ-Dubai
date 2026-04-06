@@ -25,6 +25,37 @@ import { OAuth2Client } from "google-auth-library";
 
 export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
+  // PUBLIC ANALYTICS (no auth required — aggregated data only)
+  // ============================================================
+
+  app.get("/api/public/analytics", async (req, res) => {
+    try {
+      const { sessionId, from, to } = req.query as Record<string, string>;
+
+      const fromDate = from ? new Date(from) : undefined;
+      const toDate = to ? new Date(to) : undefined;
+
+      if (fromDate && isNaN(fromDate.getTime())) {
+        return res.status(400).json({ error: "Invalid 'from' date. Use ISO 8601 format (e.g. 2026-03-01)" });
+      }
+      if (toDate && isNaN(toDate.getTime())) {
+        return res.status(400).json({ error: "Invalid 'to' date. Use ISO 8601 format (e.g. 2026-04-01)" });
+      }
+
+      const data = await storage.getPublicAnalytics({
+        sessionId: sessionId || undefined,
+        from: fromDate,
+        to: toDate,
+      });
+
+      res.json(data);
+    } catch (error: any) {
+      console.error("[Public Analytics] Error:", error);
+      res.status(500).json({ error: "Failed to compute analytics" });
+    }
+  });
+
+  // ============================================================
   // MARKETPLACE AUTH
   // ============================================================
 
