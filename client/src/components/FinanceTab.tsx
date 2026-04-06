@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useToast } from '@/hooks/use-toast';
 import {
   TrendingUp, TrendingDown, DollarSign, Wallet, PlusCircle, Pencil, Trash2,
-  BarChart3, ListOrdered, Settings2, Clock
+  BarChart3, ListOrdered, Settings2, Clock, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import type { ExpenseCategory, ExpenseWithCategory, FinanceSummary } from '@shared/schema';
 
@@ -753,11 +753,210 @@ function CategoriesSection({
   );
 }
 
+// ─── Pending Payments Section ─────────────────────────────────────────────────
+
+interface PendingBookingRow {
+  bookingId: string;
+  userId: string;
+  sessionId: string;
+  amountAed: number;
+  spotsBooked: number;
+  bookingStatus: string;
+  createdAt: string;
+  playerName: string;
+  playerEmail: string;
+  sessionTitle: string;
+  sessionDate: string;
+  sessionStartTime: string;
+  venueName: string;
+}
+
+interface PendingPaymentsResponse {
+  totalPendingAed: number;
+  months: {
+    month: string;
+    totalAed: number;
+    count: number;
+    bookings: PendingBookingRow[];
+  }[];
+}
+
+function PendingPaymentsSection() {
+  const { toast } = useToast();
+
+  const { data, isLoading, isError } = useQuery<PendingPaymentsResponse>({
+    queryKey: ['/api/finance/pending-payments'],
+    queryFn: () => apiRequest<PendingPaymentsResponse>('GET', '/api/finance/pending-payments'),
+    staleTime: 30 * 1000,
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: (bookingId: string) =>
+      apiRequest('PATCH', `/api/marketplace/bookings/${bookingId}/cash-paid`, { cashPaid: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/finance/pending-payments'] });
+      qc.invalidateQueries({ queryKey: ['/api/finance/summary'] });
+      toast({ title: 'Payment marked as collected' });
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Failed to mark as paid',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {[1, 2, 3].map(i => <Skeleton key={i} className="h-32" />)}
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          Could not load pending payments.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (data.months.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3">
+        <CheckCircle2 className="w-12 h-12 text-green-500" />
+        <p className="text-lg font-semibold">All caught up!</p>
+        <p className="text-sm text-muted-foreground">No pending cash payments at this time.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Total banner */}
+      <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
+        <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            <span className="font-semibold text-amber-800 dark:text-amber-200">
+              Total Outstanding Cash
+            </span>
+          </div>
+          <span
+            className="text-2xl font-bold text-amber-700 dark:text-amber-300"
+            data-testid="pending-total-aed"
+          >
+            {fmtAed(data.totalPendingAed)}
+          </span>
+        </CardContent>
+      </Card>
+
+      {/* Month groups */}
+      {data.months.map(monthGroup => (
+        <div key={monthGroup.month} className="space-y-2" data-testid={`pending-month-${monthGroup.month}`}>
+          {/* Month header */}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <h3 className="font-semibold text-base">
+              {format(new Date(monthGroup.month + '-02'), 'MMMM yyyy')}
+            </h3>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" data-testid={`pending-count-${monthGroup.month}`}>
+                {monthGroup.count} booking{monthGroup.count !== 1 ? 's' : ''}
+              </Badge>
+              <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                {fmtAed(monthGroup.totalAed)}
+              </span>
+            </div>
+          </div>
+
+          {/* Bookings table */}
+          <div className="rounded-md border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="text-left p-3 font-medium">Player</th>
+                  <th className="text-left p-3 font-medium hidden md:table-cell">Session</th>
+                  <th className="text-left p-3 font-medium hidden sm:table-cell">Date</th>
+                  <th className="text-right p-3 font-medium">Amount</th>
+                  <th className="p-3 w-28"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthGroup.bookings.map(bk => (
+                  <tr
+                    key={bk.bookingId}
+                    className="border-b last:border-0 hover-elevate"
+                    data-testid={`pending-row-${bk.bookingId}`}
+                  >
+                    <td className="p-3">
+                      <div>
+                        <p className="font-medium">{bk.playerName}</p>
+                        <p className="text-xs text-muted-foreground">{bk.playerEmail}</p>
+                      </div>
+                    </td>
+                    <td className="p-3 hidden md:table-cell">
+                      <div>
+                        <p className="font-medium">{bk.sessionTitle}</p>
+                        <p className="text-xs text-muted-foreground">{bk.venueName}</p>
+                      </div>
+                    </td>
+                    <td className="p-3 hidden sm:table-cell text-muted-foreground whitespace-nowrap">
+                      {format(new Date(bk.sessionDate), 'dd MMM')}
+                      {bk.sessionStartTime && (
+                        <span className="ml-1 text-xs">{bk.sessionStartTime}</span>
+                      )}
+                      {bk.spotsBooked > 1 && (
+                        <p className="text-xs">{bk.spotsBooked} spots</p>
+                      )}
+                    </td>
+                    <td className="p-3 text-right font-semibold">
+                      {fmtAed(bk.amountAed)}
+                    </td>
+                    <td className="p-3 text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => markPaidMutation.mutate(bk.bookingId)}
+                        disabled={markPaidMutation.isPending}
+                        data-testid={`button-mark-paid-${bk.bookingId}`}
+                        className="whitespace-nowrap"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                        Mark Paid
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t bg-muted/50">
+                  <td colSpan={5} className="p-3 font-medium">
+                    <div className="flex items-center justify-between">
+                      <span>Subtotal</span>
+                      <span className="font-bold text-amber-600 dark:text-amber-400">
+                        {fmtAed(monthGroup.totalAed)}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main Finance Tab ─────────────────────────────────────────────────────────
 
 export default function FinanceTab() {
   const [preset, setPreset] = useState<Preset>('thisMonth');
-  const [subTab, setSubTab] = useState<'overview' | 'expenses' | 'categories'>('overview');
+  const [subTab, setSubTab] = useState<'overview' | 'expenses' | 'categories' | 'pending'>('overview');
   const { from: fromStr, to: toStr } = getPresetDates(preset);
 
   const { data: summary, isLoading: summaryLoading } = useQuery<FinanceSummary>({
@@ -813,10 +1012,14 @@ export default function FinanceTab() {
 
       {/* Sub-tabs */}
       <Tabs value={subTab} onValueChange={v => setSubTab(v as typeof subTab)}>
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="overview" className="flex items-center gap-2" data-testid="subtab-finance-overview">
             <BarChart3 className="w-4 h-4" />
             Overview
+          </TabsTrigger>
+          <TabsTrigger value="pending" className="flex items-center gap-2" data-testid="subtab-finance-pending">
+            <Clock className="w-4 h-4" />
+            Pending Payments
           </TabsTrigger>
           <TabsTrigger value="expenses" className="flex items-center gap-2" data-testid="subtab-finance-expenses">
             <ListOrdered className="w-4 h-4" />
@@ -863,6 +1066,11 @@ export default function FinanceTab() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* ── Pending Payments ── */}
+        <TabsContent value="pending" className="mt-6">
+          <PendingPaymentsSection />
         </TabsContent>
 
         {/* ── Expenses ── */}

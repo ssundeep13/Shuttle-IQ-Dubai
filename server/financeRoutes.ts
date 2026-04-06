@@ -3,8 +3,8 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { requireAuth, requireAdmin } from "./auth/middleware";
 import { db } from "./db";
-import { expenseCategories } from "@shared/schema";
-import { sql } from "drizzle-orm";
+import { expenseCategories, bookings, bookableSessions, marketplaceUsers } from "@shared/schema";
+import { sql, eq, and, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 const DEFAULT_CATEGORIES = [
@@ -211,6 +211,69 @@ export function registerFinanceRoutes(app: Express): void {
     } catch (err: unknown) {
       console.error("[Finance] delete expense error:", err instanceof Error ? err.message : err);
       res.status(500).json({ error: "Failed to delete expense" });
+    }
+  });
+
+  // ── Pending Cash Payments ──────────────────────────────────────────────────
+
+  app.get("/api/finance/pending-payments", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      // Fetch all cash bookings that are not yet collected
+      const rows = await db
+        .select({
+          bookingId: bookings.id,
+          userId: bookings.userId,
+          sessionId: bookings.sessionId,
+          amountAed: bookings.amountAed,
+          spotsBooked: bookings.spotsBooked,
+          bookingStatus: bookings.status,
+          createdAt: bookings.createdAt,
+          playerName: marketplaceUsers.name,
+          playerEmail: marketplaceUsers.email,
+          sessionTitle: bookableSessions.title,
+          sessionDate: bookableSessions.date,
+          sessionStartTime: bookableSessions.startTime,
+          venueName: bookableSessions.venueName,
+        })
+        .from(bookings)
+        .innerJoin(marketplaceUsers, eq(bookings.userId, marketplaceUsers.id))
+        .innerJoin(bookableSessions, eq(bookings.sessionId, bookableSessions.id))
+        .where(
+          and(
+            eq(bookings.paymentMethod, 'cash'),
+            eq(bookings.cashPaid, false),
+            inArray(bookings.status, ['confirmed', 'attended'])
+          )
+        )
+        .orderBy(sql`${bookableSessions.date} ASC`);
+
+      // Group by calendar month of the session date (YYYY-MM)
+      const grouped: Record<string, {
+        month: string;
+        totalAed: number;
+        count: number;
+        bookings: typeof rows;
+      }> = {};
+
+      for (const row of rows) {
+        const d = new Date(row.sessionDate);
+        const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        if (!grouped[monthKey]) {
+          grouped[monthKey] = { month: monthKey, totalAed: 0, count: 0, bookings: [] };
+        }
+        grouped[monthKey].totalAed += row.amountAed;
+        grouped[monthKey].count += 1;
+        grouped[monthKey].bookings.push(row);
+      }
+
+      const result = Object.values(grouped).sort((a, b) => a.month.localeCompare(b.month));
+
+      const totalPendingAed = rows.reduce((s, r) => s + r.amountAed, 0);
+
+      res.json({ totalPendingAed, months: result });
+    } catch (err: unknown) {
+      console.error("[Finance] pending-payments error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load pending payments" });
     }
   });
 }
