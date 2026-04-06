@@ -28,7 +28,15 @@ export function registerMarketplaceRoutes(app: Express) {
   // PUBLIC ANALYTICS (no auth required — aggregated data only)
   // ============================================================
 
+  app.options("/api/public/analytics", (_req, res) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.sendStatus(204);
+  });
+
   app.get("/api/public/analytics", async (req, res) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, OPTIONS");
     try {
       const { sessionId, from, to } = req.query as Record<string, string>;
 
