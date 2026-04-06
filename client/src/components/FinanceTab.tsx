@@ -1001,19 +1001,9 @@ function ZiinaPaymentsSection() {
     );
   }
 
-  if (data.months.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 gap-3">
-        <CreditCard className="w-12 h-12 text-muted-foreground" />
-        <p className="text-lg font-semibold">No Ziina payments yet</p>
-        <p className="text-sm text-muted-foreground">Completed online payments will appear here.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      {/* Total banner */}
+      {/* Total banner — always visible */}
       <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
         <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -1030,6 +1020,14 @@ function ZiinaPaymentsSection() {
           </span>
         </CardContent>
       </Card>
+
+      {data.months.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 gap-3">
+          <CreditCard className="w-12 h-12 text-muted-foreground" />
+          <p className="text-lg font-semibold">No Ziina payments yet</p>
+          <p className="text-sm text-muted-foreground">Completed online payments will appear here.</p>
+        </div>
+      ) : null}
 
       {/* Month groups */}
       {data.months.map(monthGroup => (
@@ -1083,7 +1081,7 @@ function ZiinaPaymentsSection() {
                     <td className="p-3 hidden sm:table-cell text-muted-foreground whitespace-nowrap">
                       <p>{format(new Date(pmt.sessionDate), 'dd MMM yyyy')}</p>
                       <p className="text-xs">
-                        Paid {format(new Date(pmt.completedAt ?? pmt.createdAt), 'dd MMM')}
+                        Paid {format(new Date(pmt.completedAt ?? pmt.createdAt), 'dd MMM yyyy')}
                       </p>
                     </td>
                     <td className="p-3 hidden lg:table-cell">
