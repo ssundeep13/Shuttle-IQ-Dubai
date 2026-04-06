@@ -643,7 +643,15 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
 
 // ─── Categories Section ────────────────────────────────────────────────────────
 
-function CategoriesSection({ categories, isLoading }: { categories: ExpenseCategory[]; isLoading: boolean }) {
+function CategoriesSection({
+  categories,
+  isLoading,
+  expenseCountByCategoryId,
+}: {
+  categories: ExpenseCategory[];
+  isLoading: boolean;
+  expenseCountByCategoryId: Record<string, number>;
+}) {
   const { toast } = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [editCat, setEditCat] = useState<ExpenseCategory | undefined>();
@@ -683,45 +691,57 @@ function CategoriesSection({ categories, isLoading }: { categories: ExpenseCateg
                 <th className="text-left p-3 font-medium">Category</th>
                 <th className="text-left p-3 font-medium hidden md:table-cell">Icon</th>
                 <th className="text-left p-3 font-medium">Color</th>
+                <th className="text-left p-3 font-medium hidden md:table-cell">Expenses</th>
                 <th className="p-3 w-24"></th>
               </tr>
             </thead>
             <tbody>
-              {categories.map(cat => (
-                <tr key={cat.id} className="border-b last:border-0 hover-elevate" data-testid={`row-category-${cat.id}`}>
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                      <span className="font-medium">{cat.name}</span>
-                    </div>
-                  </td>
-                  <td className="p-3 font-mono text-xs text-muted-foreground hidden md:table-cell">{cat.icon}</td>
-                  <td className="p-3">
-                    <span className="font-mono text-xs text-muted-foreground">{cat.color}</span>
-                  </td>
-                  <td className="p-3">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button size="icon" variant="ghost" onClick={() => setEditCat(cat)} data-testid={`button-edit-category-${cat.id}`}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => deleteMutation.mutate(cat.id)}
-                            disabled={deleteMutation.isPending}
-                            data-testid={`button-delete-category-${cat.id}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Delete category (disabled if it has expenses)</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {categories.map(cat => {
+                const count = expenseCountByCategoryId[cat.id] ?? 0;
+                const hasLinked = count > 0;
+                return (
+                  <tr key={cat.id} className="border-b last:border-0 hover-elevate" data-testid={`row-category-${cat.id}`}>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                        <span className="font-medium">{cat.name}</span>
+                      </div>
+                    </td>
+                    <td className="p-3 font-mono text-xs text-muted-foreground hidden md:table-cell">{cat.icon}</td>
+                    <td className="p-3">
+                      <span className="font-mono text-xs text-muted-foreground">{cat.color}</span>
+                    </td>
+                    <td className="p-3 text-muted-foreground hidden md:table-cell">{count > 0 ? count : '—'}</td>
+                    <td className="p-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="icon" variant="ghost" onClick={() => setEditCat(cat)} data-testid={`button-edit-category-${cat.id}`}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => !hasLinked && deleteMutation.mutate(cat.id)}
+                                disabled={hasLinked || deleteMutation.isPending}
+                                data-testid={`button-delete-category-${cat.id}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {hasLinked
+                              ? `Cannot delete: ${count} expense${count !== 1 ? 's' : ''} linked. Reassign them first.`
+                              : 'Delete category'}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -752,8 +772,20 @@ export default function FinanceTab() {
     staleTime: 60 * 1000,
   });
 
+  // Fetch all expenses (no date filter) to compute per-category counts for the Categories view
+  const { data: allExpenses = [] } = useQuery<ExpenseWithCategory[]>({
+    queryKey: ['/api/finance/expenses', '', '', 'all'],
+    queryFn: () => apiRequest<ExpenseWithCategory[]>('GET', '/api/finance/expenses'),
+    staleTime: 30 * 1000,
+  });
+
+  const expenseCountByCategoryId = allExpenses.reduce<Record<string, number>>((acc, e) => {
+    acc[e.categoryId] = (acc[e.categoryId] ?? 0) + 1;
+    return acc;
+  }, {});
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-y-auto max-h-[calc(100vh-14rem)] md:max-h-none md:overflow-visible">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -840,7 +872,11 @@ export default function FinanceTab() {
 
         {/* ── Categories ── */}
         <TabsContent value="categories" className="mt-6">
-          <CategoriesSection categories={categories} isLoading={catsLoading} />
+          <CategoriesSection
+            categories={categories}
+            isLoading={catsLoading}
+            expenseCountByCategoryId={expenseCountByCategoryId}
+          />
         </TabsContent>
       </Tabs>
     </div>

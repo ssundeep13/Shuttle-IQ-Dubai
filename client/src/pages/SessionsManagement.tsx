@@ -269,7 +269,7 @@ export default function SessionsManagement() {
                 )}
               </TabsTrigger>
               <TabsTrigger value="finance" data-testid="tab-finance" className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4" />
+                <DollarSign className="w-4 h-4" />
                 Finance
               </TabsTrigger>
             </TabsList>
