@@ -438,6 +438,60 @@ export const insertPlayerTagSchema = createInsertSchema(playerTags).omit({ id: t
 export type InsertPlayerTag = z.infer<typeof insertPlayerTagSchema>;
 export type PlayerTag = typeof playerTags.$inferSelect;
 
+// ─── Finance / Accounting ─────────────────────────────────────────────────────
+
+export const expenseCategories = pgTable("expense_categories", {
+  id: varchar("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  icon: text("icon").notNull().default("circle"),
+  color: text("color").notNull().default("#6B7280"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export const insertExpenseCategorySchema = createInsertSchema(expenseCategories).omit({ id: true, createdAt: true });
+export type InsertExpenseCategory = z.infer<typeof insertExpenseCategorySchema>;
+export type ExpenseCategory = typeof expenseCategories.$inferSelect;
+
+export const expenses = pgTable("expenses", {
+  id: varchar("id").primaryKey(),
+  categoryId: varchar("category_id").notNull().references(() => expenseCategories.id),
+  amountAed: integer("amount_aed").notNull(),
+  description: text("description").notNull(),
+  vendor: text("vendor"),
+  date: timestamp("date").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertExpense = z.infer<typeof insertExpenseSchema>;
+export type Expense = typeof expenses.$inferSelect;
+
+export interface ExpenseWithCategory extends Expense {
+  categoryName: string;
+  categoryColor: string;
+  categoryIcon: string;
+}
+
+export interface FinanceSummary {
+  revenue: {
+    chargedAed: number;
+    collectedAed: number;
+    pendingCashAed: number;
+    lateFeesAed: number;
+  };
+  expenses: {
+    totalAed: number;
+    byCategory: Array<{ id: string; name: string; color: string; icon: string; totalAed: number; count: number }>;
+  };
+  netProfitAed: number;
+  monthlyRows: Array<{
+    month: string;
+    revenueCollectedAed: number;
+    expensesAed: number;
+    netAed: number;
+  }>;
+}
+
 export interface TrendingTag {
   tag: Tag;
   count: number;

@@ -21,7 +21,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp } from 'lucide-react';
+import { FinanceTab } from '@/components/FinanceTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';
@@ -267,6 +268,10 @@ export default function SessionsManagement() {
                   </Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="finance" data-testid="tab-finance" className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" />
+                Finance
+              </TabsTrigger>
             </TabsList>
 
             {activeTab === 'sessions' && (
@@ -318,6 +323,10 @@ export default function SessionsManagement() {
 
           <TabsContent value="refunds" className="mt-6">
             <RefundsTabContent refunds={refunds} />
+          </TabsContent>
+
+          <TabsContent value="finance" className="mt-6">
+            <FinanceTab />
           </TabsContent>
         </Tabs>
       </main>

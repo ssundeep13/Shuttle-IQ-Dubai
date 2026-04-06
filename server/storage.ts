@@ -48,6 +48,14 @@ import {
   scoreDisputes,
   tags,
   playerTags,
+  expenseCategories,
+  expenses,
+  type ExpenseCategory,
+  type InsertExpenseCategory,
+  type Expense,
+  type InsertExpense,
+  type ExpenseWithCategory,
+  type FinanceSummary,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, SQL } from "drizzle-orm";
@@ -253,6 +261,20 @@ export interface IStorage {
 
   // Public analytics
   getPublicAnalytics(options: { sessionId?: string; from?: Date; to?: Date }): Promise<PublicAnalyticsResponse>;
+
+  // Finance / Accounting
+  getAllExpenseCategories(): Promise<ExpenseCategory[]>;
+  createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory>;
+  updateExpenseCategory(id: string, updates: Partial<ExpenseCategory>): Promise<ExpenseCategory | undefined>;
+  deleteExpenseCategory(id: string): Promise<void>;
+
+  createExpense(data: InsertExpense): Promise<Expense>;
+  getExpense(id: string): Promise<Expense | undefined>;
+  getAllExpenses(filters?: { from?: Date; to?: Date; categoryId?: string }): Promise<ExpenseWithCategory[]>;
+  updateExpense(id: string, updates: Partial<Pick<Expense, 'categoryId' | 'amountAed' | 'description' | 'vendor' | 'date' | 'notes'>>): Promise<Expense | undefined>;
+  deleteExpense(id: string): Promise<void>;
+
+  getFinanceSummary(from: Date, to: Date): Promise<FinanceSummary>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1861,6 +1883,177 @@ export class DatabaseStorage implements IStorage {
       },
       sessions: sessionBreakdowns,
       monthly,
+    };
+  }
+
+  // ─── Finance / Accounting ─────────────────────────────────────────────────
+
+  async getAllExpenseCategories(): Promise<ExpenseCategory[]> {
+    return db.select().from(expenseCategories).orderBy(asc(expenseCategories.name));
+  }
+
+  async createExpenseCategory(data: InsertExpenseCategory): Promise<ExpenseCategory> {
+    const id = randomUUID();
+    const [row] = await db.insert(expenseCategories).values({ id, ...data }).returning();
+    return row;
+  }
+
+  async updateExpenseCategory(id: string, updates: Partial<ExpenseCategory>): Promise<ExpenseCategory | undefined> {
+    const [row] = await db.update(expenseCategories).set(updates).where(eq(expenseCategories.id, id)).returning();
+    return row;
+  }
+
+  async deleteExpenseCategory(id: string): Promise<void> {
+    await db.delete(expenseCategories).where(eq(expenseCategories.id, id));
+  }
+
+  async createExpense(data: InsertExpense): Promise<Expense> {
+    const id = randomUUID();
+    const now = new Date();
+    const [row] = await db.insert(expenses).values({ id, ...data, createdAt: now, updatedAt: now }).returning();
+    return row;
+  }
+
+  async getExpense(id: string): Promise<Expense | undefined> {
+    const [row] = await db.select().from(expenses).where(eq(expenses.id, id));
+    return row;
+  }
+
+  async getAllExpenses(filters?: { from?: Date; to?: Date; categoryId?: string }): Promise<ExpenseWithCategory[]> {
+    const conditions: SQL[] = [];
+    if (filters?.from) conditions.push(gte(expenses.date, filters.from));
+    if (filters?.to) {
+      const exclusiveTo = new Date(filters.to);
+      exclusiveTo.setUTCDate(exclusiveTo.getUTCDate() + 1);
+      conditions.push(lt(expenses.date, exclusiveTo));
+    }
+    if (filters?.categoryId) conditions.push(eq(expenses.categoryId, filters.categoryId));
+
+    const rows = await db
+      .select({
+        id: expenses.id,
+        categoryId: expenses.categoryId,
+        amountAed: expenses.amountAed,
+        description: expenses.description,
+        vendor: expenses.vendor,
+        date: expenses.date,
+        notes: expenses.notes,
+        createdAt: expenses.createdAt,
+        updatedAt: expenses.updatedAt,
+        categoryName: expenseCategories.name,
+        categoryColor: expenseCategories.color,
+        categoryIcon: expenseCategories.icon,
+      })
+      .from(expenses)
+      .innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(expenses.date));
+
+    return rows;
+  }
+
+  async updateExpense(id: string, updates: Partial<Pick<Expense, 'categoryId' | 'amountAed' | 'description' | 'vendor' | 'date' | 'notes'>>): Promise<Expense | undefined> {
+    const [row] = await db
+      .update(expenses)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(expenses.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteExpense(id: string): Promise<void> {
+    await db.delete(expenses).where(eq(expenses.id, id));
+  }
+
+  async getFinanceSummary(from: Date, to: Date): Promise<FinanceSummary> {
+    // Advance `to` to be end-of-day inclusive
+    const exclusiveTo = new Date(to);
+    exclusiveTo.setUTCDate(exclusiveTo.getUTCDate() + 1);
+
+    // ── Revenue from bookings ──────────────────────────────────────────────
+    const bookingRows = await db
+      .select({
+        status: bookings.status,
+        paymentMethod: bookings.paymentMethod,
+        amountAed: bookings.amountAed,
+        cashPaid: bookings.cashPaid,
+        lateFeeApplied: bookings.lateFeeApplied,
+        createdAt: bookings.createdAt,
+      })
+      .from(bookings)
+      .where(and(gte(bookings.createdAt, from), lt(bookings.createdAt, exclusiveTo)));
+
+    type BRow = typeof bookingRows[0];
+    const isActive = (b: BRow) => ['confirmed', 'attended'].includes(b.status);
+    const confirmed = bookingRows.filter(isActive);
+    const cancelled = bookingRows.filter(b => b.status === 'cancelled');
+    const cardRows = confirmed.filter(b => b.paymentMethod === 'ziina');
+    const cashPaidRows = confirmed.filter(b => b.paymentMethod === 'cash' && b.cashPaid);
+    const sumAed = (arr: BRow[]) => arr.reduce((s, b) => s + b.amountAed, 0);
+
+    const chargedAed = sumAed(confirmed);
+    const collectedAed = sumAed(cardRows) + sumAed(cashPaidRows);
+    const pendingCashAed = sumAed(confirmed.filter(b => b.paymentMethod === 'cash' && !b.cashPaid));
+    const lateFeesAed = sumAed(cancelled.filter(b => b.lateFeeApplied));
+
+    // ── Expenses ──────────────────────────────────────────────────────────
+    const expenseRows = await db
+      .select({
+        id: expenses.id,
+        categoryId: expenses.categoryId,
+        amountAed: expenses.amountAed,
+        date: expenses.date,
+        categoryName: expenseCategories.name,
+        categoryColor: expenseCategories.color,
+        categoryIcon: expenseCategories.icon,
+      })
+      .from(expenses)
+      .innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id))
+      .where(and(gte(expenses.date, from), lt(expenses.date, exclusiveTo)));
+
+    const totalExpensesAed = expenseRows.reduce((s, e) => s + e.amountAed, 0);
+
+    // Aggregate by category
+    const catMap = new Map<string, { id: string; name: string; color: string; icon: string; total: number; count: number }>();
+    for (const e of expenseRows) {
+      const existing = catMap.get(e.categoryId);
+      if (existing) {
+        existing.total += e.amountAed;
+        existing.count += 1;
+      } else {
+        catMap.set(e.categoryId, { id: e.categoryId, name: e.categoryName, color: e.categoryColor, icon: e.categoryIcon, total: e.amountAed, count: 1 });
+      }
+    }
+    const byCategory = Array.from(catMap.values())
+      .map(c => ({ id: c.id, name: c.name, color: c.color, icon: c.icon, totalAed: c.total, count: c.count }))
+      .sort((a, b) => b.totalAed - a.totalAed);
+
+    // ── Monthly rows ──────────────────────────────────────────────────────
+    const revenueByMonth = new Map<string, number>();
+    for (const b of confirmed) {
+      const m = b.createdAt.toISOString().substring(0, 7);
+      const amt = b.paymentMethod === 'ziina' ? b.amountAed : (b.cashPaid ? b.amountAed : 0);
+      revenueByMonth.set(m, (revenueByMonth.get(m) ?? 0) + amt);
+    }
+    const expensesByMonth = new Map<string, number>();
+    for (const e of expenseRows) {
+      const m = e.date.toISOString().substring(0, 7);
+      expensesByMonth.set(m, (expensesByMonth.get(m) ?? 0) + e.amountAed);
+    }
+    const allMonths = new Set([...Array.from(revenueByMonth.keys()), ...Array.from(expensesByMonth.keys())]);
+    const monthlyRows = Array.from(allMonths)
+      .sort()
+      .map(month => {
+        const rev = revenueByMonth.get(month) ?? 0;
+        const exp = expensesByMonth.get(month) ?? 0;
+        return { month, revenueCollectedAed: rev, expensesAed: exp, netAed: rev - exp };
+      });
+
+    return {
+      revenue: { chargedAed, collectedAed, pendingCashAed, lateFeesAed },
+      expenses: { totalAed: totalExpensesAed, byCategory },
+      netProfitAed: collectedAed - totalExpensesAed,
+      monthlyRows,
     };
   }
 }
