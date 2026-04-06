@@ -216,65 +216,62 @@ const RANK_DATA = [
   { rank: 5, name: 'Abhinay', score: '113', winPct: '80.0%' },
   { rank: 6, name: 'Shaju', score: '109', winPct: '62.5%' },
   { rank: 7, name: 'Nasser A', score: '109', winPct: '77.8%' },
-  { rank: 8, name: 'Suneet', score: '109', winPct: '88.9%' },
-  { rank: 9, name: 'Karthik U', score: '107', winPct: '44.4%' },
-  { rank: 10, name: 'Ayush', score: '107', winPct: '50.0%' },
-  { rank: 11, name: 'Sourabh', score: '107', winPct: '51.3%' },
-  { rank: 12, name: 'Shannon', score: '106', winPct: '100.0%' },
-  { rank: 13, name: 'Pavitra', score: '105', winPct: '50.0%' },
-  { rank: 14, name: 'Alan', score: '103', winPct: '54.2%' },
-  { rank: 15, name: 'Gavin', score: '103', winPct: '47.5%' },
-  { rank: 16, name: 'Natesh', score: '102', winPct: '61.3%' },
-  { rank: 17, name: 'Avinash', score: '102', winPct: '57.4%' },
-  { rank: 18, name: 'Faraz', score: '101', winPct: '69.2%' },
-  { rank: 19, name: 'Marium', score: '100', winPct: '37.0%' },
-  { rank: 20, name: 'Naeem', score: '100', winPct: '62.3%' },
+  { rank: 8, name: 'Karthik U', score: '107', winPct: '44.4%' },
+  { rank: 9, name: 'Ayush', score: '107', winPct: '50.0%' },
+  { rank: 10, name: 'Sourabh', score: '107', winPct: '51.3%' },
+  { rank: 11, name: 'Shannon', score: '106', winPct: '100.0%' },
+  { rank: 12, name: 'Pavitra', score: '105', winPct: '50.0%' },
+  { rank: 13, name: 'Alan', score: '103', winPct: '54.2%' },
+  { rank: 14, name: 'Gavin', score: '103', winPct: '47.5%' },
+  { rank: 15, name: 'Natesh', score: '102', winPct: '61.3%' },
+  { rank: 16, name: 'Avinash', score: '102', winPct: '57.4%' },
+  { rank: 17, name: 'Faraz', score: '101', winPct: '69.2%' },
+  { rank: 18, name: 'Marium', score: '100', winPct: '37.0%' },
+  { rank: 19, name: 'Naeem', score: '100', winPct: '62.3%' },
 ];
 
 const WIN_DATA = [
-  { rank: 1, name: 'Suneet', winPct: '88.9%', games: '9g' },
-  { rank: 2, name: 'Sriram', winPct: '81.4%', games: '43g' },
-  { rank: 3, name: 'Abhinay', winPct: '80.0%', games: '5g' },
-  { rank: 4, name: 'Nasser A', winPct: '77.8%', games: '9g' },
-  { rank: 5, name: 'Wilfred', winPct: '71.4%', games: '7g' },
-  { rank: 6, name: 'Yash', winPct: '71.4%', games: '7g' },
-  { rank: 7, name: 'Faraz', winPct: '69.2%', games: '39g' },
-  { rank: 8, name: 'Shreeja', winPct: '66.7%', games: '6g' },
-  { rank: 9, name: 'Owais', winPct: '66.7%', games: '21g' },
-  { rank: 10, name: 'Suraj', winPct: '66.7%', games: '6g' },
-  { rank: 11, name: 'Ritwik', winPct: '66.7%', games: '6g' },
-  { rank: 12, name: 'Rila', winPct: '64.3%', games: '14g' },
-  { rank: 13, name: 'Arun', winPct: '62.5%', games: '24g' },
-  { rank: 14, name: 'Shaju', winPct: '62.5%', games: '8g' },
-  { rank: 15, name: 'Naeem', winPct: '62.3%', games: '53g' },
-  { rank: 16, name: 'Vimal', winPct: '61.5%', games: '26g' },
-  { rank: 17, name: 'Natesh', winPct: '61.3%', games: '31g' },
-  { rank: 18, name: 'Sandeep', winPct: '59.0%', games: '39g' },
-  { rank: 19, name: 'Amal Jaiswal', winPct: '58.8%', games: '34g' },
-  { rank: 20, name: 'Avinash', winPct: '57.4%', games: '54g' },
+  { rank: 1, name: 'Sriram', winPct: '81.4%', games: '43g' },
+  { rank: 2, name: 'Abhinay', winPct: '80.0%', games: '5g' },
+  { rank: 3, name: 'Nasser A', winPct: '77.8%', games: '9g' },
+  { rank: 4, name: 'Wilfred', winPct: '71.4%', games: '7g' },
+  { rank: 5, name: 'Yash', winPct: '71.4%', games: '7g' },
+  { rank: 6, name: 'Faraz', winPct: '69.2%', games: '39g' },
+  { rank: 7, name: 'Shreeja', winPct: '66.7%', games: '6g' },
+  { rank: 8, name: 'Owais', winPct: '66.7%', games: '21g' },
+  { rank: 9, name: 'Suraj', winPct: '66.7%', games: '6g' },
+  { rank: 10, name: 'Ritwik', winPct: '66.7%', games: '6g' },
+  { rank: 11, name: 'Rila', winPct: '64.3%', games: '14g' },
+  { rank: 12, name: 'Arun', winPct: '62.5%', games: '24g' },
+  { rank: 13, name: 'Shaju', winPct: '62.5%', games: '8g' },
+  { rank: 14, name: 'Naeem', winPct: '62.3%', games: '53g' },
+  { rank: 15, name: 'Vimal', winPct: '61.5%', games: '26g' },
+  { rank: 16, name: 'Natesh', winPct: '61.3%', games: '31g' },
+  { rank: 17, name: 'Sandeep', winPct: '59.0%', games: '39g' },
+  { rank: 18, name: 'Amal Jaiswal', winPct: '58.8%', games: '34g' },
+  { rank: 19, name: 'Avinash', winPct: '57.4%', games: '54g' },
 ];
 
 const IMPROVED_DATA = [
-  { rank: 1, name: 'Suneet', gain: '+59', range: '50→109' },
-  { rank: 2, name: 'Nicole', gain: '+51', range: '63→114' },
-  { rank: 3, name: 'Sandeep', gain: '+38', range: '70→108' },
-  { rank: 4, name: 'Joseph', gain: '+37', range: '40→77' },
-  { rank: 5, name: 'Mohini', gain: '+35', range: '63→98' },
-  { rank: 6, name: 'Rahul', gain: '+31', range: '54→85' },
-  { rank: 7, name: 'Marium', gain: '+31', range: '90→121' },
-  { rank: 8, name: 'Gavin', gain: '+31', range: '78→109' },
-  { rank: 9, name: 'Avinash', gain: '+30', range: '75→105' },
-  { rank: 10, name: 'Shaju', gain: '+29', range: '80→109' },
-  { rank: 11, name: 'Ramya', gain: '+29', range: '65→94' },
-  { rank: 12, name: 'Nasser A', gain: '+29', range: '80→109' },
-  { rank: 13, name: 'Steev', gain: '+28', range: '48→76' },
-  { rank: 14, name: 'Shannon', gain: '+28', range: '94→122' },
-  { rank: 15, name: 'Hareesh', gain: '+27', range: '66→93' },
-  { rank: 16, name: 'Roshan', gain: '+27', range: '58→85' },
-  { rank: 17, name: 'Shreeja', gain: '+27', range: '57→84' },
-  { rank: 18, name: 'Arun', gain: '+26', range: '81→107' },
-  { rank: 19, name: 'Amal Jaiswal', gain: '+26', range: '99→125' },
-  { rank: 20, name: 'Suchitha', gain: '+26', range: '69→95' },
+  { rank: 1, name: 'Nicole', gain: '+51', range: '63→114' },
+  { rank: 2, name: 'Sandeep', gain: '+38', range: '70→108' },
+  { rank: 3, name: 'Joseph', gain: '+37', range: '40→77' },
+  { rank: 4, name: 'Mohini', gain: '+35', range: '63→98' },
+  { rank: 5, name: 'Rahul', gain: '+31', range: '54→85' },
+  { rank: 6, name: 'Marium', gain: '+31', range: '90→121' },
+  { rank: 7, name: 'Gavin', gain: '+31', range: '78→109' },
+  { rank: 8, name: 'Avinash', gain: '+30', range: '75→105' },
+  { rank: 9, name: 'Shaju', gain: '+29', range: '80→109' },
+  { rank: 10, name: 'Ramya', gain: '+29', range: '65→94' },
+  { rank: 11, name: 'Nasser A', gain: '+29', range: '80→109' },
+  { rank: 12, name: 'Steev', gain: '+28', range: '48→76' },
+  { rank: 13, name: 'Shannon', gain: '+28', range: '94→122' },
+  { rank: 14, name: 'Hareesh', gain: '+27', range: '66→93' },
+  { rank: 15, name: 'Roshan', gain: '+27', range: '58→85' },
+  { rank: 16, name: 'Shreeja', gain: '+27', range: '57→84' },
+  { rank: 17, name: 'Arun', gain: '+26', range: '81→107' },
+  { rank: 18, name: 'Amal Jaiswal', gain: '+26', range: '99→125' },
+  { rank: 19, name: 'Suchitha', gain: '+26', range: '69→95' },
 ];
 
 function Slide1() {
@@ -290,8 +287,8 @@ function Slide1() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {[
           { label: 'Top Ranked', value: 'Sriram — 118 pts' },
-          { label: 'Best Win Rate', value: 'Suneet — 88.9%' },
-          { label: 'Most Improved', value: 'Suneet — +59 pts' },
+          { label: 'Best Win Rate', value: 'Sriram — 81.4%' },
+          { label: 'Most Improved', value: 'Nicole — +51 pts' },
         ].map(({ label, value }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 18px', borderRadius: '10px', background: TEAL_MID }}>
             <div style={{ width: '6px', height: '6px', background: TEAL, borderRadius: '50%', flexShrink: 0 }} />
@@ -414,19 +411,19 @@ RANKED (by Skill Score)
 1. Sriram — 118 pts
 2. Srinivas — 117 pts
 3. Surendra — 116 pts
-...and 17 more — swipe to see the full top 20
+...and 16 more — swipe to see the full top 19
 
 WIN RATE (min 5 games)
-1. Suneet — 88.9%
-2. Sriram — 81.4%
-3. Abhinay — 80.0%
-...swipe for the full top 20
+1. Sriram — 81.4%
+2. Abhinay — 80.0%
+3. Nasser A — 77.8%
+...swipe for the full top 19
 
 MOST IMPROVED
-1. Suneet — +59 pts (50→109)
-2. Nicole — +51 pts (63→114)
-3. Sandeep — +38 pts (70→108)
-...swipe for the full top 20
+1. Nicole — +51 pts (63→114)
+2. Sandeep — +38 pts (70→108)
+3. Joseph — +37 pts (40→77)
+...swipe for the full top 19
 
 Scores are tracked every game. Ratings evolve every session.
 
