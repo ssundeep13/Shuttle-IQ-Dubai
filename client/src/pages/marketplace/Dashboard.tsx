@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -502,6 +502,32 @@ export default function Dashboard() {
                       </Link>
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            <motion.div variants={fadeInUp}>
+              <Card data-testid="card-leaderboard">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Trophy className="h-4 w-4 text-secondary" />
+                    Leaderboard
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-center">
+                  {stats ? (
+                    <div className="mb-4">
+                      <div className="text-3xl font-bold" data-testid="text-leaderboard-rank">#{stats.rankBySkillScore}</div>
+                      <div className="text-xs text-muted-foreground">Your current rank</div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground mb-4">See how you stack up against all ShuttleIQ players.</p>
+                  )}
+                  <Link href="/marketplace/rankings">
+                    <Button size="sm" className="gap-1 w-full" data-testid="button-view-rankings">
+                      View Rankings <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </Link>
                 </CardContent>
               </Card>
             </motion.div>

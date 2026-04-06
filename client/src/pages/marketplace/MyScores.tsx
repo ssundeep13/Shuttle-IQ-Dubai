@@ -12,7 +12,7 @@ import { Link } from 'wouter';
 import {
   Trophy, TrendingUp, TrendingDown, Swords, ChevronDown,
   BarChart3, Target, Flame, Users, ArrowLeft, Share2,
-  CheckCircle2, XCircle, Zap, CalendarDays, Flag, Tag as TagIcon, Check
+  CheckCircle2, XCircle, Zap, CalendarDays, Flag, Tag as TagIcon, Check, ChevronRight, History
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -807,6 +807,20 @@ export default function MyScores() {
                 </div>
               </CardContent>
             </Card>
+          </motion.div>
+        )}
+
+        {linkedPlayerId && (
+          <motion.div variants={fadeInUp}>
+            <Link href="/marketplace/game-history" data-testid="link-full-game-history">
+              <div className="flex items-center justify-between px-4 py-3 rounded-lg border bg-muted/30 hover-elevate cursor-pointer">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <History className="h-4 w-4 text-muted-foreground" />
+                  View full game history
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </Link>
           </motion.div>
         )}
       </motion.div>
