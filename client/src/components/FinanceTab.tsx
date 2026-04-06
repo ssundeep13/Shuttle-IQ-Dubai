@@ -11,30 +11,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import {
   TrendingUp, TrendingDown, DollarSign, Wallet, PlusCircle, Pencil, Trash2,
-  RefreshCw, ArrowUpRight, ArrowDownRight, Tag, ChevronDown, ChevronUp,
-  BarChart3, ListOrdered, Settings2
+  BarChart3, ListOrdered, Settings2, Clock
 } from 'lucide-react';
 import type { ExpenseCategory, ExpenseWithCategory, FinanceSummary } from '@shared/schema';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ExpenseFormData {
-  categoryId: string;
-  amountAed: string;
-  description: string;
-  vendor: string;
-  date: string;
-  notes: string;
-}
-
-interface CategoryFormData {
-  name: string;
-  icon: string;
-  color: string;
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,12 +25,34 @@ function fmtAed(v: number): string {
   return `AED ${v.toLocaleString()}`;
 }
 
-function monthKey(d: Date): string {
-  return format(d, 'yyyy-MM');
-}
-
 function monthLabel(iso: string): string {
   return format(parseISO(iso + '-01'), 'MMM yyyy');
+}
+
+// ─── Period Preset ────────────────────────────────────────────────────────────
+
+type Preset = 'thisMonth' | 'last3Months' | 'thisYear' | 'allTime';
+
+const PRESET_LABELS: Record<Preset, string> = {
+  thisMonth:   'This Month',
+  last3Months: 'Last 3 Months',
+  thisYear:    'This Year',
+  allTime:     'All Time',
+};
+
+function getPresetDates(preset: Preset): { from: string; to: string } {
+  const now = new Date();
+  const fmt = (d: Date) => format(d, 'yyyy-MM-dd');
+  switch (preset) {
+    case 'thisMonth':
+      return { from: fmt(startOfMonth(now)), to: fmt(endOfMonth(now)) };
+    case 'last3Months':
+      return { from: fmt(startOfMonth(subMonths(now, 2))), to: fmt(endOfMonth(now)) };
+    case 'thisYear':
+      return { from: `${now.getFullYear()}-01-01`, to: fmt(endOfMonth(now)) };
+    case 'allTime':
+      return { from: '2020-01-01', to: fmt(endOfMonth(now)) };
+  }
 }
 
 // ─── Summary Cards ────────────────────────────────────────────────────────────
@@ -62,10 +67,29 @@ function SummaryCards({ summary }: { summary: FinanceSummary }) {
           <DollarSign className="w-4 h-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-bold" data-testid="finance-revenue-collected">{fmtAed(summary.revenue.collectedAed)}</p>
-          {summary.revenue.pendingCashAed > 0 && (
+          <p className="text-2xl font-bold text-green-600 dark:text-green-400" data-testid="finance-revenue-collected">
+            {fmtAed(summary.revenue.collectedAed)}
+          </p>
+          {summary.revenue.chargedAed > summary.revenue.collectedAed && (
             <p className="text-xs text-muted-foreground mt-1">
-              +{fmtAed(summary.revenue.pendingCashAed)} pending cash
+              {fmtAed(summary.revenue.chargedAed)} charged
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-1 pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">Pending Cash</CardTitle>
+          <Clock className="w-4 h-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <p className="text-2xl font-bold text-amber-600 dark:text-amber-400" data-testid="finance-pending-cash">
+            {fmtAed(summary.revenue.pendingCashAed)}
+          </p>
+          {summary.revenue.lateFeesAed > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">
+              +{fmtAed(summary.revenue.lateFeesAed)} late fees
             </p>
           )}
         </CardContent>
@@ -77,36 +101,26 @@ function SummaryCards({ summary }: { summary: FinanceSummary }) {
           <Wallet className="w-4 h-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-bold text-destructive" data-testid="finance-total-expenses">{fmtAed(summary.expenses.totalAed)}</p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-1 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Net Profit</CardTitle>
-          {net >= 0
-            ? <TrendingUp className="w-4 h-4 text-green-500" />
-            : <TrendingDown className="w-4 h-4 text-destructive" />}
-        </CardHeader>
-        <CardContent>
-          <p className={`text-2xl font-bold ${net >= 0 ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`} data-testid="finance-net-profit">
-            {net >= 0 ? '' : '-'}{fmtAed(Math.abs(net))}
+          <p className="text-2xl font-bold text-destructive" data-testid="finance-total-expenses">
+            {fmtAed(summary.expenses.totalAed)}
           </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-1 pb-2">
-          <CardTitle className="text-sm font-medium text-muted-foreground">Revenue Charged</CardTitle>
-          <ArrowUpRight className="w-4 h-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium text-muted-foreground">Net P&L</CardTitle>
+          {net >= 0
+            ? <TrendingUp className="w-4 h-4 text-green-500" />
+            : <TrendingDown className="w-4 h-4 text-destructive" />}
         </CardHeader>
         <CardContent>
-          <p className="text-2xl font-bold" data-testid="finance-revenue-charged">{fmtAed(summary.revenue.chargedAed)}</p>
-          {summary.revenue.lateFeesAed > 0 && (
-            <p className="text-xs text-muted-foreground mt-1">
-              incl. {fmtAed(summary.revenue.lateFeesAed)} late fees
-            </p>
-          )}
+          <p
+            className={`text-2xl font-bold ${net >= 0 ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}
+            data-testid="finance-net-profit"
+          >
+            {net < 0 ? '-' : ''}{fmtAed(Math.abs(net))}
+          </p>
         </CardContent>
       </Card>
     </div>
@@ -119,6 +133,9 @@ function MonthlyTable({ rows }: { rows: FinanceSummary['monthlyRows'] }) {
   if (rows.length === 0) {
     return <p className="text-sm text-muted-foreground text-center py-6">No monthly data in this period.</p>;
   }
+  const totalRev = rows.reduce((s, r) => s + r.revenueCollectedAed, 0);
+  const totalExp = rows.reduce((s, r) => s + r.expensesAed, 0);
+  const totalNet = rows.reduce((s, r) => s + r.netAed, 0);
   return (
     <div className="overflow-x-auto rounded-md border">
       <table className="w-full text-sm">
@@ -127,7 +144,7 @@ function MonthlyTable({ rows }: { rows: FinanceSummary['monthlyRows'] }) {
             <th className="text-left p-3 font-medium">Month</th>
             <th className="text-right p-3 font-medium">Revenue</th>
             <th className="text-right p-3 font-medium">Expenses</th>
-            <th className="text-right p-3 font-medium">Net</th>
+            <th className="text-right p-3 font-medium">Net P&L</th>
           </tr>
         </thead>
         <tbody>
@@ -137,11 +154,21 @@ function MonthlyTable({ rows }: { rows: FinanceSummary['monthlyRows'] }) {
               <td className="p-3 text-right text-green-600 dark:text-green-400">{fmtAed(r.revenueCollectedAed)}</td>
               <td className="p-3 text-right text-destructive">{fmtAed(r.expensesAed)}</td>
               <td className={`p-3 text-right font-semibold ${r.netAed >= 0 ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
-                {r.netAed >= 0 ? '' : '-'}{fmtAed(Math.abs(r.netAed))}
+                {r.netAed < 0 ? '-' : ''}{fmtAed(Math.abs(r.netAed))}
               </td>
             </tr>
           ))}
         </tbody>
+        <tfoot>
+          <tr className="border-t bg-muted/50 font-semibold">
+            <td className="p-3">Total</td>
+            <td className="p-3 text-right text-green-600 dark:text-green-400">{fmtAed(totalRev)}</td>
+            <td className="p-3 text-right text-destructive">{fmtAed(totalExp)}</td>
+            <td className={`p-3 text-right font-bold ${totalNet >= 0 ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>
+              {totalNet < 0 ? '-' : ''}{fmtAed(Math.abs(totalNet))}
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
@@ -160,10 +187,7 @@ function CategoryBreakdown({ byCategory }: { byCategory: FinanceSummary['expense
         const pct = total > 0 ? Math.round((cat.totalAed / total) * 100) : 0;
         return (
           <div key={cat.id} className="flex items-center gap-3">
-            <span
-              className="w-3 h-3 rounded-full flex-shrink-0"
-              style={{ backgroundColor: cat.color }}
-            />
+            <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2 mb-1">
                 <span className="text-sm font-medium truncate">{cat.name}</span>
@@ -185,6 +209,15 @@ function CategoryBreakdown({ byCategory }: { byCategory: FinanceSummary['expense
 }
 
 // ─── Expense Form Dialog ───────────────────────────────────────────────────────
+
+interface ExpenseFormData {
+  categoryId: string;
+  amountAed: string;
+  description: string;
+  vendor: string;
+  date: string;
+  notes: string;
+}
 
 function ExpenseFormDialog({
   open,
@@ -216,9 +249,7 @@ function ExpenseFormDialog({
 
   const mutation = useMutation({
     mutationFn: async (data: object) => {
-      if (isEdit) {
-        return apiRequest('PATCH', `/api/finance/expenses/${editExpense!.id}`, data);
-      }
+      if (isEdit) return apiRequest('PATCH', `/api/finance/expenses/${editExpense!.id}`, data);
       return apiRequest('POST', '/api/finance/expenses', data);
     },
     onSuccess: () => {
@@ -236,7 +267,7 @@ function ExpenseFormDialog({
     const amt = parseInt(form.amountAed, 10);
     if (!form.categoryId) return toast({ title: 'Select a category', variant: 'destructive' });
     if (isNaN(amt) || amt <= 0) return toast({ title: 'Enter a valid amount', variant: 'destructive' });
-    if (!form.description.trim()) return toast({ title: 'Enter a description', variant: 'destructive' });
+    if (!form.description.trim()) return toast({ title: 'Description is required', variant: 'destructive' });
     if (!form.date) return toast({ title: 'Select a date', variant: 'destructive' });
 
     mutation.mutate({
@@ -256,6 +287,29 @@ function ExpenseFormDialog({
           <DialogTitle>{isEdit ? 'Edit Expense' : 'Add Expense'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Date</label>
+              <Input
+                type="date"
+                value={form.date}
+                onChange={e => setField('date', e.target.value)}
+                data-testid="input-expense-date"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Amount (AED)</label>
+              <Input
+                type="number"
+                min="1"
+                placeholder="500"
+                value={form.amountAed}
+                onChange={e => setField('amountAed', e.target.value)}
+                data-testid="input-expense-amount"
+              />
+            </div>
+          </div>
+
           <div className="space-y-1">
             <label className="text-sm font-medium">Category</label>
             <Select value={form.categoryId} onValueChange={v => setField('categoryId', v)}>
@@ -273,29 +327,6 @@ function ExpenseFormDialog({
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Amount (AED)</label>
-              <Input
-                type="number"
-                min="1"
-                placeholder="500"
-                value={form.amountAed}
-                onChange={e => setField('amountAed', e.target.value)}
-                data-testid="input-expense-amount"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Date</label>
-              <Input
-                type="date"
-                value={form.date}
-                onChange={e => setField('date', e.target.value)}
-                data-testid="input-expense-date"
-              />
-            </div>
           </div>
 
           <div className="space-y-1">
@@ -340,7 +371,7 @@ function ExpenseFormDialog({
   );
 }
 
-// ─── Category Management Dialog ────────────────────────────────────────────────
+// ─── Category Form Dialog ──────────────────────────────────────────────────────
 
 function CategoryDialog({
   open,
@@ -353,11 +384,9 @@ function CategoryDialog({
 }) {
   const { toast } = useToast();
   const isEdit = !!editCat;
-  const [form, setForm] = useState<CategoryFormData>({
-    name: editCat?.name ?? '',
-    icon: editCat?.icon ?? 'circle',
-    color: editCat?.color ?? '#6B7280',
-  });
+  const [name, setName] = useState(editCat?.name ?? '');
+  const [color, setColor] = useState(editCat?.color ?? '#6B7280');
+  const [icon, setIcon] = useState(editCat?.icon ?? 'circle');
 
   const mutation = useMutation({
     mutationFn: async (data: object) => {
@@ -385,8 +414,8 @@ function CategoryDialog({
             <label className="text-sm font-medium">Name</label>
             <Input
               placeholder="Staff & Wages"
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              value={name}
+              onChange={e => setName(e.target.value)}
               data-testid="input-category-name"
             />
           </div>
@@ -395,25 +424,34 @@ function CategoryDialog({
             <div className="flex items-center gap-2">
               <input
                 type="color"
-                value={form.color}
-                onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
+                value={color}
+                onChange={e => setColor(e.target.value)}
                 className="h-9 w-12 cursor-pointer rounded-md border"
                 data-testid="input-category-color"
               />
               <Input
-                value={form.color}
-                onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
+                value={color}
+                onChange={e => setColor(e.target.value)}
                 className="font-mono"
                 maxLength={7}
               />
             </div>
           </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Icon name (lucide)</label>
+            <Input
+              placeholder="circle"
+              value={icon}
+              onChange={e => setIcon(e.target.value)}
+              data-testid="input-category-icon"
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Cancel</Button>
           <Button
-            onClick={() => mutation.mutate({ name: form.name.trim(), color: form.color, icon: form.icon })}
-            disabled={mutation.isPending || !form.name.trim()}
+            onClick={() => mutation.mutate({ name: name.trim(), color, icon: icon.trim() || 'circle' })}
+            disabled={mutation.isPending || !name.trim()}
             data-testid="button-save-category"
           >
             {mutation.isPending ? 'Saving...' : isEdit ? 'Save' : 'Create'}
@@ -424,7 +462,7 @@ function CategoryDialog({
   );
 }
 
-// ─── Expenses Tab Content ──────────────────────────────────────────────────────
+// ─── Expenses Section ──────────────────────────────────────────────────────────
 
 function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
   const { toast } = useToast();
@@ -432,13 +470,19 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
   const [editExpense, setEditExpense] = useState<ExpenseWithCategory | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [filterCat, setFilterCat] = useState<string>('all');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
 
   const { data: expenses = [], isLoading } = useQuery<ExpenseWithCategory[]>({
-    queryKey: ['/api/finance/expenses'],
-    queryFn: async () => {
-      const res = await apiRequest('GET', '/api/finance/expenses');
-      return res.json();
+    queryKey: ['/api/finance/expenses', filterFrom, filterTo, filterCat],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (filterFrom) params.set('from', filterFrom);
+      if (filterTo) params.set('to', filterTo);
+      if (filterCat !== 'all') params.set('categoryId', filterCat);
+      return apiRequest<ExpenseWithCategory[]>('GET', `/api/finance/expenses?${params.toString()}`);
     },
+    staleTime: 30 * 1000,
   });
 
   const deleteMutation = useMutation({
@@ -454,22 +498,47 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
     },
   });
 
-  const filtered = filterCat === 'all' ? expenses : expenses.filter(e => e.categoryId === filterCat);
+  const total = expenses.reduce((s, e) => s + e.amountAed, 0);
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Select value={filterCat} onValueChange={setFilterCat}>
-          <SelectTrigger className="w-48" data-testid="select-filter-category">
-            <SelectValue placeholder="All categories" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
-            {categories.map(c => (
-              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* Filters */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">From</label>
+          <Input
+            type="date"
+            value={filterFrom}
+            onChange={e => setFilterFrom(e.target.value)}
+            className="w-36"
+            data-testid="input-filter-from"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">To</label>
+          <Input
+            type="date"
+            value={filterTo}
+            onChange={e => setFilterTo(e.target.value)}
+            className="w-36"
+            data-testid="input-filter-to"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">Category</label>
+          <Select value={filterCat} onValueChange={setFilterCat}>
+            <SelectTrigger className="w-44" data-testid="select-filter-category">
+              <SelectValue placeholder="All categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              {categories.map(c => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex-1" />
         <Button onClick={() => setShowAdd(true)} data-testid="button-add-expense">
           <PlusCircle className="w-4 h-4 mr-2" />
           Add Expense
@@ -480,10 +549,10 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
         <div className="space-y-2">
           {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full" />)}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : expenses.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            No expenses recorded yet. Click "Add Expense" to get started.
+            No expenses yet. Add your first expense to start tracking your P&L.
           </CardContent>
         </Card>
       ) : (
@@ -500,7 +569,7 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(e => (
+              {expenses.map(e => (
                 <tr key={e.id} className="border-b last:border-0 hover-elevate" data-testid={`row-expense-${e.id}`}>
                   <td className="p-3 whitespace-nowrap text-muted-foreground">
                     {format(new Date(e.date), 'dd MMM yyyy')}
@@ -535,7 +604,7 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
             <tfoot>
               <tr className="bg-muted/50 border-t">
                 <td colSpan={4} className="p-3 font-medium">Total</td>
-                <td className="p-3 text-right font-bold">{fmtAed(filtered.reduce((s, e) => s + e.amountAed, 0))}</td>
+                <td className="p-3 text-right font-bold">{fmtAed(total)}</td>
                 <td />
               </tr>
             </tfoot>
@@ -552,9 +621,7 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
       {deleteTarget && (
         <Dialog open onOpenChange={() => setDeleteTarget(null)}>
           <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Delete Expense?</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Delete Expense?</DialogTitle></DialogHeader>
             <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
@@ -588,8 +655,8 @@ function CategoriesSection({ categories, isLoading }: { categories: ExpenseCateg
       toast({ title: 'Category deleted' });
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'Failed to delete';
-      toast({ title: 'Cannot delete', description: msg, variant: 'destructive' });
+      const errObj = err as { error?: string };
+      toast({ title: 'Cannot delete', description: errObj?.error ?? (err instanceof Error ? err.message : 'Failed to delete'), variant: 'destructive' });
     },
   });
 
@@ -604,40 +671,53 @@ function CategoriesSection({ categories, isLoading }: { categories: ExpenseCateg
 
       {isLoading ? (
         <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
+      ) : categories.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">No categories yet.</CardContent>
+        </Card>
       ) : (
         <div className="rounded-md border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
                 <th className="text-left p-3 font-medium">Category</th>
+                <th className="text-left p-3 font-medium hidden md:table-cell">Icon</th>
                 <th className="text-left p-3 font-medium">Color</th>
-                <th className="p-3 w-20"></th>
+                <th className="p-3 w-24"></th>
               </tr>
             </thead>
             <tbody>
               {categories.map(cat => (
                 <tr key={cat.id} className="border-b last:border-0 hover-elevate" data-testid={`row-category-${cat.id}`}>
-                  <td className="p-3 font-medium">{cat.name}</td>
                   <td className="p-3">
                     <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 rounded-sm" style={{ backgroundColor: cat.color }} />
-                      <span className="font-mono text-xs text-muted-foreground">{cat.color}</span>
+                      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                      <span className="font-medium">{cat.name}</span>
                     </div>
+                  </td>
+                  <td className="p-3 font-mono text-xs text-muted-foreground hidden md:table-cell">{cat.icon}</td>
+                  <td className="p-3">
+                    <span className="font-mono text-xs text-muted-foreground">{cat.color}</span>
                   </td>
                   <td className="p-3">
                     <div className="flex items-center justify-end gap-1">
                       <Button size="icon" variant="ghost" onClick={() => setEditCat(cat)} data-testid={`button-edit-category-${cat.id}`}>
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => deleteMutation.mutate(cat.id)}
-                        disabled={deleteMutation.isPending}
-                        data-testid={`button-delete-category-${cat.id}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteMutation.mutate(cat.id)}
+                            disabled={deleteMutation.isPending}
+                            data-testid={`button-delete-category-${cat.id}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete category (disabled if it has expenses)</TooltipContent>
+                      </Tooltip>
                     </div>
                   </td>
                 </tr>
@@ -653,81 +733,50 @@ function CategoriesSection({ categories, isLoading }: { categories: ExpenseCateg
   );
 }
 
-// ─── Date Range Picker ────────────────────────────────────────────────────────
+// ─── Main Finance Tab ─────────────────────────────────────────────────────────
 
-type Preset = 'thisMonth' | 'lastMonth' | 'last3Months' | 'last6Months' | 'thisYear';
-
-function getPresetDates(preset: Preset): { from: Date; to: Date } {
-  const now = new Date();
-  switch (preset) {
-    case 'thisMonth':
-      return { from: startOfMonth(now), to: endOfMonth(now) };
-    case 'lastMonth': {
-      const lm = subMonths(now, 1);
-      return { from: startOfMonth(lm), to: endOfMonth(lm) };
-    }
-    case 'last3Months':
-      return { from: startOfMonth(subMonths(now, 2)), to: endOfMonth(now) };
-    case 'last6Months':
-      return { from: startOfMonth(subMonths(now, 5)), to: endOfMonth(now) };
-    case 'thisYear':
-      return { from: new Date(Date.UTC(now.getUTCFullYear(), 0, 1)), to: endOfMonth(now) };
-  }
-}
-
-// ─── Main Finance Tab Component ───────────────────────────────────────────────
-
-export function FinanceTab() {
+export default function FinanceTab() {
   const [preset, setPreset] = useState<Preset>('thisMonth');
   const [subTab, setSubTab] = useState<'overview' | 'expenses' | 'categories'>('overview');
-  const { from, to } = getPresetDates(preset);
-  const fromStr = format(from, 'yyyy-MM-dd');
-  const toStr = format(to, 'yyyy-MM-dd');
+  const { from: fromStr, to: toStr } = getPresetDates(preset);
 
   const { data: summary, isLoading: summaryLoading } = useQuery<FinanceSummary>({
     queryKey: ['/api/finance/summary', fromStr, toStr],
-    queryFn: async () => {
-      const res = await apiRequest('GET', `/api/finance/summary?from=${fromStr}&to=${toStr}`);
-      return res.json();
-    },
-    staleTime: 60 * 1000,
+    queryFn: () => apiRequest<FinanceSummary>('GET', `/api/finance/summary?from=${fromStr}&to=${toStr}`),
+    staleTime: 30 * 1000,
   });
 
   const { data: categories = [], isLoading: catsLoading } = useQuery<ExpenseCategory[]>({
     queryKey: ['/api/finance/expense-categories'],
-    queryFn: async () => {
-      const res = await apiRequest('GET', '/api/finance/expense-categories');
-      return res.json();
-    },
+    queryFn: () => apiRequest<ExpenseCategory[]>('GET', '/api/finance/expense-categories'),
     staleTime: 60 * 1000,
   });
 
-  const presetOptions: Array<{ value: Preset; label: string }> = [
-    { value: 'thisMonth',   label: 'This Month' },
-    { value: 'lastMonth',   label: 'Last Month' },
-    { value: 'last3Months', label: 'Last 3 Months' },
-    { value: 'last6Months', label: 'Last 6 Months' },
-    { value: 'thisYear',    label: 'This Year' },
-  ];
-
   return (
     <div className="space-y-6">
-      {/* Header row */}
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">Finance</h2>
           <p className="text-sm text-muted-foreground">Track revenue, expenses, and profit</p>
         </div>
-        <Select value={preset} onValueChange={v => setPreset(v as Preset)}>
-          <SelectTrigger className="w-44" data-testid="select-finance-period">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {presetOptions.map(o => (
-              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Pill-style period selector */}
+        <div className="flex items-center gap-1 p-1 bg-muted rounded-lg" data-testid="finance-period-selector">
+          {(Object.keys(PRESET_LABELS) as Preset[]).map(p => (
+            <button
+              key={p}
+              onClick={() => setPreset(p)}
+              data-testid={`button-period-${p}`}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+                preset === p
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {PRESET_LABELS[p]}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Sub-tabs */}
@@ -756,7 +805,6 @@ export function FinanceTab() {
           ) : summary ? (
             <>
               <SummaryCards summary={summary} />
-
               <div className="grid md:grid-cols-2 gap-6">
                 <Card>
                   <CardHeader>
@@ -766,12 +814,11 @@ export function FinanceTab() {
                     <CategoryBreakdown byCategory={summary.expenses.byCategory} />
                   </CardContent>
                 </Card>
-
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Monthly P&L</CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="px-0 pb-0">
                     <MonthlyTable rows={summary.monthlyRows} />
                   </CardContent>
                 </Card>

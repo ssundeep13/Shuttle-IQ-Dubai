@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp } from 'lucide-react';
-import { FinanceTab } from '@/components/FinanceTab';
+import FinanceTab from '@/components/FinanceTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { PlayerImport } from '@/components/PlayerImport';

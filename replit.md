@@ -1,7 +1,7 @@
 # ShuttleIQ - Badminton Queue Management System
 
 ### Overview
-ShuttleIQ is a session-based badminton court and player queue management dashboard designed for sports facilities. Its primary purpose is to efficiently manage multiple badminton sessions across different venues, track player queues, monitor game progress, and maintain player statistics. The system focuses on providing a clear, utility-focused interface for managing active sports sessions, supporting efficient decision-making for operators. Key capabilities include session setup, player rotation, game timing, winner selection, and comprehensive statistical tracking (games played, wins, skill scores). The system enforces a 2v2 format per court and uses a modern tech stack with React, Express, and PostgreSQL. The project's ambition is to streamline sports facility operations, enhance player engagement through transparent statistics, and offer an intuitive management experience.
+ShuttleIQ is a session-based badminton court and player queue management dashboard designed for sports facilities. Its primary purpose is to efficiently manage multiple badminton sessions across different venues, track player queues, monitor game progress, and maintain player statistics. The system focuses on providing a clear, utility-focused interface for managing active sports sessions, supporting efficient decision-making for operators. Key capabilities include session setup, player rotation, game timing, winner selection, and comprehensive statistical tracking (games played, wins, skill scores). The system enforces a 2v2 format per court and uses a modern tech stack with React, Express, and PostgreSQL. The project's ambition is to streamline sports facility operations, enhance player engagement through transparent statistics, and offer an intuitive management experience, ultimately growing into a comprehensive sports facility management solution.
 
 ### User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,57 +9,27 @@ Preferred communication style: Simple, everyday language.
 ### System Architecture
 
 #### UI/UX Decisions
-- **Design System**: Material Design principles adapted for sports facilities, using a custom color palette (Deep Ocean Blue, Teal, Sky Blue accent) and status-based color coding.
+- **Design System**: Material Design principles with a custom color palette (Deep Ocean Blue, Teal, Sky Blue accent) and status-based color coding.
 - **Component Library**: `shadcn/ui` (New York style) built on Radix UI, styled with Tailwind CSS and Class Variance Authority (CVA).
-- **Mobile Optimization**: Touch-friendly targets, responsive scaling, optimized layouts, compact spacing, shortened labels, and proper text handling for various screen sizes.
+- **Mobile Optimization**: Touch-friendly, responsive layouts optimized for various screen sizes.
 
 #### Technical Implementations
-- **Frontend**:
-    - **Framework**: React 18 with TypeScript, Vite for building, Wouter for routing.
-    - **Server State Management**: TanStack Query for data fetching, caching, and synchronization.
-    - **Form Handling**: React Hook Form with Zod for validation.
-    - **Session Management**: A custom `useActiveSession` hook manages session state, treating a 404 response for no active session as a valid state rather than an error. The UI is gated by session status, displaying a `SessionSetupWizard` when no session is active.
-- **Backend**:
-    - **Framework**: Express.js with TypeScript.
-    - **API Design**: RESTful endpoints for players, courts, queue, and stats, using JSON format.
-    - **Authentication**: JWT-based for admin roles (`admin`, `super_admin`) with access and refresh tokens. Public routes for GET requests, protected for POST/PATCH/DELETE. Access tokens expire after 4 hours with proactive refresh.
-    - **Storage**: Drizzle ORM for PostgreSQL, with an in-memory storage fallback for development.
-    - **Data Models**: Players (with skill levels and dynamic skill scores), Courts, Game Results, Game Participants, Queue, Notifications, and Sessions.
-    - **Session Lifecycle**: Supports creating, managing, and ending sessions. Multiple active sessions are supported simultaneously, with automatic court creation upon session start. Session data is scoped to individual sessions, and historical sessions are viewable in read-only mode.
-
-#### Feature Specifications
-- **Player Management**: Tracks player profiles (gender, skill levels, statistics) with unique ShuttleIQ IDs. Uses a 5-tier skill system (Novice, Beginner, Intermediate, Advanced, Professional) with a 10-200 point scale, where skill scores dynamically update after each game using an ELO-style rating system. Player profiles and an admin player registry are available.
-- **Court Management**: Manages court status, game timing, and records game outcomes. Each court accommodates exactly 4 players (2v2).
-- **Queue Management**: An ordered player queue with dynamic sorting capabilities (by skill level or games played today). Players are automatically added to the queue during import or session creation.
-- **Intelligent Matchmaking**: AI-powered team assignment system provides lineup recommendations with features for equal team skill balance, multiple shuffle options, player rest tracking, and optimization for competitive balance.
-- **Session Management**: Comprehensive session lifecycle from creation to termination, including automatic court provisioning and CSV export. Players are added to a session's queue only when explicitly imported for that session, ensuring multi-session player isolation. Sessions are created with a 'draft' status and promoted to 'active' upon wizard completion.
-- **Data Import/Export**: Supports flexible player import via CSV or copy-paste with smart header detection and auto-validation. Provides CSV export of game history and player data. Duplicate player detection is handled via ShuttleIQ Unique IDs.
-- **Game History**: Session-specific game history with complete isolation between sessions.
-- **Leaderboards**: Includes a global admin leaderboard for all-time statistics and a session-specific leaderboard showing only players who participated in the current session.
-- **ShuttleIQ Marketplace**: Player-facing booking and community platform with:
-    - **Marketplace Auth**: Separate JWT-based auth for marketplace players (`marketplace_player` role), with tokens stored as `mp_accessToken`/`mp_refreshToken`. Enforced via `requireMarketplaceAuth` middleware on the server.
-    - **Google OAuth**: Marketplace players can sign in with Google. Flow: `GET /api/marketplace/auth/google` → Google consent → `GET /api/marketplace/auth/google/callback` → issues JWT tokens → redirects to `/marketplace/auth/callback?accessToken=...&refreshToken=...` → `GoogleAuthCallback.tsx` stores tokens and navigates to dashboard. Existing email/password accounts have their `googleId` attached automatically on first Google login. Google-only accounts have `passwordHash = null`. Package: `google-auth-library`. State anti-CSRF cookie via `cookie-parser`. Requires `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` secrets.
-    - **Session Browsing & Booking**: Public session listing with venue, date, time, capacity, and pricing (AED). Authenticated users can book sessions (one active booking per session enforced).
-    - **Ziina Payment Integration**: Real payment processing via Ziina (UAE-focused, redirect-based hosted checkout). Booking flow: user clicks "Book & Pay Now" → navigates to `/marketplace/checkout/:sessionId` → selects payment method (card or cash) → for card: backend creates a Ziina payment intent and returns `redirect_url` → user is redirected to Ziina's hosted payment page → on return, `/marketplace/checkout/success?booking_id=...` calls the confirm endpoint which polls the Ziina API and confirms the booking. For cash: booking confirmed immediately with `paymentMethod: 'cash'` and `cashPaid: false` → admin can toggle `cashPaid` status in the bookings sheet. No frontend SDK required. Cancellation policy warning shown on checkout page. Key files: `server/ziinaClient.ts`, `server/marketplace-routes.ts`, `client/src/pages/marketplace/Checkout.tsx`. Requires `ZIINA_API_TOKEN` environment variable. Checkout success/cancel fallback pages at `/marketplace/checkout/success` and `/marketplace/checkout/cancel`. DB columns: `bookings.ziina_payment_intent_id`, `payments.ziina_payment_intent_id`.
-    - **Player Dashboards**: My Bookings (with cancel), My Scores (linked player stats + community tags + tag button on recent games), Rankings (global leaderboard), Profile (account details + player linking).
-    - **Player Personalities (Community Tagging)**: Marketplace players can tag teammates in games played within the last 7 days. 30 pre-seeded tags across 3 categories: `playing_style` (blue), `social` (green), `reputation` (amber). Anti-abuse rules: no self-tagging, must be a participant, max 2 tags per target per game. Tag button on My Scores game rows (last 7 days); opens `TagPlayersDialog` with per-participant tag pickers. My Scores "Player Type" card shows community top tag (emoji + count). Dashboard sidebar replaces "Top Players" with "Player Personalities" card showing trending tags + user's top tag; "Explore" button opens `TagTrendingModal`. DB tables: `tags`, `player_tags`. Key components: `client/src/components/TagPlayersDialog.tsx`, `client/src/components/TagTrendingModal.tsx`. API endpoints: `GET /api/tags`, `GET /api/tags/trending`, `GET /api/tags/player/:playerId`, `GET /api/tags/:tagId/players`, `GET /api/tags/game/:gameResultId/participants`, `GET /api/tags/game/:gameResultId/mine`, `GET /api/tags/tagged-games`, `POST /api/tags/game/:gameResultId`.
-    - **Player Linking**: Marketplace accounts can link to existing ShuttleIQ player profiles for score/ranking integration.
-    - **Unified Admin Dashboard**: Single admin hub at `/admin/sessions` with three tabs: Sessions (queue session management with linked marketplace bookings shown inline), Players (leaderboard, import, export), and Marketplace (marketplace user management + player linking). Creating a session via the wizard optionally creates both a queue session and a linked bookable marketplace listing in one step (`POST /api/sessions/unified`). Bookable session bookings are viewable in a slide-over sheet per session card. The old `/admin` and `/admin/marketplace` routes redirect to `/admin/sessions`.
-    - **Routes**: Root `/` redirects to `/marketplace` for unauthenticated users (and to `/admin/sessions` for admins). Admin login at `/admin/login` (old `/login` redirects to `/marketplace`). All marketplace routes under `/marketplace/*`, API under `/api/marketplace/*`.
-    - **DB Tables**: `marketplace_users`, `marketplace_auth_sessions`, `bookable_sessions`, `bookings` (with `stripe_checkout_session_id`, `payment_method` stripe/cash, `cash_paid` boolean), `payments`.
-    - **Frontend Route Guards**: `MarketplaceProtectedRoute` redirects unauthenticated users to `/marketplace/login`.
-    - **Token Routing**: `getAuthToken()` in `queryClient.ts` detects marketplace vs admin URLs and sends the correct token. Admin fetch interceptor in `AuthContext` excludes `/api/marketplace/` URLs.
+- **Frontend**: React 18 with TypeScript, Vite, Wouter for routing. TanStack Query for server state management, React Hook Form with Zod for validation.
+- **Backend**: Express.js with TypeScript, RESTful API design. JWT-based authentication for admin and marketplace roles. Drizzle ORM for PostgreSQL storage, with an in-memory fallback for development.
+- **Data Models**: Players (with dynamic ELO-style skill scores), Courts, Game Results, Queue, Sessions, Marketplace users, Bookable Sessions, Bookings, Expenses, and Tags.
+- **Session Lifecycle**: Supports creating, managing, and ending multiple simultaneous sessions. Sessions are created with a 'draft' status and activated via a wizard.
+- **Player Management**: Tracks player profiles, skill levels (5-tier system), and dynamic skill scores.
+- **Queue Management**: Ordered player queue with dynamic sorting and intelligent matchmaking for competitive team assignments.
+- **Data Import/Export**: CSV import for players with smart header detection and validation; CSV export for game history and player data.
+- **Leaderboards**: Global admin leaderboard and session-specific leaderboards.
+- **Marketplace**: Player-facing platform for session browsing and booking, including Google OAuth, Ziina payment integration, player dashboards (My Bookings, My Scores, Rankings, Profile), and community tagging (Player Personalities).
+- **Admin Dashboard**: Unified hub for session management, player management, marketplace user management, and financial tracking (expenses, P&L).
+- **Performance**: Route-level code splitting, vendor chunk grouping, TanStack Query caching, and a health endpoint for server warming.
 
 #### System Design Choices
-- **Storage Strategy**: Drizzle ORM for type-safe PostgreSQL interactions and an `IStorage` interface for interchangeable storage implementations.
-- **Single Active Session Model**: Simplifies user experience and prevents data conflicts, while allowing read-only access to historical sessions.
-- **Query Guards**: `enabled: hasSession` guards on all session-dependent queries prevent premature API calls.
-- **Modular Architecture**: Utilizes pattern-based development with clear separation of concerns.
-- **Performance**:
-    - **Route-level code splitting**: All page components in `App.tsx` use `React.lazy()` + `Suspense`. Vite emits a separate JS chunk per route; users only download code for pages they visit.
-    - **Vendor chunk grouping**: `vite.config.ts` `rollupOptions.output.manualChunks` groups React, TanStack Query, Radix UI, and Lucide into stable vendor chunks that browsers cache across app deployments.
-    - **Query caching**: TanStack Query `staleTime: 60 * 1000` (60 s) caches data so navigating back to a recently visited page reuses results; `refetchOnWindowFocus: false` prevents refetch on tab focus. Queries retry once (2 s delay) on network errors ("Failed to fetch") to handle cold-start scenarios.
-    - **Health endpoint**: `GET /api/health` returns `{ok:true}` instantly without touching the DB. Useful for uptime monitors (e.g. UptimeRobot) to keep the server warm and prevent cold-start delays.
+- **Storage Strategy**: Drizzle ORM with an `IStorage` interface for interchangeable storage implementations.
+- **Modular Architecture**: Pattern-based development with clear separation of concerns.
+- **Query Guards**: `enabled` option for TanStack Query to prevent premature API calls.
 
 ### External Dependencies
 
@@ -68,6 +38,8 @@ Preferred communication style: Simple, everyday language.
 - **Tailwind CSS**: Utility-first styling.
 - **Lucide React**: Icon components.
 - **date-fns**: Date/time formatting.
+- **cmdk**: Command palette component.
+- **embla-carousel-react**: Carousel/slider functionality.
 
 #### Data & State
 - **TanStack Query**: Server state management.
@@ -78,6 +50,7 @@ Preferred communication style: Simple, everyday language.
 - **Neon Database Serverless**: PostgreSQL database client.
 - **Drizzle ORM**: Type-safe database operations.
 - **Drizzle Kit**: Database migration and schema management.
+- **connect-pg-simple**: PostgreSQL session store.
 
 #### Development Tools
 - **TypeScript**: For type-safe development.
@@ -86,14 +59,11 @@ Preferred communication style: Simple, everyday language.
 - **tsx**: TypeScript execution in development.
 
 #### Payments
-- **Ziina**: Payment processing via Ziina REST API (UAE-focused, redirect-based hosted checkout). Uses `ZIINA_API_TOKEN` env var. No frontend SDK required — backend creates payment intent and returns redirect URL.
+- **Ziina**: Payment processing (UAE-focused, redirect-based hosted checkout).
 
 #### Email
-- **Resend**: Transactional email via Resend API. Uses `RESEND_API_KEY` secret. Client at `server/emailClient.ts`. From address: `noreply@shuttleiq.org` (verified custom domain — shuttleiq.org DNS records confirmed in Resend). Sends: welcome on signup, booking confirmation (cash + Ziina), waitlist promotion, cancellation confirmation, 24h session reminder (via scheduler). `sendPasswordResetEmail(toEmail, resetUrl)` sends a branded HTML email with a 1-hour expiry reset link.
+- **Resend**: Transactional email service (welcome, booking confirmations, reminders, password resets).
 
-#### Session & Utilities
-- **connect-pg-simple**: PostgreSQL session store.
-- **clsx** and **tailwind-merge**: Utility for conditional className management.
-- **cmdk**: Command palette component.
-- **embla-carousel-react**: Carousel/slider functionality.
+#### Utilities
 - **nanoid**: Unique ID generation.
+- **clsx** and **tailwind-merge**: Utilities for conditional className management.
