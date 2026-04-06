@@ -220,7 +220,7 @@ const RANK_DATA = [
   { rank: 9, name: 'Karthik U', score: '107', winPct: '44.4%' },
   { rank: 10, name: 'Ayush', score: '107', winPct: '50.0%' },
   { rank: 11, name: 'Sourabh', score: '107', winPct: '51.3%' },
-  { rank: 12, name: 'Shannon', score: '106', winPct: '100%' },
+  { rank: 12, name: 'Shannon', score: '106', winPct: '100.0%' },
   { rank: 13, name: 'Pavitra', score: '105', winPct: '50.0%' },
   { rank: 14, name: 'Alan', score: '103', winPct: '54.2%' },
   { rank: 15, name: 'Gavin', score: '103', winPct: '47.5%' },
