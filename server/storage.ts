@@ -83,6 +83,47 @@ async function generateShuttleIqId(): Promise<string> {
   return `SIQ-${nextNumber.toString().padStart(5, '0')}`;
 }
 
+// Return type for the public analytics endpoint
+export type PublicAnalyticsResponse = {
+  generatedAt: string;
+  filters: { sessionId: string | null; from: string | null; to: string | null };
+  totals: {
+    confirmedBookings: number;
+    totalSpotsBooked: number;
+    revenueChargedAed: number;
+    revenueCollectedAed: number;
+    revenuePendingCashAed: number;
+    cancelledBookings: number;
+    lateFeesRetainedAed: number;
+    waitlistedBookings: number;
+    byPaymentMethod: {
+      card: { bookings: number; spotsBooked: number; amountAed: number };
+      cash: { bookings: number; spotsBooked: number; amountAed: number; collectedAed: number; pendingAed: number };
+    };
+  };
+  sessions: Array<{
+    id: string;
+    title: string;
+    date: Date;
+    startTime: string;
+    endTime: string;
+    venue: string;
+    pricePerSpotAed: number;
+    capacity: number;
+    confirmed: { bookings: number; spots: number; revenueAed: number; collectedAed: number; pendingCashAed: number };
+    waitlisted: { bookings: number; spots: number };
+    cancelled: { bookings: number; spots: number; lateFeesAed: number };
+  }>;
+  monthly: Array<{
+    month: string;
+    confirmedBookings: number;
+    totalSpotsBooked: number;
+    revenueChargedAed: number;
+    revenueCollectedAed: number;
+    revenuePendingCashAed: number;
+  }>;
+};
+
 export interface IStorage {
   // Session operations
   createSession(session: InsertSession): Promise<Session>;
@@ -211,7 +252,7 @@ export interface IStorage {
   getGameParticipantInfo(gameResultId: string): Promise<GameParticipantInfo[]>;
 
   // Public analytics
-  getPublicAnalytics(options: { sessionId?: string; from?: Date; to?: Date }): Promise<any>;
+  getPublicAnalytics(options: { sessionId?: string; from?: Date; to?: Date }): Promise<PublicAnalyticsResponse>;
 }
 
 export class DatabaseStorage implements IStorage {

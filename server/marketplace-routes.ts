@@ -49,8 +49,8 @@ export function registerMarketplaceRoutes(app: Express) {
       });
 
       res.json(data);
-    } catch (error: any) {
-      console.error("[Public Analytics] Error:", error);
+    } catch (error: unknown) {
+      console.error("[Public Analytics] Error:", error instanceof Error ? error.message : error);
       res.status(500).json({ error: "Failed to compute analytics" });
     }
   });
