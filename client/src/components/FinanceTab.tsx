@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useToast } from '@/hooks/use-toast';
 import {
   TrendingUp, TrendingDown, DollarSign, Wallet, PlusCircle, Pencil, Trash2,
-  BarChart3, ListOrdered, Settings2, Clock, CheckCircle2, AlertCircle
+  BarChart3, ListOrdered, Settings2, Clock, CheckCircle2, AlertCircle, CreditCard
 } from 'lucide-react';
 import type { ExpenseCategory, ExpenseWithCategory, FinanceSummary } from '@shared/schema';
 
@@ -950,11 +950,184 @@ function PendingPaymentsSection() {
   );
 }
 
+// ─── Ziina Payments Section ───────────────────────────────────────────────────
+
+interface ZiinaPaymentRow {
+  paymentId: string;
+  bookingId: string;
+  ziinaPaymentIntentId: string | null;
+  amountAed: number;
+  completedAt: string | null;
+  createdAt: string;
+  playerName: string;
+  playerEmail: string;
+  sessionTitle: string;
+  sessionDate: string;
+  venueName: string;
+}
+
+interface ZiinaPaymentsResponse {
+  totalCollectedAed: number;
+  months: {
+    month: string;
+    totalAed: number;
+    count: number;
+    payments: ZiinaPaymentRow[];
+  }[];
+}
+
+function ZiinaPaymentsSection() {
+  const { data, isLoading, isError } = useQuery<ZiinaPaymentsResponse>({
+    queryKey: ['/api/finance/ziina-payments'],
+    queryFn: () => apiRequest<ZiinaPaymentsResponse>('GET', '/api/finance/ziina-payments'),
+    staleTime: 30 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {[1, 2, 3].map(i => <Skeleton key={i} className="h-32" />)}
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          Could not load Ziina payment history.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (data.months.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-3">
+        <CreditCard className="w-12 h-12 text-muted-foreground" />
+        <p className="text-lg font-semibold">No Ziina payments yet</p>
+        <p className="text-sm text-muted-foreground">Completed online payments will appear here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Total banner */}
+      <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
+        <CardContent className="py-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-green-600 dark:text-green-400" />
+            <span className="font-semibold text-green-800 dark:text-green-200">
+              Total Collected via Ziina
+            </span>
+          </div>
+          <span
+            className="text-2xl font-bold text-green-700 dark:text-green-300"
+            data-testid="ziina-total-aed"
+          >
+            {fmtAed(data.totalCollectedAed)}
+          </span>
+        </CardContent>
+      </Card>
+
+      {/* Month groups */}
+      {data.months.map(monthGroup => (
+        <div key={monthGroup.month} className="space-y-2" data-testid={`ziina-month-${monthGroup.month}`}>
+          {/* Month header */}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <h3 className="font-semibold text-base">
+              {format(new Date(monthGroup.month + '-02'), 'MMMM yyyy')}
+            </h3>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" data-testid={`ziina-count-${monthGroup.month}`}>
+                {monthGroup.count} payment{monthGroup.count !== 1 ? 's' : ''}
+              </Badge>
+              <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+                {fmtAed(monthGroup.totalAed)}
+              </span>
+            </div>
+          </div>
+
+          {/* Payments table */}
+          <div className="rounded-md border overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="text-left p-3 font-medium">Player</th>
+                  <th className="text-left p-3 font-medium hidden md:table-cell">Session</th>
+                  <th className="text-left p-3 font-medium hidden sm:table-cell">Date</th>
+                  <th className="text-left p-3 font-medium hidden lg:table-cell">Reference</th>
+                  <th className="text-right p-3 font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthGroup.payments.map(pmt => (
+                  <tr
+                    key={pmt.paymentId}
+                    className="border-b last:border-0 hover-elevate"
+                    data-testid={`ziina-row-${pmt.paymentId}`}
+                  >
+                    <td className="p-3">
+                      <div>
+                        <p className="font-medium">{pmt.playerName}</p>
+                        <p className="text-xs text-muted-foreground">{pmt.playerEmail}</p>
+                      </div>
+                    </td>
+                    <td className="p-3 hidden md:table-cell">
+                      <div>
+                        <p className="font-medium">{pmt.sessionTitle}</p>
+                        <p className="text-xs text-muted-foreground">{pmt.venueName}</p>
+                      </div>
+                    </td>
+                    <td className="p-3 hidden sm:table-cell text-muted-foreground whitespace-nowrap">
+                      <p>{format(new Date(pmt.sessionDate), 'dd MMM yyyy')}</p>
+                      {pmt.completedAt && (
+                        <p className="text-xs">
+                          Paid {format(new Date(pmt.completedAt), 'dd MMM')}
+                        </p>
+                      )}
+                    </td>
+                    <td className="p-3 hidden lg:table-cell">
+                      {pmt.ziinaPaymentIntentId ? (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {pmt.ziinaPaymentIntentId.slice(0, 8)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-right font-semibold whitespace-nowrap">
+                      {fmtAed(pmt.amountAed)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t bg-muted/50">
+                  <td colSpan={5} className="p-3 font-medium">
+                    <div className="flex items-center justify-between">
+                      <span>Subtotal</span>
+                      <span className="font-bold text-green-600 dark:text-green-400">
+                        {fmtAed(monthGroup.totalAed)}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main Finance Tab ─────────────────────────────────────────────────────────
 
 export default function FinanceTab() {
   const [preset, setPreset] = useState<Preset>('thisMonth');
-  const [subTab, setSubTab] = useState<'overview' | 'expenses' | 'categories' | 'pending'>('overview');
+  const [subTab, setSubTab] = useState<'overview' | 'expenses' | 'categories' | 'pending' | 'ziina'>('overview');
   const { from: fromStr, to: toStr } = getPresetDates(preset);
 
   const { data: summary, isLoading: summaryLoading } = useQuery<FinanceSummary>({
@@ -1027,6 +1200,10 @@ export default function FinanceTab() {
             <Clock className="w-4 h-4" />
             Pending Payments
           </TabsTrigger>
+          <TabsTrigger value="ziina" className="flex items-center gap-2" data-testid="subtab-finance-ziina">
+            <CreditCard className="w-4 h-4" />
+            Ziina Payments
+          </TabsTrigger>
         </TabsList>
 
         {/* ── Overview ── */}
@@ -1083,6 +1260,11 @@ export default function FinanceTab() {
             isLoading={catsLoading}
             expenseCountByCategoryId={expenseCountByCategoryId}
           />
+        </TabsContent>
+
+        {/* ── Ziina Payments ── */}
+        <TabsContent value="ziina" className="mt-6">
+          <ZiinaPaymentsSection />
         </TabsContent>
       </Tabs>
     </div>

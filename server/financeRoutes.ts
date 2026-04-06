@@ -3,8 +3,8 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { requireAuth, requireAdmin } from "./auth/middleware";
 import { db } from "./db";
-import { expenseCategories, bookings, bookableSessions, marketplaceUsers } from "@shared/schema";
-import { sql, eq, and, inArray } from "drizzle-orm";
+import { expenseCategories, bookings, bookableSessions, marketplaceUsers, payments } from "@shared/schema";
+import { sql, eq, and, inArray, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 const DEFAULT_CATEGORIES = [
@@ -274,6 +274,65 @@ export function registerFinanceRoutes(app: Express): void {
     } catch (err: unknown) {
       console.error("[Finance] pending-payments error:", err instanceof Error ? err.message : err);
       res.status(500).json({ error: "Failed to load pending payments" });
+    }
+  });
+
+  // ── Ziina Payment History ──────────────────────────────────────────────────
+
+  app.get("/api/finance/ziina-payments", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const rows = await db
+        .select({
+          paymentId: payments.id,
+          bookingId: payments.bookingId,
+          ziinaPaymentIntentId: payments.ziinaPaymentIntentId,
+          amountAed: payments.amount,
+          completedAt: payments.completedAt,
+          createdAt: payments.createdAt,
+          playerName: marketplaceUsers.name,
+          playerEmail: marketplaceUsers.email,
+          sessionTitle: bookableSessions.title,
+          sessionDate: bookableSessions.date,
+          venueName: bookableSessions.venueName,
+        })
+        .from(payments)
+        .innerJoin(bookings, eq(payments.bookingId, bookings.id))
+        .innerJoin(marketplaceUsers, eq(bookings.userId, marketplaceUsers.id))
+        .innerJoin(bookableSessions, eq(bookings.sessionId, bookableSessions.id))
+        .where(
+          and(
+            eq(payments.status, 'completed'),
+            eq(bookings.paymentMethod, 'ziina')
+          )
+        )
+        .orderBy(desc(bookableSessions.date));
+
+      // Group by calendar month of the session date (YYYY-MM), newest first
+      const grouped: Record<string, {
+        month: string;
+        totalAed: number;
+        count: number;
+        payments: typeof rows;
+      }> = {};
+
+      for (const row of rows) {
+        const d = new Date(row.sessionDate);
+        const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        if (!grouped[monthKey]) {
+          grouped[monthKey] = { month: monthKey, totalAed: 0, count: 0, payments: [] };
+        }
+        grouped[monthKey].totalAed += row.amountAed;
+        grouped[monthKey].count += 1;
+        grouped[monthKey].payments.push(row);
+      }
+
+      const months = Object.values(grouped).sort((a, b) => b.month.localeCompare(a.month));
+      const totalCollectedAed = rows.reduce((s, r) => s + r.amountAed, 0);
+
+      res.json({ totalCollectedAed, months });
+    } catch (err: unknown) {
+      console.error("[Finance] ziina-payments error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load Ziina payment history" });
     }
   });
 }
