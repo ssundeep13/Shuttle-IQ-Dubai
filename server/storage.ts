@@ -50,7 +50,7 @@ import {
   playerTags,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, inArray, desc, sql, asc, like, gte, lt } from "drizzle-orm";
+import { eq, and, inArray, desc, sql, asc, like, gte, lt, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -1663,10 +1663,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPublicAnalytics({ sessionId, from, to }: { sessionId?: string; from?: Date; to?: Date }) {
-    const conditions: any[] = [];
+    const conditions: SQL<boolean>[] = [];
     if (sessionId) conditions.push(eq(bookings.sessionId, sessionId));
     if (from) conditions.push(gte(bookings.createdAt, from));
-    if (to) conditions.push(lt(bookings.createdAt, to));
+    if (to) {
+      // Make `to` inclusive for the given day by advancing to the start of the next day
+      const exclusiveTo = new Date(to);
+      exclusiveTo.setUTCDate(exclusiveTo.getUTCDate() + 1);
+      conditions.push(lt(bookings.createdAt, exclusiveTo));
+    }
 
     const rows = await db
       .select({
