@@ -466,6 +466,19 @@ export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true,
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type Expense = typeof expenses.$inferSelect;
 
+// Session rest state persistence (survives server restarts)
+export const sessionRestStatesTable = pgTable("session_rest_states", {
+  id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull(),
+  playerId: varchar("player_id").notNull(),
+  consecutiveGames: integer("consecutive_games").notNull().default(0),
+  gamesWaited: integer("games_waited").notNull().default(0),
+  gamesThisSession: integer("games_this_session").notNull().default(0),
+  needsRest: boolean("needs_rest").notNull().default(false),
+  isSittingOut: boolean("is_sitting_out").notNull().default(false),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export interface ExpenseWithCategory extends Expense {
   categoryName: string;
   categoryColor: string;

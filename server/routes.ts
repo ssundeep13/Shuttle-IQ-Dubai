@@ -42,6 +42,8 @@ import {
   clearSittingOutPlayer,
   getPlayerRestState,
   getTierIndex,
+  persistRestStatesToDb,
+  loadRestStatesFromDb,
   type TeamCombination
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
@@ -512,34 +514,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/sessions/:id/game-history", async (req, res) => {
     try {
-      const { eq } = await import('drizzle-orm');
-      const { players } = await import('@shared/schema');
-      
       const games = await storage.getSessionGameHistory(req.params.id);
-      
-      // For each game, fetch participants and player details
-      const gamesWithDetails = await Promise.all(
-        games.map(async (game) => {
-          const participants = await db.select().from(gameParticipants).where(eq(gameParticipants.gameId, game.id));
-          
-          const participantsWithDetails = await Promise.all(
-            participants.map(async (p) => {
-              const player = await db.select().from(players).where(eq(players.id, p.playerId)).limit(1);
-              return {
-                ...p,
-                playerName: player[0]?.name || 'Unknown',
-                playerLevel: player[0]?.level || 'Unknown',
-              };
-            })
-          );
-          
-          return {
-            ...game,
-            participants: participantsWithDetails,
-          };
-        })
-      );
-      
+      if (games.length === 0) return res.json([]);
+
+      const gameIds = games.map(g => g.id);
+
+      // Single batch query for all participants
+      const allParticipants = await db
+        .select()
+        .from(gameParticipants)
+        .where(inArray(gameParticipants.gameId, gameIds));
+
+      // Single batch query for all players referenced
+      const playerIds = [...new Set(allParticipants.map(p => p.playerId))];
+      const allPlayers = playerIds.length > 0
+        ? await db.select().from(players).where(inArray(players.id, playerIds))
+        : [];
+      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
+      // Group participants by gameId
+      const participantsByGame = new Map<string, typeof allParticipants>();
+      for (const p of allParticipants) {
+        if (!participantsByGame.has(p.gameId)) participantsByGame.set(p.gameId, []);
+        participantsByGame.get(p.gameId)!.push(p);
+      }
+
+      const gamesWithDetails = games.map(game => ({
+        ...game,
+        participants: (participantsByGame.get(game.id) || []).map(p => ({
+          ...p,
+          playerName: playerMap.get(p.playerId)?.name || 'Unknown',
+          playerLevel: playerMap.get(p.playerId)?.level || 'Unknown',
+        })),
+      }));
+
       res.json(gamesWithDetails);
     } catch (error) {
       console.error('Session game history error:', error);
@@ -1446,6 +1454,9 @@ Return ONLY valid JSON, no markdown, no other text:
         });
       }
 
+      // Load persisted rest states first (survives server restarts)
+      await loadRestStatesFromDb(session.id);
+
       // Build rest states and partner history from game history
       const gameParticipants = await storage.getSessionGameParticipants(session.id);
       buildRestStatesFromHistory(session.id, gameParticipants, queue);
@@ -1650,6 +1661,9 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const queue = await storage.getQueue(session.id);
       const allPlayers = await storage.getAllPlayers();
+
+      // Load persisted rest states first (survives server restarts)
+      await loadRestStatesFromDb(session.id);
 
       const gameParticipants = await storage.getSessionGameParticipants(session.id);
       buildRestStatesFromHistory(session.id, gameParticipants, queue);
@@ -2146,6 +2160,10 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const updatedCourt = await storage.getCourt(court.id);
       console.log(`[END-GAME] Game ended successfully. Court ${court.id} now ${updatedCourt?.status}. Players returned to queue.`);
+
+      // Persist rest states so they survive server restarts
+      await persistRestStatesToDb(activeSession.id);
+
       res.json({ ...updatedCourt, players: [] });
     } catch (error) {
       console.error(`[END-GAME] Error ending game:`, error);
@@ -2571,41 +2589,45 @@ Return ONLY valid JSON, no markdown, no other text:
   // Game History endpoint
   app.get("/api/game-history/:sessionId?", async (req, res) => {
     try {
-      const { eq, desc } = await import('drizzle-orm');
-      const { players } = await import('@shared/schema');
       const sessionId = req.params.sessionId;
-      
-      // Fetch game results for the specific session (or all non-sandbox if no sessionId provided)
-      const gamesQuery = sessionId 
-        ? db.select().from(gameResults).where(eq(gameResults.sessionId, sessionId)).orderBy(desc(gameResults.createdAt))
-        : db.select().from(gameResults).where(sql`${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`).orderBy(desc(gameResults.createdAt));
-      
-      const games = await gamesQuery;
-      
-      // For each game, fetch participants and player details
-      const gamesWithDetails = await Promise.all(
-        games.map(async (game) => {
-          const participants = await db.select().from(gameParticipants).where(eq(gameParticipants.gameId, game.id));
-          
-          // Fetch player details for each participant
-          const participantsWithDetails = await Promise.all(
-            participants.map(async (p) => {
-              const player = await db.select().from(players).where(eq(players.id, p.playerId)).limit(1);
-              return {
-                ...p,
-                playerName: player[0]?.name || 'Unknown',
-                playerLevel: player[0]?.level || 'Unknown',
-              };
-            })
-          );
-          
-          return {
-            ...game,
-            participants: participantsWithDetails,
-          };
-        })
-      );
-      
+
+      const games = sessionId
+        ? await db.select().from(gameResults).where(eq(gameResults.sessionId, sessionId)).orderBy(desc(gameResults.createdAt))
+        : await db.select().from(gameResults).where(sql`${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`).orderBy(desc(gameResults.createdAt));
+
+      if (games.length === 0) return res.json([]);
+
+      const gameIds = games.map(g => g.id);
+
+      // Single batch query for all participants
+      const allParticipants = await db
+        .select()
+        .from(gameParticipants)
+        .where(inArray(gameParticipants.gameId, gameIds));
+
+      // Single batch query for all players referenced
+      const playerIds = [...new Set(allParticipants.map(p => p.playerId))];
+      const allPlayers = playerIds.length > 0
+        ? await db.select().from(players).where(inArray(players.id, playerIds))
+        : [];
+      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
+      // Group participants by gameId
+      const participantsByGame = new Map<string, typeof allParticipants>();
+      for (const p of allParticipants) {
+        if (!participantsByGame.has(p.gameId)) participantsByGame.set(p.gameId, []);
+        participantsByGame.get(p.gameId)!.push(p);
+      }
+
+      const gamesWithDetails = games.map(game => ({
+        ...game,
+        participants: (participantsByGame.get(game.id) || []).map(p => ({
+          ...p,
+          playerName: playerMap.get(p.playerId)?.name || 'Unknown',
+          playerLevel: playerMap.get(p.playerId)?.level || 'Unknown',
+        })),
+      }));
+
       res.json(gamesWithDetails);
     } catch (error) {
       console.error('Game history error:', error);

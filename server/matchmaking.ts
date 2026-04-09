@@ -1,4 +1,7 @@
-import { Player, GameParticipant } from '@shared/schema';
+import { Player, GameParticipant, sessionRestStatesTable } from '@shared/schema';
+import { db } from './db';
+import { eq, and } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
 
 // Tier definitions matching schema (6 tiers, indices 0-5)
 // lower_intermediate (70-89) → display "Intermediate"
@@ -1150,4 +1153,97 @@ export function generateAllMatchupOptions(
     loneOutliers,
     stretchMatches,
   };
+}
+
+// Persist current in-memory rest states for a session to the DB
+export async function persistRestStatesToDb(sessionId: string): Promise<void> {
+  try {
+    const states = sessionRestStates.get(sessionId);
+    const sittingOut = sessionSittingOut.get(sessionId) || new Set<string>();
+    if (!states) return;
+
+    for (const [playerId, state] of states.entries()) {
+      const existing = await db
+        .select()
+        .from(sessionRestStatesTable)
+        .where(
+          and(
+            eq(sessionRestStatesTable.sessionId, sessionId),
+            eq(sessionRestStatesTable.playerId, playerId)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db
+          .update(sessionRestStatesTable)
+          .set({
+            consecutiveGames: state.consecutiveGames,
+            gamesWaited: state.gamesWaited,
+            gamesThisSession: state.gamesThisSession,
+            needsRest: state.needsRest,
+            isSittingOut: sittingOut.has(playerId),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(sessionRestStatesTable.sessionId, sessionId),
+              eq(sessionRestStatesTable.playerId, playerId)
+            )
+          );
+      } else {
+        await db.insert(sessionRestStatesTable).values({
+          id: randomUUID(),
+          sessionId,
+          playerId,
+          consecutiveGames: state.consecutiveGames,
+          gamesWaited: state.gamesWaited,
+          gamesThisSession: state.gamesThisSession,
+          needsRest: state.needsRest,
+          isSittingOut: sittingOut.has(playerId),
+          updatedAt: new Date(),
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[RestState] Failed to persist to DB:', err);
+  }
+}
+
+// Load rest states from DB into memory at session start
+export async function loadRestStatesFromDb(sessionId: string): Promise<void> {
+  try {
+    const rows = await db
+      .select()
+      .from(sessionRestStatesTable)
+      .where(eq(sessionRestStatesTable.sessionId, sessionId));
+
+    if (rows.length === 0) return;
+
+    const stateMap = new Map<string, PlayerRestState>();
+    const sittingOutSet = new Set<string>();
+
+    for (const row of rows) {
+      stateMap.set(row.playerId, {
+        playerId: row.playerId,
+        consecutiveGames: row.consecutiveGames,
+        gamesWaited: row.gamesWaited,
+        gamesThisSession: row.gamesThisSession,
+        lastGameEndedAt: null,
+        needsRest: row.needsRest,
+      });
+      if (row.isSittingOut) {
+        sittingOutSet.add(row.playerId);
+      }
+    }
+
+    sessionRestStates.set(sessionId, stateMap);
+    if (sittingOutSet.size > 0) {
+      sessionSittingOut.set(sessionId, sittingOutSet);
+    }
+
+    console.log(`[RestState] Loaded ${rows.length} rest states from DB for session ${sessionId}`);
+  } catch (err) {
+    console.error('[RestState] Failed to load from DB:', err);
+  }
 }

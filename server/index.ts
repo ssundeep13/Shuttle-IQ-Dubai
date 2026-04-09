@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./scheduler";
@@ -15,6 +16,19 @@ registerZiinaWebhookRoute(app);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
+
+// Rate limiter: max 10 login attempts per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please try again in 15 minutes.' },
+});
+
+app.use('/api/auth/login', authLimiter);
+app.use('/api/marketplace/auth/login', authLimiter);
+app.use('/api/marketplace/auth/signup', authLimiter);
 
 // Lightweight health-check — responds instantly without touching the DB.
 // External uptime monitors (e.g. UptimeRobot) can ping this every 5 minutes

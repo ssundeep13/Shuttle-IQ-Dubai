@@ -2,8 +2,15 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'shuttleiq-dev-secret-change-in-production';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'shuttleiq-refresh-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+
+if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
+  throw new Error(
+    '[STARTUP] JWT_SECRET and JWT_REFRESH_SECRET must be set in Replit Secrets. ' +
+    'Go to the padlock icon in the sidebar and add both keys with strong random values.'
+  );
+}
 
 export interface JWTPayload {
   userId: string;
