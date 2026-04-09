@@ -1,0 +1,475 @@
+# ShuttleIQ Dubai — Replit Agent Fix Brief
+
+This document contains 5 precise fixes to apply to the codebase.
+Each fix includes the exact file, the exact change, and why it is needed.
+Apply them in order. Do not refactor anything else — only make the changes described.
+
+---
+
+## FIX 1 — URGENT: Remove Stripe keys from committed file and delete the file
+
+**Problem:**
+A file named `seduLg9XE` was accidentally committed to the repo root.
+It is actually the `.replit` config file and it contains live Stripe test keys:
+- `STRIPE_SECRET_KEY = "sk_test_51TA7LX9I5y7htML1k8auUVQHGGFAWy7..."`
+- `STRIPE_PUBLISHABLE_KEY = "pk_test_51TA7LX9I5y7htML1UU9K..."`
+
+These are publicly visible on GitHub. Even though they are test keys today,
+this is a security vulnerability that must be fixed immediately.
+
+**Action required:**
+1. Delete the file `seduLg9XE` from the project root entirely.
+2. Add `seduLg9XE` to `.gitignore` so it cannot be committed again.
+3. Move both Stripe keys to Replit Secrets (the padlock icon in the sidebar)
+   under the names `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY`.
+   They should already be there — this is just to confirm.
+4. In `.gitignore`, also add `.replit` to prevent the real config file
+   from being committed in future.
+
+**File to delete:** `seduLg9XE` (project root)
+
+**File to edit:** `.gitignore`
+Add these two lines at the bottom:
+```
+seduLg9XE
+.replit
+```
+
+---
+
+## FIX 2 — CRITICAL: Require JWT secrets at startup, never use hardcoded fallbacks
+
+**Problem:**
+In `server/auth/utils.ts`, lines 7–8:
+```ts
+const JWT_SECRET = process.env.JWT_SECRET || 'shuttleiq-dev-secret-change-in-production';
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'shuttleiq-refresh-secret-change-in-production';
+```
+If the environment variables are missing, the app silently uses a public string
+as the signing key. Anyone who knows the string can forge admin JWT tokens.
+
+**Action required:**
+Replace the top of `server/auth/utils.ts` so it throws at startup
+if the secrets are not set, instead of falling back to a default.
+
+**File to edit:** `server/auth/utils.ts`
+
+Replace these two lines:
+```ts
+const JWT_SECRET = process.env.JWT_SECRET || 'shuttleiq-dev-secret-change-in-production';
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'shuttleiq-refresh-secret-change-in-production';
+```
+
+With:
+```ts
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+
+if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
+  throw new Error(
+    '[STARTUP] JWT_SECRET and JWT_REFRESH_SECRET must be set in Replit Secrets. ' +
+    'Go to the padlock icon in the sidebar and add both keys with strong random values.'
+  );
+}
+```
+
+**Also add to Replit Secrets (padlock icon):**
+- `JWT_SECRET` — any long random string, e.g. 64 random characters
+- `JWT_REFRESH_SECRET` — a different long random string
+
+You can generate them in the Replit Shell with:
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
+Run it twice to get two different values.
+
+---
+
+## FIX 3 — CRITICAL: Add rate limiting to auth endpoints
+
+**Problem:**
+`/api/auth/login` and `/api/marketplace/auth/signup` have no rate limiting.
+An attacker can attempt thousands of password guesses per minute or spam signups.
+
+**Action required:**
+
+**Step 1** — Install the package. Run in the Replit Shell:
+```bash
+npm install express-rate-limit
+```
+
+**Step 2** — Edit `server/index.ts`
+
+Add this import at the top of the file (after the existing imports):
+```ts
+import rateLimit from 'express-rate-limit';
+```
+
+Add these two rate limiter definitions immediately after the
+`app.use(cookieParser());` line (around line 17):
+```ts
+// Rate limiter: max 10 login attempts per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Please try again in 15 minutes.' },
+});
+
+// Apply to all auth routes
+app.use('/api/auth/login', authLimiter);
+app.use('/api/marketplace/auth/login', authLimiter);
+app.use('/api/marketplace/auth/signup', authLimiter);
+```
+
+No other changes needed in this file.
+
+---
+
+## FIX 4 — IMPORTANT: Persist session rest states to the database
+
+**Problem:**
+In `server/matchmaking.ts`, all session rest states (who has played how many
+consecutive games, who is waiting, sitting out) are stored in plain JavaScript
+`Map` objects in memory:
+```ts
+const sessionRestStates = new Map<string, Map<string, PlayerRestState>>();
+const sessionPartnerHistory = new Map<string, Map<string, number>>();
+const sessionSittingOut = new Map<string, Set<string>>();
+```
+Replit goes to sleep when idle. When the server wakes up, all of this data
+is wiped. During an active session, this means the queue rotation logic
+resets mid-session: players who just played may be selected again immediately,
+and sit-out flags are lost.
+
+**Action required:**
+
+**Step 1** — Add a new table to `shared/schema.ts`
+
+Find the end of the schema file (before any export lines at the bottom)
+and add this new table definition:
+```ts
+// Session rest state persistence (survives server restarts)
+export const sessionRestStatesTable = pgTable("session_rest_states", {
+  id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull(),
+  playerId: varchar("player_id").notNull(),
+  consecutiveGames: integer("consecutive_games").notNull().default(0),
+  gamesWaited: integer("games_waited").notNull().default(0),
+  gamesThisSession: integer("games_this_session").notNull().default(0),
+  needsRest: boolean("needs_rest").notNull().default(false),
+  isSittingOut: boolean("is_sitting_out").notNull().default(false),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+```
+
+**Step 2** — Push the schema to the database. Run in the Replit Shell:
+```bash
+npm run db:push
+```
+
+**Step 3** — Add two helper functions to `server/matchmaking.ts`
+
+At the top of the file, add this import (after the existing imports):
+```ts
+import { db } from './db';
+import { sessionRestStatesTable } from '@shared/schema';
+import { eq, and } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
+```
+
+Then add these two functions anywhere in the file before the
+`registerRoutes` or export section:
+
+```ts
+// Persist current in-memory rest states for a session to the DB
+export async function persistRestStatesToDb(sessionId: string): Promise<void> {
+  try {
+    const states = sessionRestStates.get(sessionId);
+    const sittingOut = sessionSittingOut.get(sessionId) || new Set<string>();
+    if (!states) return;
+
+    for (const [playerId, state] of states.entries()) {
+      const existing = await db
+        .select()
+        .from(sessionRestStatesTable)
+        .where(
+          and(
+            eq(sessionRestStatesTable.sessionId, sessionId),
+            eq(sessionRestStatesTable.playerId, playerId)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db
+          .update(sessionRestStatesTable)
+          .set({
+            consecutiveGames: state.consecutiveGames,
+            gamesWaited: state.gamesWaited,
+            gamesThisSession: state.gamesThisSession,
+            needsRest: state.needsRest,
+            isSittingOut: sittingOut.has(playerId),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(sessionRestStatesTable.sessionId, sessionId),
+              eq(sessionRestStatesTable.playerId, playerId)
+            )
+          );
+      } else {
+        await db.insert(sessionRestStatesTable).values({
+          id: randomUUID(),
+          sessionId,
+          playerId,
+          consecutiveGames: state.consecutiveGames,
+          gamesWaited: state.gamesWaited,
+          gamesThisSession: state.gamesThisSession,
+          needsRest: state.needsRest,
+          isSittingOut: sittingOut.has(playerId),
+          updatedAt: new Date(),
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[RestState] Failed to persist to DB:', err);
+  }
+}
+
+// Load rest states from DB into memory at session start
+export async function loadRestStatesFromDb(sessionId: string): Promise<void> {
+  try {
+    const rows = await db
+      .select()
+      .from(sessionRestStatesTable)
+      .where(eq(sessionRestStatesTable.sessionId, sessionId));
+
+    if (rows.length === 0) return;
+
+    const stateMap = new Map<string, any>();
+    const sittingOutSet = new Set<string>();
+
+    for (const row of rows) {
+      stateMap.set(row.playerId, {
+        playerId: row.playerId,
+        consecutiveGames: row.consecutiveGames,
+        gamesWaited: row.gamesWaited,
+        gamesThisSession: row.gamesThisSession,
+        lastGameEndedAt: null,
+        needsRest: row.needsRest,
+      });
+      if (row.isSittingOut) {
+        sittingOutSet.add(row.playerId);
+      }
+    }
+
+    sessionRestStates.set(sessionId, stateMap);
+    if (sittingOutSet.size > 0) {
+      sessionSittingOut.set(sessionId, sittingOutSet);
+    }
+
+    console.log(`[RestState] Loaded ${rows.length} rest states from DB for session ${sessionId}`);
+  } catch (err) {
+    console.error('[RestState] Failed to load from DB:', err);
+  }
+}
+```
+
+**Step 4** — Call `persistRestStatesToDb` after every game ends
+
+In `server/routes.ts`, find the `POST /api/courts/:courtId/end-game` handler.
+At the very end of the handler, just before `res.json(...)`, add:
+```ts
+// Persist rest states so they survive server restarts
+import { persistRestStatesToDb } from './matchmaking';
+await persistRestStatesToDb(activeSession.id);
+```
+
+Note: The import should go at the top of `routes.ts` with the other matchmaking
+imports, not inside the handler. Find the existing line:
+```ts
+import {
+  buildRestStatesFromHistory,
+  ...
+} from "./matchmaking";
+```
+And add `persistRestStatesToDb` and `loadRestStatesFromDb` to that import list.
+
+**Step 5** — Call `loadRestStatesFromDb` when the matchmaking suggestions are requested
+
+In `server/routes.ts`, find the `GET /api/matchmaking/suggestions` handler.
+Find this block near the top of the handler:
+```ts
+const gameParticipants = await storage.getSessionGameParticipants(session.id);
+buildRestStatesFromHistory(session.id, gameParticipants, queue);
+buildPartnerHistoryFromHistory(session.id, gameParticipants);
+```
+
+Replace it with:
+```ts
+// Load persisted rest states first (survives server restarts)
+await loadRestStatesFromDb(session.id);
+const gameParticipants = await storage.getSessionGameParticipants(session.id);
+buildRestStatesFromHistory(session.id, gameParticipants, queue);
+buildPartnerHistoryFromHistory(session.id, gameParticipants);
+```
+
+Do the same for the `GET /api/matchmaking/bracket-suggestions` handler —
+it has the same three lines. Add `await loadRestStatesFromDb(session.id);`
+before them.
+
+---
+
+## FIX 5 — PERFORMANCE: Fix N+1 queries in game history endpoints
+
+**Problem:**
+In `server/routes.ts`, the handlers for:
+- `GET /api/sessions/:id/game-history`
+- `GET /api/game-history/:sessionId?`
+
+both loop through every game and make individual DB calls per participant:
+```ts
+const participants = await db.select().from(gameParticipants).where(eq(gameParticipants.gameId, game.id));
+// then inside that loop:
+const player = await db.select().from(players).where(eq(players.id, p.playerId)).limit(1);
+```
+With 20 games × 4 players, this is 80+ sequential DB queries.
+With a full season of history it becomes hundreds.
+
+**Action required:**
+
+**Replace the handler for `GET /api/sessions/:id/game-history`**
+
+Find this entire route in `server/routes.ts`:
+```ts
+app.get("/api/sessions/:id/game-history", async (req, res) => {
+```
+
+Replace the entire handler body (from `try {` to the closing `}`):
+```ts
+app.get("/api/sessions/:id/game-history", async (req, res) => {
+  try {
+    const games = await storage.getSessionGameHistory(req.params.id);
+    if (games.length === 0) return res.json([]);
+
+    const gameIds = games.map(g => g.id);
+
+    // Single batch query for all participants
+    const allParticipants = await db
+      .select()
+      .from(gameParticipants)
+      .where(inArray(gameParticipants.gameId, gameIds));
+
+    // Single batch query for all players referenced
+    const playerIds = [...new Set(allParticipants.map(p => p.playerId))];
+    const allPlayers = playerIds.length > 0
+      ? await db.select().from(players).where(inArray(players.id, playerIds))
+      : [];
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
+    // Group participants by gameId
+    const participantsByGame = new Map<string, typeof allParticipants>();
+    for (const p of allParticipants) {
+      if (!participantsByGame.has(p.gameId)) participantsByGame.set(p.gameId, []);
+      participantsByGame.get(p.gameId)!.push(p);
+    }
+
+    const gamesWithDetails = games.map(game => ({
+      ...game,
+      participants: (participantsByGame.get(game.id) || []).map(p => ({
+        ...p,
+        playerName: playerMap.get(p.playerId)?.name || 'Unknown',
+        playerLevel: playerMap.get(p.playerId)?.level || 'Unknown',
+      })),
+    }));
+
+    res.json(gamesWithDetails);
+  } catch (error) {
+    console.error('Session game history error:', error);
+    res.status(500).json({ error: "Failed to fetch session game history" });
+  }
+});
+```
+
+**Replace the handler for `GET /api/game-history/:sessionId?`**
+
+Find this route:
+```ts
+app.get("/api/game-history/:sessionId?", async (req, res) => {
+```
+
+Replace the entire handler body:
+```ts
+app.get("/api/game-history/:sessionId?", async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+
+    const games = sessionId
+      ? await db.select().from(gameResults).where(eq(gameResults.sessionId, sessionId)).orderBy(desc(gameResults.createdAt))
+      : await db.select().from(gameResults).where(sql`${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`).orderBy(desc(gameResults.createdAt));
+
+    if (games.length === 0) return res.json([]);
+
+    const gameIds = games.map(g => g.id);
+
+    // Single batch query for all participants
+    const allParticipants = await db
+      .select()
+      .from(gameParticipants)
+      .where(inArray(gameParticipants.gameId, gameIds));
+
+    // Single batch query for all players referenced
+    const playerIds = [...new Set(allParticipants.map(p => p.playerId))];
+    const allPlayers = playerIds.length > 0
+      ? await db.select().from(players).where(inArray(players.id, playerIds))
+      : [];
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
+    // Group participants by gameId
+    const participantsByGame = new Map<string, typeof allParticipants>();
+    for (const p of allParticipants) {
+      if (!participantsByGame.has(p.gameId)) participantsByGame.set(p.gameId, []);
+      participantsByGame.get(p.gameId)!.push(p);
+    }
+
+    const gamesWithDetails = games.map(game => ({
+      ...game,
+      participants: (participantsByGame.get(game.id) || []).map(p => ({
+        ...p,
+        playerName: playerMap.get(p.playerId)?.name || 'Unknown',
+        playerLevel: playerMap.get(p.playerId)?.level || 'Unknown',
+      })),
+    }));
+
+    res.json(gamesWithDetails);
+  } catch (error) {
+    console.error('Game history error:', error);
+    res.status(500).json({ error: "Failed to fetch game history" });
+  }
+});
+```
+
+---
+
+## Verification checklist
+
+After all fixes are applied, confirm the following:
+
+- [ ] `seduLg9XE` file no longer exists in the project root
+- [ ] `.gitignore` contains `.replit` and `seduLg9XE`
+- [ ] Replit Secrets contains: `JWT_SECRET`, `JWT_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`
+- [ ] Server starts cleanly with `npm run dev` — no startup errors
+- [ ] Login still works for admin and marketplace users
+- [ ] A game can be ended and the session history loads correctly
+- [ ] `npm run db:push` completed without errors (for Fix 4)
+
+---
+
+## What was NOT changed
+
+- No route logic was altered beyond the specific handlers above
+- No schema tables were removed or renamed
+- The matchmaking algorithm itself was not touched
+- All existing API endpoints remain at the same URLs
