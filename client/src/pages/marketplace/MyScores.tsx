@@ -220,11 +220,13 @@ export default function MyScores() {
     : '0';
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const untaggedRecentGames = stats.recentGames.filter(g => {
     const d = g.date ? new Date(g.date) : null;
-    return d && d >= thirtyDaysAgo && !taggedGameSet.has(g.gameId);
+    return d && d >= sevenDaysAgo && !taggedGameSet.has(g.gameId);
   });
   const untaggedCount = untaggedRecentGames.length;
+  const firstUntaggedGameId = untaggedRecentGames[0]?.gameId ?? null;
   const allValidGames = stats.recentGames.filter(g => g.skillScoreAfter != null);
   const chartGames = progressionFilter === 'last10'
     ? allValidGames.slice(0, 10)
@@ -650,20 +652,31 @@ export default function MyScores() {
         {untaggedCount > 0 && linkedPlayerId && (
           <motion.div variants={fadeInUp} className="mb-4">
             <div
-              className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 px-4 py-3 flex items-start gap-3"
+              className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 px-4 py-3 flex items-center gap-3 flex-wrap"
               data-testid="banner-untagged-nudge"
             >
-              <TagIcon className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <TagIcon className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
                   {untaggedCount === 1
-                    ? '1 recent game waiting for tags'
-                    : `${untaggedCount} recent games waiting for tags`}
+                    ? '1 game from this week needs tags'
+                    : `${untaggedCount} games from this week need tags`}
                 </p>
-                <p className="text-xs text-amber-700/70 dark:text-amber-400/70 mt-0.5">
-                  Recognise great play from your teammates below
+                <p className="text-xs text-amber-700/70 dark:text-amber-400/70">
+                  Recognise great play — scroll down to tag
                 </p>
               </div>
+              {firstUntaggedGameId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300"
+                  onClick={() => setTaggingGameId(firstUntaggedGameId)}
+                  data-testid="button-nudge-tag-now"
+                >
+                  Tag now
+                </Button>
+              )}
             </div>
           </motion.div>
         )}

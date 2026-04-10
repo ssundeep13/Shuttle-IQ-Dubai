@@ -1749,68 +1749,100 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllPlayersTopTag(): Promise<PlayerTopTagEntry[]> {
-    const rows = await db
-      .select({
-        playerId: playerTags.taggedPlayerId,
-        tagId: playerTags.tagId,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(playerTags)
-      .groupBy(playerTags.taggedPlayerId, playerTags.tagId)
-      .orderBy(playerTags.taggedPlayerId, desc(sql`count(*)`));
+    // Single query: DISTINCT ON gets highest-count tag per player, joined with tags table
+    const rows = await db.execute<{
+      player_id: string;
+      tag_id: string;
+      cnt: number;
+      tag_label: string;
+      tag_emoji: string;
+      tag_category: string;
+    }>(sql`
+      SELECT DISTINCT ON (pt.tagged_player_id)
+        pt.tagged_player_id AS player_id,
+        pt.tag_id,
+        count(*)::int AS cnt,
+        t.label AS tag_label,
+        t.emoji AS tag_emoji,
+        t.category AS tag_category
+      FROM player_tags pt
+      JOIN tags t ON t.id = pt.tag_id
+      GROUP BY pt.tagged_player_id, pt.tag_id, t.label, t.emoji, t.category
+      ORDER BY pt.tagged_player_id, cnt DESC
+    `);
 
-    const bestPerPlayer = new Map<string, { tagId: string; count: number }>();
-    for (const row of rows) {
-      if (!bestPerPlayer.has(row.playerId)) {
-        bestPerPlayer.set(row.playerId, { tagId: row.tagId, count: row.count });
-      }
-    }
-
-    const result: PlayerTopTagEntry[] = [];
-    for (const [playerId, { tagId, count }] of bestPerPlayer) {
-      const [tag] = await db.select().from(tags).where(eq(tags.id, tagId));
-      if (tag) result.push({ playerId, tag, count });
-    }
-    return result;
+    return rows.rows.map(r => ({
+      playerId: r.player_id,
+      tag: { id: r.tag_id, label: r.tag_label, emoji: r.tag_emoji, category: r.tag_category } as Tag,
+      count: Number(r.cnt),
+    }));
   }
 
   async getCommunitySpotlight(limit = 5): Promise<CommunitySpotlightEntry[]> {
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const trendingRows = await db
-      .select({ tagId: playerTags.tagId, count: sql<number>`count(*)::int` })
-      .from(playerTags)
-      .where(gte(playerTags.createdAt, sevenDaysAgo))
-      .groupBy(playerTags.tagId)
-      .orderBy(desc(sql`count(*)`))
-      .limit(limit);
+    // Single query: trending tags this week + top player per tag within the same window
+    const rows = await db.execute<{
+      tag_id: string;
+      weekly_count: number;
+      tag_label: string;
+      tag_emoji: string;
+      tag_category: string;
+      top_player_id: string;
+      top_player_name: string;
+      top_player_level: string;
+      top_player_skill_score: number;
+      top_player_shuttle_iq_id: string | null;
+    }>(sql`
+      WITH weekly AS (
+        SELECT tag_id, tagged_player_id, count(*)::int AS cnt
+        FROM player_tags
+        WHERE created_at >= now() - interval '7 days'
+        GROUP BY tag_id, tagged_player_id
+      ),
+      tag_totals AS (
+        SELECT tag_id, sum(cnt)::int AS weekly_count
+        FROM weekly
+        GROUP BY tag_id
+        ORDER BY weekly_count DESC
+        LIMIT ${limit}
+      ),
+      top_players AS (
+        SELECT DISTINCT ON (w.tag_id)
+          w.tag_id,
+          w.tagged_player_id AS top_player_id,
+          w.cnt AS top_cnt
+        FROM weekly w
+        JOIN tag_totals tt ON tt.tag_id = w.tag_id
+        ORDER BY w.tag_id, w.cnt DESC
+      )
+      SELECT
+        tt.tag_id,
+        tt.weekly_count,
+        t.label AS tag_label,
+        t.emoji AS tag_emoji,
+        t.category AS tag_category,
+        p.id AS top_player_id,
+        p.name AS top_player_name,
+        p.level AS top_player_level,
+        p.skill_score AS top_player_skill_score,
+        p.shuttle_iq_id AS top_player_shuttle_iq_id
+      FROM tag_totals tt
+      JOIN tags t ON t.id = tt.tag_id
+      JOIN top_players tp ON tp.tag_id = tt.tag_id
+      JOIN players p ON p.id = tp.top_player_id
+      ORDER BY tt.weekly_count DESC
+    `);
 
-    const result: CommunitySpotlightEntry[] = [];
-    for (const tRow of trendingRows) {
-      const [tag] = await db.select().from(tags).where(eq(tags.id, tRow.tagId));
-      if (!tag) continue;
-      const [topPlayerRow] = await db
-        .select({ playerId: playerTags.taggedPlayerId, count: sql<number>`count(*)::int` })
-        .from(playerTags)
-        .where(eq(playerTags.tagId, tRow.tagId))
-        .groupBy(playerTags.taggedPlayerId)
-        .orderBy(desc(sql`count(*)`))
-        .limit(1);
-      if (!topPlayerRow) continue;
-      const [player] = await db.select().from(players).where(eq(players.id, topPlayerRow.playerId));
-      if (!player) continue;
-      result.push({
-        tag,
-        count: tRow.count,
-        topPlayer: {
-          id: player.id,
-          name: player.name,
-          level: player.level,
-          skillScore: player.skillScore,
-          shuttleIqId: player.shuttleIqId ?? null,
-        },
-      });
-    }
-    return result;
+    return rows.rows.map(r => ({
+      tag: { id: r.tag_id, label: r.tag_label, emoji: r.tag_emoji, category: r.tag_category } as Tag,
+      count: Number(r.weekly_count),
+      topPlayer: {
+        id: r.top_player_id,
+        name: r.top_player_name,
+        level: r.top_player_level,
+        skillScore: Number(r.top_player_skill_score),
+        shuttleIqId: r.top_player_shuttle_iq_id,
+      },
+    }));
   }
 
   async getRecentReceivedTags(taggedPlayerId: string, limit = 5): Promise<ReceivedTagEntry[]> {
@@ -1861,19 +1893,22 @@ export class DatabaseStorage implements IStorage {
     tagIds: string[]
   ): Promise<TagCountResult[]> {
     if (targetPlayerIds.length === 0 || tagIds.length === 0) return [];
-    const result: TagCountResult[] = [];
-    for (const playerId of targetPlayerIds) {
-      for (const tagId of tagIds) {
-        const [row] = await db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(playerTags)
-          .where(and(eq(playerTags.taggedPlayerId, playerId), eq(playerTags.tagId, tagId)));
-        if (row && row.count > 0) {
-          result.push({ playerId, tagId, newCount: row.count });
-        }
-      }
-    }
-    return result;
+    // Single batch query — only for the submitted player+tag pairs
+    const rows = await db
+      .select({
+        playerId: playerTags.taggedPlayerId,
+        tagId: playerTags.tagId,
+        newCount: sql<number>`count(*)::int`,
+      })
+      .from(playerTags)
+      .where(
+        and(
+          inArray(playerTags.taggedPlayerId, targetPlayerIds),
+          inArray(playerTags.tagId, tagIds)
+        )
+      )
+      .groupBy(playerTags.taggedPlayerId, playerTags.tagId);
+    return rows.map(r => ({ playerId: r.playerId, tagId: r.tagId, newCount: Number(r.newCount) }));
   }
 
   async getPublicAnalytics({ sessionId, from, to }: { sessionId?: string; from?: Date; to?: Date }) {

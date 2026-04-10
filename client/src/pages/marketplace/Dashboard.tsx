@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
@@ -189,6 +189,7 @@ export default function Dashboard() {
   const linkedPlayerId = user?.linkedPlayerId;
   const { canInstall, install } = useInstallPrompt();
   const [showTrendingModal, setShowTrendingModal] = useState(false);
+  const [milestoneDismissed, setMilestoneDismissed] = useState(false);
 
   const { data: bookings, isLoading: bookingsLoading } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
@@ -230,6 +231,8 @@ export default function Dashboard() {
     .filter(g => g.date && new Date(g.date) >= sevenDaysAgo && !taggedSet.has(g.gameId))
     .length;
 
+  const firstTopTag = myTopTag?.[0];
+
   const milestoneBanner = useMemo(() => {
     if (!firstTopTag || !linkedPlayerId) return null;
     const count = firstTopTag.count;
@@ -241,12 +244,17 @@ export default function Dashboard() {
     return { milestone: highest, tag: firstTopTag.tag, count, storageKey };
   }, [firstTopTag, linkedPlayerId]);
 
+  // Auto-mark milestone as seen as soon as it is displayed (once per milestone)
+  useEffect(() => {
+    if (milestoneBanner) {
+      localStorage.setItem(milestoneBanner.storageKey, 'seen');
+    }
+  }, [milestoneBanner?.storageKey]);
+
   const upcomingBookings = (bookings || [])
     .filter(b => b.status === 'confirmed' && new Date(b.session.date) >= new Date())
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
-
-  const firstTopTag = myTopTag?.[0];
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -277,7 +285,7 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {milestoneBanner && (
+        {milestoneBanner && !milestoneDismissed && (
           <motion.div variants={fadeInUp} className="mb-6">
             <div
               className="rounded-xl border border-secondary/30 bg-secondary/10 px-5 py-4 flex items-start gap-4"
@@ -299,10 +307,7 @@ export default function Dashboard() {
                   </Link>
                   <button
                     className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => {
-                      localStorage.setItem(milestoneBanner.storageKey, 'seen');
-                      window.location.reload();
-                    }}
+                    onClick={() => setMilestoneDismissed(true)}
                     data-testid="button-dismiss-milestone"
                   >
                     Dismiss
