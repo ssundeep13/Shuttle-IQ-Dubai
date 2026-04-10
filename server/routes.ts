@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema } from "@shared/schema";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -2851,6 +2851,142 @@ Return ONLY valid JSON, no markdown, no other text:
     } catch (err) {
       console.error("Tag submission error:", err);
       res.status(500).json({ error: "Failed to submit tags" });
+    }
+  });
+
+  // ============================================================
+  // TAG SUGGESTIONS
+  // ============================================================
+
+  // POST /api/tags/suggestions – submit a new tag suggestion (marketplace auth required)
+  app.post("/api/tags/suggestions", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) {
+        return res.status(403).json({ error: "Link your player profile first" });
+      }
+
+      const schema = insertTagSuggestionSchema.extend({
+        category: z.enum(['playing_style', 'social', 'reputation']),
+        label: z.string().min(2).max(40),
+        emoji: z.string().min(1).max(10),
+        reason: z.string().max(200).optional(),
+      });
+
+      const parsed = schema.safeParse({ ...req.body, suggestedByPlayerId: mpUser.linkedPlayerId });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid suggestion data", details: parsed.error.flatten() });
+      }
+
+      // Prevent duplicate label suggestions (case-insensitive) that are pending
+      const existing = await db
+        .select({ id: tagSuggestions.id })
+        .from(tagSuggestions)
+        .where(
+          and(
+            sql`LOWER(${tagSuggestions.label}) = LOWER(${parsed.data.label})`,
+            eq(tagSuggestions.status, 'pending')
+          )
+        );
+      if (existing.length > 0) {
+        return res.status(409).json({ error: "A suggestion with this label is already pending" });
+      }
+
+      const suggestion = await storage.createTagSuggestion(parsed.data);
+      res.status(201).json(suggestion);
+    } catch (err) {
+      console.error("Tag suggestion create error:", err);
+      res.status(500).json({ error: "Failed to create suggestion" });
+    }
+  });
+
+  // GET /api/tags/suggestions/my – suggestions submitted by the authenticated player
+  app.get("/api/tags/suggestions/my", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.json([]);
+      const suggestions = await storage.getTagSuggestionsByPlayer(mpUser.linkedPlayerId);
+      res.json(suggestions);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch your suggestions" });
+    }
+  });
+
+  // GET /api/tags/suggestions – get pending suggestions (player endpoint – includes hasVoted)
+  app.get("/api/tags/suggestions", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      const viewerPlayerId = mpUser?.linkedPlayerId ?? undefined;
+      const suggestions = await storage.getTagSuggestions('pending', viewerPlayerId);
+      res.json(suggestions);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch suggestions" });
+    }
+  });
+
+  // POST /api/tags/suggestions/:id/vote – upvote a suggestion
+  app.post("/api/tags/suggestions/:id/vote", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) {
+        return res.status(403).json({ error: "Link your player profile first" });
+      }
+      const { alreadyVoted, newCount } = await storage.voteTagSuggestion(req.params.id, mpUser.linkedPlayerId);
+      if (alreadyVoted) {
+        return res.status(409).json({ error: "Already voted", newCount });
+      }
+      res.json({ success: true, newCount });
+    } catch {
+      res.status(500).json({ error: "Failed to vote" });
+    }
+  });
+
+  // DELETE /api/tags/suggestions/:id/vote – unvote a suggestion
+  app.delete("/api/tags/suggestions/:id/vote", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) {
+        return res.status(403).json({ error: "Link your player profile first" });
+      }
+      const { newCount } = await storage.unvoteTagSuggestion(req.params.id, mpUser.linkedPlayerId);
+      res.json({ success: true, newCount });
+    } catch {
+      res.status(500).json({ error: "Failed to remove vote" });
+    }
+  });
+
+  // GET /api/admin/tags/suggestions – admin: list suggestions by status
+  app.get("/api/admin/tags/suggestions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const status = (req.query.status as 'pending' | 'approved' | 'rejected') || 'pending';
+      const suggestions = await storage.getTagSuggestions(status);
+      res.json(suggestions);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch suggestions" });
+    }
+  });
+
+  // POST /api/admin/tags/suggestions/:id/approve – admin: approve suggestion
+  app.post("/api/admin/tags/suggestions/:id/approve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { adminNote } = req.body;
+      const updated = await storage.reviewTagSuggestion(req.params.id, 'approved', adminNote);
+      if (!updated) return res.status(404).json({ error: "Suggestion not found" });
+      res.json(updated);
+    } catch {
+      res.status(500).json({ error: "Failed to approve suggestion" });
+    }
+  });
+
+  // POST /api/admin/tags/suggestions/:id/reject – admin: reject suggestion
+  app.post("/api/admin/tags/suggestions/:id/reject", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { adminNote } = req.body;
+      const updated = await storage.reviewTagSuggestion(req.params.id, 'rejected', adminNote);
+      if (!updated) return res.status(404).json({ error: "Suggestion not found" });
+      res.json(updated);
+    } catch {
+      res.status(500).json({ error: "Failed to reject suggestion" });
     }
   });
 

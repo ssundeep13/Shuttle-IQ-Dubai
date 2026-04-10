@@ -439,6 +439,32 @@ export const insertPlayerTagSchema = createInsertSchema(playerTags).omit({ id: t
 export type InsertPlayerTag = z.infer<typeof insertPlayerTagSchema>;
 export type PlayerTag = typeof playerTags.$inferSelect;
 
+// ─── Community Tag Suggestions ────────────────────────────────────────────────
+
+export const tagSuggestions = pgTable("tag_suggestions", {
+  id: varchar("id").primaryKey(),
+  suggestedByPlayerId: varchar("suggested_by_player_id").notNull(),
+  label: text("label").notNull(),
+  emoji: text("emoji").notNull(),
+  category: text("category").notNull(), // 'playing_style' | 'social' | 'reputation'
+  reason: text("reason"),
+  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
+  adminNote: text("admin_note"),
+  voteCount: integer("vote_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at"),
+});
+export const insertTagSuggestionSchema = createInsertSchema(tagSuggestions).omit({ id: true, status: true, adminNote: true, voteCount: true, createdAt: true, reviewedAt: true });
+export type InsertTagSuggestion = z.infer<typeof insertTagSuggestionSchema>;
+export type TagSuggestion = typeof tagSuggestions.$inferSelect;
+
+export const tagSuggestionVotes = pgTable("tag_suggestion_votes", {
+  id: varchar("id").primaryKey(),
+  suggestionId: varchar("suggestion_id").notNull().references(() => tagSuggestions.id, { onDelete: 'cascade' }),
+  votedByPlayerId: varchar("voted_by_player_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // ─── Finance / Accounting ─────────────────────────────────────────────────────
 
 export const expenseCategories = pgTable("expense_categories", {
@@ -545,6 +571,11 @@ export interface GameParticipantInfo {
   id: string;
   name: string;
   team: number;
+}
+
+export interface TagSuggestionWithVote extends TagSuggestion {
+  hasVoted: boolean;
+  suggestedByPlayerName: string;
 }
 
 export interface RefundNotificationWithDetails {

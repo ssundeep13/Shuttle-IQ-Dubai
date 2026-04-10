@@ -35,6 +35,9 @@ import {
   type TagCountResult,
   type GameParticipantInfo,
   type RefundNotificationWithDetails,
+  type TagSuggestion,
+  type InsertTagSuggestion,
+  type TagSuggestionWithVote,
   players,
   courts,
   courtPlayers as courtPlayersTable,
@@ -52,6 +55,8 @@ import {
   scoreDisputes,
   tags,
   playerTags,
+  tagSuggestions,
+  tagSuggestionVotes,
   expenseCategories,
   expenses,
   type ExpenseCategory,
@@ -268,6 +273,14 @@ export interface IStorage {
   getCommunitySpotlight(limit?: number): Promise<CommunitySpotlightEntry[]>;
   getRecentReceivedTags(taggedPlayerId: string, limit?: number): Promise<ReceivedTagEntry[]>;
   getTagCountsForTargets(targetPlayerIds: string[], tagIds: string[]): Promise<TagCountResult[]>;
+
+  // Tag suggestions
+  createTagSuggestion(data: InsertTagSuggestion): Promise<TagSuggestion>;
+  getTagSuggestions(status: 'pending' | 'approved' | 'rejected', viewerPlayerId?: string): Promise<TagSuggestionWithVote[]>;
+  getTagSuggestionsByPlayer(playerId: string): Promise<TagSuggestion[]>;
+  voteTagSuggestion(suggestionId: string, playerId: string): Promise<{ alreadyVoted: boolean; newCount: number }>;
+  unvoteTagSuggestion(suggestionId: string, playerId: string): Promise<{ newCount: number }>;
+  reviewTagSuggestion(suggestionId: string, status: 'approved' | 'rejected', adminNote?: string): Promise<TagSuggestion | undefined>;
 
   // Public analytics
   getPublicAnalytics(options: { sessionId?: string; from?: Date; to?: Date }): Promise<PublicAnalyticsResponse>;
@@ -2235,6 +2248,117 @@ export class DatabaseStorage implements IStorage {
       netProfitAed: collectedAed - totalExpensesAed,
       monthlyRows,
     };
+  }
+
+  // ─── Tag Suggestions ──────────────────────────────────────────────────────
+
+  async createTagSuggestion(data: InsertTagSuggestion): Promise<TagSuggestion> {
+    const id = randomUUID();
+    const [row] = await db.insert(tagSuggestions).values({ ...data, id }).returning();
+    return row;
+  }
+
+  async getTagSuggestions(status: 'pending' | 'approved' | 'rejected', viewerPlayerId?: string): Promise<TagSuggestionWithVote[]> {
+    const rows = await db
+      .select()
+      .from(tagSuggestions)
+      .where(eq(tagSuggestions.status, status))
+      .orderBy(desc(tagSuggestions.voteCount), desc(tagSuggestions.createdAt));
+
+    if (rows.length === 0) return [];
+
+    const suggestionIds = rows.map(r => r.id);
+
+    // Get player names for suggesters
+    const suggesterIds = [...new Set(rows.map(r => r.suggestedByPlayerId))];
+    const playerRows = await db
+      .select({ id: players.id, name: players.name })
+      .from(players)
+      .where(inArray(players.id, suggesterIds));
+    const playerMap = new Map(playerRows.map(p => [p.id, p.name]));
+
+    // Get votes by viewer (if provided)
+    const votedSet = new Set<string>();
+    if (viewerPlayerId) {
+      const votes = await db
+        .select({ suggestionId: tagSuggestionVotes.suggestionId })
+        .from(tagSuggestionVotes)
+        .where(
+          and(
+            inArray(tagSuggestionVotes.suggestionId, suggestionIds),
+            eq(tagSuggestionVotes.votedByPlayerId, viewerPlayerId)
+          )
+        );
+      for (const v of votes) votedSet.add(v.suggestionId);
+    }
+
+    return rows.map(r => ({
+      ...r,
+      hasVoted: votedSet.has(r.id),
+      suggestedByPlayerName: playerMap.get(r.suggestedByPlayerId) ?? 'Unknown',
+    }));
+  }
+
+  async getTagSuggestionsByPlayer(playerId: string): Promise<TagSuggestion[]> {
+    return await db
+      .select()
+      .from(tagSuggestions)
+      .where(eq(tagSuggestions.suggestedByPlayerId, playerId))
+      .orderBy(desc(tagSuggestions.createdAt));
+  }
+
+  async voteTagSuggestion(suggestionId: string, playerId: string): Promise<{ alreadyVoted: boolean; newCount: number }> {
+    const existing = await db
+      .select()
+      .from(tagSuggestionVotes)
+      .where(
+        and(
+          eq(tagSuggestionVotes.suggestionId, suggestionId),
+          eq(tagSuggestionVotes.votedByPlayerId, playerId)
+        )
+      );
+    if (existing.length > 0) {
+      const [row] = await db.select({ voteCount: tagSuggestions.voteCount }).from(tagSuggestions).where(eq(tagSuggestions.id, suggestionId));
+      return { alreadyVoted: true, newCount: row?.voteCount ?? 0 };
+    }
+    await db.insert(tagSuggestionVotes).values({ id: randomUUID(), suggestionId, votedByPlayerId: playerId });
+    const [updated] = await db
+      .update(tagSuggestions)
+      .set({ voteCount: sql`${tagSuggestions.voteCount} + 1` })
+      .where(eq(tagSuggestions.id, suggestionId))
+      .returning({ voteCount: tagSuggestions.voteCount });
+    return { alreadyVoted: false, newCount: updated?.voteCount ?? 0 };
+  }
+
+  async unvoteTagSuggestion(suggestionId: string, playerId: string): Promise<{ newCount: number }> {
+    await db
+      .delete(tagSuggestionVotes)
+      .where(
+        and(
+          eq(tagSuggestionVotes.suggestionId, suggestionId),
+          eq(tagSuggestionVotes.votedByPlayerId, playerId)
+        )
+      );
+    const [updated] = await db
+      .update(tagSuggestions)
+      .set({ voteCount: sql`GREATEST(${tagSuggestions.voteCount} - 1, 0)` })
+      .where(eq(tagSuggestions.id, suggestionId))
+      .returning({ voteCount: tagSuggestions.voteCount });
+    return { newCount: updated?.voteCount ?? 0 };
+  }
+
+  async reviewTagSuggestion(suggestionId: string, status: 'approved' | 'rejected', adminNote?: string): Promise<TagSuggestion | undefined> {
+    const updates: Partial<TagSuggestion> = {
+      status,
+      reviewedAt: new Date(),
+      ...(adminNote !== undefined ? { adminNote } : {}),
+    };
+    const [row] = await db
+      .update(tagSuggestions)
+      .set(updates)
+      .where(eq(tagSuggestions.id, suggestionId))
+      .returning();
+    return row ?? undefined;
   }
 }
 

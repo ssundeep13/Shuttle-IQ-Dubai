@@ -7,11 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink, Lightbulb } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry } from '@shared/schema';
+import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry, TagSuggestion } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import TagTrendingModal from '@/components/TagTrendingModal';
 
@@ -225,6 +225,12 @@ export default function Dashboard() {
     staleTime: 0,
   });
 
+  const { data: mySuggestions = [] } = useQuery<TagSuggestion[]>({
+    queryKey: ['/api/tags/suggestions/my'],
+    enabled: !!linkedPlayerId,
+    staleTime: 0,
+  });
+
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const taggedSet = new Set(taggedGameIds);
   const untaggedCount = (stats?.recentGames ?? [])
@@ -232,6 +238,21 @@ export default function Dashboard() {
     .length;
 
   const firstTopTag = myTopTag?.[0];
+
+  const approvedSuggestionBanner = useMemo(() => {
+    if (!linkedPlayerId) return null;
+    const approved = mySuggestions.filter(s => s.status === 'approved');
+    if (approved.length === 0) return null;
+    // Show the most-recently-approved one that hasn't been dismissed
+    for (const s of approved.sort((a, b) => new Date(b.reviewedAt!).getTime() - new Date(a.reviewedAt!).getTime())) {
+      const key = `siq_approved_suggestion_${linkedPlayerId}_${s.id}`;
+      if (typeof window !== 'undefined' && localStorage.getItem(key) === 'seen') continue;
+      return { suggestion: s, storageKey: key };
+    }
+    return null;
+  }, [mySuggestions, linkedPlayerId]);
+
+  const [approvedSuggestionDismissed, setApprovedSuggestionDismissed] = useState(false);
 
   const milestoneBanner = useMemo(() => {
     if (!firstTopTag || !linkedPlayerId) return null;
@@ -284,6 +305,36 @@ export default function Dashboard() {
             </div>
           </div>
         </motion.div>
+
+        {approvedSuggestionBanner && !approvedSuggestionDismissed && (
+          <motion.div variants={fadeInUp} className="mb-6">
+            <div
+              className="rounded-xl border border-secondary/30 bg-secondary/10 px-5 py-4 flex items-start gap-4"
+              data-testid="card-suggestion-approved-banner"
+            >
+              <div className="text-3xl shrink-0 mt-0.5">{approvedSuggestionBanner.suggestion.emoji}</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-base leading-tight">
+                  Your tag suggestion was approved!
+                </p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  <span className="font-semibold text-foreground">{approvedSuggestionBanner.suggestion.emoji} {approvedSuggestionBanner.suggestion.label}</span> is now live in the community tag catalog!
+                </p>
+                <button
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-3"
+                  onClick={() => {
+                    localStorage.setItem(approvedSuggestionBanner.storageKey, 'seen');
+                    setApprovedSuggestionDismissed(true);
+                  }}
+                  data-testid="button-dismiss-suggestion-banner"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <Lightbulb className="h-5 w-5 text-secondary shrink-0 mt-0.5" />
+            </div>
+          </motion.div>
+        )}
 
         {milestoneBanner && !milestoneDismissed && (
           <motion.div variants={fadeInUp} className="mb-6">

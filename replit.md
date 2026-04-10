@@ -16,13 +16,13 @@ Preferred communication style: Simple, everyday language.
 #### Technical Implementations
 - **Frontend**: React 18 with TypeScript, Vite, Wouter for routing. TanStack Query for server state management, React Hook Form with Zod for validation.
 - **Backend**: Express.js with TypeScript, RESTful API design. JWT-based authentication for admin and marketplace roles. Drizzle ORM for PostgreSQL storage, with an in-memory fallback for development.
-- **Data Models**: Players (with dynamic ELO-style skill scores), Courts, Game Results, Queue, Sessions, Marketplace users, Bookable Sessions, Bookings, Expenses, and Tags.
+- **Data Models**: Players (with dynamic ELO-style skill scores), Courts, Game Results, Queue, Sessions, Marketplace users, Bookable Sessions, Bookings, Expenses, Tags, Tag Suggestions, and Tag Suggestion Votes.
 - **Session Lifecycle**: Supports creating, managing, and ending multiple simultaneous sessions. Sessions are created with a 'draft' status and activated via a wizard.
 - **Player Management**: Tracks player profiles, skill levels (5-tier system), and dynamic skill scores.
 - **Queue Management**: Ordered player queue with dynamic sorting and intelligent matchmaking for competitive team assignments.
 - **Data Import/Export**: CSV import for players with smart header detection and validation; CSV export for game history and player data.
 - **Leaderboards**: Global admin leaderboard and session-specific leaderboards.
-- **Marketplace**: Player-facing platform for session browsing and booking, including Google OAuth, Ziina payment integration, player dashboards (My Bookings, My Scores, Rankings, Profile), and community tagging (Player Personalities).
+- **Marketplace**: Player-facing platform for session browsing and booking, including Google OAuth, Ziina payment integration, player dashboards (My Bookings, My Scores, Rankings, Profile), community tagging (Player Personalities), and community tag suggestions with voting.
 - **Admin Dashboard**: Unified hub for session management, player management, marketplace user management, and financial tracking (expenses, P&L).
 - **Performance**: Route-level code splitting, vendor chunk grouping, TanStack Query caching, and a health endpoint for server warming.
 
