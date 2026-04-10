@@ -2869,7 +2869,14 @@ Return ONLY valid JSON, no markdown, no other text:
       const schema = insertTagSuggestionSchema.extend({
         category: z.enum(['playing_style', 'social', 'reputation']),
         label: z.string().min(2).max(20),
-        emoji: z.string().min(1).max(10),
+        emoji: z.string().refine(
+          (val) => {
+            // Must be exactly one grapheme cluster (one emoji)
+            const segments = [...new Intl.Segmenter().segment(val)];
+            return segments.length === 1;
+          },
+          { message: "Emoji must be a single character" }
+        ),
         reason: z.string().max(200).optional(),
       });
 
@@ -2878,18 +2885,27 @@ Return ONLY valid JSON, no markdown, no other text:
         return res.status(400).json({ error: "Invalid suggestion data", details: parsed.error.flatten() });
       }
 
-      // Prevent duplicate label suggestions (case-insensitive) that are pending
+      // Prevent duplicate label globally (case-insensitive, any status)
       const existing = await db
+        .select({ id: tagSuggestions.id })
+        .from(tagSuggestions)
+        .where(sql`LOWER(${tagSuggestions.label}) = LOWER(${parsed.data.label})`);
+      if (existing.length > 0) {
+        return res.status(409).json({ error: "A tag suggestion with this label already exists" });
+      }
+
+      // Prevent the same player from suggesting a similar tag again (case-insensitive, any status)
+      const playerExisting = await db
         .select({ id: tagSuggestions.id })
         .from(tagSuggestions)
         .where(
           and(
-            sql`LOWER(${tagSuggestions.label}) = LOWER(${parsed.data.label})`,
-            eq(tagSuggestions.status, 'pending')
+            eq(tagSuggestions.suggestedByPlayerId, mpUser.linkedPlayerId),
+            sql`LOWER(${tagSuggestions.label}) = LOWER(${parsed.data.label})`
           )
         );
-      if (existing.length > 0) {
-        return res.status(409).json({ error: "A suggestion with this label is already pending" });
+      if (playerExisting.length > 0) {
+        return res.status(409).json({ error: "You have already suggested a tag with this name" });
       }
 
       const suggestion = await storage.createTagSuggestion(parsed.data);

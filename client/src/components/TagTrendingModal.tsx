@@ -184,10 +184,8 @@ function SuggestionsList({ linkedPlayerId, onSuggest }: SuggestionsListProps) {
   });
 
   const voteMutation = useMutation({
-    mutationFn: ({ id, hasVoted }: { id: string; hasVoted: boolean }) =>
-      hasVoted
-        ? apiRequest('DELETE', `/api/tags/suggestions/${id}/vote`, null)
-        : apiRequest('POST', `/api/tags/suggestions/${id}/vote`, {}),
+    mutationFn: ({ id }: { id: string; hasVoted: boolean }) =>
+      apiRequest('POST', `/api/tags/suggestions/${id}/vote`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/tags/suggestions'] });
     },
@@ -238,11 +236,17 @@ function SuggestionsList({ linkedPlayerId, onSuggest }: SuggestionsListProps) {
                 size="sm"
                 variant={s.hasVoted ? 'default' : 'outline'}
                 className="shrink-0 gap-1.5 text-xs"
-                disabled={voteMutation.isPending || s.suggestedByPlayerId === linkedPlayerId}
-                title={s.suggestedByPlayerId === linkedPlayerId ? 'You cannot vote on your own suggestion' : undefined}
-                onClick={() => !s.hasVoted ? voteMutation.mutate({ id: s.id, hasVoted: s.hasVoted }) : undefined}
+                disabled={voteMutation.isPending || s.hasVoted || s.suggestedByPlayerId === linkedPlayerId}
+                title={
+                  s.suggestedByPlayerId === linkedPlayerId
+                    ? 'You cannot vote on your own suggestion'
+                    : s.hasVoted
+                    ? 'You have voted for this suggestion'
+                    : undefined
+                }
+                onClick={() => voteMutation.mutate({ id: s.id, hasVoted: false })}
                 data-testid={`button-vote-suggestion-${s.id}`}
-                aria-label={s.hasVoted ? 'Voted' : 'Upvote'}
+                aria-label="Upvote"
               >
                 {s.hasVoted ? <Check className="h-3 w-3" /> : <ThumbsUp className="h-3 w-3" />}
                 {s.voteCount}

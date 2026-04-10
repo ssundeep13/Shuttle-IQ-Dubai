@@ -319,16 +319,29 @@ export default function Dashboard() {
                 <p className="text-sm text-muted-foreground mt-0.5">
                   <span className="font-semibold text-foreground">{approvedSuggestionBanner.suggestion.emoji} {approvedSuggestionBanner.suggestion.label}</span> is now live in the community tag catalog!
                 </p>
-                <button
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-3"
-                  onClick={() => {
-                    localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
-                    setApprovedSuggestionDismissed(true);
-                  }}
-                  data-testid="button-dismiss-suggestion-banner"
-                >
-                  Dismiss
-                </button>
+                <div className="flex items-center gap-3 mt-3 flex-wrap">
+                  <Link
+                    to="/marketplace/rankings"
+                    className="text-xs text-secondary font-medium hover:underline"
+                    data-testid="link-view-active-tag"
+                    onClick={() => {
+                      localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
+                      setApprovedSuggestionDismissed(true);
+                    }}
+                  >
+                    View in Rankings
+                  </Link>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => {
+                      localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
+                      setApprovedSuggestionDismissed(true);
+                    }}
+                    data-testid="button-dismiss-suggestion-banner"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
               <Lightbulb className="h-5 w-5 text-secondary shrink-0 mt-0.5" />
             </div>
