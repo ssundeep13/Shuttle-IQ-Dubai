@@ -160,7 +160,10 @@ export default function CheckoutSuccess() {
             {status === 'success' && booking && (
               <>
                 <p className="text-muted-foreground">
-                  Your spot for <span className="font-semibold text-foreground">{booking.session?.title}</span> has been reserved.
+                  {isExtraGuest
+                    ? <>The extra spot has been confirmed for <span className="font-semibold text-foreground">{booking.session?.title}</span>.</>
+                    : <>Your spot for <span className="font-semibold text-foreground">{booking.session?.title}</span> has been reserved.</>
+                  }
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Amount paid: AED {booking.amountAed}
@@ -169,7 +172,9 @@ export default function CheckoutSuccess() {
             )}
             {status === 'success' && !booking && (
               <p className="text-muted-foreground">
-                Your payment is confirmed. Your booking has been reserved.
+                {isExtraGuest
+                  ? 'The extra spot has been confirmed.'
+                  : 'Your payment is confirmed. Your booking has been reserved.'}
               </p>
             )}
             {status === 'waitlisted' && (

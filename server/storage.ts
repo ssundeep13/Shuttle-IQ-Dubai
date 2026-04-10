@@ -230,6 +230,7 @@ export interface IStorage {
   getBookingGuests(bookingId: string): Promise<import("@shared/schema").BookingGuestWithLinked[]>;
   getBookingGuestByToken(token: string): Promise<BookingGuest | undefined>;
   getBookingGuestByPendingPaymentIntentId(intentId: string): Promise<BookingGuest | undefined>;
+  deleteBookingGuest(id: string): Promise<void>;
   updateBookingGuest(id: string, updates: Partial<BookingGuest>): Promise<BookingGuest | undefined>;
   getActiveGuestCountForSession(sessionId: string): Promise<number>;
   linkGuestsByEmail(email: string, userId: string): Promise<void>;
@@ -1351,6 +1352,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(bookingGuests.pendingPaymentIntentId, intentId))
       .limit(1);
     return guest || undefined;
+  }
+
+  async deleteBookingGuest(id: string): Promise<void> {
+    await db.delete(bookingGuests).where(eq(bookingGuests.id, id));
   }
 
   async updateBookingGuest(id: string, updates: Partial<BookingGuest>): Promise<BookingGuest | undefined> {

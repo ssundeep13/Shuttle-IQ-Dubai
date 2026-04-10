@@ -1354,8 +1354,8 @@ export function registerMarketplaceRoutes(app: Express) {
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
         });
       } catch (intentError) {
-        // Clean up the pending guest row on Ziina failure
-        await storage.updateBookingGuest(pendingGuest.id, { status: 'cancelled', cancelledAt: new Date() });
+        // Clean up the pending guest row on Ziina failure — delete it so it leaves no trace
+        await storage.deleteBookingGuest(pendingGuest.id);
         const msg = intentError instanceof Error ? intentError.message : 'Payment provider error';
         return res.status(502).json({ error: msg });
       }
