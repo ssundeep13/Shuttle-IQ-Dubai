@@ -278,7 +278,7 @@ export interface IStorage {
   createTagSuggestion(data: InsertTagSuggestion): Promise<TagSuggestion>;
   getTagSuggestions(status: 'pending' | 'approved' | 'rejected', viewerPlayerId?: string): Promise<TagSuggestionWithVote[]>;
   getTagSuggestionsByPlayer(playerId: string): Promise<TagSuggestion[]>;
-  voteTagSuggestion(suggestionId: string, playerId: string): Promise<{ alreadyVoted: boolean; newCount: number }>;
+  voteTagSuggestion(suggestionId: string, playerId: string): Promise<{ alreadyVoted: boolean; ownSuggestion: boolean; notPending: boolean; newCount: number }>;
   unvoteTagSuggestion(suggestionId: string, playerId: string): Promise<{ newCount: number }>;
   reviewTagSuggestion(suggestionId: string, status: 'approved' | 'rejected', adminNote?: string): Promise<TagSuggestion | undefined>;
 
@@ -2307,7 +2307,40 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(tagSuggestions.createdAt));
   }
 
-  async voteTagSuggestion(suggestionId: string, playerId: string): Promise<{ alreadyVoted: boolean; newCount: number }> {
+  private async _promoteTagSuggestion(suggestion: TagSuggestion): Promise<void> {
+    // Check the tag doesn't already exist (dedup by label, case-insensitive)
+    const existing = await db
+      .select({ id: tags.id })
+      .from(tags)
+      .where(sql`lower(${tags.label}) = lower(${suggestion.label})`);
+    if (existing.length === 0) {
+      await db.insert(tags).values({
+        id: randomUUID(),
+        label: suggestion.label,
+        emoji: suggestion.emoji,
+        category: suggestion.category,
+        isActive: true,
+      });
+    }
+    const now = new Date();
+    await db
+      .update(tagSuggestions)
+      .set({ status: 'approved', reviewedAt: now, promotedAt: now })
+      .where(eq(tagSuggestions.id, suggestion.id));
+  }
+
+  async voteTagSuggestion(suggestionId: string, playerId: string): Promise<{ alreadyVoted: boolean; ownSuggestion: boolean; notPending: boolean; newCount: number }> {
+    // Fetch suggestion first to validate
+    const [suggestion] = await db
+      .select()
+      .from(tagSuggestions)
+      .where(eq(tagSuggestions.id, suggestionId));
+
+    if (!suggestion) return { alreadyVoted: false, ownSuggestion: false, notPending: true, newCount: 0 };
+    if (suggestion.status !== 'pending') return { alreadyVoted: false, ownSuggestion: false, notPending: true, newCount: suggestion.voteCount };
+    if (suggestion.suggestedByPlayerId === playerId) return { alreadyVoted: false, ownSuggestion: true, notPending: false, newCount: suggestion.voteCount };
+
+    // Check if already voted
     const existing = await db
       .select()
       .from(tagSuggestionVotes)
@@ -2318,16 +2351,25 @@ export class DatabaseStorage implements IStorage {
         )
       );
     if (existing.length > 0) {
-      const [row] = await db.select({ voteCount: tagSuggestions.voteCount }).from(tagSuggestions).where(eq(tagSuggestions.id, suggestionId));
-      return { alreadyVoted: true, newCount: row?.voteCount ?? 0 };
+      return { alreadyVoted: true, ownSuggestion: false, notPending: false, newCount: suggestion.voteCount };
     }
+
     await db.insert(tagSuggestionVotes).values({ id: randomUUID(), suggestionId, votedByPlayerId: playerId });
     const [updated] = await db
       .update(tagSuggestions)
       .set({ voteCount: sql`${tagSuggestions.voteCount} + 1` })
       .where(eq(tagSuggestions.id, suggestionId))
-      .returning({ voteCount: tagSuggestions.voteCount });
-    return { alreadyVoted: false, newCount: updated?.voteCount ?? 0 };
+      .returning();
+
+    const newCount = updated?.voteCount ?? 0;
+
+    // Auto-promote if threshold reached
+    const VOTE_THRESHOLD = 10;
+    if (updated && newCount >= VOTE_THRESHOLD && updated.status === 'pending') {
+      await this._promoteTagSuggestion(updated);
+    }
+
+    return { alreadyVoted: false, ownSuggestion: false, notPending: false, newCount };
   }
 
   async unvoteTagSuggestion(suggestionId: string, playerId: string): Promise<{ newCount: number }> {
@@ -2348,6 +2390,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async reviewTagSuggestion(suggestionId: string, status: 'approved' | 'rejected', adminNote?: string): Promise<TagSuggestion | undefined> {
+    if (status === 'approved') {
+      const [suggestion] = await db
+        .select()
+        .from(tagSuggestions)
+        .where(eq(tagSuggestions.id, suggestionId));
+      if (suggestion) {
+        if (adminNote !== undefined) {
+          await db.update(tagSuggestions).set({ adminNote }).where(eq(tagSuggestions.id, suggestionId));
+        }
+        await this._promoteTagSuggestion(suggestion);
+        const [row] = await db.select().from(tagSuggestions).where(eq(tagSuggestions.id, suggestionId));
+        return row ?? undefined;
+      }
+    }
     const updates: Partial<TagSuggestion> = {
       status,
       reviewedAt: new Date(),

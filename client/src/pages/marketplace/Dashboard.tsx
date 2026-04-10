@@ -241,15 +241,14 @@ export default function Dashboard() {
 
   const approvedSuggestionBanner = useMemo(() => {
     if (!linkedPlayerId) return null;
-    const approved = mySuggestions.filter(s => s.status === 'approved');
-    if (approved.length === 0) return null;
-    // Show the most-recently-approved one that hasn't been dismissed
-    for (const s of approved.sort((a, b) => new Date(b.reviewedAt!).getTime() - new Date(a.reviewedAt!).getTime())) {
-      const key = `siq_approved_suggestion_${linkedPlayerId}_${s.id}`;
-      if (typeof window !== 'undefined' && localStorage.getItem(key) === 'seen') continue;
-      return { suggestion: s, storageKey: key };
-    }
-    return null;
+    const lastCheckKey = `siq_tag_check_${linkedPlayerId}`;
+    const lastCheck = typeof window !== 'undefined' ? Number(localStorage.getItem(lastCheckKey) ?? '0') : 0;
+    // Find suggestions promoted since the last time we checked
+    const newlyPromoted = mySuggestions
+      .filter(s => s.status === 'approved' && s.promotedAt && new Date(s.promotedAt).getTime() > lastCheck)
+      .sort((a, b) => new Date(b.promotedAt!).getTime() - new Date(a.promotedAt!).getTime());
+    if (newlyPromoted.length === 0) return null;
+    return { suggestion: newlyPromoted[0], lastCheckKey };
   }, [mySuggestions, linkedPlayerId]);
 
   const [approvedSuggestionDismissed, setApprovedSuggestionDismissed] = useState(false);
@@ -323,7 +322,7 @@ export default function Dashboard() {
                 <button
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-3"
                   onClick={() => {
-                    localStorage.setItem(approvedSuggestionBanner.storageKey, 'seen');
+                    localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
                     setApprovedSuggestionDismissed(true);
                   }}
                   data-testid="button-dismiss-suggestion-banner"

@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex, unique } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -453,8 +453,9 @@ export const tagSuggestions = pgTable("tag_suggestions", {
   voteCount: integer("vote_count").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   reviewedAt: timestamp("reviewed_at"),
+  promotedAt: timestamp("promoted_at"),
 });
-export const insertTagSuggestionSchema = createInsertSchema(tagSuggestions).omit({ id: true, status: true, adminNote: true, voteCount: true, createdAt: true, reviewedAt: true });
+export const insertTagSuggestionSchema = createInsertSchema(tagSuggestions).omit({ id: true, status: true, adminNote: true, voteCount: true, createdAt: true, reviewedAt: true, promotedAt: true });
 export type InsertTagSuggestion = z.infer<typeof insertTagSuggestionSchema>;
 export type TagSuggestion = typeof tagSuggestions.$inferSelect;
 
@@ -463,7 +464,9 @@ export const tagSuggestionVotes = pgTable("tag_suggestion_votes", {
   suggestionId: varchar("suggestion_id").notNull().references(() => tagSuggestions.id, { onDelete: 'cascade' }),
   votedByPlayerId: varchar("voted_by_player_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => ({
+  uniqueVote: unique("uq_tag_suggestion_vote").on(table.suggestionId, table.votedByPlayerId),
+}));
 
 // ─── Finance / Accounting ─────────────────────────────────────────────────────
 

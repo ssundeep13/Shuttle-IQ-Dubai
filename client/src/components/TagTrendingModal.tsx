@@ -127,10 +127,10 @@ function SuggestForm({ onBack, onSuccess }: SuggestFormProps) {
             value={label}
             onChange={e => setLabel(e.target.value)}
             placeholder="e.g. Smash King"
-            maxLength={40}
+            maxLength={20}
             data-testid="input-suggest-label"
           />
-          <p className="text-xs text-muted-foreground mt-1">{label.length}/40</p>
+          <p className="text-xs text-muted-foreground mt-1">{label.length}/20</p>
         </div>
         <div>
           <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider block mb-1.5">Category</label>
@@ -238,10 +238,11 @@ function SuggestionsList({ linkedPlayerId, onSuggest }: SuggestionsListProps) {
                 size="sm"
                 variant={s.hasVoted ? 'default' : 'outline'}
                 className="shrink-0 gap-1.5 text-xs"
-                disabled={voteMutation.isPending}
-                onClick={() => voteMutation.mutate({ id: s.id, hasVoted: s.hasVoted })}
+                disabled={voteMutation.isPending || s.suggestedByPlayerId === linkedPlayerId}
+                title={s.suggestedByPlayerId === linkedPlayerId ? 'You cannot vote on your own suggestion' : undefined}
+                onClick={() => !s.hasVoted ? voteMutation.mutate({ id: s.id, hasVoted: s.hasVoted }) : undefined}
                 data-testid={`button-vote-suggestion-${s.id}`}
-                aria-label={s.hasVoted ? 'Remove vote' : 'Upvote'}
+                aria-label={s.hasVoted ? 'Voted' : 'Upvote'}
               >
                 {s.hasVoted ? <Check className="h-3 w-3" /> : <ThumbsUp className="h-3 w-3" />}
                 {s.voteCount}

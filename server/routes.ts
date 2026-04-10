@@ -2868,7 +2868,7 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const schema = insertTagSuggestionSchema.extend({
         category: z.enum(['playing_style', 'social', 'reputation']),
-        label: z.string().min(2).max(40),
+        label: z.string().min(2).max(20),
         emoji: z.string().min(1).max(10),
         reason: z.string().max(200).optional(),
       });
@@ -2931,11 +2931,17 @@ Return ONLY valid JSON, no markdown, no other text:
       if (!mpUser?.linkedPlayerId) {
         return res.status(403).json({ error: "Link your player profile first" });
       }
-      const { alreadyVoted, newCount } = await storage.voteTagSuggestion(req.params.id, mpUser.linkedPlayerId);
-      if (alreadyVoted) {
-        return res.status(409).json({ error: "Already voted", newCount });
+      const result = await storage.voteTagSuggestion(req.params.id, mpUser.linkedPlayerId);
+      if (result.ownSuggestion) {
+        return res.status(403).json({ error: "Cannot vote on your own suggestion" });
       }
-      res.json({ success: true, newCount });
+      if (result.notPending) {
+        return res.status(409).json({ error: "Suggestion is no longer pending" });
+      }
+      if (result.alreadyVoted) {
+        return res.status(409).json({ error: "Already voted", newCount: result.newCount });
+      }
+      res.json({ success: true, newCount: result.newCount });
     } catch {
       res.status(500).json({ error: "Failed to vote" });
     }
