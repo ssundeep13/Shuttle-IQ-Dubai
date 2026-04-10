@@ -19,7 +19,15 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X } from 'lucide-react';
+import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -254,6 +262,38 @@ export default function MyBookings() {
     },
   });
 
+  const [addGuestBooking, setAddGuestBooking] = useState<BookingWithDetails | null>(null);
+  const [addGuestName, setAddGuestName] = useState('');
+  const [addGuestEmail, setAddGuestEmail] = useState('');
+  const [addGuestPaymentMethod, setAddGuestPaymentMethod] = useState<'cash' | 'ziina'>('cash');
+
+  const addGuestMutation = useMutation({
+    mutationFn: async ({ bookingId, guestName, guestEmail, paymentMethod }: {
+      bookingId: string; guestName: string; guestEmail: string; paymentMethod: 'cash' | 'ziina';
+    }) => {
+      return apiRequest<{ success?: boolean; redirectUrl?: string }>(
+        'POST',
+        `/api/marketplace/bookings/${bookingId}/add-guest`,
+        { guestName, guestEmail: guestEmail || null, paymentMethod }
+      );
+    },
+    onSuccess: (data) => {
+      if (data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+        return;
+      }
+      toast({ title: 'Guest added successfully' });
+      setAddGuestBooking(null);
+      setAddGuestName('');
+      setAddGuestEmail('');
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to add guest', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const sessionEndTime = (b: BookingWithDetails) => new Date(`${String(b.session.date).slice(0, 10)}T${b.session.endTime || '23:59'}`);
   const upcoming = bookings?.filter(b => b.status !== 'cancelled' && sessionEndTime(b) >= new Date()) || [];
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
@@ -343,6 +383,23 @@ export default function MyBookings() {
                 onEditGuest={(guestId, name, email) => editGuestMutation.mutate({ bookingId: booking.id, guestId, name, email })}
                 isEditPending={editGuestMutation.isPending}
               />
+            )}
+            {!booking.isGuestBooking && booking.status === 'confirmed' && !isPast && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 mt-2"
+                onClick={() => {
+                  setAddGuestBooking(booking);
+                  setAddGuestName('');
+                  setAddGuestEmail('');
+                  setAddGuestPaymentMethod('cash');
+                }}
+                data-testid={`button-add-guest-${booking.id}`}
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Add Guest
+              </Button>
             )}
 
             {/* Pending payment banner */}
@@ -492,6 +549,7 @@ export default function MyBookings() {
   };
 
   return (
+    <>
     <div className="max-w-3xl mx-auto px-4 py-8">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-8">
@@ -592,5 +650,104 @@ export default function MyBookings() {
         )}
       </motion.div>
     </div>
+
+    <Dialog open={!!addGuestBooking} onOpenChange={(open) => { if (!open) setAddGuestBooking(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add a Guest</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <p className="text-sm text-muted-foreground">
+            Adding a guest to: <strong>{addGuestBooking?.session.title}</strong>
+          </p>
+          <div className="space-y-1.5">
+            <Label htmlFor="add-guest-name">Guest name <span className="text-destructive">*</span></Label>
+            <Input
+              id="add-guest-name"
+              placeholder="Full name"
+              value={addGuestName}
+              onChange={e => setAddGuestName(e.target.value)}
+              data-testid="input-add-guest-name"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="add-guest-email">Guest email <span className="text-muted-foreground text-xs">(optional)</span></Label>
+            <Input
+              id="add-guest-email"
+              type="email"
+              placeholder="They'll receive a booking notification"
+              value={addGuestEmail}
+              onChange={e => setAddGuestEmail(e.target.value)}
+              data-testid="input-add-guest-email"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Payment method</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setAddGuestPaymentMethod('cash')}
+                className={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors ${
+                  addGuestPaymentMethod === 'cash'
+                    ? 'border-secondary bg-secondary/10 text-secondary font-medium'
+                    : 'border-border text-muted-foreground hover-elevate'
+                }`}
+                data-testid="button-add-guest-cash"
+              >
+                <Banknote className="h-4 w-4" />
+                Pay at Venue
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddGuestPaymentMethod('ziina')}
+                className={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors ${
+                  addGuestPaymentMethod === 'ziina'
+                    ? 'border-secondary bg-secondary/10 text-secondary font-medium'
+                    : 'border-border text-muted-foreground hover-elevate'
+                }`}
+                data-testid="button-add-guest-ziina"
+              >
+                <CreditCard className="h-4 w-4" />
+                Pay Online
+              </button>
+            </div>
+            {addGuestBooking && (
+              <p className="text-xs text-muted-foreground pt-1">
+                AED {addGuestBooking.session.priceAed} per additional spot
+              </p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setAddGuestBooking(null)}
+            data-testid="button-add-guest-cancel"
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={!addGuestName.trim() || addGuestMutation.isPending}
+            onClick={() => {
+              if (!addGuestBooking || !addGuestName.trim()) return;
+              addGuestMutation.mutate({
+                bookingId: addGuestBooking.id,
+                guestName: addGuestName.trim(),
+                guestEmail: addGuestEmail.trim(),
+                paymentMethod: addGuestPaymentMethod,
+              });
+            }}
+            data-testid="button-add-guest-submit"
+          >
+            {addGuestMutation.isPending
+              ? 'Please wait...'
+              : addGuestPaymentMethod === 'ziina'
+                ? 'Pay & Add Guest'
+                : 'Add Guest'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

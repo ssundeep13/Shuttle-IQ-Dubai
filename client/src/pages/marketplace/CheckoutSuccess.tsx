@@ -22,6 +22,7 @@ export default function CheckoutSuccess() {
   const [errorMessage, setErrorMessage] = useState('');
   const [countdown, setCountdown] = useState(REDIRECT_DELAY_S);
   const [, setLocation] = useLocation();
+  const isExtraGuest = new URLSearchParams(window.location.search).get('extra_guest') === '1';
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -137,7 +138,9 @@ export default function CheckoutSuccess() {
             {status === 'success' && (
               <>
                 <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                <CardTitle data-testid="text-booking-confirmed">Booking Confirmed!</CardTitle>
+                <CardTitle data-testid="text-booking-confirmed">
+                  {isExtraGuest ? 'Guest Added!' : 'Booking Confirmed!'}
+                </CardTitle>
               </>
             )}
             {status === 'waitlisted' && (

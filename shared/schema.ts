@@ -333,6 +333,7 @@ export const bookingGuests = pgTable("booking_guests", {
   status: text("status").notNull().default('confirmed'), // 'confirmed' | 'cancelled' | 'pending'
   cancelledAt: timestamp("cancelled_at"),
   cancellationToken: text("cancellation_token").unique(), // for guest self-cancel via email link
+  pendingPaymentIntentId: text("pending_payment_intent_id"), // tracks in-flight Ziina payment for extra guest slot
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

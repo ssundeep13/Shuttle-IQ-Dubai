@@ -1270,6 +1270,104 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Add an extra guest to an existing confirmed booking (cash or Ziina)
+  app.post("/api/marketplace/bookings/:bookingId/add-guest", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+
+      const booking = await storage.getBooking(req.params.bookingId);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
+      if (booking.status !== 'confirmed') return res.status(400).json({ error: "You can only add guests to confirmed bookings" });
+
+      const bodySchema = z.object({
+        guestName: z.string().min(1).max(100),
+        guestEmail: z.string().email().nullable().optional(),
+        paymentMethod: z.enum(['cash', 'ziina']),
+      });
+      const parsed = bodySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
+      const { guestName, guestEmail, paymentMethod } = parsed.data;
+
+      const bookableSession = await storage.getBookableSessionWithAvailability(booking.sessionId);
+      if (!bookableSession) return res.status(404).json({ error: "Session not found" });
+      if (bookableSession.spotsRemaining < 1) return res.status(400).json({ error: "This session is full — no spots available" });
+
+      const baseUrl = process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+
+      // Resolve linked marketplace user by email if possible
+      let linkedUserId: string | null = null;
+      if (guestEmail) {
+        const existingUser = await storage.getMarketplaceUserByEmail(guestEmail);
+        if (existingUser) linkedUserId = existingUser.id;
+      }
+
+      const cancellationToken = randomUUID();
+
+      if (paymentMethod === 'cash') {
+        await storage.createBookingGuest({
+          bookingId: booking.id,
+          name: guestName,
+          email: guestEmail ?? null,
+          linkedUserId,
+          isPrimary: false,
+          status: 'confirmed',
+          cancellationToken,
+        });
+        await storage.updateBooking(booking.id, {
+          spotsBooked: (booking.spotsBooked ?? 1) + 1,
+          amountAed: booking.amountAed + bookableSession.priceAed,
+        });
+
+        if (guestEmail) {
+          const primaryUser = await storage.getMarketplaceUser(req.user.userId);
+          if (primaryUser) {
+            const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${cancellationToken}`;
+            const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(guestEmail)}`;
+            sendGuestBookingEmail(guestEmail, guestName, primaryUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
+          }
+        }
+
+        return res.json({ success: true });
+      }
+
+      // Ziina path — create pending guest, then payment intent
+      const pendingGuest = await storage.createBookingGuest({
+        bookingId: booking.id,
+        name: guestName,
+        email: guestEmail ?? null,
+        linkedUserId,
+        isPrimary: false,
+        status: 'pending',
+        cancellationToken,
+      });
+
+      let paymentIntent;
+      try {
+        paymentIntent = await createZiinaPaymentIntent({
+          amountAed: bookableSession.priceAed,
+          message: `Extra spot for ${bookableSession.title}`,
+          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}&extra_guest=1`,
+          cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
+          failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
+        });
+      } catch (intentError) {
+        // Clean up the pending guest row on Ziina failure
+        await storage.updateBookingGuest(pendingGuest.id, { status: 'cancelled', cancelledAt: new Date() });
+        const msg = intentError instanceof Error ? intentError.message : 'Payment provider error';
+        return res.status(502).json({ error: msg });
+      }
+
+      await storage.updateBookingGuest(pendingGuest.id, { pendingPaymentIntentId: paymentIntent.id });
+      return res.json({ redirectUrl: paymentIntent.redirect_url });
+    } catch (error) {
+      console.error('add-guest error:', error);
+      res.status(500).json({ error: "Failed to add guest" });
+    }
+  });
+
   // ============================================================
   // BOOKINGS
   // ============================================================
