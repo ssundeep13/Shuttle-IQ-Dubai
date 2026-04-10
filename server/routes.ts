@@ -2842,7 +2842,7 @@ Return ONLY valid JSON, no markdown, no other text:
       const submittedPairs = entries.map(e => ({ playerId: e.taggedPlayerId, tagId: e.tagId }));
       const targetPlayerIds = [...new Set(entries.map(e => e.taggedPlayerId))];
       const submittedTagIds = [...new Set(entries.map(e => e.tagId))];
-      const rawCounts = await storage.getTagCountsForTargets(gameResultId, targetPlayerIds, submittedTagIds);
+      const rawCounts = await storage.getTagCountsForTargets(targetPlayerIds, submittedTagIds);
       // Filter to exact submitted pairs only
       const pairKeys = new Set(submittedPairs.map(p => `${p.playerId}:${p.tagId}`));
       const tagCounts = rawCounts.filter(c => pairKeys.has(`${c.playerId}:${c.tagId}`));

@@ -267,7 +267,7 @@ export interface IStorage {
   getAllPlayersTopTag(): Promise<PlayerTopTagEntry[]>;
   getCommunitySpotlight(limit?: number): Promise<CommunitySpotlightEntry[]>;
   getRecentReceivedTags(taggedPlayerId: string, limit?: number): Promise<ReceivedTagEntry[]>;
-  getTagCountsForTargets(gameResultId: string, targetPlayerIds: string[], tagIds: string[]): Promise<TagCountResult[]>;
+  getTagCountsForTargets(targetPlayerIds: string[], tagIds: string[]): Promise<TagCountResult[]>;
 
   // Public analytics
   getPublicAnalytics(options: { sessionId?: string; from?: Date; to?: Date }): Promise<PublicAnalyticsResponse>;
@@ -1883,7 +1883,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTagCountsForTargets(
-    gameResultId: string,
     targetPlayerIds: string[],
     tagIds: string[]
   ): Promise<TagCountResult[]> {
