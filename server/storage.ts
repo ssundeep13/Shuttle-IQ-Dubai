@@ -1846,45 +1846,40 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRecentReceivedTags(taggedPlayerId: string, limit = 5): Promise<ReceivedTagEntry[]> {
-    const rows = await db
-      .select({
-        taggerId: playerTags.taggedByPlayerId,
-        tagId: playerTags.tagId,
-        gameResultId: playerTags.gameResultId,
-        createdAt: playerTags.createdAt,
-      })
-      .from(playerTags)
-      .where(eq(playerTags.taggedPlayerId, taggedPlayerId))
-      .orderBy(desc(playerTags.createdAt))
-      .limit(limit);
+    // Single joined query — avoids N+1 lookups per received tag
+    const rows = await db.execute<{
+      tagger_name: string;
+      tag_id: string;
+      tag_label: string;
+      tag_emoji: string;
+      tag_category: string;
+      venue_name: string | null;
+      created_at: string;
+    }>(sql`
+      SELECT
+        tagger.name AS tagger_name,
+        t.id AS tag_id,
+        t.label AS tag_label,
+        t.emoji AS tag_emoji,
+        t.category AS tag_category,
+        s.venue_name AS venue_name,
+        pt.created_at
+      FROM player_tags pt
+      JOIN tags t ON t.id = pt.tag_id
+      JOIN players tagger ON tagger.id = pt.tagged_by_player_id
+      LEFT JOIN game_results gr ON gr.id = pt.game_result_id
+      LEFT JOIN sessions s ON s.id = gr.session_id
+      WHERE pt.tagged_player_id = ${taggedPlayerId}
+      ORDER BY pt.created_at DESC
+      LIMIT ${limit}
+    `);
 
-    const result: ReceivedTagEntry[] = [];
-    for (const row of rows) {
-      const [tag] = await db.select().from(tags).where(eq(tags.id, row.tagId));
-      if (!tag) continue;
-      const [tagger] = await db.select({ name: players.name }).from(players).where(eq(players.id, row.taggerId));
-      const [gameRow] = await db
-        .select({ sessionId: gameResults.sessionId })
-        .from(gameResults)
-        .where(eq(gameResults.id, row.gameResultId));
-      let sessionName = 'a session';
-      if (gameRow) {
-        const [sessionRow] = await db
-          .select({ venueName: sessions.venueName, date: sessions.date })
-          .from(sessions)
-          .where(eq(sessions.id, gameRow.sessionId));
-        if (sessionRow) {
-          sessionName = `${sessionRow.venueName}`;
-        }
-      }
-      result.push({
-        taggerInitial: tagger ? tagger.name.charAt(0).toUpperCase() : '?',
-        tag,
-        sessionName,
-        createdAt: row.createdAt.toISOString(),
-      });
-    }
-    return result;
+    return rows.rows.map(r => ({
+      taggerInitial: r.tagger_name.charAt(0).toUpperCase(),
+      tag: { id: r.tag_id, label: r.tag_label, emoji: r.tag_emoji, category: r.tag_category } as Tag,
+      sessionName: r.venue_name ?? 'a session',
+      createdAt: r.created_at,
+    }));
   }
 
   async getTagCountsForTargets(
