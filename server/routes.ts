@@ -2928,11 +2928,25 @@ Return ONLY valid JSON, no markdown, no other text:
     }
   });
 
-  // GET /api/tags/suggestions – get pending suggestions (player endpoint – includes hasVoted)
-  app.get("/api/tags/suggestions", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+  // GET /api/tags/suggestions – get pending suggestions (public; includes hasVoted if authenticated)
+  app.get("/api/tags/suggestions", async (req: AuthRequest, res) => {
     try {
-      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
-      const viewerPlayerId = mpUser?.linkedPlayerId ?? undefined;
+      let viewerPlayerId: string | undefined;
+      // Optionally identify viewer for hasVoted flag (no auth required)
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        try {
+          const jwt = await import('jsonwebtoken');
+          const token = authHeader.slice(7);
+          const decoded = jwt.default.verify(token, process.env.JWT_SECRET!) as { userId?: string };
+          if (decoded?.userId) {
+            const mpUser = await storage.getMarketplaceUser(decoded.userId);
+            viewerPlayerId = mpUser?.linkedPlayerId ?? undefined;
+          }
+        } catch {
+          // Ignore auth errors — serve public list without hasVoted
+        }
+      }
       const suggestions = await storage.getTagSuggestions('pending', viewerPlayerId);
       res.json(suggestions);
     } catch {
@@ -3002,6 +3016,42 @@ Return ONLY valid JSON, no markdown, no other text:
 
   // POST /api/admin/tags/suggestions/:id/reject – admin: reject suggestion
   app.post("/api/admin/tags/suggestions/:id/reject", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { adminNote } = req.body;
+      const updated = await storage.reviewTagSuggestion(req.params.id, 'rejected', adminNote);
+      if (!updated) return res.status(404).json({ error: "Suggestion not found" });
+      res.json(updated);
+    } catch {
+      res.status(500).json({ error: "Failed to reject suggestion" });
+    }
+  });
+
+  // ─── Admin tag-suggestion alias routes (canonical path) ──────────────────────
+  // GET /api/admin/tag-suggestions – alias for /api/admin/tags/suggestions
+  app.get("/api/admin/tag-suggestions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const status = (req.query.status as 'pending' | 'approved' | 'rejected') || 'pending';
+      const suggestions = await storage.getTagSuggestions(status);
+      res.json(suggestions);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch suggestions" });
+    }
+  });
+
+  // POST /api/admin/tag-suggestions/:id/approve – alias
+  app.post("/api/admin/tag-suggestions/:id/approve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { adminNote } = req.body;
+      const updated = await storage.reviewTagSuggestion(req.params.id, 'approved', adminNote);
+      if (!updated) return res.status(404).json({ error: "Suggestion not found" });
+      res.json(updated);
+    } catch {
+      res.status(500).json({ error: "Failed to approve suggestion" });
+    }
+  });
+
+  // POST /api/admin/tag-suggestions/:id/reject – alias
+  app.post("/api/admin/tag-suggestions/:id/reject", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { adminNote } = req.body;
       const updated = await storage.reviewTagSuggestion(req.params.id, 'rejected', adminNote);
