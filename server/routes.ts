@@ -2680,6 +2680,40 @@ Return ONLY valid JSON, no markdown, no other text:
     }
   });
 
+  // GET /api/tags/players/top-tags – single top tag per player (bulk, for rankings)
+  app.get("/api/tags/players/top-tags", async (_req, res) => {
+    try {
+      const result = await storage.getAllPlayersTopTag();
+      res.json(result);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch player top tags" });
+    }
+  });
+
+  // GET /api/tags/community-spotlight – trending tags + top player per tag (for homepage)
+  app.get("/api/tags/community-spotlight", async (req, res) => {
+    try {
+      const limit = Number(req.query.limit) || 5;
+      const result = await storage.getCommunitySpotlight(limit);
+      res.json(result);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch community spotlight" });
+    }
+  });
+
+  // GET /api/tags/received/recent – last N tags received by the authenticated player
+  app.get("/api/tags/received/recent", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.json([]);
+      const limit = Number(req.query.limit) || 5;
+      const result = await storage.getRecentReceivedTags(mpUser.linkedPlayerId, limit);
+      res.json(result);
+    } catch {
+      res.status(500).json({ error: "Failed to fetch received tags" });
+    }
+  });
+
   // GET /api/tags/:tagId/players – players tagged with a specific tag
   app.get("/api/tags/:tagId/players", async (req, res) => {
     try {
@@ -2803,7 +2837,13 @@ Return ONLY valid JSON, no markdown, no other text:
       }));
 
       const created = await storage.createPlayerTags(entries);
-      res.status(201).json({ created: created.length });
+
+      // Build enriched tagCounts: get cumulative count for each submitted tag per player
+      const targetPlayerIds = [...new Set(entries.map(e => e.taggedPlayerId))];
+      const submittedTagIds = [...new Set(entries.map(e => e.tagId))];
+      const tagCounts = await storage.getTagCountsForTargets(gameResultId, targetPlayerIds, submittedTagIds);
+
+      res.status(201).json({ created: created.length, tagCounts });
     } catch (err) {
       console.error("Tag submission error:", err);
       res.status(500).json({ error: "Failed to submit tags" });

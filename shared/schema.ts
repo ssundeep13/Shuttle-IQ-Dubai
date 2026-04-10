@@ -514,6 +514,33 @@ export interface PlayerTopTag {
   tag: Tag;
   count: number;
 }
+export interface PlayerTopTagEntry {
+  playerId: string;
+  tag: Tag;
+  count: number;
+}
+export interface CommunitySpotlightEntry {
+  tag: Tag;
+  count: number;
+  topPlayer: {
+    id: string;
+    name: string;
+    level: string;
+    skillScore: number;
+    shuttleIqId: string | null;
+  };
+}
+export interface ReceivedTagEntry {
+  taggerInitial: string;
+  tag: Tag;
+  sessionName: string;
+  createdAt: string;
+}
+export interface TagCountResult {
+  playerId: string;
+  tagId: string;
+  newCount: number;
+}
 export interface GameParticipantInfo {
   id: string;
   name: string;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
@@ -7,13 +7,22 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag } from '@shared/schema';
+import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import TagTrendingModal from '@/components/TagTrendingModal';
+
+const TAG_MILESTONES = [5, 10, 25, 50];
+
+const CATEGORY_BG: Record<string, string> = {
+  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
+  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+  _default: 'bg-muted text-muted-foreground border-border',
+};
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -209,11 +218,28 @@ export default function Dashboard() {
     staleTime: 0,
   });
 
+  const { data: receivedTags = [] } = useQuery<ReceivedTagEntry[]>({
+    queryKey: ['/api/tags/received/recent'],
+    enabled: !!linkedPlayerId,
+    staleTime: 0,
+  });
+
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const taggedSet = new Set(taggedGameIds);
   const untaggedCount = (stats?.recentGames ?? [])
     .filter(g => g.date && new Date(g.date) >= sevenDaysAgo && !taggedSet.has(g.gameId))
     .length;
+
+  const milestoneBanner = useMemo(() => {
+    if (!firstTopTag || !linkedPlayerId) return null;
+    const count = firstTopTag.count;
+    const crossed = TAG_MILESTONES.filter(m => count >= m);
+    if (crossed.length === 0) return null;
+    const highest = crossed[crossed.length - 1];
+    const storageKey = `siq_milestone_${linkedPlayerId}_${firstTopTag.tag.id}_${highest}`;
+    if (typeof window !== 'undefined' && localStorage.getItem(storageKey) === 'seen') return null;
+    return { milestone: highest, tag: firstTopTag.tag, count, storageKey };
+  }, [firstTopTag, linkedPlayerId]);
 
   const upcomingBookings = (bookings || [])
     .filter(b => b.status === 'confirmed' && new Date(b.session.date) >= new Date())
@@ -250,6 +276,42 @@ export default function Dashboard() {
             </div>
           </div>
         </motion.div>
+
+        {milestoneBanner && (
+          <motion.div variants={fadeInUp} className="mb-6">
+            <div
+              className="rounded-xl border border-secondary/30 bg-secondary/10 px-5 py-4 flex items-start gap-4"
+              data-testid="card-milestone-banner"
+            >
+              <div className="text-3xl shrink-0 mt-0.5">{milestoneBanner.tag.emoji}</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-base leading-tight">
+                  You've been celebrated!
+                </p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  You're officially a <span className="font-semibold text-foreground">{milestoneBanner.tag.label}</span> — tagged {milestoneBanner.milestone}× by your community!
+                </p>
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <Link href={`/marketplace/players/${linkedPlayerId}/personality-card`}>
+                    <Button size="sm" variant="secondary" className="gap-1.5 text-xs" data-testid="button-share-milestone">
+                      <ExternalLink className="h-3 w-3" /> Share your personality card
+                    </Button>
+                  </Link>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => {
+                      localStorage.setItem(milestoneBanner.storageKey, 'seen');
+                      window.location.reload();
+                    }}
+                    data-testid="button-dismiss-milestone"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
@@ -429,6 +491,39 @@ export default function Dashboard() {
                         </Badge>
                       </div>
                     ))}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {linkedPlayerId && receivedTags.length > 0 && (
+              <motion.div variants={fadeInUp}>
+                <Card data-testid="card-received-tags">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Star className="h-4 w-4 text-secondary" />
+                      You've Been Tagged
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2.5">
+                    {receivedTags.map((entry, i) => {
+                      const cls = CATEGORY_BG[entry.tag.category] ?? CATEGORY_BG._default;
+                      return (
+                        <div key={i} className="flex items-center gap-3" data-testid={`row-received-tag-${i}`}>
+                          <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 text-muted-foreground">
+                            {entry.taggerInitial}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+                                {entry.tag.emoji} {entry.tag.label}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">at {entry.sessionName}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </CardContent>
                 </Card>
               </motion.div>

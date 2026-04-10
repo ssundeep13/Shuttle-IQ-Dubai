@@ -4,10 +4,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Tag as TagIcon, Check } from 'lucide-react';
+import { Tag as TagIcon, Check, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import type { Tag, PlayerTag, GameParticipantInfo } from '@shared/schema';
+import type { Tag, PlayerTag, GameParticipantInfo, TagCountResult } from '@shared/schema';
+
+interface TagSubmitResponse {
+  created: number;
+  tagCounts: TagCountResult[];
+}
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
@@ -25,6 +30,7 @@ interface Props {
 export default function TagPlayersDialog({ gameResultId, linkedPlayerId, open, onOpenChange }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [delightItems, setDelightItems] = useState<Array<{ playerName: string; tagLabel: string; tagEmoji: string; newCount: number }>>([]);
 
   const { data: participants = [], isLoading: participantsLoading } = useQuery<GameParticipantInfo[]>({
     queryKey: ['/api/tags/game', gameResultId, 'participants'],
@@ -92,23 +98,45 @@ export default function TagPlayersDialog({ gameResultId, linkedPlayerId, open, o
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const tags: Array<{ targetPlayerId: string; tagId: string }> = [];
+      const tagEntries: Array<{ targetPlayerId: string; tagId: string }> = [];
       for (const [playerId, tagIds] of Object.entries(selected)) {
         for (const tagId of tagIds) {
-          tags.push({ targetPlayerId: playerId, tagId });
+          tagEntries.push({ targetPlayerId: playerId, tagId });
         }
       }
-      return apiRequest('POST', `/api/tags/game/${gameResultId}`, { tags });
+      return apiRequest<TagSubmitResponse>('POST', `/api/tags/game/${gameResultId}`, { tags: tagEntries });
     },
     onSuccess: (data) => {
-      toast({ title: 'Tags submitted!', description: `${data.created} tag${data.created !== 1 ? 's' : ''} recorded.` });
       queryClient.invalidateQueries({ queryKey: ['/api/tags/tagged-games'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tags/game', gameResultId, 'mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tags/trending'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tags/received/recent'] });
+
+      const items: Array<{ playerName: string; tagLabel: string; tagEmoji: string; newCount: number }> = [];
+      for (const [playerId, tagIds] of Object.entries(selected)) {
+        const player = teammates.find(t => t.id === playerId);
+        if (!player) continue;
+        for (const tagId of tagIds) {
+          const tag = allTags.find(t => t.id === tagId);
+          if (!tag) continue;
+          const countRow = data.tagCounts?.find(tc => tc.playerId === playerId && tc.tagId === tagId);
+          items.push({
+            playerName: player.name,
+            tagLabel: tag.label,
+            tagEmoji: tag.emoji,
+            newCount: countRow?.newCount ?? 1,
+          });
+        }
+      }
       setSelected({});
-      onOpenChange(false);
+      if (items.length > 0) {
+        setDelightItems(items);
+      } else {
+        toast({ title: 'Tags submitted!', description: `${data.created} tag${data.created !== 1 ? 's' : ''} recorded.` });
+        onOpenChange(false);
+      }
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       toast({ title: 'Error', description: err.message || 'Failed to submit tags', variant: 'destructive' });
     },
   });
@@ -131,17 +159,46 @@ export default function TagPlayersDialog({ gameResultId, linkedPlayerId, open, o
     reputation: 'Reputation',
   };
 
+  function handleCloseDelight() {
+    setDelightItems([]);
+    onOpenChange(false);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { setDelightItems([]); } onOpenChange(v); }}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" data-testid="dialog-tag-players">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <TagIcon className="h-4 w-4 text-secondary" />
-            Tag Your Teammates
+            {delightItems.length > 0 ? (
+              <><Sparkles className="h-4 w-4 text-secondary" /> Tags Submitted!</>
+            ) : (
+              <><TagIcon className="h-4 w-4 text-secondary" /> Tag Your Teammates</>
+            )}
           </DialogTitle>
         </DialogHeader>
 
-        {isLoading ? (
+        {delightItems.length > 0 ? (
+          <div className="space-y-3 py-2">
+            {delightItems.map((item, i) => (
+              <div key={i} className="flex items-center gap-3 rounded-lg border p-3 bg-muted/30" data-testid={`delight-item-${i}`}>
+                <span className="text-2xl shrink-0">{item.tagEmoji}</span>
+                <div>
+                  <p className="text-sm font-semibold">
+                    {item.playerName} is now a <span className="text-secondary">{item.tagLabel}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Tagged {item.newCount}× in the community
+                  </p>
+                </div>
+              </div>
+            ))}
+            <div className="pt-2 flex justify-end">
+              <Button onClick={handleCloseDelight} data-testid="button-delight-done">
+                Done
+              </Button>
+            </div>
+          </div>
+        ) : isLoading ? (
           <div className="space-y-3 py-2">
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-24 w-full" />
@@ -229,18 +286,20 @@ export default function TagPlayersDialog({ gameResultId, linkedPlayerId, open, o
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-tag-cancel">
-            Cancel
-          </Button>
-          <Button
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || totalNewTags === 0}
-            data-testid="button-tag-submit"
-          >
-            {mutation.isPending ? 'Submitting...' : `Submit${totalNewTags > 0 ? ` (${totalNewTags})` : ''}`}
-          </Button>
-        </DialogFooter>
+        {delightItems.length === 0 && (
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)} data-testid="button-tag-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending || totalNewTags === 0}
+              data-testid="button-tag-submit"
+            >
+              {mutation.isPending ? 'Submitting...' : `Submit${totalNewTags > 0 ? ` (${totalNewTags})` : ''}`}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -29,6 +29,10 @@ import {
   type PlayerTag,
   type TrendingTag,
   type PlayerTopTag,
+  type PlayerTopTagEntry,
+  type CommunitySpotlightEntry,
+  type ReceivedTagEntry,
+  type TagCountResult,
   type GameParticipantInfo,
   type RefundNotificationWithDetails,
   players,
@@ -260,6 +264,10 @@ export interface IStorage {
   getPlayerTagsForGame(gameResultId: string, taggedByPlayerId: string): Promise<PlayerTag[]>;
   getTaggedGameIds(taggedByPlayerId: string): Promise<string[]>;
   getGameParticipantInfo(gameResultId: string): Promise<GameParticipantInfo[]>;
+  getAllPlayersTopTag(): Promise<PlayerTopTagEntry[]>;
+  getCommunitySpotlight(limit?: number): Promise<CommunitySpotlightEntry[]>;
+  getRecentReceivedTags(taggedPlayerId: string, limit?: number): Promise<ReceivedTagEntry[]>;
+  getTagCountsForTargets(gameResultId: string, targetPlayerIds: string[], tagIds: string[]): Promise<TagCountResult[]>;
 
   // Public analytics
   getPublicAnalytics(options: { sessionId?: string; from?: Date; to?: Date }): Promise<PublicAnalyticsResponse>;
@@ -1738,6 +1746,134 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(players, eq(gameParticipants.playerId, players.id))
       .where(eq(gameParticipants.gameId, gameResultId));
     return rows;
+  }
+
+  async getAllPlayersTopTag(): Promise<PlayerTopTagEntry[]> {
+    const rows = await db
+      .select({
+        playerId: playerTags.taggedPlayerId,
+        tagId: playerTags.tagId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(playerTags)
+      .groupBy(playerTags.taggedPlayerId, playerTags.tagId)
+      .orderBy(playerTags.taggedPlayerId, desc(sql`count(*)`));
+
+    const bestPerPlayer = new Map<string, { tagId: string; count: number }>();
+    for (const row of rows) {
+      if (!bestPerPlayer.has(row.playerId)) {
+        bestPerPlayer.set(row.playerId, { tagId: row.tagId, count: row.count });
+      }
+    }
+
+    const result: PlayerTopTagEntry[] = [];
+    for (const [playerId, { tagId, count }] of bestPerPlayer) {
+      const [tag] = await db.select().from(tags).where(eq(tags.id, tagId));
+      if (tag) result.push({ playerId, tag, count });
+    }
+    return result;
+  }
+
+  async getCommunitySpotlight(limit = 5): Promise<CommunitySpotlightEntry[]> {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const trendingRows = await db
+      .select({ tagId: playerTags.tagId, count: sql<number>`count(*)::int` })
+      .from(playerTags)
+      .where(gte(playerTags.createdAt, sevenDaysAgo))
+      .groupBy(playerTags.tagId)
+      .orderBy(desc(sql`count(*)`))
+      .limit(limit);
+
+    const result: CommunitySpotlightEntry[] = [];
+    for (const tRow of trendingRows) {
+      const [tag] = await db.select().from(tags).where(eq(tags.id, tRow.tagId));
+      if (!tag) continue;
+      const [topPlayerRow] = await db
+        .select({ playerId: playerTags.taggedPlayerId, count: sql<number>`count(*)::int` })
+        .from(playerTags)
+        .where(eq(playerTags.tagId, tRow.tagId))
+        .groupBy(playerTags.taggedPlayerId)
+        .orderBy(desc(sql`count(*)`))
+        .limit(1);
+      if (!topPlayerRow) continue;
+      const [player] = await db.select().from(players).where(eq(players.id, topPlayerRow.playerId));
+      if (!player) continue;
+      result.push({
+        tag,
+        count: tRow.count,
+        topPlayer: {
+          id: player.id,
+          name: player.name,
+          level: player.level,
+          skillScore: player.skillScore,
+          shuttleIqId: player.shuttleIqId ?? null,
+        },
+      });
+    }
+    return result;
+  }
+
+  async getRecentReceivedTags(taggedPlayerId: string, limit = 5): Promise<ReceivedTagEntry[]> {
+    const rows = await db
+      .select({
+        taggerId: playerTags.taggedByPlayerId,
+        tagId: playerTags.tagId,
+        gameResultId: playerTags.gameResultId,
+        createdAt: playerTags.createdAt,
+      })
+      .from(playerTags)
+      .where(eq(playerTags.taggedPlayerId, taggedPlayerId))
+      .orderBy(desc(playerTags.createdAt))
+      .limit(limit);
+
+    const result: ReceivedTagEntry[] = [];
+    for (const row of rows) {
+      const [tag] = await db.select().from(tags).where(eq(tags.id, row.tagId));
+      if (!tag) continue;
+      const [tagger] = await db.select({ name: players.name }).from(players).where(eq(players.id, row.taggerId));
+      const [gameRow] = await db
+        .select({ sessionId: gameResults.sessionId })
+        .from(gameResults)
+        .where(eq(gameResults.id, row.gameResultId));
+      let sessionName = 'a session';
+      if (gameRow) {
+        const [sessionRow] = await db
+          .select({ venueName: sessions.venueName, date: sessions.date })
+          .from(sessions)
+          .where(eq(sessions.id, gameRow.sessionId));
+        if (sessionRow) {
+          sessionName = `${sessionRow.venueName}`;
+        }
+      }
+      result.push({
+        taggerInitial: tagger ? tagger.name.charAt(0).toUpperCase() : '?',
+        tag,
+        sessionName,
+        createdAt: row.createdAt.toISOString(),
+      });
+    }
+    return result;
+  }
+
+  async getTagCountsForTargets(
+    gameResultId: string,
+    targetPlayerIds: string[],
+    tagIds: string[]
+  ): Promise<TagCountResult[]> {
+    if (targetPlayerIds.length === 0 || tagIds.length === 0) return [];
+    const result: TagCountResult[] = [];
+    for (const playerId of targetPlayerIds) {
+      for (const tagId of tagIds) {
+        const [row] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(playerTags)
+          .where(and(eq(playerTags.taggedPlayerId, playerId), eq(playerTags.tagId, tagId)));
+        if (row && row.count > 0) {
+          result.push({ playerId, tagId, newCount: row.count });
+        }
+      }
+    }
+    return result;
   }
 
   async getPublicAnalytics({ sessionId, from, to }: { sessionId?: string; from?: Date; to?: Date }) {

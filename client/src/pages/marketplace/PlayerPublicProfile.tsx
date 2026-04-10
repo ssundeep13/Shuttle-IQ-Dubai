@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Trophy, TrendingUp, TrendingDown, Swords,
   BarChart3, Target, Flame, Users, ArrowLeft,
-  CheckCircle2, XCircle, Zap, Tag as TagIcon,
+  CheckCircle2, XCircle, Zap, Tag as TagIcon, ExternalLink,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
@@ -159,11 +159,18 @@ export default function PlayerPublicProfile() {
     <div className="max-w-4xl mx-auto px-4 py-6">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-5">
-          <Link href="/marketplace/rankings">
-            <Button variant="ghost" size="sm" data-testid="button-back">
-              <ArrowLeft className="h-4 w-4 mr-1" /> Back to Rankings
-            </Button>
-          </Link>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <Link href="/marketplace/rankings">
+              <Button variant="ghost" size="sm" data-testid="button-back">
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back to Rankings
+              </Button>
+            </Link>
+            <Link href={`/marketplace/players/${stats.player.id}/personality-card`}>
+              <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-share-personality">
+                <ExternalLink className="h-3.5 w-3.5" /> Share Personality
+              </Button>
+            </Link>
+          </div>
         </motion.div>
 
         <motion.div variants={fadeInUp}>
@@ -202,6 +209,39 @@ export default function PlayerPublicProfile() {
             </div>
           </div>
         </motion.div>
+
+        {communityTags.length > 0 && (
+          <motion.div variants={fadeInUp} className="mb-6">
+            <Card data-testid="card-community-personality">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <TagIcon className="h-4 w-4 text-muted-foreground" /> Community Personality
+                  </CardTitle>
+                  <Link href={`/marketplace/players/${stats.player.id}/personality-card`}>
+                    <button className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1" data-testid="link-personality-card">
+                      <ExternalLink className="h-3 w-3" /> Share card
+                    </button>
+                  </Link>
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
+                <div className="flex flex-wrap gap-2">
+                  {communityTags.slice(0, 6).map(({ tag, count }) => (
+                    <span
+                      key={tag.id}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border ${tagCategoryClass(tag.category)}`}
+                      data-testid={`pill-tag-elevated-${tag.id}`}
+                    >
+                      {tag.emoji} {tag.label}
+                      <span className="opacity-60 text-xs">{count}×</span>
+                    </span>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <motion.div variants={fadeInUp}>
@@ -295,33 +335,6 @@ export default function PlayerPublicProfile() {
             </Card>
           </motion.div>
 
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-tags-received">
-              <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <TagIcon className="h-4 w-4 text-muted-foreground" /> Tags Received
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                {communityTags.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No tags yet — play more games!</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {communityTags.map(({ tag, count }) => (
-                      <span
-                        key={tag.id}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
-                        data-testid={`pill-tag-${tag.id}`}
-                      >
-                        {tag.emoji} {tag.label}
-                        <span className="opacity-60">{count}×</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
         </div>
 
         {last5Results.length > 0 && (

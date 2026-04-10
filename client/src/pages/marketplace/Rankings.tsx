@@ -7,8 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Trophy, Medal, Calendar, CalendarDays, CalendarRange, Percent, TrendingUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Player } from '@shared/schema';
+import type { Player, PlayerTopTagEntry } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+
+const TAG_CATEGORY_COLOR: Record<string, string> = {
+  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
+  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+  _default: 'bg-muted text-muted-foreground border-border',
+};
 
 type TimeFilter = 'all-time' | 'this-month' | 'this-week';
 type SortMode = 'rank' | 'win-pct' | 'most-improved';
@@ -97,6 +104,12 @@ export default function Rankings() {
   const currentMonth = now.getMonth() + 1;
 
   const isMostImproved = sortMode === 'most-improved';
+
+  const { data: allTopTags = [] } = useQuery<PlayerTopTagEntry[]>({
+    queryKey: ['/api/tags/players/top-tags'],
+    staleTime: 5 * 60 * 1000,
+  });
+  const topTagMap = new Map<string, PlayerTopTagEntry>(allTopTags.map(e => [e.playerId, e]));
 
   const { data: allTimePlayers, isLoading: loadingAllTime } = useQuery<Player[]>({
     queryKey: ['/api/players'],
@@ -328,6 +341,16 @@ export default function Rankings() {
                                 <Badge variant="outline" className={`text-xs mt-2 ${levelColor(entry.player.level)}`}>
                                   {getTierDisplayName(entry.player.level)}
                                 </Badge>
+                                {(() => {
+                                  const topTag = topTagMap.get(entry.player.id);
+                                  if (!topTag) return null;
+                                  const cls = TAG_CATEGORY_COLOR[topTag.tag.category] ?? TAG_CATEGORY_COLOR._default;
+                                  return (
+                                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border mt-1.5 ${cls}`} data-testid={`pill-tag-podium-${entry.player.id}`}>
+                                      {topTag.tag.emoji} {topTag.tag.label}
+                                    </div>
+                                  );
+                                })()}
                                 <p className="text-xs text-muted-foreground mt-1.5">
                                   {entry.secondaryLine}
                                 </p>
@@ -369,9 +392,21 @@ export default function Rankings() {
                                   <div className="font-semibold" data-testid={`text-player-score-${entry.player.id}`}>
                                     {statDisplay} <span className="text-xs font-normal text-muted-foreground">{entry.primaryLabel}</span>
                                   </div>
-                                  <Badge variant="outline" className={`text-xs ${levelColor(entry.player.level)}`}>
-                                    {getTierDisplayName(entry.player.level)}
-                                  </Badge>
+                                  <div className="flex items-center justify-end gap-1 flex-wrap">
+                                    <Badge variant="outline" className={`text-xs ${levelColor(entry.player.level)}`}>
+                                      {getTierDisplayName(entry.player.level)}
+                                    </Badge>
+                                    {(() => {
+                                      const topTag = topTagMap.get(entry.player.id);
+                                      if (!topTag) return null;
+                                      const cls = TAG_CATEGORY_COLOR[topTag.tag.category] ?? TAG_CATEGORY_COLOR._default;
+                                      return (
+                                        <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${cls}`} data-testid={`pill-tag-row-${entry.player.id}`}>
+                                          {topTag.tag.emoji} {topTag.tag.label}
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
                                 </div>
                                 <div className="text-right shrink-0 text-sm text-muted-foreground w-24">
                                   <div>{entry.secondaryLine}</div>

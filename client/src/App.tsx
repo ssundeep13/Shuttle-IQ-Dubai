@@ -35,6 +35,7 @@ import Checkout from "@/pages/marketplace/Checkout";
 import CheckoutSuccess from "@/pages/marketplace/CheckoutSuccess";
 import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
 import PlayerPublicProfile from "@/pages/marketplace/PlayerPublicProfile";
+import PersonalityCard from "@/pages/marketplace/PersonalityCard";
 import ResetPassword from "@/pages/marketplace/ResetPassword";
 import GuestCancel from "@/pages/marketplace/GuestCancel";
 import GameHistory from "@/pages/marketplace/GameHistory";
@@ -213,6 +214,7 @@ function Router() {
         <Route path="/marketplace/profile">
           <MarketplaceAuthRoute component={Profile} />
         </Route>
+        <Route path="/marketplace/players/:playerId/personality-card" component={PersonalityCard} />
         <Route path="/marketplace/players/:playerId">
           <MarketplaceRoute component={PlayerPublicProfile} />
         </Route>

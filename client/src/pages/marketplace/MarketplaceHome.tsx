@@ -1,9 +1,13 @@
 import { Link } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight, Users2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import type { CommunitySpotlightEntry } from '@shared/schema';
+import { getTierDisplayName } from '@shared/utils/skillUtils';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 24 },
@@ -14,8 +18,24 @@ const stagger = {
   visible: { transition: { staggerChildren: 0.08 } },
 };
 
+const CATEGORY_COLOR: Record<string, string> = {
+  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
+  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+  _default: 'bg-muted text-muted-foreground border-border',
+};
+
+function tagCategoryClass(category: string): string {
+  return CATEGORY_COLOR[category] ?? CATEGORY_COLOR._default;
+}
+
 export default function MarketplaceHome() {
   const { isAuthenticated } = useMarketplaceAuth();
+
+  const { data: spotlight = [], isLoading: spotlightLoading } = useQuery<CommunitySpotlightEntry[]>({
+    queryKey: ['/api/tags/community-spotlight'],
+    staleTime: 5 * 60 * 1000,
+  });
 
   return (
     <div className="flex flex-col">
@@ -119,6 +139,79 @@ export default function MarketplaceHome() {
               </motion.div>
             ))}
           </div>
+        </motion.div>
+      </section>
+
+      {/* Community Personalities Section */}
+      <section className="py-16 md:py-20 px-4 border-y bg-muted/30">
+        <motion.div
+          className="max-w-5xl mx-auto"
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, amount: 0.2 }}
+          variants={stagger}
+        >
+          <motion.div variants={fadeInUp} className="text-center mb-10">
+            <h2 className="text-2xl md:text-3xl font-bold mb-3" data-testid="text-community-personalities-title">
+              This Week's Community Personalities
+            </h2>
+            <p className="text-muted-foreground max-w-lg mx-auto">Real players, real recognition — tagged by their community</p>
+          </motion.div>
+
+          {spotlightLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-28 rounded-xl" />)}
+            </div>
+          ) : spotlight.length === 0 ? (
+            <motion.div variants={fadeInUp} className="text-center py-8">
+              <p className="text-muted-foreground text-sm">No community tags yet this week — be the first to recognise a great player!</p>
+              {!isAuthenticated && (
+                <Link href="/marketplace/signup">
+                  <Button variant="outline" size="sm" className="mt-4 gap-1">
+                    Join to tag players <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </Link>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div variants={stagger} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {spotlight.map((entry) => (
+                <motion.div key={entry.tag.id} variants={fadeInUp}>
+                  <Link href={`/marketplace/players/${entry.topPlayer.id}`}>
+                    <Card className="hover-elevate cursor-pointer h-full" data-testid={`card-spotlight-${entry.tag.id}`}>
+                      <CardContent className="p-5">
+                        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold border mb-3 ${tagCategoryClass(entry.tag.category)}`}>
+                          {entry.tag.emoji} {entry.tag.label}
+                          <span className="opacity-60 ml-0.5 text-xs">{entry.count}×</span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-2">
+                          <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-bold shrink-0">
+                            {entry.topPlayer.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold truncate">{entry.topPlayer.name}</p>
+                            <p className="text-xs text-muted-foreground">{getTierDisplayName(entry.topPlayer.level)} · {entry.topPlayer.skillScore} pts</p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">Most tagged this week</p>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
+
+          {!isAuthenticated && spotlight.length > 0 && (
+            <motion.div variants={fadeInUp} className="text-center mt-8">
+              <Link href="/marketplace/signup">
+                <Button variant="outline" className="gap-2" data-testid="button-join-to-tag">
+                  Join to recognise your fellow players
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </motion.div>
+          )}
         </motion.div>
       </section>
 
