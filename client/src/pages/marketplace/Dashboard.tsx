@@ -276,13 +276,14 @@ export default function Dashboard() {
     }
   }, [milestoneBanner?.storageKey]);
 
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
   const upcomingBookings = (bookings || [])
-    .filter(b => b.status === 'confirmed' && new Date(b.session.date) >= new Date())
+    .filter(b => b.status === 'confirmed' && new Date(b.session.date) >= todayStart)
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
   const nextAvailableSession = availableSessions
     .filter(s => s.status === 'upcoming' && new Date(s.date) >= todayStart)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0] ?? null;
