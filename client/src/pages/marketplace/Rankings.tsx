@@ -407,36 +407,38 @@ export default function Rankings() {
                                 className="flex items-center gap-3 px-4 py-3 hover-elevate cursor-pointer"
                                 data-testid={`row-player-${entry.player.id}`}
                               >
-                                <div className="w-8 text-center shrink-0">
+                                <div className="w-6 text-center shrink-0">
                                   <span className="text-sm text-muted-foreground font-medium">{index + 4}</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="font-medium truncate" data-testid={`text-player-name-${entry.player.id}`}>
                                     {entry.player.name}
                                   </div>
-                                  <div className="text-xs text-muted-foreground">{entry.player.shuttleIqId}</div>
+                                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                    <span className="text-xs text-muted-foreground shrink-0">{entry.player.shuttleIqId}</span>
+                                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 shrink-0 no-default-hover-elevate no-default-active-elevate ${levelColor(entry.player.level)}`}>
+                                      {getTierDisplayName(entry.player.level)}
+                                    </Badge>
+                                  </div>
                                 </div>
                                 <div className="text-right shrink-0 space-y-1">
                                   <div className="font-semibold" data-testid={`text-player-score-${entry.player.id}`}>
                                     {statDisplay} <span className="text-xs font-normal text-muted-foreground">{entry.primaryLabel}</span>
                                   </div>
-                                  <div className="flex items-center justify-end gap-1 flex-wrap">
-                                    <Badge variant="outline" className={`text-xs ${levelColor(entry.player.level)}`}>
-                                      {getTierDisplayName(entry.player.level)}
-                                    </Badge>
-                                    {(() => {
-                                      const topTag = topTagMap.get(entry.player.id);
-                                      if (!topTag) return null;
-                                      const cls = TAG_CATEGORY_COLOR[topTag.tag.category] ?? TAG_CATEGORY_COLOR._default;
-                                      return (
+                                  {(() => {
+                                    const topTag = topTagMap.get(entry.player.id);
+                                    if (!topTag) return null;
+                                    const cls = TAG_CATEGORY_COLOR[topTag.tag.category] ?? TAG_CATEGORY_COLOR._default;
+                                    return (
+                                      <div className="flex justify-end">
                                         <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${cls}`} data-testid={`pill-tag-row-${entry.player.id}`}>
                                           {topTag.tag.emoji} {topTag.tag.label}
                                         </span>
-                                      );
-                                    })()}
-                                  </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
-                                <div className="text-right shrink-0 text-sm text-muted-foreground w-24">
+                                <div className="text-right shrink-0 text-xs text-muted-foreground w-20">
                                   <div>{entry.secondaryLine}</div>
                                 </div>
                               </motion.div>
