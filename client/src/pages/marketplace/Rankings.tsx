@@ -177,7 +177,7 @@ export default function Rankings() {
             player: p,
             primaryStat: p.skillScore,
             primaryLabel: 'skill score',
-            secondaryLine: `${p.wins}W / ${p.gamesPlayed - p.wins}L · ${winPct(p.wins, p.gamesPlayed)}% win rate`,
+            secondaryLine: `${p.wins}W · ${winPct(p.wins, p.gamesPlayed)}% win`,
           }));
       } else if (timeFilter === 'this-month' && monthPlayers) {
         ranked = monthPlayers
@@ -187,7 +187,7 @@ export default function Rankings() {
             player: p,
             primaryStat: p.skillScore,
             primaryLabel: 'skill score',
-            secondaryLine: `${p.gamesPlayedInMonth} games this month · ${p.winsInMonth}W`,
+            secondaryLine: `${p.winsInMonth}W · ${winPct(p.winsInMonth, p.gamesPlayedInMonth)}% this month`,
           }));
       } else if (timeFilter === 'this-week' && weekPlayers) {
         ranked = weekPlayers
@@ -197,7 +197,7 @@ export default function Rankings() {
             player: p,
             primaryStat: p.skillScore,
             primaryLabel: 'skill score',
-            secondaryLine: `${p.gamesPlayedThisWeek} games this week · ${p.winsThisWeek}W`,
+            secondaryLine: `${p.winsThisWeek}W · ${winPct(p.winsThisWeek, p.gamesPlayedThisWeek)}% this week`,
           }));
       }
     } else {
