@@ -37,7 +37,7 @@ export function MobileBottomNav() {
   return (
     <nav
       className="md:hidden fixed bottom-0 left-0 right-0 z-40"
-      style={{ backgroundColor: '#003E35' }}
+      style={{ backgroundColor: '#003E8C' }}
       data-testid="mobile-bottom-nav"
     >
       <div className="flex h-16 items-stretch">
@@ -49,7 +49,7 @@ export function MobileBottomNav() {
               href={tab.href}
               className="flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors"
               style={{
-                borderTop: active ? '2px solid #00C5AD' : '2px solid transparent',
+                borderTop: active ? '2px solid #006B5F' : '2px solid transparent',
               }}
               data-testid={`tab-${tab.label.toLowerCase().replace(/\s/g, '-')}`}
             >

@@ -165,13 +165,13 @@ export function MarketplaceNav() {
   return (
     <header
       className="sticky top-0 z-50"
-      style={{ backgroundColor: '#003E35' }}
+      style={{ backgroundColor: '#003E8C' }}
       data-testid="marketplace-nav"
     >
       <div className="max-w-6xl mx-auto flex h-14 items-center gap-2 px-4 md:px-6">
         <Link href="/" className="flex items-center gap-2 mr-6 shrink-0" data-testid="link-marketplace-home">
           <span className="text-xl font-bold tracking-tight text-white">
-            Shuttle<span style={{ color: '#00C5AD' }}>IQ</span>
+            Shuttle<span style={{ color: '#006B5F' }}>IQ</span>
           </span>
         </Link>
 
@@ -192,7 +192,7 @@ export function MarketplaceNav() {
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',
                     borderRadius: 0,
-                    borderBottom: active ? '2px solid #00C5AD' : '2px solid transparent',
+                    borderBottom: active ? '2px solid #006B5F' : '2px solid transparent',
                   }}
                   data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
                 >
