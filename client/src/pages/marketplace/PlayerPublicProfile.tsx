@@ -10,19 +10,12 @@ import {
   BarChart3, Target, Flame, Users, ArrowLeft,
   CheckCircle2, XCircle, Zap, Tag as TagIcon, ExternalLink,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine,
   ResponsiveContainer
 } from 'recharts';
 import type { PlayerStats, OpponentStats, PartnerStats, PlayerTopTag } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
-
-const fadeInUp = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
-};
-const stagger = { visible: { transition: { staggerChildren: 0.06 } } };
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -157,8 +150,8 @@ export default function PlayerPublicProfile() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
-      <motion.div initial="hidden" animate="visible" variants={stagger}>
-        <motion.div variants={fadeInUp} className="mb-5">
+      <div>
+        <div className="mb-5">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <Link href="/marketplace/rankings">
               <Button variant="ghost" size="sm" data-testid="button-back">
@@ -171,9 +164,9 @@ export default function PlayerPublicProfile() {
               </Button>
             </Link>
           </div>
-        </motion.div>
+        </div>
 
-        <motion.div variants={fadeInUp}>
+        <div>
           <div
             className="rounded-xl p-5 md:p-6 mb-6 flex items-center gap-4 md:gap-6 relative overflow-hidden"
             style={{ background: 'linear-gradient(135deg, #0f2b46 0%, #163a5f 50%, #1a4a6e 100%)' }}
@@ -208,10 +201,10 @@ export default function PlayerPublicProfile() {
               <span className="text-teal-200 text-[10px] md:text-xs">pts</span>
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {communityTags.length > 0 && (
-          <motion.div variants={fadeInUp} className="mb-6">
+          <div className="mb-6">
             <Card data-testid="card-community-personality">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -240,11 +233,11 @@ export default function PlayerPublicProfile() {
                 </div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
         )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <motion.div variants={fadeInUp}>
+          <div>
             <Card className="h-full" data-testid="card-stat-games">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
@@ -254,9 +247,9 @@ export default function PlayerPublicProfile() {
                 <div className="text-xs text-muted-foreground">Games Played</div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
-          <motion.div variants={fadeInUp}>
+          <div>
             <Card className="h-full" data-testid="card-stat-wins">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
@@ -266,9 +259,9 @@ export default function PlayerPublicProfile() {
                 <div className="text-xs text-muted-foreground">Total Wins</div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
-          <motion.div variants={fadeInUp}>
+          <div>
             <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-winrate">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
@@ -278,9 +271,9 @@ export default function PlayerPublicProfile() {
                 <div className="text-xs text-muted-foreground">Win Rate</div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
-          <motion.div variants={fadeInUp}>
+          <div>
             <Card className="h-full" data-testid="card-stat-streak">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
@@ -290,9 +283,9 @@ export default function PlayerPublicProfile() {
                 <div className="text-xs text-muted-foreground">Current Streak</div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
-          <motion.div variants={fadeInUp}>
+          <div>
             <Card className="h-full" data-testid="card-stat-rank">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
@@ -303,9 +296,9 @@ export default function PlayerPublicProfile() {
                 <div className="text-[10px] text-muted-foreground">of {stats.totalPlayersRanked}</div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
-          <motion.div variants={fadeInUp}>
+          <div>
             <Card className="h-full" data-testid="card-stat-diff">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
@@ -320,9 +313,9 @@ export default function PlayerPublicProfile() {
                 </div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
-          <motion.div variants={fadeInUp}>
+          <div>
             <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-beststreak">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
@@ -333,12 +326,12 @@ export default function PlayerPublicProfile() {
                 <div className="text-[10px] text-muted-foreground">Worst: {stats.longestLossStreak}L</div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
 
         </div>
 
         {last5Results.length > 0 && (
-          <motion.div variants={fadeInUp} className="mb-6">
+          <div className="mb-6">
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -353,11 +346,11 @@ export default function PlayerPublicProfile() {
                 </div>
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
         )}
 
         {allValidGames.length > 0 && (
-          <motion.div variants={fadeInUp}>
+          <div>
             <Card className="mb-6" data-testid="card-skill-progression">
               <CardHeader className="pb-1">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -453,13 +446,13 @@ export default function PlayerPublicProfile() {
                 )}
               </CardContent>
             </Card>
-          </motion.div>
+          </div>
         )}
 
         {(stats.rivals.length > 0 || stats.frequentPartners.length > 0) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             {stats.rivals.length > 0 && (
-              <motion.div variants={fadeInUp}>
+              <div>
                 <Card className="h-full" data-testid="card-rivals">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
@@ -506,11 +499,11 @@ export default function PlayerPublicProfile() {
                     })}
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
             )}
 
             {stats.frequentPartners.length > 0 && (
-              <motion.div variants={fadeInUp}>
+              <div>
                 <Card className="h-full" data-testid="card-partners">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
@@ -560,11 +553,11 @@ export default function PlayerPublicProfile() {
                     })}
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
             )}
           </div>
         )}
-      </motion.div>
+      </div>
     </div>
   );
 }
