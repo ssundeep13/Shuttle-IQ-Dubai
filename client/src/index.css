@@ -254,7 +254,13 @@
     line-height: 1.1;
   }
 
-  /* Input: cream background, navy-tinted border, clean focus ring */
+  /* Tight tracking for bold text (weight 700+) */
+  .font-bold, .font-extrabold, .font-black {
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+
+  /* Input: cream background, navy-tinted border, clean focus — NO box-shadow */
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="submit"]):not([type="button"]) {
     background-color: hsl(var(--background));
     border-color: rgba(0, 20, 60, 0.25);
@@ -266,8 +272,9 @@
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="submit"]):not([type="button"]):focus,
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="submit"]):not([type="button"]):focus-visible {
     border-color: #003E8C;
+    border-width: 1.5px;
     outline: none;
-    box-shadow: 0 0 0 2px rgba(0, 62, 140, 0.20) !important;
+    box-shadow: none !important;
   }
 }
 

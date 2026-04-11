@@ -180,8 +180,10 @@ export function MarketplaceNav() {
             const active = isActive(link.href);
             return (
               <Link key={link.href} href={link.href}>
-                <div
-                  className="flex items-center gap-2 px-3 cursor-pointer transition-colors"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 rounded-none"
                   style={{
                     height: '56px',
                     color: active ? '#ffffff' : 'rgba(255,255,255,0.45)',
@@ -189,13 +191,14 @@ export function MarketplaceNav() {
                     fontWeight: 600,
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',
+                    borderRadius: 0,
                     borderBottom: active ? '2px solid #006B5F' : '2px solid transparent',
                   }}
                   data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
                 >
                   <link.icon className="h-4 w-4 shrink-0" />
                   {link.label}
-                </div>
+                </Button>
               </Link>
             );
           })}
