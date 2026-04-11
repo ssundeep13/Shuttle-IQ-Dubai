@@ -308,123 +308,107 @@ export default function MyScores() {
         </motion.div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-games">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                  <Target className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.totalGames}</div>
-                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Games Played</div>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <Card className="h-full" data-testid="card-stat-games">
+            <CardContent className="p-4">
+              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
+                <Target className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.totalGames}</div>
+              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Games Played</div>
+            </CardContent>
+          </Card>
 
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-wins">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                  <Trophy className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.totalWins}</div>
-                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Total Wins</div>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <Card className="h-full" data-testid="card-stat-wins">
+            <CardContent className="p-4">
+              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
+                <Trophy className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.totalWins}</div>
+              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Total Wins</div>
+            </CardContent>
+          </Card>
 
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-winrate">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
-                  <TrendingUp className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-                </div>
-                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.winRate}%</div>
-                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Win Rate</div>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-winrate">
+            <CardContent className="p-4">
+              <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
+                <TrendingUp className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+              </div>
+              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.winRate}%</div>
+              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Win Rate</div>
+            </CardContent>
+          </Card>
 
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-streak">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                  <Flame className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{streakDisplay}</div>
-                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Current Streak</div>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <Card className="h-full" data-testid="card-stat-streak">
+            <CardContent className="p-4">
+              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
+                <Flame className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{streakDisplay}</div>
+              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Current Streak</div>
+            </CardContent>
+          </Card>
 
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-rank">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>#{stats.rankBySkillScore}</div>
-                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Skill Rank</div>
-                <div className="text-[10px] text-muted-foreground">of {stats.totalPlayersRanked}</div>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <Card className="h-full" data-testid="card-stat-rank">
+            <CardContent className="p-4">
+              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>#{stats.rankBySkillScore}</div>
+              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Skill Rank</div>
+              <div className="text-[10px] text-muted-foreground">of {stats.totalPlayersRanked}</div>
+            </CardContent>
+          </Card>
 
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-diff">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                  <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>
-                  {stats.avgScoreDifferential > 0 ? '+' : ''}{stats.avgScoreDifferential}
-                </div>
-                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Avg Differential</div>
-                <div className="text-[10px] text-muted-foreground">
-                  {stats.avgPointsFor} for / {stats.avgPointsAgainst} against
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <Card className="h-full" data-testid="card-stat-diff">
+            <CardContent className="p-4">
+              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>
+                {stats.avgScoreDifferential > 0 ? '+' : ''}{stats.avgScoreDifferential}
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Avg Differential</div>
+              <div className="text-[10px] text-muted-foreground">
+                {stats.avgPointsFor} for / {stats.avgPointsAgainst} against
+              </div>
+            </CardContent>
+          </Card>
 
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-beststreak">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
-                  <Zap className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-                </div>
-                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.longestWinStreak}W</div>
-                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Best Streak</div>
-                <div className="text-[10px] text-muted-foreground">Worst: {stats.longestLossStreak}L</div>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-beststreak">
+            <CardContent className="p-4">
+              <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
+                <Zap className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+              </div>
+              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.longestWinStreak}W</div>
+              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Best Streak</div>
+              <div className="text-[10px] text-muted-foreground">Worst: {stats.longestLossStreak}L</div>
+            </CardContent>
+          </Card>
 
-          <motion.div variants={fadeInUp}>
-            <Card className="h-full" data-testid="card-stat-tags-received">
-              <CardContent className="p-4">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                  <TagIcon className="h-4 w-4 text-muted-foreground" />
+          <Card className="h-full" data-testid="card-stat-tags-received">
+            <CardContent className="p-4">
+              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
+                <TagIcon className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="section-overline mb-2">Tags Received</div>
+              {communityTopTags.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground leading-snug">Play games and get tagged by teammates!</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {communityTopTags.map(({ tag, count }) => (
+                    <span
+                      key={tag.id}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
+                      data-testid={`pill-tag-${tag.id}`}
+                    >
+                      {tag.emoji} {tag.label}
+                      <span className="opacity-60">{count}×</span>
+                    </span>
+                  ))}
                 </div>
-                <div className="section-overline mb-2">Tags Received</div>
-                {communityTopTags.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground leading-snug">Play games and get tagged by teammates!</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {communityTopTags.map(({ tag, count }) => (
-                      <span
-                        key={tag.id}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
-                        data-testid={`pill-tag-${tag.id}`}
-                      >
-                        {tag.emoji} {tag.label}
-                        <span className="opacity-60">{count}×</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {allValidGames.length > 0 && (
