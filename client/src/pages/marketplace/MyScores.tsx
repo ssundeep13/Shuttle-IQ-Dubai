@@ -314,8 +314,8 @@ export default function MyScores() {
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <Target className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">{stats.totalGames}</div>
-                <div className="text-xs text-muted-foreground">Games Played</div>
+                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.totalGames}</div>
+                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Games Played</div>
               </CardContent>
             </Card>
           </motion.div>
@@ -326,8 +326,8 @@ export default function MyScores() {
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <Trophy className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">{stats.totalWins}</div>
-                <div className="text-xs text-muted-foreground">Total Wins</div>
+                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.totalWins}</div>
+                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Total Wins</div>
               </CardContent>
             </Card>
           </motion.div>
@@ -338,8 +338,8 @@ export default function MyScores() {
                 <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
                   <TrendingUp className="h-4 w-4 text-teal-600 dark:text-teal-400" />
                 </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">{stats.winRate}%</div>
-                <div className="text-xs text-muted-foreground">Win Rate</div>
+                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.winRate}%</div>
+                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Win Rate</div>
               </CardContent>
             </Card>
           </motion.div>
@@ -350,8 +350,8 @@ export default function MyScores() {
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <Flame className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">{streakDisplay}</div>
-                <div className="text-xs text-muted-foreground">Current Streak</div>
+                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{streakDisplay}</div>
+                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Current Streak</div>
               </CardContent>
             </Card>
           </motion.div>
@@ -362,8 +362,8 @@ export default function MyScores() {
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <BarChart3 className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">#{stats.rankBySkillScore}</div>
-                <div className="text-xs text-muted-foreground">Skill Rank</div>
+                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>#{stats.rankBySkillScore}</div>
+                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Skill Rank</div>
                 <div className="text-[10px] text-muted-foreground">of {stats.totalPlayersRanked}</div>
               </CardContent>
             </Card>
@@ -375,10 +375,10 @@ export default function MyScores() {
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <BarChart3 className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">
+                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>
                   {stats.avgScoreDifferential > 0 ? '+' : ''}{stats.avgScoreDifferential}
                 </div>
-                <div className="text-xs text-muted-foreground">Avg Differential</div>
+                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Avg Differential</div>
                 <div className="text-[10px] text-muted-foreground">
                   {stats.avgPointsFor} for / {stats.avgPointsAgainst} against
                 </div>
@@ -392,8 +392,8 @@ export default function MyScores() {
                 <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
                   <Zap className="h-4 w-4 text-teal-600 dark:text-teal-400" />
                 </div>
-                <div className="text-2xl font-bold text-[#0f2b46] dark:text-foreground">{stats.longestWinStreak}W</div>
-                <div className="text-xs text-muted-foreground">Best Streak</div>
+                <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.longestWinStreak}W</div>
+                <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Best Streak</div>
                 <div className="text-[10px] text-muted-foreground">Worst: {stats.longestLossStreak}L</div>
               </CardContent>
             </Card>
@@ -405,7 +405,7 @@ export default function MyScores() {
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <TagIcon className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Tags Received</div>
+                <div className="section-overline mb-2">Tags Received</div>
                 {communityTopTags.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground leading-snug">Play games and get tagged by teammates!</p>
                 ) : (

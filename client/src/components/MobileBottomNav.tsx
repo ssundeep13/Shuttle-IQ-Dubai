@@ -36,7 +36,8 @@ export function MobileBottomNav() {
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40"
+      style={{ backgroundColor: '#003E8C' }}
       data-testid="mobile-bottom-nav"
     >
       <div className="flex h-16 items-stretch">
@@ -47,13 +48,18 @@ export function MobileBottomNav() {
               key={tab.href}
               href={tab.href}
               className="flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors"
+              style={{
+                borderTop: active ? '2px solid #006B5F' : '2px solid transparent',
+              }}
               data-testid={`tab-${tab.label.toLowerCase().replace(/\s/g, '-')}`}
             >
               <tab.icon
-                className={`h-5 w-5 transition-colors ${active ? 'text-secondary' : 'text-muted-foreground'}`}
+                className="h-5 w-5 transition-colors"
+                style={{ color: active ? '#ffffff' : 'rgba(255,255,255,0.45)' }}
               />
               <span
-                className={`text-[10px] font-medium leading-none transition-colors ${active ? 'text-secondary' : 'text-muted-foreground'}`}
+                className="text-[10px] font-semibold leading-none transition-colors tracking-[0.04em] uppercase"
+                style={{ color: active ? '#ffffff' : 'rgba(255,255,255,0.45)' }}
               >
                 {tab.label}
               </span>

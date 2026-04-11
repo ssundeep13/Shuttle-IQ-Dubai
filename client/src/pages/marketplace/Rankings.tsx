@@ -63,20 +63,40 @@ const stagger = {
 
 const levelColor = (level: string) => {
   switch (level) {
-    case 'Professional': return 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-500/20';
-    case 'Advanced': return 'bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-500/20';
-    case 'upper_intermediate': return 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20';
-    case 'lower_intermediate': return 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20';
-    case 'Intermediate': return 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-500/20';
-    case 'Beginner': return 'bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20';
-    default: return 'bg-gray-500/10 text-gray-700 dark:text-gray-400 border-gray-500/20';
+    case 'Professional':
+      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[#003E8C] text-white border-[#003E8C]';
+    case 'Advanced':
+    case 'upper_intermediate':
+      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(0,62,140,0.10)] text-[#003E8C] border-[rgba(0,62,140,0.20)] dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800';
+    case 'lower_intermediate':
+    case 'Intermediate':
+      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(0,107,95,0.10)] text-[#006B5F] border-[rgba(0,107,95,0.20)] dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800';
+    case 'Beginner':
+      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(180,140,0,0.10)] text-[#7a5c00] border-[rgba(180,140,0,0.20)] dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800';
+    default:
+      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(0,20,60,0.07)] text-[rgba(0,20,60,0.5)] border-[rgba(0,20,60,0.10)] dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700';
   }
 };
 
 const podiumColors = [
-  { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-600 dark:text-yellow-400', medal: 'text-yellow-500' },
-  { bg: 'bg-gray-200/50 dark:bg-gray-700/50', border: 'border-gray-300/50 dark:border-gray-600/50', text: 'text-gray-500 dark:text-gray-400', medal: 'text-gray-400' },
-  { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-600 dark:text-amber-400', medal: 'text-amber-600 dark:text-amber-400' },
+  {
+    borderClass: 'border-2 border-[#006B5F]',
+    text: 'text-[#006B5F]',
+    medal: 'text-[#006B5F]',
+    medalBg: 'bg-[rgba(0,107,95,0.10)]',
+  },
+  {
+    borderClass: 'border border-[rgba(0,20,60,0.10)]',
+    text: 'text-[rgba(0,20,60,0.5)]',
+    medal: 'text-[rgba(0,20,60,0.4)]',
+    medalBg: 'bg-[rgba(0,20,60,0.06)]',
+  },
+  {
+    borderClass: 'border border-[rgba(0,20,60,0.10)]',
+    text: 'text-[rgba(0,20,60,0.5)]',
+    medal: 'text-[rgba(0,20,60,0.4)]',
+    medalBg: 'bg-[rgba(0,20,60,0.06)]',
+  },
 ];
 
 const timeFilters: { value: TimeFilter; label: string; icon: typeof Trophy }[] = [
@@ -323,22 +343,30 @@ export default function Rankings() {
                         <motion.div key={entry.player.id} variants={fadeInUp}>
                           <Link href={`/marketplace/players/${entry.player.id}`}>
                             <Card
-                              className={`text-center border ${colors.border} ${podiumIdx === 0 ? 'md:-mt-4' : ''} hover-elevate cursor-pointer`}
+                              className={`text-center ${colors.borderClass} ${podiumIdx === 0 ? 'md:-mt-4' : ''} hover-elevate cursor-pointer`}
                               data-testid={`card-podium-${entry.player.id}`}
                             >
                               <CardContent className="p-4">
-                                <div className={`w-10 h-10 rounded-full ${colors.bg} flex items-center justify-center mx-auto mb-2`}>
+                                <div className={`w-10 h-10 rounded-full ${colors.medalBg} flex items-center justify-center mx-auto mb-2`}>
                                   <Medal className={`h-5 w-5 ${colors.medal}`} />
                                 </div>
-                                <div className={`text-xs font-bold ${colors.text} mb-1`}>#{rank}</div>
-                                <p className="font-semibold text-sm truncate" data-testid={`text-player-name-${entry.player.id}`}>
+                                <div className={`text-[10px] font-bold tracking-[0.07em] uppercase ${colors.text} mb-1`}>#{rank}</div>
+                                <p
+                                  className="text-[14px] font-bold truncate"
+                                  style={{ color: '#003E8C' }}
+                                  data-testid={`text-player-name-${entry.player.id}`}
+                                >
                                   {entry.player.name}
                                 </p>
-                                <p className="text-2xl font-extrabold mt-1" data-testid={`text-player-score-${entry.player.id}`}>
+                                <p
+                                  className="font-extrabold leading-none mt-1"
+                                  style={{ fontSize: '32px', letterSpacing: '-0.04em', color: '#003E8C' }}
+                                  data-testid={`text-player-score-${entry.player.id}`}
+                                >
                                   {statDisplay}
                                 </p>
-                                <p className="text-[10px] text-muted-foreground -mt-0.5">{entry.primaryLabel}</p>
-                                <Badge variant="outline" className={`text-xs mt-2 ${levelColor(entry.player.level)}`}>
+                                <p className="text-[10px] -mt-0.5" style={{ color: 'rgba(0,20,60,0.5)' }}>{entry.primaryLabel}</p>
+                                <Badge variant="outline" className={`mt-2 ${levelColor(entry.player.level)}`}>
                                   {getTierDisplayName(entry.player.level)}
                                 </Badge>
                                 {(() => {
@@ -351,7 +379,7 @@ export default function Rankings() {
                                     </div>
                                   );
                                 })()}
-                                <p className="text-xs text-muted-foreground mt-1.5">
+                                <p className="text-[12px] mt-1.5" style={{ color: 'rgba(0,20,60,0.5)' }}>
                                   {entry.secondaryLine}
                                 </p>
                               </CardContent>

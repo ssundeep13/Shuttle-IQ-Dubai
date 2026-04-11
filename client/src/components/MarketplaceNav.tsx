@@ -83,7 +83,7 @@ function NotificationBell() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative"
+          className="relative text-white/80 hover:text-white hover:bg-white/10"
           data-testid="button-notifications"
           aria-label="Notifications"
         >
@@ -163,28 +163,42 @@ export function MarketplaceNav() {
   const activeLinks = isAuthenticated ? authNavLinks : navLinks;
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60" data-testid="marketplace-nav">
+    <header
+      className="sticky top-0 z-50"
+      style={{ backgroundColor: '#003E8C' }}
+      data-testid="marketplace-nav"
+    >
       <div className="max-w-6xl mx-auto flex h-14 items-center gap-2 px-4 md:px-6">
         <Link href="/" className="flex items-center gap-2 mr-6 shrink-0" data-testid="link-marketplace-home">
-          <span className="text-xl font-bold tracking-tight">
-            Shuttle<span className="text-secondary">IQ</span>
+          <span className="text-xl font-bold tracking-tight text-white">
+            Shuttle<span style={{ color: '#006B5F' }}>IQ</span>
           </span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1 flex-1">
-          {activeLinks.map((link) => (
-            <Link key={link.href} href={link.href}>
-              <Button
-                variant={isActive(link.href) ? 'secondary' : 'ghost'}
-                size="sm"
-                className={`gap-2 ${isActive(link.href) ? 'font-semibold' : 'text-muted-foreground'}`}
-                data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
-              >
-                <link.icon className="h-4 w-4" />
-                {link.label}
-              </Button>
-            </Link>
-          ))}
+        <nav className="hidden md:flex items-center flex-1">
+          {activeLinks.map((link) => {
+            const active = isActive(link.href);
+            return (
+              <Link key={link.href} href={link.href}>
+                <div
+                  className="flex items-center gap-2 px-3 cursor-pointer transition-colors"
+                  style={{
+                    height: '56px',
+                    color: active ? '#ffffff' : 'rgba(255,255,255,0.45)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    borderBottom: active ? '2px solid #006B5F' : '2px solid transparent',
+                  }}
+                  data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
+                >
+                  <link.icon className="h-4 w-4 shrink-0" />
+                  {link.label}
+                </div>
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="hidden md:flex items-center gap-2 ml-auto">
@@ -193,9 +207,14 @@ export function MarketplaceNav() {
               <NotificationBell />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="gap-2" data-testid="button-user-menu">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-2 text-white/90 hover:text-white hover:bg-white/10"
+                    data-testid="button-user-menu"
+                  >
                     <Avatar className="h-7 w-7">
-                      <AvatarFallback className="text-xs bg-secondary text-secondary-foreground font-semibold">
+                      <AvatarFallback className="text-xs font-semibold" style={{ backgroundColor: '#006B5F', color: '#ffffff' }}>
                         {getInitials(user?.name)}
                       </AvatarFallback>
                     </Avatar>
@@ -222,10 +241,24 @@ export function MarketplaceNav() {
           ) : (
             <>
               <Link href="/marketplace/login">
-                <Button variant="ghost" size="sm" data-testid="button-login">Log In</Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/80 hover:text-white hover:bg-white/10"
+                  data-testid="button-login"
+                >
+                  Log In
+                </Button>
               </Link>
               <Link href="/marketplace/signup">
-                <Button size="sm" data-testid="button-signup">Sign Up</Button>
+                <Button
+                  size="sm"
+                  className="font-semibold"
+                  style={{ backgroundColor: '#006B5F', color: '#ffffff', borderColor: '#006B5F' }}
+                  data-testid="button-signup"
+                >
+                  Sign Up
+                </Button>
               </Link>
             </>
           )}
