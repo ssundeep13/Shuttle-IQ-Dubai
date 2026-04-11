@@ -479,7 +479,7 @@ export default function Dashboard() {
                         <Calendar className="h-5 w-5 text-secondary" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium">No upcoming sessions booked</p>
+                        <p className="text-sm font-medium text-muted-foreground">No upcoming sessions booked</p>
                         {nextAvailableSession && (
                           <p className="text-xs text-muted-foreground mt-1">
                             Next up: <span className="font-semibold text-secondary">{nextAvailableSession.venueName}</span>
