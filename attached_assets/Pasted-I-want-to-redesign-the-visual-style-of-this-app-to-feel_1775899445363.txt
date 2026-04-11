@@ -1,0 +1,86 @@
+I want to redesign the visual style of this app to feel like a premium sports app (think Strava, Whoop, or ESPN) while keeping the existing ShuttleIQ brand colours. Do not change any functionality, routing, data, or component logic. Only change CSS/styling. Here are the specific changes to make:
+1. Fix the colour tokens / global CSS variables
+Find where Tailwind or the global stylesheet defines text colours and replace:
+
+All secondary/muted text → rgba(0, 20, 60, 0.50) (this is our "ink-50" token — a dark navy at 50% opacity, NOT the current amber/gold colour)
+All tertiary/hint text → rgba(0, 20, 60, 0.25)
+Page/app background → #F5EFE0 (Warm Cream — not white, not grey)
+Primary brand colour → #003E8C (Deep Navy)
+Secondary/accent colour → #006B5F (Teal)
+
+2. Fix form inputs (login page and any other forms)
+
+Input background: #F5EFE0 (Warm Cream) — remove the current blue-grey fill
+Input border: 1px solid rgba(0, 20, 60, 0.25) at rest
+Input border on focus: 1.5px solid #003E8C
+Input border-radius: 6px
+Input text colour: rgba(0, 20, 60, 1)
+Remove any box-shadow on inputs except focus ring
+
+3. Make stat numbers much larger (sport-app style)
+On the My Scores / profile page, find all the large metric numbers (games played, total wins, win rate, current streak, skill rank, avg differential, best streak). Change them to:
+
+font-size: 48px (or 3rem)
+font-weight: 800
+letter-spacing: -0.04em
+color: #003E8C
+line-height: 1
+The stat label below each number stays small — 11px, rgba(0,20,60,0.5), weight 400.
+
+4. Fix all heading typography
+Every h1, h2, h3 and any element with font-weight 700 or 800:
+
+letter-spacing: -0.03em (tighten tracking — this is what makes Inter feel premium)
+line-height: 1.1
+Do NOT change font-size or font-weight, just the tracking and line-height.
+
+5. Fix section label / overline text
+Find any small ALL-CAPS or uppercase label text used as section headers (e.g. "Rankings", "Skill Score Progression", "Tags Received"). Apply:
+
+font-size: 10px
+font-weight: 700
+letter-spacing: 0.12em
+text-transform: uppercase
+color: #006B5F (Teal)
+
+6. Fix tier / skill level badge colours on Rankings page
+The "Advanced", "Intermediate", "Competitive" etc. badges currently render in purple — that colour is not in our brand. Remap as follows:
+
+Professional → background #003E8C, text #ffffff
+Competitive → background rgba(0,62,140,0.10), text #003E8C
+Intermediate → background rgba(0,107,95,0.10), text #006B5F
+Beginner → background rgba(180,140,0,0.10), text #7a5c00
+Novice → background rgba(0,20,60,0.07), text rgba(0,20,60,0.5)
+All badges: font-size 10px, font-weight 700, letter-spacing 0.07em, text-transform uppercase, border-radius 4px, padding 3px 8px
+
+7. Fix the nav bar
+
+Background: #003E8C
+All nav link text (inactive): rgba(255,255,255,0.45), font-size 12px, font-weight 600, letter-spacing 0.06em, uppercase
+Active nav link: rgba(255,255,255,1) with a 2px solid #006B5F bottom border
+The wordmark "Shuttle" = white, "IQ" = #006B5F — enforce this if it's not already correct
+
+8. Card / surface styling
+All white card surfaces:
+
+background: #ffffff
+border: 0.5px solid rgba(0,20,60,0.10)
+border-radius: 12px
+No box-shadow (remove any drop shadows on cards)
+The page background behind cards: #F5EFE0 (Warm Cream)
+
+9. Button styles
+
+Primary button: background #003E8C, text #ffffff, border-radius 6px, font-weight 600, font-size 13px, no box-shadow
+Secondary button: background transparent, border 1.5px solid #003E8C, text #003E8C, same radius/weight
+Teal CTA button: background #006B5F, text #ffffff, same radius/weight
+All buttons: remove any default Tailwind ring or shadow on focus, replace with outline: 2px solid #003E8C; outline-offset: 2px
+
+10. Rankings podium (top 3 players)
+The #1 / #2 / #3 podium cards currently have very low contrast against the cream background. Fix:
+
+All three podium cards: background #ffffff, border 0.5px solid rgba(0,20,60,0.10), border-radius 12px
+#1 card: add a 2px solid #006B5F border (teal accent for first place)
+Skill score number inside podium cards: font-size 32px, font-weight 800, letter-spacing -0.04em, color #003E8C
+Player name: font-size 14px, font-weight 700, color #003E8C
+Win rate / record line: font-size 12px, color rgba(0,20,60,0.5)
