@@ -11,7 +11,7 @@ import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRigh
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry, TagSuggestion } from '@shared/schema';
+import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry, TagSuggestion, BookableSessionWithAvailability } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import TagTrendingModal from '@/components/TagTrendingModal';
 
@@ -201,6 +201,11 @@ export default function Dashboard() {
     enabled: !!linkedPlayerId,
   });
 
+  const { data: availableSessions = [] } = useQuery<BookableSessionWithAvailability[]>({
+    queryKey: ['/api/marketplace/sessions'],
+    staleTime: 60_000,
+  });
+
   const { data: trending = [], isLoading: trendingLoading } = useQuery<TrendingTag[]>({
     queryKey: ['/api/tags/trending'],
     staleTime: Infinity,
@@ -275,6 +280,12 @@ export default function Dashboard() {
     .filter(b => b.status === 'confirmed' && new Date(b.session.date) >= new Date())
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const nextAvailableSession = availableSessions
+    .filter(s => s.status === 'upcoming' && new Date(s.date) >= todayStart)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0] ?? null;
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -463,11 +474,22 @@ export default function Dashboard() {
                       </Badge>
                     </div>
                   ) : (
-                    <div className="text-center py-4">
-                      <p className="text-sm text-muted-foreground mb-3">No upcoming sessions booked</p>
+                    <div className="flex flex-col items-center text-center py-5 gap-3" data-testid="empty-next-session">
+                      <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center">
+                        <Calendar className="h-5 w-5 text-secondary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">No upcoming sessions booked</p>
+                        {nextAvailableSession && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Next up: <span className="font-semibold text-secondary">{nextAvailableSession.venueName}</span>
+                            {' · '}{format(new Date(nextAvailableSession.date), 'EEE, MMM d')}
+                          </p>
+                        )}
+                      </div>
                       <Link href="/marketplace/book">
-                        <Button size="sm" variant="outline" className="gap-1" data-testid="button-browse-from-dashboard">
-                          Browse Sessions <ArrowRight className="h-3.5 w-3.5" />
+                        <Button size="sm" variant="default" className="gap-1.5" data-testid="button-book-session-cta">
+                          Book a session <ArrowRight className="h-3.5 w-3.5" />
                         </Button>
                       </Link>
                     </div>
