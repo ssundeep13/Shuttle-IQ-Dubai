@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRoute, Link } from 'wouter';
 import { format } from 'date-fns';
+import DOMPurify from 'dompurify';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,8 +13,13 @@ import { renderMarkdown } from '@/lib/renderMarkdown';
 import type { BlogPost as BlogPostType } from '@shared/schema';
 
 function estimateReadTime(content: string): number {
-  const words = content.trim().split(/\s+/).length;
+  const plainText = content.replace(/<[^>]*>/g, ' ');
+  const words = plainText.trim().split(/\s+/).length;
   return Math.max(1, Math.ceil(words / 200));
+}
+
+function isHtmlContent(content: string): boolean {
+  return /^<[a-z][\s\S]*>/i.test(content.trim());
 }
 
 export default function BlogPost() {
@@ -130,8 +136,15 @@ export default function BlogPost() {
         )}
 
         <div
-          className="prose prose-sm md:prose-base max-w-none text-foreground"
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(post.content) }}
+          className="blog-content max-w-none"
+          dangerouslySetInnerHTML={{
+            __html: DOMPurify.sanitize(
+              isHtmlContent(post.content)
+                ? post.content
+                : renderMarkdown(post.content),
+              { ADD_ATTR: ['target', 'rel'] }
+            ),
+          }}
           data-testid="div-post-content"
         />
       </article>

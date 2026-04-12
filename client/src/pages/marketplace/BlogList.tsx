@@ -9,7 +9,8 @@ import { usePageTitle } from '@/hooks/usePageTitle';
 import type { BlogPost } from '@shared/schema';
 
 function estimateReadTime(content: string): number {
-  const words = content.trim().split(/\s+/).length;
+  const plainText = content.replace(/<[^>]*>/g, ' ');
+  const words = plainText.trim().split(/\s+/).length;
   return Math.max(1, Math.ceil(words / 200));
 }
 

@@ -35,8 +35,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails, TagSuggestionWithVote } from '@shared/schema';
-import { UserCheck, FileText, EyeOff } from 'lucide-react';
-import { renderMarkdown } from '@/lib/renderMarkdown';
+import { UserCheck, FileText } from 'lucide-react';
+import BlogEditor from '@/components/BlogEditor';
 import type { BlogPost } from '@shared/schema';
 
 interface MarketplaceUserWithLinkedPlayer extends MarketplaceUser {
@@ -2183,7 +2183,6 @@ function BlogPanel() {
   const [formAuthorName, setFormAuthorName] = useState('ShuttleIQ');
   const [formStatus, setFormStatus] = useState<'draft' | 'published'>('draft');
   const [deleteTarget, setDeleteTarget] = useState<BlogPost | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
 
   const { data: posts, isLoading } = useQuery<BlogPost[]>({
@@ -2240,7 +2239,6 @@ function BlogPanel() {
     setFormFeaturedImage('');
     setFormAuthorName('ShuttleIQ');
     setFormStatus('draft');
-    setShowPreview(false);
   }
 
   async function handleImageUpload(file: File) {
@@ -2364,35 +2362,11 @@ function BlogPanel() {
                 />
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="text-sm font-medium">Content (Markdown)</label>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    onClick={() => setShowPreview(!showPreview)}
-                    data-testid="button-toggle-preview"
-                  >
-                    {showPreview ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    {showPreview ? 'Edit' : 'Preview'}
-                  </Button>
-                </div>
-                {showPreview ? (
-                  <div
-                    className="min-h-[200px] rounded-md border p-4 prose prose-sm max-w-none text-foreground"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(formContent) }}
-                    data-testid="div-blog-preview"
-                  />
-                ) : (
-                  <Textarea
-                    value={formContent}
-                    onChange={(e) => setFormContent(e.target.value)}
-                    placeholder="Write your post in Markdown..."
-                    rows={12}
-                    className="font-mono text-sm"
-                    data-testid="input-blog-content"
-                  />
-                )}
+                <label className="text-sm font-medium">Content</label>
+                <BlogEditor
+                  content={formContent}
+                  onChange={setFormContent}
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
