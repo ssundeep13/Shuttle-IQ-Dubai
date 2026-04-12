@@ -86,22 +86,6 @@ export function SchedulePost() {
             Shuttle<span style={{ color: TEAL }}>IQ</span>
           </span>
 
-          {/* "NEXT WEEK" badge */}
-          <div
-            style={{
-              background: TEAL,
-              color: "#ffffff",
-              fontSize: "2.1vw",
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              textTransform: "uppercase",
-              padding: "1vw 2.4vw",
-              borderRadius: "99px",
-              lineHeight: 1,
-            }}
-          >
-            Next Week
-          </div>
         </div>
 
         {/* Middle spacer */}
