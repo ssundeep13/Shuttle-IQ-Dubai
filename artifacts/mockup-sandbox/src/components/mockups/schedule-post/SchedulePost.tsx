@@ -35,13 +35,13 @@ export function SchedulePost() {
         }}
       />
 
-      {/* Gradient overlay */}
+      {/* Gradient overlay — stronger bottom for readability */}
       <div
         style={{
           position: "absolute",
           inset: 0,
           background:
-            "linear-gradient(to bottom, rgba(0,5,20,0.38) 0%, rgba(0,5,20,0.50) 30%, rgba(0,5,20,0.82) 58%, rgba(0,5,20,0.97) 100%)",
+            "linear-gradient(to bottom, rgba(0,5,20,0.30) 0%, rgba(0,5,20,0.42) 25%, rgba(0,5,20,0.78) 50%, rgba(0,5,20,0.96) 75%, rgba(0,5,20,0.99) 100%)",
         }}
       />
 
@@ -65,7 +65,7 @@ export function SchedulePost() {
           padding: "5.5vw",
         }}
       >
-        {/* Top row: logo + badge */}
+        {/* Top row: logo */}
         <div
           style={{
             display: "flex",
@@ -73,7 +73,6 @@ export function SchedulePost() {
             alignItems: "flex-start",
           }}
         >
-          {/* Logo — wordmark only */}
           <span
             style={{
               fontSize: "4.4vw",
@@ -85,7 +84,52 @@ export function SchedulePost() {
           >
             Shuttle<span style={{ color: TEAL }}>IQ</span>
           </span>
+        </div>
 
+        {/* Hook headline — scroll-stopping text */}
+        <div
+          style={{
+            marginTop: "5vw",
+            display: "flex",
+            flexDirection: "column",
+            gap: "1.5vw",
+          }}
+        >
+          <span
+            style={{
+              fontSize: "6.8vw",
+              fontWeight: 800,
+              color: "#ffffff",
+              lineHeight: 1.1,
+              letterSpacing: "-0.02em",
+            }}
+          >
+            This Week's
+          </span>
+          <span
+            style={{
+              fontSize: "6.8vw",
+              fontWeight: 800,
+              color: TEAL_ACCENT,
+              lineHeight: 1.1,
+              letterSpacing: "-0.02em",
+            }}
+          >
+            Sessions Are Live
+          </span>
+        </div>
+
+        {/* Value prop — social proof + scarcity */}
+        <div
+          style={{
+            marginTop: "2.5vw",
+            fontSize: "2.8vw",
+            fontWeight: 400,
+            color: "rgba(255,255,255,0.65)",
+            lineHeight: 1.5,
+          }}
+        >
+          4 sessions · Limited spots · AED 50 per session
         </div>
 
         {/* Middle spacer */}
@@ -93,21 +137,7 @@ export function SchedulePost() {
 
         {/* Bottom section */}
         <div>
-          {/* Section label */}
-          <div
-            style={{
-              fontSize: "2.3vw",
-              fontWeight: 700,
-              letterSpacing: "0.22em",
-              textTransform: "uppercase",
-              color: TEAL_ACCENT,
-              marginBottom: "2.2vw",
-            }}
-          >
-            Game Schedule
-          </div>
-
-          {/* Schedule rows — single line each */}
+          {/* Schedule rows */}
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             {schedule.map((item, i) => (
               <div key={i}>
@@ -198,36 +228,44 @@ export function SchedulePost() {
             ))}
           </div>
 
-          {/* Bottom: centered wordmark + fine print */}
+          {/* CTA button */}
           <div
             style={{
-              marginTop: "3.5vw",
+              marginTop: "4vw",
               display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "0.7vw",
+              justifyContent: "center",
             }}
           >
-            <span
+            <div
               style={{
-                fontSize: "2.1vw",
+                background: TEAL,
+                color: "#ffffff",
+                fontSize: "3.2vw",
                 fontWeight: 700,
-                color: "rgba(255,255,255,0.38)",
-                letterSpacing: "0.08em",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                padding: "2.2vw 8vw",
+                borderRadius: "99px",
+                lineHeight: 1,
+                textAlign: "center",
               }}
             >
-              Shuttle<span style={{ color: `rgba(0,107,95,0.6)` }}>IQ</span>
-            </span>
-            <span
-              style={{
-                fontSize: "1.7vw",
-                fontWeight: 400,
-                color: "rgba(255,255,255,0.28)",
-                letterSpacing: "0.04em",
-              }}
-            >
-              shuttleiq.org · Book your spot
-            </span>
+              Book Now — shuttleiq.org
+            </div>
+          </div>
+
+          {/* Urgency line */}
+          <div
+            style={{
+              marginTop: "2vw",
+              textAlign: "center",
+              fontSize: "2vw",
+              fontWeight: 500,
+              color: "rgba(255,255,255,0.40)",
+              letterSpacing: "0.04em",
+            }}
+          >
+            Spots fill fast — don't miss out
           </div>
         </div>
       </div>
