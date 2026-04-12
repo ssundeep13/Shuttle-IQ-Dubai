@@ -71,7 +71,7 @@ export function FeaturesPost() {
     <div
       style={{
         width: "100vw",
-        height: "100vh",
+        height: "125vw",
         overflow: "hidden",
         position: "relative",
         background: NAVY,
