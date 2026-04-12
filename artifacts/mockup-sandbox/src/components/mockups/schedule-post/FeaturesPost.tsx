@@ -7,91 +7,35 @@ export function FeaturesPost() {
   const CARD_BG = "#0d2440";
   const CARD_BORDER = "rgba(78,205,196,0.15)";
 
-  const PodiumCard = ({ rank, name, score, tier, tierColor, borderColor, medalColor, isCenter }: {
-    rank: number; name: string; score: number; tier: string; tierColor: string; borderColor: string; medalColor: string; isCenter?: boolean;
+  const StatCard = ({ value, label, icon, accent }: {
+    value: string; label: string; icon: React.ReactNode; accent?: boolean;
   }) => (
     <div style={{
-      background: CARD_BG,
-      border: `${isCenter ? "2px" : "1px"} solid ${borderColor}`,
-      borderRadius: "2.2vw",
-      padding: isCenter ? "2.5vw 1.5vw 2vw" : "2vw 1.2vw 1.5vw",
-      textAlign: "center" as const,
-      flex: 1,
-      marginTop: isCenter ? "-1.5vw" : 0,
-      position: "relative" as const,
+      background: accent ? "rgba(78,205,196,0.08)" : CARD_BG,
+      border: `1px solid ${accent ? "rgba(78,205,196,0.25)" : CARD_BORDER}`,
+      borderRadius: "1.8vw",
+      padding: "1.8vw 2vw",
+      display: "flex",
+      flexDirection: "column" as const,
     }}>
       <div style={{
-        width: isCenter ? "6vw" : "5vw",
-        height: isCenter ? "6vw" : "5vw",
-        borderRadius: "50%",
-        background: `${medalColor}18`,
+        width: "4vw",
+        height: "4vw",
+        borderRadius: "1vw",
+        background: accent ? "rgba(78,205,196,0.15)" : "rgba(255,255,255,0.06)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        margin: "0 auto 1vw",
+        marginBottom: "1.2vw",
       }}>
-        <svg width={isCenter ? "3.2vw" : "2.5vw"} height={isCenter ? "3.2vw" : "2.5vw"} viewBox="0 0 24 24" fill="none" stroke={medalColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M7.21 15 2.66 7.14a2 2 0 0 1 .13-2.2L4.4 2.8A2 2 0 0 1 6 2h12a2 2 0 0 1 1.6.8l1.6 2.14a2 2 0 0 1 .14 2.2L16.79 15" />
-          <path d="M11 12 5.12 2.2" /><path d="m13 12 5.88-9.8" />
-          <path d="M8 7h8" /><circle cx="12" cy="17" r="5" />
-          <path d="M12 18v-2h-.5" />
-        </svg>
+        {icon}
       </div>
-      <div style={{ fontSize: "1.8vw", fontWeight: 800, color: medalColor, letterSpacing: "0.05em", textTransform: "uppercase" as const }}>
-        #{rank}
+      <div style={{ fontSize: "4.5vw", fontWeight: 900, color: WHITE, letterSpacing: "-0.04em", lineHeight: 1 }}>
+        {value}
       </div>
-      <div style={{ fontSize: "2.4vw", fontWeight: 700, color: WHITE, marginTop: "0.5vw", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
-        {name}
+      <div style={{ fontSize: "1.5vw", color: DIM, marginTop: "0.4vw", fontWeight: 400 }}>
+        {label}
       </div>
-      <div style={{ fontSize: isCenter ? "5.5vw" : "4.5vw", fontWeight: 900, color: WHITE, letterSpacing: "-0.04em", lineHeight: 1.1, marginTop: "0.3vw" }}>
-        {score}
-      </div>
-      <div style={{ fontSize: "1.6vw", color: DIM, marginTop: "0.2vw" }}>pts</div>
-      <div style={{
-        display: "inline-block",
-        marginTop: "1vw",
-        padding: "0.4vw 1.5vw",
-        borderRadius: "1vw",
-        fontSize: "1.6vw",
-        fontWeight: 700,
-        color: tierColor,
-        background: `${tierColor}15`,
-        border: `1px solid ${tierColor}30`,
-        letterSpacing: "0.04em",
-        textTransform: "uppercase" as const,
-      }}>
-        {tier}
-      </div>
-    </div>
-  );
-
-  const LeaderboardRow = ({ rank, name, score, tier, tierColor }: {
-    rank: number; name: string; score: number; tier: string; tierColor: string;
-  }) => (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      gap: "1.8vw",
-      padding: "1.5vw 2.5vw",
-      borderBottom: `1px solid ${CARD_BORDER}`,
-    }}>
-      <span style={{ fontSize: "2.2vw", fontWeight: 600, color: DIM, width: "3vw", textAlign: "center" as const }}>{rank}</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: "2.3vw", fontWeight: 600, color: WHITE, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</div>
-        <span style={{
-          fontSize: "1.5vw",
-          fontWeight: 700,
-          color: tierColor,
-          background: `${tierColor}15`,
-          border: `1px solid ${tierColor}30`,
-          padding: "0.2vw 1vw",
-          borderRadius: "0.8vw",
-          letterSpacing: "0.03em",
-          textTransform: "uppercase" as const,
-        }}>{tier}</span>
-      </div>
-      <span style={{ fontSize: "2.8vw", fontWeight: 800, color: WHITE }}>{score}</span>
-      <span style={{ fontSize: "1.5vw", color: DIM }}>pts</span>
     </div>
   );
 
@@ -244,46 +188,138 @@ export function FeaturesPost() {
                 alignItems: "center",
                 justifyContent: "center",
                 gap: "1.2vw",
-                padding: "2vw 3vw 1.5vw",
+                padding: "2vw 3vw 1vw",
               }}>
-                <svg width="3vw" height="3vw" viewBox="0 0 24 24" fill="none" stroke={TEAL_ACCENT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
-                  <path d="M4 22h16" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+                <svg width="2.5vw" height="2.5vw" viewBox="0 0 24 24" fill="none" stroke={TEAL_ACCENT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" />
                 </svg>
-                <span style={{ fontSize: "2.8vw", fontWeight: 800, color: WHITE }}>Rankings</span>
+                <span style={{ fontSize: "2.5vw", fontWeight: 800, color: WHITE }}>My Scores</span>
               </div>
 
               <div style={{
+                margin: "0 2.5vw",
+                borderRadius: "2vw",
+                padding: "2vw 2.5vw",
+                background: "linear-gradient(135deg, #0f2b46 0%, #163a5f 50%, #1a4a6e 100%)",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
-                gap: "1vw",
-                padding: "0 3vw 1.5vw",
+                gap: "2vw",
               }}>
-                {["All Time", "Month", "Week"].map((t, i) => (
-                  <div key={t} style={{
-                    padding: "0.6vw 2vw",
-                    borderRadius: "1vw",
-                    fontSize: "1.8vw",
-                    fontWeight: 700,
-                    background: i === 0 ? TEAL : "transparent",
-                    color: i === 0 ? WHITE : DIM,
-                    border: i === 0 ? "none" : `1px solid rgba(255,255,255,0.1)`,
-                  }}>{t}</div>
-                ))}
+                <div style={{
+                  width: "7vw",
+                  height: "7vw",
+                  borderRadius: "50%",
+                  background: "rgba(255,255,255,0.15)",
+                  border: "1.5px solid rgba(255,255,255,0.25)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "3vw",
+                  fontWeight: 700,
+                  color: WHITE,
+                  flexShrink: 0,
+                }}>N</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "2.8vw", fontWeight: 800, color: WHITE }}>Nikhil R.</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "1vw", marginTop: "0.4vw", flexWrap: "wrap" as const }}>
+                    <span style={{
+                      background: "rgba(0,107,95,0.7)",
+                      color: WHITE,
+                      padding: "0.3vw 1.2vw",
+                      borderRadius: "0.6vw",
+                      fontSize: "1.5vw",
+                      fontWeight: 700,
+                    }}>SIQ-00229</span>
+                    <span style={{ fontSize: "1.6vw", color: "rgba(255,255,255,0.6)" }}>M · Professional (168)</span>
+                  </div>
+                  <div style={{ marginTop: "0.6vw" }}>
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.5vw",
+                      fontSize: "1.4vw",
+                      padding: "0.3vw 1.2vw",
+                      borderRadius: "100px",
+                      background: "rgba(34,197,94,0.15)",
+                      color: "#4ade80",
+                    }}>
+                      <svg width="1.4vw" height="1.4vw" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>
+                      Rising (72% recent)
+                    </span>
+                  </div>
+                </div>
+                <div style={{
+                  width: "9vw",
+                  height: "9vw",
+                  borderRadius: "50%",
+                  background: TEAL,
+                  border: `1.5px solid ${TEAL_ACCENT}`,
+                  display: "flex",
+                  flexDirection: "column" as const,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}>
+                  <span style={{ fontSize: "3.2vw", fontWeight: 800, color: WHITE, lineHeight: 1 }}>168</span>
+                  <span style={{ fontSize: "1.2vw", color: "rgba(153,246,228,0.8)" }}>pts</span>
+                </div>
               </div>
 
-              <div style={{ display: "flex", gap: "1.5vw", padding: "0 2.5vw", alignItems: "flex-end" }}>
-                <PodiumCard rank={2} name="Sarah K." score={142} tier="Advanced" tierColor="#6B8FD4" borderColor="rgba(255,255,255,0.08)" medalColor="rgba(255,255,255,0.4)" />
-                <PodiumCard rank={1} name="Nikhil R." score={168} tier="Pro" tierColor={TEAL_ACCENT} borderColor={TEAL} medalColor={TEAL_ACCENT} isCenter />
-                <PodiumCard rank={3} name="Arjun M." score={131} tier="Competitive" tierColor="#D4A56B" borderColor="rgba(255,255,255,0.08)" medalColor="rgba(255,255,255,0.4)" />
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "1.5vw",
+                padding: "2vw 2.5vw 0",
+              }}>
+                <StatCard
+                  value="47"
+                  label="Games Played"
+                  icon={<svg width="2vw" height="2vw" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="22" x2="18" y1="12" y2="12" /><line x1="6" x2="2" y1="12" y2="12" /><line x1="12" x2="12" y1="6" y2="2" /><line x1="12" x2="12" y1="22" y2="18" /></svg>}
+                />
+                <StatCard
+                  value="31"
+                  label="Total Wins"
+                  icon={<svg width="2vw" height="2vw" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" /><path d="M4 22h16" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" /></svg>}
+                />
+                <StatCard
+                  value="66%"
+                  label="Win Rate"
+                  accent
+                  icon={<svg width="2vw" height="2vw" viewBox="0 0 24 24" fill="none" stroke={TEAL_ACCENT} strokeWidth="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>}
+                />
+                <StatCard
+                  value="#3"
+                  label="Skill Rank"
+                  icon={<svg width="2vw" height="2vw" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2"><line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" /></svg>}
+                />
               </div>
 
-              <div style={{ flex: 1, marginTop: "1.5vw", overflow: "hidden" }}>
-                <LeaderboardRow rank={4} name="Aditya K." score={128} tier="Advanced" tierColor="#6B8FD4" />
-                <LeaderboardRow rank={5} name="Sneha P." score={119} tier="Competitive" tierColor="#D4A56B" />
-                <LeaderboardRow rank={6} name="Hamza T." score={115} tier="Intermediate" tierColor={TEAL} />
-                <LeaderboardRow rank={7} name="Rizwan A." score={108} tier="Intermediate" tierColor={TEAL} />
+              <div style={{
+                margin: "2vw 2.5vw 0",
+                background: CARD_BG,
+                border: `1px solid ${CARD_BORDER}`,
+                borderRadius: "1.8vw",
+                padding: "2vw 2.5vw",
+              }}>
+                <div style={{ fontSize: "1.8vw", fontWeight: 700, color: WHITE, marginBottom: "1.5vw" }}>Skill Progression</div>
+                <svg width="100%" height="12vw" viewBox="0 0 200 50" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={TEAL_ACCENT} stopOpacity="0.3" />
+                      <stop offset="100%" stopColor={TEAL_ACCENT} stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <path d="M0 40 Q20 38 40 35 T80 28 T120 22 T160 18 T200 10" fill="none" stroke={TEAL_ACCENT} strokeWidth="1.5" />
+                  <path d="M0 40 Q20 38 40 35 T80 28 T120 22 T160 18 T200 10 L200 50 L0 50 Z" fill="url(#chartGrad)" />
+                  {[[0,40],[40,35],[80,28],[120,22],[160,18],[200,10]].map(([cx,cy], i) => (
+                    <circle key={i} cx={cx} cy={cy} r="2.5" fill={i % 3 === 0 ? "#4ade80" : TEAL_ACCENT} stroke="#0a1e35" strokeWidth="1" />
+                  ))}
+                </svg>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.8vw" }}>
+                  {["Mar", "Apr", "May", "Jun", "Jul", "Aug"].map(m => (
+                    <span key={m} style={{ fontSize: "1.2vw", color: DIM }}>{m}</span>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -306,14 +342,13 @@ export function FeaturesPost() {
             marginBottom: "0.5vw",
           }}>
             <svg width="3vw" height="3vw" viewBox="0 0 24 24" fill="none" stroke={TEAL_ACCENT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
-              <path d="M4 22h16" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+              <line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" />
             </svg>
             <span style={{ fontSize: "3vw", fontWeight: 800, color: WHITE, letterSpacing: "-0.01em" }}>
-              Live Rankings
+              Your Player Profile
             </span>
             <span style={{ fontSize: "2.2vw", color: DIM }}>
-              — ELO skill ratings updated every match
+              — stats, rankings & skill progression
             </span>
           </div>
 
