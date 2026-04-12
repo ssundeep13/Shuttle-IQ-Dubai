@@ -20,13 +20,13 @@ export function renderMarkdown(content: string): string {
   html = html.replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-8 mb-4">$1</h1>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, url: string) => {
+    const safeUrl = sanitizeUrl(url);
+    return safeUrl ? `<img src="${safeUrl}" alt="${escapeHtml(alt)}" class="rounded-md my-4 max-w-full" />` : '';
+  });
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text: string, url: string) => {
     const safeUrl = sanitizeUrl(url);
     return safeUrl ? `<a href="${safeUrl}" class="text-secondary underline hover:text-secondary/80" target="_blank" rel="noopener noreferrer">${text}</a>` : text;
-  });
-  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt: string, url: string) => {
-    const safeUrl = sanitizeUrl(url);
-    return safeUrl ? `<img src="${safeUrl}" alt="${alt}" class="rounded-md my-4 max-w-full" />` : '';
   });
   html = html.replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>');
   html = html.replace(/(<li[^>]*>.*<\/li>\n?)+/g, (match) => `<ul class="my-3 space-y-1">${match}</ul>`);
