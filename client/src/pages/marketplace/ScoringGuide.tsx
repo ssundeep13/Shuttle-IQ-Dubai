@@ -159,7 +159,7 @@ export default function ScoringGuide() {
             <SectionHeading label="01 — Skill Tiers" title="Your Skill Score & Tier" subtitle="Every player has a score between 10 and 200 that determines their tier." />
           </motion.div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
             {TIERS.map((tier) => (
               <motion.div key={tier.name} variants={fadeInUp}>
                 <Card className={`h-full border ${tier.color}`}>
@@ -271,8 +271,8 @@ export default function ScoringGuide() {
                   </Card>
                   <div className="mt-4 space-y-0">
                     <InfoRow label="Equal partners" value="× 1.00" />
-                    <InfoRow label="You are the dominant partner" value="× ~1.30" highlight />
-                    <InfoRow label="You are the weaker partner" value="× ~0.70" />
+                    <InfoRow label="You are the dominant partner" value="up to × 1.27" highlight />
+                    <InfoRow label="You are the weaker partner" value="down to × 0.73" />
                     <InfoRow label="Partner unknown" value="× 1.00" />
                   </div>
                 </CardContent>
@@ -312,7 +312,8 @@ export default function ScoringGuide() {
                 <p className="text-sm font-semibold mb-2">Tier Boundary Protection</p>
                 <ul className="space-y-2">
                   <BulletItem>A <strong>win</strong> cannot push you across a tier boundary unless your opponent was already in that higher tier.</BulletItem>
-                  <BulletItem>A <strong>loss</strong> cannot drop you below your current tier's floor unless the opponent was in the same or lower tier.</BulletItem>
+                  <BulletItem>A <strong>loss</strong> cannot drop you below your current tier's floor when the opponent is in the same tier or higher — you can only drop tiers by losing to someone ranked <em>below</em> you.</BulletItem>
+                  <BulletItem>Your displayed tier only officially changes after your score has been in the new tier for <strong>3 consecutive games</strong> (tier buffer).</BulletItem>
                 </ul>
               </CardContent>
             </Card>
@@ -410,10 +411,11 @@ export default function ScoringGuide() {
                     <CardContent className="p-3">
                       <p className="font-mono text-xs leading-relaxed">
                         priority =<br />
-                        &nbsp;&nbsp;(queue_position × 100)<br />
+                        &nbsp;&nbsp;(queue_position × 25)<br />
                         &nbsp;&nbsp;+ (consec_games × 10)&nbsp;&nbsp;← if needs rest<br />
                         &nbsp;&nbsp;+ (total_games × 0.1)&nbsp;&nbsp;&nbsp;← minor tiebreaker<br />
-                        &nbsp;&nbsp;− (games_waited × 18)&nbsp;&nbsp;← waiting bonus
+                        &nbsp;&nbsp;− (games_waited × 6)&nbsp;&nbsp;&nbsp;← waiting bonus<br />
+                        &nbsp;&nbsp;− (session_deficit × 40)&nbsp;← fairness boost
                       </p>
                     </CardContent>
                   </Card>
@@ -421,7 +423,8 @@ export default function ScoringGuide() {
                   <ul className="space-y-2">
                     <BulletItem>Queue position dominates — the system is fundamentally FIFO</BulletItem>
                     <BulletItem>Rest penalty nudges players with 2+ consecutive games back slightly</BulletItem>
-                    <BulletItem>Waiting bonus (−18) pulls sat-out players back up the order</BulletItem>
+                    <BulletItem>Waiting bonus pulls sat-out players back up the order</BulletItem>
+                    <BulletItem>Session equity boost (× 40) gives priority to players who've played fewer games in the session than average — keeping court time fair across the group</BulletItem>
                     <BulletItem>After 1 game out: consecutive count is halved, not zeroed</BulletItem>
                     <BulletItem>After 2 games out: consecutive count is fully reset to 0</BulletItem>
                   </ul>
