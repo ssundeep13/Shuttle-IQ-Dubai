@@ -2294,7 +2294,8 @@ function BlogPanel() {
   }
 
   function handleSave() {
-    const slug = formSlug || slugify(formTitle);
+    const rawSlug = formSlug || slugify(formTitle);
+    const slug = rawSlug.replace(/^\/+/, '');
     const payload = {
       title: formTitle,
       slug,

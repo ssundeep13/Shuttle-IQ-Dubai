@@ -3361,6 +3361,9 @@ Return ONLY valid JSON, no markdown, no other text:
   app.post('/api/admin/blog', requireAuth, requireAdmin, async (req, res) => {
     try {
       const data = insertBlogPostSchema.parse(req.body);
+      if (data.slug) {
+        data.slug = data.slug.replace(/^\/+/, '');
+      }
       if (data.status === 'published' && !data.publishedAt) {
         data.publishedAt = new Date();
       }
@@ -3382,6 +3385,9 @@ Return ONLY valid JSON, no markdown, no other text:
       const existing = await storage.getBlogPost(req.params.id);
       if (!existing) return res.status(404).json({ error: 'Post not found' });
       const parsed = updateBlogPostSchema.parse(req.body);
+      if (parsed.slug) {
+        parsed.slug = parsed.slug.replace(/^\/+/, '');
+      }
       if (parsed.status === 'published' && existing.status !== 'published' && !parsed.publishedAt && !existing.publishedAt) {
         parsed.publishedAt = new Date();
       }
