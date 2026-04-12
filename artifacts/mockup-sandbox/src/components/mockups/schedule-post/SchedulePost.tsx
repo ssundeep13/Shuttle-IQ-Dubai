@@ -226,7 +226,7 @@ export function SchedulePost() {
                 letterSpacing: "0.04em",
               }}
             >
-              shuttleiq.app · Book your spot
+              shuttleiq.org · Book your spot
             </span>
           </div>
         </div>
