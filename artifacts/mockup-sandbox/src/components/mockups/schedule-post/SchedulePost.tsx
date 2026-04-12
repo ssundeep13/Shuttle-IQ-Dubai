@@ -1,8 +1,8 @@
 const schedule = [
-  { day: "MON", date: "APR 13", time: "7:00 PM", venue: "Sports Hub — Hall A" },
-  { day: "WED", date: "APR 15", time: "6:30 PM", venue: "Al Barsha Courts" },
-  { day: "FRI", date: "APR 17", time: "8:00 PM", venue: "Sports Hub — Hall B" },
-  { day: "SAT", date: "APR 18", time: "10:00 AM", venue: "Sports Hub — Hall A" },
+  { day: "MON", date: "APR 13", time: "8:00 PM", venue: "Next Generation School" },
+  { day: "TUE", date: "APR 14", time: "8:00 PM", venue: "Pioneers Badminton Hub" },
+  { day: "THU", date: "APR 16", time: "8:00 PM", venue: "Springdales School Dubai" },
+  { day: "SAT", date: "APR 18", time: "6:00 PM", venue: "Next Generation School" },
 ];
 
 const TEAL = "#006B5F";
