@@ -73,34 +73,18 @@ export function SchedulePost() {
             alignItems: "flex-start",
           }}
         >
-          {/* Logo */}
-          <div style={{ display: "flex", alignItems: "center", gap: "1.2vw" }}>
-            <svg
-              width="5.5vw"
-              height="5.5vw"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              style={{ flexShrink: 0 }}
-            >
-              <circle cx="12" cy="19.5" r="2.8" fill={TEAL} />
-              <path d="M12 16.5 C12 16.5, 5.5 9, 4.5 4 C9 5.5, 12 10.5, 12 16.5Z" fill="rgba(255,255,255,0.85)" />
-              <path d="M12 16.5 C12 16.5, 18.5 9, 19.5 4 C15 5.5, 12 10.5, 12 16.5Z" fill="rgba(255,255,255,0.85)" />
-              <path d="M12 16.5 C12 16.5, 8 7.5, 12 3.5 C16 7.5, 12 16.5, 12 16.5Z" fill="rgba(255,255,255,0.96)" />
-              <line x1="4.5" y1="4" x2="19.5" y2="4" stroke="rgba(255,255,255,0.55)" strokeWidth="0.5" />
-            </svg>
-            <span
-              style={{
-                fontSize: "4.4vw",
-                fontWeight: 700,
-                color: "#ffffff",
-                letterSpacing: "-0.02em",
-                lineHeight: 1,
-              }}
-            >
-              Shuttle<span style={{ color: TEAL }}>IQ</span>
-            </span>
-          </div>
+          {/* Logo — wordmark only */}
+          <span
+            style={{
+              fontSize: "4.4vw",
+              fontWeight: 700,
+              color: "#ffffff",
+              letterSpacing: "-0.02em",
+              lineHeight: 1,
+            }}
+          >
+            Shuttle<span style={{ color: TEAL }}>IQ</span>
+          </span>
 
           {/* "NEXT WEEK" badge */}
           <div
