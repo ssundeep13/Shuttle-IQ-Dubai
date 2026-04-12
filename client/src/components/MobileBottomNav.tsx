@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'wouter';
-import { Home, Calendar, Bookmark, LayoutDashboard, Trophy, LogIn, BarChart2 } from 'lucide-react';
+import { Home, Calendar, Bookmark, LayoutDashboard, Trophy, LogIn, BarChart2, FileText } from 'lucide-react';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 
 const authTabs = [
@@ -13,6 +13,7 @@ const guestTabs = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
   { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
+  { href: '/marketplace/blog', label: 'Blog', icon: FileText },
   { href: '/marketplace/login', label: 'Log In', icon: LogIn },
 ];
 

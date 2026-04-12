@@ -3295,6 +3295,18 @@ Return ONLY valid JSON, no markdown, no other text:
     }
   });
 
+  // Admin: get single blog post by ID
+  app.get('/api/admin/blog/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const post = await storage.getBlogPost(req.params.id);
+      if (!post) return res.status(404).json({ error: 'Post not found' });
+      res.json(post);
+    } catch (error: unknown) {
+      console.error('Error fetching blog post:', error);
+      res.status(500).json({ error: 'Failed to fetch blog post' });
+    }
+  });
+
   // Admin: create blog post
   app.post('/api/admin/blog', requireAuth, requireAdmin, async (req, res) => {
     try {
