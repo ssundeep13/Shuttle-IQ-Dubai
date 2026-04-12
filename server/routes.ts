@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema } from "@shared/schema";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -3254,6 +3254,95 @@ Return ONLY valid JSON, no markdown, no other text:
     } catch (error) {
       console.error('Export sessions error:', error);
       res.status(500).json({ error: 'Failed to export sessions' });
+    }
+  });
+
+  // ─── Blog routes ───────────────────────────────────────────────────────────────
+
+  // Public: list published blog posts
+  app.get('/api/blog', async (_req, res) => {
+    try {
+      const posts = await storage.getAllBlogPosts(false);
+      res.json(posts);
+    } catch (error: unknown) {
+      console.error('Error fetching blog posts:', error);
+      res.status(500).json({ error: 'Failed to fetch blog posts' });
+    }
+  });
+
+  // Public: get single published post by slug
+  app.get('/api/blog/:slug', async (req, res) => {
+    try {
+      const post = await storage.getBlogPostBySlug(req.params.slug);
+      if (!post || post.status !== 'published') {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      res.json(post);
+    } catch (error: unknown) {
+      console.error('Error fetching blog post:', error);
+      res.status(500).json({ error: 'Failed to fetch blog post' });
+    }
+  });
+
+  // Admin: list all blog posts (including drafts)
+  app.get('/api/admin/blog', requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const posts = await storage.getAllBlogPosts(true);
+      res.json(posts);
+    } catch (error: unknown) {
+      console.error('Error fetching admin blog posts:', error);
+      res.status(500).json({ error: 'Failed to fetch blog posts' });
+    }
+  });
+
+  // Admin: create blog post
+  app.post('/api/admin/blog', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const data = insertBlogPostSchema.parse(req.body);
+      if (data.status === 'published' && !data.publishedAt) {
+        data.publishedAt = new Date();
+      }
+      const post = await storage.createBlogPost(data);
+      res.status(201).json(post);
+    } catch (error: unknown) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.errors });
+      }
+      console.error('Error creating blog post:', error);
+      res.status(500).json({ error: 'Failed to create blog post' });
+    }
+  });
+
+  // Admin: update blog post
+  const updateBlogPostSchema = insertBlogPostSchema.partial();
+  app.patch('/api/admin/blog/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const existing = await storage.getBlogPost(req.params.id);
+      if (!existing) return res.status(404).json({ error: 'Post not found' });
+      const parsed = updateBlogPostSchema.parse(req.body);
+      if (parsed.status === 'published' && existing.status !== 'published' && !parsed.publishedAt && !existing.publishedAt) {
+        parsed.publishedAt = new Date();
+      }
+      const post = await storage.updateBlogPost(req.params.id, parsed);
+      res.json(post);
+    } catch (error: unknown) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Validation failed', details: error.errors });
+      }
+      console.error('Error updating blog post:', error);
+      res.status(500).json({ error: 'Failed to update blog post' });
+    }
+  });
+
+  // Admin: delete blog post
+  app.delete('/api/admin/blog/:id', requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const deleted = await storage.deleteBlogPost(req.params.id);
+      if (!deleted) return res.status(404).json({ error: 'Post not found' });
+      res.json({ success: true });
+    } catch (error: unknown) {
+      console.error('Error deleting blog post:', error);
+      res.status(500).json({ error: 'Failed to delete blog post' });
     }
   });
 

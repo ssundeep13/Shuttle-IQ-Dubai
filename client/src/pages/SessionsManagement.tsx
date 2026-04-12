@@ -35,7 +35,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails, TagSuggestionWithVote } from '@shared/schema';
-import { UserCheck } from 'lucide-react';
+import { UserCheck, FileText } from 'lucide-react';
+import type { BlogPost } from '@shared/schema';
 
 interface MarketplaceUserWithLinkedPlayer extends MarketplaceUser {
   linkedPlayer: { id: string; name: string; shuttleIqId: string } | null;
@@ -276,6 +277,10 @@ export default function SessionsManagement() {
                 <Lightbulb className="w-4 h-4" />
                 Tag Ideas
               </TabsTrigger>
+              <TabsTrigger value="blog" data-testid="tab-blog" className="flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Blog
+              </TabsTrigger>
             </TabsList>
 
             {activeTab === 'sessions' && (
@@ -345,6 +350,10 @@ export default function SessionsManagement() {
                 <TagSuggestionsPanel />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="blog" className="mt-6">
+            <BlogPanel />
           </TabsContent>
         </Tabs>
       </main>
@@ -2148,6 +2157,332 @@ function TagSuggestionsPanel() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 200);
+}
+
+function BlogPanel() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [editing, setEditing] = useState<BlogPost | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [formTitle, setFormTitle] = useState('');
+  const [formSlug, setFormSlug] = useState('');
+  const [formSummary, setFormSummary] = useState('');
+  const [formContent, setFormContent] = useState('');
+  const [formFeaturedImage, setFormFeaturedImage] = useState('');
+  const [formAuthorName, setFormAuthorName] = useState('ShuttleIQ');
+  const [formStatus, setFormStatus] = useState<'draft' | 'published'>('draft');
+  const [deleteTarget, setDeleteTarget] = useState<BlogPost | null>(null);
+
+  const { data: posts, isLoading } = useQuery<BlogPost[]>({
+    queryKey: ['/api/admin/blog'],
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => apiRequest('POST', '/api/admin/blog', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/blog'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/blog'] });
+      toast({ title: 'Post created' });
+      resetForm();
+    },
+    onError: () => {
+      toast({ title: 'Failed to create post', variant: 'destructive' });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      apiRequest('PATCH', `/api/admin/blog/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/blog'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/blog'] });
+      toast({ title: 'Post updated' });
+      resetForm();
+    },
+    onError: () => {
+      toast({ title: 'Failed to update post', variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiRequest('DELETE', `/api/admin/blog/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/blog'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/blog'] });
+      toast({ title: 'Post deleted' });
+      setDeleteTarget(null);
+    },
+    onError: () => {
+      toast({ title: 'Failed to delete post', variant: 'destructive' });
+    },
+  });
+
+  function resetForm() {
+    setEditing(null);
+    setCreating(false);
+    setFormTitle('');
+    setFormSlug('');
+    setFormSummary('');
+    setFormContent('');
+    setFormFeaturedImage('');
+    setFormAuthorName('ShuttleIQ');
+    setFormStatus('draft');
+  }
+
+  function openEditor(post?: BlogPost) {
+    if (post) {
+      setEditing(post);
+      setCreating(false);
+      setFormTitle(post.title);
+      setFormSlug(post.slug);
+      setFormSummary(post.summary);
+      setFormContent(post.content);
+      setFormFeaturedImage(post.featuredImage ?? '');
+      setFormAuthorName(post.authorName);
+      setFormStatus(post.status as 'draft' | 'published');
+    } else {
+      setEditing(null);
+      setCreating(true);
+      setFormTitle('');
+      setFormSlug('');
+      setFormSummary('');
+      setFormContent('');
+      setFormFeaturedImage('');
+      setFormAuthorName('ShuttleIQ');
+      setFormStatus('draft');
+    }
+  }
+
+  function handleSave() {
+    const slug = formSlug || slugify(formTitle);
+    const payload = {
+      title: formTitle,
+      slug,
+      summary: formSummary,
+      content: formContent,
+      featuredImage: formFeaturedImage || null,
+      authorName: formAuthorName,
+      status: formStatus,
+    };
+    if (editing) {
+      updateMutation.mutate({ id: editing.id, data: payload });
+    } else {
+      createMutation.mutate(payload);
+    }
+  }
+
+  const showEditor = creating || editing;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <div>
+            <CardTitle>Blog Posts</CardTitle>
+            <CardDescription>Create and manage blog posts for the public site.</CardDescription>
+          </div>
+          {!showEditor && (
+            <Button onClick={() => openEditor()} data-testid="button-create-blog-post">
+              <Plus className="w-4 h-4 mr-2" />
+              New Post
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {showEditor ? (
+            <div className="space-y-4" data-testid="blog-editor">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Title</label>
+                <Input
+                  value={formTitle}
+                  onChange={(e) => {
+                    setFormTitle(e.target.value);
+                    if (!editing) setFormSlug(slugify(e.target.value));
+                  }}
+                  placeholder="Post title"
+                  data-testid="input-blog-title"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Slug</label>
+                <Input
+                  value={formSlug}
+                  onChange={(e) => setFormSlug(e.target.value)}
+                  placeholder="url-slug"
+                  data-testid="input-blog-slug"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Summary</label>
+                <Textarea
+                  value={formSummary}
+                  onChange={(e) => setFormSummary(e.target.value)}
+                  placeholder="A short summary for previews and SEO..."
+                  rows={2}
+                  data-testid="input-blog-summary"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Content (Markdown)</label>
+                <Textarea
+                  value={formContent}
+                  onChange={(e) => setFormContent(e.target.value)}
+                  placeholder="Write your post in Markdown..."
+                  rows={12}
+                  className="font-mono text-sm"
+                  data-testid="input-blog-content"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Featured Image URL</label>
+                  <Input
+                    value={formFeaturedImage}
+                    onChange={(e) => setFormFeaturedImage(e.target.value)}
+                    placeholder="https://..."
+                    data-testid="input-blog-image"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Author</label>
+                  <Input
+                    value={formAuthorName}
+                    onChange={(e) => setFormAuthorName(e.target.value)}
+                    placeholder="Author name"
+                    data-testid="input-blog-author"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium">Status:</label>
+                  <Button
+                    size="sm"
+                    variant={formStatus === 'draft' ? 'default' : 'outline'}
+                    onClick={() => setFormStatus('draft')}
+                    data-testid="button-status-draft"
+                  >
+                    Draft
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={formStatus === 'published' ? 'default' : 'outline'}
+                    onClick={() => setFormStatus('published')}
+                    data-testid="button-status-published"
+                  >
+                    Published
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <Button variant="outline" onClick={resetForm} data-testid="button-cancel-blog">
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSave}
+                    disabled={!formTitle.trim() || createMutation.isPending || updateMutation.isPending}
+                    data-testid="button-save-blog"
+                  >
+                    {createMutation.isPending || updateMutation.isPending ? 'Saving...' : editing ? 'Update' : 'Create'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-16 w-full" />
+              ))}
+            </div>
+          ) : !posts || posts.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8" data-testid="text-no-blog-posts">
+              No blog posts yet. Click "New Post" to create your first one.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {posts.map((post) => (
+                <div
+                  key={post.id}
+                  className="flex items-center justify-between gap-4 p-3 rounded-md border"
+                  data-testid={`blog-post-row-${post.id}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm truncate" data-testid={`text-blog-row-title-${post.id}`}>
+                        {post.title}
+                      </span>
+                      <Badge
+                        variant={post.status === 'published' ? 'default' : 'secondary'}
+                        className="text-xs no-default-hover-elevate no-default-active-elevate"
+                      >
+                        {post.status}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      /{post.slug} &middot; {post.authorName}
+                      {post.publishedAt && ` &middot; ${format(new Date(post.publishedAt), 'MMM d, yyyy')}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => openEditor(post)}
+                      data-testid={`button-edit-blog-${post.id}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    {post.status === 'published' && (
+                      <a href={`/marketplace/blog/${post.slug}`} target="_blank" rel="noopener noreferrer">
+                        <Button size="icon" variant="ghost" data-testid={`button-view-blog-${post.id}`}>
+                          <ExternalLink className="h-4 w-4" />
+                        </Button>
+                      </a>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setDeleteTarget(post)}
+                      data-testid={`button-delete-blog-${post.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete blog post?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete "{deleteTarget?.title}". This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-blog">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              data-testid="button-confirm-delete-blog"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

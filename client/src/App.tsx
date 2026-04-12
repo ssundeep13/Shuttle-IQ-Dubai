@@ -42,6 +42,8 @@ import GameHistory from "@/pages/marketplace/GameHistory";
 import JoinTheCrew from "@/pages/marketplace/JoinTheCrew";
 import ScoringGuide from "@/pages/marketplace/ScoringGuide";
 import GoogleAuthCallback from "@/pages/marketplace/GoogleAuthCallback";
+import BlogList from "@/pages/marketplace/BlogList";
+import BlogPost from "@/pages/marketplace/BlogPost";
 import InstagramCarousel from "@/pages/InstagramCarousel";
 import InstagramLeaderboard from "@/pages/InstagramLeaderboard";
 
@@ -223,6 +225,12 @@ function Router() {
         </Route>
         <Route path="/marketplace/scoring-guide">
           <MarketplaceRoute component={ScoringGuide} />
+        </Route>
+        <Route path="/marketplace/blog/:slug">
+          <MarketplaceRoute component={BlogPost} />
+        </Route>
+        <Route path="/marketplace/blog">
+          <MarketplaceRoute component={BlogList} />
         </Route>
         <Route path="/marketplace/auth/callback">
           <MarketplaceRoute component={GoogleAuthCallback} />

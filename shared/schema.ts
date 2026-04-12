@@ -509,6 +509,25 @@ export const sessionRestStatesTable = pgTable("session_rest_states", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// ─── Blog Posts ────────────────────────────────────────────────────────────────
+export const blogPosts = pgTable("blog_posts", {
+  id: varchar("id").primaryKey(),
+  title: varchar("title", { length: 300 }).notNull(),
+  slug: varchar("slug", { length: 300 }).notNull().unique(),
+  summary: text("summary").notNull().default(""),
+  content: text("content").notNull().default(""),
+  featuredImage: text("featured_image"),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  authorName: varchar("author_name", { length: 200 }).notNull().default("ShuttleIQ"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
+export type BlogPost = typeof blogPosts.$inferSelect;
+
 export interface ExpenseWithCategory extends Expense {
   categoryName: string;
   categoryColor: string;

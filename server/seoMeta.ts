@@ -89,6 +89,10 @@ const staticRoutes: Record<string, PageMeta> = {
     title: "Signing In | ShuttleIQ",
     description: "Completing your sign-in with Google.",
   },
+  "/marketplace/blog": {
+    title: "Blog | ShuttleIQ",
+    description: "Tips, updates, and stories from the ShuttleIQ badminton community in the UAE. Stay up to date with the latest from the courts.",
+  },
 };
 
 const dynamicRoutes: RoutePattern[] = [
@@ -129,6 +133,23 @@ const dynamicRoutes: RoutePattern[] = [
       title: "Checkout | ShuttleIQ",
       description: "Complete your badminton session booking.",
     }),
+  },
+  {
+    pattern: /^\/marketplace\/blog\/([^/]+)$/,
+    meta: async (match) => {
+      const post = await storage.getBlogPostBySlug(match[1]);
+      if (!post || post.status !== "published") {
+        return {
+          title: "Blog | ShuttleIQ",
+          description: "Tips, updates, and stories from the ShuttleIQ badminton community.",
+        };
+      }
+      return {
+        title: `${post.title} | ShuttleIQ Blog`,
+        description: post.summary || `Read "${post.title}" on the ShuttleIQ blog.`,
+        ogImage: post.featuredImage ?? undefined,
+      };
+    },
   },
 ];
 
