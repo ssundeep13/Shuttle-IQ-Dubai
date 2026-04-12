@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CheckCircle, XCircle, AlertCircle, Loader2, Calendar, MapPin, Clock, UserX } from 'lucide-react';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 interface GuestInfo {
   id: string;
@@ -22,6 +23,7 @@ interface SessionInfo {
 }
 
 export default function GuestCancel() {
+  usePageTitle('Cancel Booking');
   const [, setLocation] = useLocation();
   const params = useParams<{ token?: string }>();
   const token = params.token || new URLSearchParams(window.location.search).get('token');

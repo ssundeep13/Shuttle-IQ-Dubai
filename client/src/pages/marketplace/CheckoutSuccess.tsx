@@ -6,6 +6,7 @@ import { Link, useLocation } from 'wouter';
 import { queryClient } from '@/lib/queryClient';
 import type { BookingWithDetails } from '@shared/schema';
 import { InstallAppBar } from '@/components/InstallAppBar';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const MAX_ATTEMPTS = 10;
 const RETRY_DELAY_MS = 3000;
@@ -16,6 +17,7 @@ function sleep(ms: number) {
 }
 
 export default function CheckoutSuccess() {
+  usePageTitle('Booking Confirmed');
   const [status, setStatus] = useState<'verifying' | 'success' | 'waitlisted' | 'error'>('verifying');
   const [attempt, setAttempt] = useState(0);
   const [booking, setBooking] = useState<BookingWithDetails | null>(null);

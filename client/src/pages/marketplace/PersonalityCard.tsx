@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Share2 } from 'lucide-react';
 import type { PlayerStats, PlayerTopTag } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100/20 text-blue-200 border-blue-300/30',
@@ -18,6 +19,7 @@ function tagCategoryClass(category: string): string {
 }
 
 export default function PersonalityCard() {
+  usePageTitle('Personality Card');
   const { playerId } = useParams<{ playerId: string }>();
 
   const { data: stats, isLoading: statsLoading } = useQuery<PlayerStats>({

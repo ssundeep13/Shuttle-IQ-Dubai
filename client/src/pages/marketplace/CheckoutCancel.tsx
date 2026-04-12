@@ -4,8 +4,10 @@ import { Button } from '@/components/ui/button';
 import { XCircle } from 'lucide-react';
 import { Link } from 'wouter';
 import { InstallAppBar } from '@/components/InstallAppBar';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 export default function CheckoutCancel() {
+  usePageTitle('Checkout Cancelled');
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get('booking_id');

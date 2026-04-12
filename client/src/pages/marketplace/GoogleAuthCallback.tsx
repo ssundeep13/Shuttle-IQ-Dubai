@@ -2,8 +2,10 @@ import { useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 export default function GoogleAuthCallback() {
+  usePageTitle('Signing In');
   const { loginWithTokens } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
