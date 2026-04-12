@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
+import path from "path";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./scheduler";
@@ -8,6 +9,8 @@ import { seedTags } from "./tagSeed";
 import { registerZiinaWebhookRoute } from "./webhookHandler";
 
 const app = express();
+
+app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads"), { maxAge: "30d" }));
 
 // Register the Ziina webhook endpoint BEFORE express.json() so we can read
 // the raw request body for HMAC-SHA256 signature verification.

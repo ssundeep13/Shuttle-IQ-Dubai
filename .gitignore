@@ -6,3 +6,5 @@ vite.config.ts.*
 *.tar.gzattached_assets/
 seduLg9XE
 .replit
+uploads/blog/*
+!uploads/blog/.gitkeep

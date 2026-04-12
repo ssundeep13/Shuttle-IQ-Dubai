@@ -1,5 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { storage } from "./storage";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema } from "@shared/schema";
 import { z } from "zod";
@@ -3285,6 +3288,53 @@ Return ONLY valid JSON, no markdown, no other text:
   });
 
   // Admin: list all blog posts (including drafts)
+  const uploadsDir = path.resolve(process.cwd(), "uploads/blog");
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  const blogImageStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadsDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `${randomUUID()}${ext}`);
+    },
+  });
+
+  const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+  const blogImageUpload = multer({
+    storage: blogImageStorage,
+    limits: { fileSize: MAX_FILE_SIZE },
+    fileFilter: (_req, file, cb) => {
+      if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only JPEG, PNG, WebP, and GIF images are allowed"));
+      }
+    },
+  });
+
+  app.post('/api/admin/blog/upload-image', requireAuth, requireAdmin, (req: AuthRequest, res) => {
+    blogImageUpload.single('image')(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'File size exceeds 5MB limit' });
+        }
+        return res.status(400).json({ error: err.message });
+      }
+      if (err instanceof Error) {
+        return res.status(400).json({ error: err.message });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'No image file provided' });
+      }
+      const url = `/uploads/blog/${req.file.filename}`;
+      res.json({ url });
+    });
+  });
+
   app.get('/api/admin/blog', requireAuth, requireAdmin, async (_req, res) => {
     try {
       const posts = await storage.getAllBlogPosts(true);

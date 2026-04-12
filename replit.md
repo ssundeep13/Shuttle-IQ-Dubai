@@ -24,7 +24,7 @@ Preferred communication style: Simple, everyday language.
 - **Leaderboards**: Global admin leaderboard and session-specific leaderboards.
 - **Marketplace**: Player-facing platform for session browsing and booking, including Google OAuth, Ziina payment integration, player dashboards (My Bookings, My Scores, Rankings, Profile), community tagging (Player Personalities), and community tag suggestions with voting.
 - **Admin Dashboard**: Unified hub for session management, player management, marketplace user management, financial tracking (expenses, P&L), and blog content management.
-- **Blog System**: Admin-managed blog with Markdown content, featured images, draft/published workflow, SEO meta injection. Public pages at `/marketplace/blog` and `/marketplace/blog/:slug`.
+- **Blog System**: Admin-managed blog with Markdown content, featured image upload (multer, stored in `uploads/blog/`), draft/published workflow, SEO meta injection. Public pages at `/marketplace/blog` and `/marketplace/blog/:slug`.
 - **Performance**: Route-level code splitting, vendor chunk grouping, TanStack Query caching, and a health endpoint for server warming.
 
 #### System Design Choices

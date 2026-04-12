@@ -21,7 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check, Upload, ImageIcon, Loader2 } from 'lucide-react';
 import FinanceTab from '@/components/FinanceTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
@@ -2184,6 +2184,7 @@ function BlogPanel() {
   const [formStatus, setFormStatus] = useState<'draft' | 'published'>('draft');
   const [deleteTarget, setDeleteTarget] = useState<BlogPost | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
 
   const { data: posts, isLoading } = useQuery<BlogPost[]>({
     queryKey: ['/api/admin/blog'],
@@ -2240,6 +2241,32 @@ function BlogPanel() {
     setFormAuthorName('ShuttleIQ');
     setFormStatus('draft');
     setShowPreview(false);
+  }
+
+  async function handleImageUpload(file: File) {
+    setImageUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const token = localStorage.getItem('accessToken');
+      const resp = await fetch('/api/admin/blog/upload-image', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error || 'Upload failed');
+      }
+      const { url } = await resp.json();
+      setFormFeaturedImage(url);
+      toast({ title: 'Image uploaded' });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      toast({ title: message, variant: 'destructive' });
+    } finally {
+      setImageUploading(false);
+    }
   }
 
   function openEditor(post?: BlogPost) {
@@ -2368,13 +2395,84 @@ function BlogPanel() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Featured Image URL</label>
-                  <Input
-                    value={formFeaturedImage}
-                    onChange={(e) => setFormFeaturedImage(e.target.value)}
-                    placeholder="https://..."
-                    data-testid="input-blog-image"
-                  />
+                  <label className="text-sm font-medium">Featured Image</label>
+                  {formFeaturedImage ? (
+                    <div className="relative rounded-md overflow-visible border">
+                      <img
+                        src={formFeaturedImage}
+                        alt="Featured"
+                        className="w-full h-32 object-cover rounded-md"
+                        data-testid="img-blog-preview"
+                      />
+                      <div className="absolute top-1 right-1 flex gap-1">
+                        <Button
+                          size="icon"
+                          variant="secondary"
+                          onClick={() => {
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = 'image/jpeg,image/png,image/webp,image/gif';
+                            input.onchange = (e) => {
+                              const file = (e.target as HTMLInputElement).files?.[0];
+                              if (file) handleImageUpload(file);
+                            };
+                            input.click();
+                          }}
+                          data-testid="button-blog-replace-image"
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="secondary"
+                          onClick={() => setFormFeaturedImage('')}
+                          data-testid="button-blog-remove-image"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      className="border-2 border-dashed rounded-md p-6 text-center cursor-pointer hover-elevate transition-colors"
+                      onClick={() => {
+                        if (imageUploading) return;
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/jpeg,image/png,image/webp,image/gif';
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) handleImageUpload(file);
+                        };
+                        input.click();
+                      }}
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file && file.type.startsWith('image/')) handleImageUpload(file);
+                      }}
+                      data-testid="dropzone-blog-image"
+                    >
+                      {imageUploading ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">Uploading...</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2">
+                          <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            Click or drag image here
+                          </span>
+                          <span className="text-xs text-muted-foreground/60">
+                            JPEG, PNG, WebP, GIF (max 5MB)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Author</label>
