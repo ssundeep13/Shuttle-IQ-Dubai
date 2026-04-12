@@ -6,3 +6,9 @@ id = "vuDAz6H_uGcfijOXFi9_w"
 uri = "file://artifacts/mockup-sandbox/public/images/badminton-hero.png"
 type = "image"
 title = "badminton court aerial action"
+
+[[generated]]
+id = "cQyQ3yUPFKW-9eiq3Ts9H"
+uri = "file://artifacts/mockup-sandbox/public/images/features-hero.png"
+type = "image"
+title = "generated_image"
