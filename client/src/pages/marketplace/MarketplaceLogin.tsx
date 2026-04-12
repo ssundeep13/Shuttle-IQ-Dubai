@@ -10,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { Mail, Eye, EyeOff } from 'lucide-react';
 import { SiGoogle } from 'react-icons/si';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 function ForgotPasswordForm() {
   const { toast } = useToast();
@@ -85,6 +86,7 @@ function ForgotPasswordForm() {
 }
 
 export default function MarketplaceLogin() {
+  usePageTitle('Login');
   const { login } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();

@@ -8,8 +8,10 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff } from 'lucide-react';
 import { SiGoogle } from 'react-icons/si';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 export default function MarketplaceSignup() {
+  usePageTitle('Sign Up');
   const { signup } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();

@@ -14,6 +14,7 @@ import { motion } from 'framer-motion';
 import type { PlayerStats, ScoreDispute } from '@shared/schema';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -24,6 +25,7 @@ const stagger = { visible: { transition: { staggerChildren: 0.05 } } };
 type Filter = 'all' | 'wins' | 'losses';
 
 export default function GameHistory() {
+  usePageTitle('Game History');
   const { user } = useMarketplaceAuth();
   const [filter, setFilter] = useState<Filter>('all');
   const [flaggingGameId, setFlaggingGameId] = useState<string | null>(null);

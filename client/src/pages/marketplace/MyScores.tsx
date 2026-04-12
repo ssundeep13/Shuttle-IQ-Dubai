@@ -25,6 +25,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import type { PlayerStats, OpponentStats, PartnerStats, ScoreDispute, PlayerTopTag } from '@shared/schema';
 import TagPlayersDialog from '@/components/TagPlayersDialog';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -81,6 +82,7 @@ function CustomDot(props: ChartDot) {
 }
 
 export default function MyScores() {
+  usePageTitle('My Scores');
   const { user } = useMarketplaceAuth();
   const linkedPlayerId = user?.linkedPlayerId;
   const { toast } = useToast();

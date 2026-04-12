@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /session/
+Disallow: /player/
+Disallow: /marketplace/checkout/
+Disallow: /marketplace/guest-cancel
+Disallow: /marketplace/guests/
+Disallow: /marketplace/auth/
+Disallow: /carousel
+Disallow: /instagram-leaderboard
+
+Sitemap: https://shuttleiq.org/sitemap.xml

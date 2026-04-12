@@ -20,6 +20,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 interface SessionInfoItem {
   icon: React.ComponentType<{ className?: string }>;
@@ -647,6 +648,7 @@ function InlineBookingPanel({
 }
 
 export default function SessionDetails() {
+  usePageTitle('Session Details');
   const { id } = useParams<{ id: string }>();
   const { isAuthenticated } = useMarketplaceAuth();
   const { toast } = useToast();

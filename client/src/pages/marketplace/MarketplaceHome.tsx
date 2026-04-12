@@ -8,6 +8,7 @@ import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight, U
 import { motion } from 'framer-motion';
 import type { CommunitySpotlightEntry } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 24 },
@@ -30,6 +31,7 @@ function tagCategoryClass(category: string): string {
 }
 
 export default function MarketplaceHome() {
+  usePageTitle('ShuttleIQ — Book Badminton Sessions in UAE', true);
   const { isAuthenticated } = useMarketplaceAuth();
 
   const { data: spotlight = [], isLoading: spotlightLoading } = useQuery<CommunitySpotlightEntry[]>({

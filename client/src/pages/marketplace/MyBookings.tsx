@@ -32,6 +32,7 @@ import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, BookingGuest } from '@shared/schema';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -189,6 +190,7 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
 }
 
 export default function MyBookings() {
+  usePageTitle('My Bookings');
   const { toast } = useToast();
   const queryClient = useQueryClient();
 

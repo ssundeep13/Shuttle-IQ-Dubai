@@ -14,6 +14,7 @@ import { format } from 'date-fns';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { motion } from 'framer-motion';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -258,6 +259,7 @@ function GridCard({ session, isBooked }: SessionCardProps) {
 }
 
 export default function BookSessions() {
+  usePageTitle('Book Sessions');
   const { isAuthenticated } = useMarketplaceAuth();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [search, setSearch] = useState('');

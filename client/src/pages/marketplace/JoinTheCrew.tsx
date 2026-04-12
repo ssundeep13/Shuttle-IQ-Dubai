@@ -5,6 +5,7 @@ import {
   ArrowRight, Star, ShieldCheck,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const APPLY_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSccGm5-cpPDJ_495b_k8Wg9bc98SEHu0JrGktKAYkfUO_2Ezg/viewform?usp=header';
 
@@ -36,6 +37,7 @@ function BulletItem({ children }: { children: React.ReactNode }) {
 }
 
 export default function JoinTheCrew() {
+  usePageTitle('Join the Crew');
   return (
     <div className="flex flex-col" data-testid="page-join-the-crew">
 

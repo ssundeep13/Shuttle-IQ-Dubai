@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import type { PlayerStats, OpponentStats, PartnerStats, PlayerTopTag } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -62,6 +63,7 @@ function CustomDot(props: Record<string, unknown>) {
 }
 
 export default function PlayerPublicProfile() {
+  usePageTitle('Player Profile');
   const { playerId } = useParams<{ playerId: string }>();
 
   const { data: stats, isLoading } = useQuery<PlayerStats>({

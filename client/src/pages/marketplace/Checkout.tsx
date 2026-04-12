@@ -9,6 +9,7 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users } from 'lucide-react';
 import { queryClient } from '@/lib/queryClient';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 interface Guest {
   name: string;
@@ -451,6 +452,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 }
 
 export default function Checkout() {
+  usePageTitle('Checkout');
   const { id: sessionId } = useParams<{ id: string }>();
   const { isAuthenticated } = useMarketplaceAuth();
   const [, setLocation] = useLocation();

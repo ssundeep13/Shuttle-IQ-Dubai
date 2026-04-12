@@ -5,6 +5,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
@@ -108,6 +109,7 @@ const BALANCE_STEPS = [
 ];
 
 export default function ScoringGuide() {
+  usePageTitle('Scoring Guide');
   return (
     <div className="flex flex-col" data-testid="page-scoring-guide">
 

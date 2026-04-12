@@ -9,6 +9,7 @@ import { Trophy, Medal, Calendar, CalendarDays, CalendarRange, Percent, Trending
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Player, PlayerTopTagEntry } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const TAG_CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -116,6 +117,7 @@ function winPct(wins: number, games: number): number {
 }
 
 export default function Rankings() {
+  usePageTitle('Rankings');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all-time');
   const [sortMode, setSortMode] = useState<SortMode>('rank');
 

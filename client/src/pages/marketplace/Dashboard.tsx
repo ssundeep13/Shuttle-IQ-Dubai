@@ -14,6 +14,7 @@ import { motion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry, TagSuggestion, BookableSessionWithAvailability } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import TagTrendingModal from '@/components/TagTrendingModal';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const TAG_MILESTONES = [5, 10, 25, 50];
 
@@ -185,6 +186,7 @@ const CATEGORY_COLOR: Record<string, string> = {
 };
 
 export default function Dashboard() {
+  usePageTitle('Dashboard');
   const { user } = useMarketplaceAuth();
   const linkedPlayerId = user?.linkedPlayerId;
   const { canInstall, install } = useInstallPrompt();

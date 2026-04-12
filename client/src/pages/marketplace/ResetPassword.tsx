@@ -7,8 +7,10 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { CheckCircle2, Eye, EyeOff, KeyRound, XCircle } from 'lucide-react';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 export default function ResetPassword() {
+  usePageTitle('Reset Password');
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [password, setPassword] = useState('');

@@ -11,6 +11,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { User, Link2, Search, Check, Mail, Phone, LogOut } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
+import { usePageTitle } from '@/hooks/usePageTitle';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -27,6 +28,7 @@ interface PlayerSearchResult {
 }
 
 export default function Profile() {
+  usePageTitle('Profile');
   const { user, logout } = useMarketplaceAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
