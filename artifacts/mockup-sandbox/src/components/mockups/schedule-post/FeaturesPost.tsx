@@ -352,21 +352,6 @@ export function FeaturesPost() {
             </span>
           </div>
 
-          <div style={{
-            background: TEAL,
-            color: WHITE,
-            padding: "3vw 0",
-            borderRadius: "100px",
-            fontSize: "3.5vw",
-            fontWeight: 800,
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            boxShadow: `0 1vw 4vw ${TEAL}50`,
-            width: "100%",
-            textAlign: "center",
-          }}>
-            Join Now — shuttleiq.org
-          </div>
         </div>
       </div>
     </div>
