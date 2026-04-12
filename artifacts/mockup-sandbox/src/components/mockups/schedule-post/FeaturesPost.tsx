@@ -351,7 +351,6 @@ export function FeaturesPost() {
               — stats, rankings & skill progression
             </span>
           </div>
-
         </div>
       </div>
     </div>
