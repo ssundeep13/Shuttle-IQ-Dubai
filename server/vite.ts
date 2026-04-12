@@ -60,9 +60,7 @@ export async function setupVite(app: Express, server: Server) {
       );
 
       const meta = await getMetaForUrl(url);
-      if (meta) {
-        template = injectMeta(template, { ...meta, canonical: url.split("?")[0] });
-      }
+      template = injectMeta(template, meta);
 
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
@@ -89,9 +87,7 @@ export function serveStatic(app: Express) {
     let html = await fs.promises.readFile(indexPath, "utf-8");
 
     const meta = await getMetaForUrl(req.originalUrl);
-    if (meta) {
-      html = injectMeta(html, { ...meta, canonical: req.originalUrl.split("?")[0] });
-    }
+    html = injectMeta(html, meta);
 
     res.status(200).set({ "Content-Type": "text/html" }).end(html);
   });

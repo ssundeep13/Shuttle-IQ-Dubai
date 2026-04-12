@@ -73,6 +73,22 @@ const staticRoutes: Record<string, PageMeta> = {
     title: "Reset Password | ShuttleIQ",
     description: "Reset your ShuttleIQ account password.",
   },
+  "/marketplace/checkout/success": {
+    title: "Booking Confirmed | ShuttleIQ",
+    description: "Your badminton session booking is confirmed. See you on the court!",
+  },
+  "/marketplace/checkout/cancel": {
+    title: "Checkout Cancelled | ShuttleIQ",
+    description: "Your checkout was cancelled. You can try booking again anytime.",
+  },
+  "/marketplace/guest-cancel": {
+    title: "Cancel Booking | ShuttleIQ",
+    description: "Cancel your badminton session booking.",
+  },
+  "/marketplace/auth/google/callback": {
+    title: "Signing In | ShuttleIQ",
+    description: "Completing your sign-in with Google.",
+  },
 };
 
 const dynamicRoutes: RoutePattern[] = [
@@ -136,27 +152,32 @@ function formatTier(level: string): string {
   }
 }
 
-export async function getMetaForUrl(url: string): Promise<PageMeta | null> {
+export async function getMetaForUrl(url: string): Promise<PageMeta> {
   const pathname = url.split("?")[0].replace(/\/+$/, "") || "/";
 
   const staticMeta = staticRoutes[pathname];
-  if (staticMeta) return staticMeta;
+  if (staticMeta) return { ...staticMeta, canonical: pathname };
 
   for (const route of dynamicRoutes) {
     const match = pathname.match(route.pattern);
     if (match) {
       try {
         if (typeof route.meta === "function") {
-          return await route.meta(match);
+          const resolved = await route.meta(match);
+          return { ...resolved, canonical: pathname };
         }
-        return route.meta;
+        return { ...route.meta, canonical: pathname };
       } catch {
-        return null;
+        break;
       }
     }
   }
 
-  return null;
+  return {
+    title: "ShuttleIQ — Book Badminton Sessions in UAE",
+    description: DEFAULT_DESC,
+    canonical: pathname,
+  };
 }
 
 function escapeHtml(str: string): string {
