@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "vuDAz6H_uGcfijOXFi9_w"
+uri = "file://artifacts/mockup-sandbox/public/images/badminton-hero.png"
+type = "image"
+title = "badminton court aerial action"
