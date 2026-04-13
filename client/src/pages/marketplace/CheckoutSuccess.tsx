@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, Loader2, AlertCircle, ListOrdered } from 'lucide-react';
+import { CheckCircle, Loader2, AlertCircle, ListOrdered, Wallet } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { queryClient } from '@/lib/queryClient';
 import type { BookingWithDetails } from '@shared/schema';
@@ -167,9 +167,26 @@ export default function CheckoutSuccess() {
                     : <>Your spot for <span className="font-semibold text-foreground">{booking.session?.title}</span> has been reserved.</>
                   }
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  Amount paid: AED {booking.amountAed}
-                </p>
+                {booking.walletAmountUsed > 0 ? (
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    {booking.paymentMethod === 'wallet' ? (
+                      <p className="flex items-center justify-center gap-1.5">
+                        <Wallet className="h-3.5 w-3.5 text-[#006B5F]" />
+                        Paid with wallet credit: AED {(booking.walletAmountUsed / 100).toFixed(2)}
+                      </p>
+                    ) : (
+                      <>
+                        <p>Total: AED {booking.amountAed}</p>
+                        <p className="text-[#006B5F]">Wallet credit: AED {(booking.walletAmountUsed / 100).toFixed(2)}</p>
+                        <p>Card payment: AED {(booking.amountAed - booking.walletAmountUsed / 100).toFixed(2)}</p>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Amount paid: AED {booking.amountAed}
+                  </p>
+                )}
               </>
             )}
             {status === 'success' && !booking && (

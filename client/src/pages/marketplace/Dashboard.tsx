@@ -253,7 +253,7 @@ export default function Dashboard() {
       refereePlayerId: string | null;
       status: string;
       createdAt: string;
-      referee?: { name: string } | null;
+      refereeName: string | null;
     }>;
   }
 
