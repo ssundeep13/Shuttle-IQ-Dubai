@@ -107,7 +107,7 @@ async function generateShuttleIqId(): Promise<string> {
 }
 
 function generateReferralCode(playerName: string, shuttleIqId: string | null): string {
-  const cleanName = playerName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 6).padEnd(3, 'X');
+  const cleanName = playerName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 6).padEnd(6, 'X');
   const numericPart = shuttleIqId ? shuttleIqId.replace(/\D/g, '') : String(Math.floor(Math.random() * 99999));
   return `SIQ-${cleanName}-${numericPart}`;
 }
@@ -323,6 +323,7 @@ export interface IStorage {
   createReferral(data: InsertReferral): Promise<Referral>;
   getReferral(id: string): Promise<Referral | undefined>;
   getReferralByRefereeUserId(refereeUserId: string): Promise<Referral | undefined>;
+  getReferralByRefereePlayerId(refereePlayerId: string): Promise<Referral | undefined>;
   getReferralsByReferrerId(referrerId: string): Promise<Referral[]>;
   getCompletedReferralCount(referrerId: string): Promise<number>;
   getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string })[]>;
@@ -2519,6 +2520,14 @@ export class DatabaseStorage implements IStorage {
     return row ?? undefined;
   }
 
+  async getReferralByRefereePlayerId(refereePlayerId: string): Promise<Referral | undefined> {
+    const [row] = await db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.refereePlayerId, refereePlayerId));
+    return row ?? undefined;
+  }
+
   async getReferralsByReferrerId(referrerId: string): Promise<Referral[]> {
     return db
       .select()
@@ -2541,6 +2550,7 @@ export class DatabaseStorage implements IStorage {
         id: referrals.id,
         referrerId: referrals.referrerId,
         refereeUserId: referrals.refereeUserId,
+        refereePlayerId: referrals.refereePlayerId,
         status: referrals.status,
         completedAt: referrals.completedAt,
         createdAt: referrals.createdAt,
