@@ -3643,19 +3643,8 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const walletSchema = z.object({
         bookingAmountFils: z.number().int().positive(),
-        bookingId: z.string().min(1),
       });
-      const { bookingAmountFils, bookingId } = walletSchema.parse(req.body);
-
-      const booking = await storage.getBooking(bookingId);
-      if (!booking || booking.userId !== req.user.userId) {
-        return res.status(404).json({ error: 'Booking not found' });
-      }
-
-      // Idempotency: if wallet was already applied to this booking, return current state
-      if (booking.walletAmountUsed && booking.walletAmountUsed > 0) {
-        return res.json({ walletApplied: booking.walletAmountUsed, remainingToPay: bookingAmountFils - booking.walletAmountUsed });
-      }
+      const { bookingAmountFils } = walletSchema.parse(req.body);
 
       const user = await storage.getMarketplaceUser(req.user.userId);
       if (!user?.linkedPlayerId) {
@@ -3680,9 +3669,6 @@ Return ONLY valid JSON, no markdown, no other text:
       if (!updated) {
         return res.status(409).json({ error: 'Wallet balance changed. Please try again.' });
       }
-
-      // Record wallet usage on the booking
-      await storage.updateBooking(bookingId, { walletAmountUsed: walletApplied });
 
       res.json({ walletApplied, remainingToPay });
     } catch (error: unknown) {

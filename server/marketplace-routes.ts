@@ -23,7 +23,7 @@ import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuc
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
-import { sql, eq, and } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import { players } from "@shared/schema";
 
 async function refundBookingWalletCredit(booking: { walletAmountUsed: number | null; userId: string }) {
@@ -738,7 +738,7 @@ export function registerMarketplaceRoutes(app: Express) {
   app.post("/api/marketplace/bookings", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const { sessionId, paymentMethod, guests: guestList, applyWallet } = req.body;
+      const { sessionId, paymentMethod, guests: guestList } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
 
       // Validate guest list (optional array of { name, email?, marketplaceUserId?, siqPlayerId? })
@@ -941,72 +941,6 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       const totalAmount = bookableSession.priceAed * spotsBooked;
-      const totalAmountFils = totalAmount * 100;
-
-      // Wallet credit check: if user requests wallet application, compute deduction
-      let walletAppliedFils = 0;
-      if (applyWallet) {
-        const walletUser = await storage.getMarketplaceUser(req.user.userId);
-        if (walletUser?.linkedPlayerId) {
-          const walletPlayer = await storage.getPlayer(walletUser.linkedPlayerId);
-          if (walletPlayer && walletPlayer.walletBalance > 0) {
-            walletAppliedFils = Math.min(walletPlayer.walletBalance, totalAmountFils);
-          }
-        }
-      }
-
-      const remainingFils = totalAmountFils - walletAppliedFils;
-
-      // If wallet fully covers the cost, skip Ziina entirely
-      if (walletAppliedFils > 0 && remainingFils <= 0) {
-        const walletUser = await storage.getMarketplaceUser(req.user.userId);
-        // Atomic wallet deduction
-        const [deducted] = await db
-          .update(players)
-          .set({ walletBalance: sql`${players.walletBalance} - ${walletAppliedFils}` })
-          .where(and(eq(players.id, walletUser!.linkedPlayerId!), sql`${players.walletBalance} >= ${walletAppliedFils}`))
-          .returning();
-        if (!deducted) {
-          return res.status(409).json({ error: 'Wallet balance changed. Please try again.' });
-        }
-
-        const booking = await storage.createBooking({
-          userId: req.user.userId,
-          sessionId,
-          status: "confirmed",
-          paymentMethod: "wallet",
-          ziinaPaymentIntentId: null,
-          amountAed: totalAmount,
-          cashPaid: false,
-          spotsBooked,
-        });
-        await storage.updateBooking(booking.id, { walletAmountUsed: walletAppliedFils });
-        await createAllSlotsForBooking(booking.id, 'confirmed', true);
-
-        try {
-          if (primaryUser) {
-            sendBookingConfirmationEmail(primaryUser.email, primaryUser.name, bookableSession, 'wallet', totalAmount).catch(() => {});
-          }
-        } catch (emailErr) { console.error('[Email] wallet booking confirm failed:', emailErr); }
-
-        const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
-        return res.json({
-          bookingId: booking.id,
-          paymentMethod: "wallet",
-          amount: totalAmount,
-          walletApplied: walletAppliedFils,
-          spotsBooked,
-          booking: bookingWithDetails,
-          session: {
-            title: bookableSession.title,
-            venueName: bookableSession.venueName,
-            date: bookableSession.date,
-            startTime: bookableSession.startTime,
-            endTime: bookableSession.endTime,
-          },
-        });
-      }
-
       const booking = await storage.createBooking({
         userId: req.user.userId,
         sessionId,
@@ -1018,42 +952,17 @@ export function registerMarketplaceRoutes(app: Express) {
         spotsBooked,
       });
 
-      // If partial wallet credit, deduct and record it
-      if (walletAppliedFils > 0) {
-        const walletUser = await storage.getMarketplaceUser(req.user.userId);
-        const [deducted] = await db
-          .update(players)
-          .set({ walletBalance: sql`${players.walletBalance} - ${walletAppliedFils}` })
-          .where(and(eq(players.id, walletUser!.linkedPlayerId!), sql`${players.walletBalance} >= ${walletAppliedFils}`))
-          .returning();
-        if (deducted) {
-          await storage.updateBooking(booking.id, { walletAmountUsed: walletAppliedFils });
-        } else {
-          walletAppliedFils = 0;
-        }
-      }
-
-      // Wallet credits are in multiples of 1500 fils (AED 15) and booking prices are in whole AED,
-      // so remainder should always be divisible by 100. Use Math.round for safety (never overcharge).
-      const ziinaAmountAed = Math.round((totalAmountFils - walletAppliedFils) / 100);
-
       let paymentIntent;
       try {
         paymentIntent = await createZiinaPaymentIntent({
-          amountAed: ziinaAmountAed,
+          amountAed: totalAmount,
           message: `Booking for ${bookableSession.title}${spotsBooked > 1 ? ` (${spotsBooked} spots)` : ''}`,
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
         });
       } catch (intentError: unknown) {
-        // Refund wallet credit if Ziina fails
-        if (walletAppliedFils > 0) {
-          await storage.updateBooking(booking.id, { walletAmountUsed: walletAppliedFils });
-          const failedBooking = await storage.getBooking(booking.id);
-          if (failedBooking) await refundBookingWalletCredit(failedBooking);
-        }
-        await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), walletAmountUsed: 0 });
+        await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date() });
         const errMsg = intentError instanceof Error ? intentError.message : 'Payment provider error. Please try again.';
         console.error('Ziina payment intent creation failed — booking cancelled:', errMsg);
         return res.status(502).json({ error: errMsg });
@@ -1070,8 +979,6 @@ export function registerMarketplaceRoutes(app: Express) {
         paymentIntentId: paymentIntent.id,
         redirectUrl: paymentIntent.redirect_url,
         amount: totalAmount,
-        walletApplied: walletAppliedFils,
-        ziinaAmount: ziinaAmountAed,
         spotsBooked,
         session: {
           title: bookableSession.title,
