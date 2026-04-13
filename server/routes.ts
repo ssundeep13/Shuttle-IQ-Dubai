@@ -3643,8 +3643,19 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const walletSchema = z.object({
         bookingAmountFils: z.number().int().positive(),
+        bookingId: z.string().min(1),
       });
-      const { bookingAmountFils } = walletSchema.parse(req.body);
+      const { bookingAmountFils, bookingId } = walletSchema.parse(req.body);
+
+      const booking = await storage.getBooking(bookingId);
+      if (!booking || booking.userId !== req.user.userId) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      // Idempotency: if wallet was already applied to this booking, return current state
+      if (booking.walletAmountUsed && booking.walletAmountUsed > 0) {
+        return res.json({ walletApplied: booking.walletAmountUsed, remainingToPay: bookingAmountFils - booking.walletAmountUsed });
+      }
 
       const user = await storage.getMarketplaceUser(req.user.userId);
       if (!user?.linkedPlayerId) {
@@ -3659,7 +3670,7 @@ Return ONLY valid JSON, no markdown, no other text:
       const walletApplied = Math.min(player.walletBalance, bookingAmountFils);
       const remainingToPay = bookingAmountFils - walletApplied;
 
-      // Atomic wallet deduction: only deducts if balance is still sufficient
+      // Atomic wallet deduction bound to booking (idempotent via walletAmountUsed check above)
       const [updated] = await db
         .update(players)
         .set({ walletBalance: sql`${players.walletBalance} - ${walletApplied}` })
@@ -3669,6 +3680,9 @@ Return ONLY valid JSON, no markdown, no other text:
       if (!updated) {
         return res.status(409).json({ error: 'Wallet balance changed. Please try again.' });
       }
+
+      // Record wallet usage on the booking for idempotency and tracking
+      await storage.updateBooking(bookingId, { walletAmountUsed: walletApplied });
 
       res.json({ walletApplied, remainingToPay });
     } catch (error: unknown) {
