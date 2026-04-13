@@ -3653,23 +3653,15 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const player = await storage.getPlayer(user.linkedPlayerId);
       if (!player || player.walletBalance <= 0) {
-        return res.json({ walletApplied: 0, remainingToPay: bookingAmountFils });
+        return res.json({ walletApplied: 0, remainingToPay: bookingAmountFils, walletBalance: 0 });
       }
 
       const walletApplied = Math.min(player.walletBalance, bookingAmountFils);
       const remainingToPay = bookingAmountFils - walletApplied;
 
-      const [updated] = await db
-        .update(players)
-        .set({ walletBalance: sql`${players.walletBalance} - ${walletApplied}` })
-        .where(and(eq(players.id, player.id), sql`${players.walletBalance} >= ${walletApplied}`))
-        .returning();
-
-      if (!updated) {
-        return res.status(409).json({ error: 'Wallet balance changed. Please try again.' });
-      }
-
-      res.json({ walletApplied, remainingToPay });
+      // Quote-only: returns how much wallet credit CAN be applied.
+      // Actual deduction happens atomically in POST /api/marketplace/bookings with applyWallet flag.
+      res.json({ walletApplied, remainingToPay, walletBalance: player.walletBalance });
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });
