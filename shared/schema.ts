@@ -41,6 +41,11 @@ export const players = pgTable("players", {
   returnGamesRemaining: integer("return_games_remaining").notNull().default(0), // Games left with return K-boost after 14+ day absence
   tierCandidate: text("tier_candidate"), // Tier the player is trending toward (null = stable)
   tierCandidateGames: integer("tier_candidate_games").notNull().default(0), // Consecutive games with score in candidate tier
+  referralCode: text("referral_code").unique(), // e.g. "SIQ-AHMED1-00042"
+  walletBalance: integer("wallet_balance").notNull().default(0), // stored in fils (1500 fils = AED 15)
+  ambassadorStatus: boolean("ambassador_status").notNull().default(false), // true at 10 completed referrals
+  jerseyDispatched: boolean("jersey_dispatched").notNull().default(false), // admin marks when jersey sent
+  leaderboardMention: boolean("leaderboard_mention").notNull().default(false), // true at 5 completed referrals
 });
 
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, shuttleIqId: true, createdAt: true });
@@ -48,6 +53,20 @@ export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
 export type Player = typeof players.$inferSelect & {
   skid?: number; // Computed SKID (1-20), derived from skillScore / 10
 };
+
+// Referrals table (tracks referrer → referee relationships)
+export const referrals = pgTable("referrals", {
+  id: varchar("id").primaryKey(),
+  referrerId: varchar("referrer_id").notNull(), // player.id of the person who referred
+  refereeUserId: varchar("referee_user_id").notNull().unique(), // marketplace_users.id of the person who was referred (one referral per user)
+  status: text("status").notNull().default('pending'), // 'pending' | 'completed' | 'invalid'
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertReferralSchema = createInsertSchema(referrals).omit({ id: true, createdAt: true, completedAt: true });
+export type InsertReferral = z.infer<typeof insertReferralSchema>;
+export type Referral = typeof referrals.$inferSelect;
 
 // Partner statistics for player profile
 export interface PartnerStats {
@@ -312,13 +331,14 @@ export const bookings = pgTable("bookings", {
   attendedAt: timestamp("attended_at"),
   reminderSentAt: timestamp("reminder_sent_at"),
   promotedAt: timestamp("promoted_at"),
+  walletAmountUsed: integer("wallet_amount_used").notNull().default(0), // fils of wallet credit applied to this booking
 }, (table) => [
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)
     .where(sql`${table.status} != 'cancelled'`),
 ]);
 
-export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, cancelledAt: true, attendedAt: true });
+export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, cancelledAt: true, attendedAt: true, walletAmountUsed: true });
 export type InsertBooking = z.infer<typeof insertBookingSchema>;
 export type Booking = typeof bookings.$inferSelect;
 

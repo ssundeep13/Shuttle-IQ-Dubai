@@ -74,8 +74,9 @@ export function registerMarketplaceRoutes(app: Express) {
         password: z.string().min(6),
         name: z.string().min(1),
         phone: z.string().min(1, "Phone number is required"),
+        referralCode: z.string().optional(),
       });
-      const { email, password, name, phone } = schema.parse(req.body);
+      const { email, password, name, phone, referralCode } = schema.parse(req.body);
 
       const existing = await storage.getMarketplaceUserByEmail(email);
       if (existing) {
@@ -109,12 +110,35 @@ export function registerMarketplaceRoutes(app: Express) {
       // Retroactive guest linking: link any prior guest records with this email to the new user
       storage.linkGuestsByEmail(user.email, user.id).catch(() => {});
 
-      // Fire-and-forget welcome email
+      // Handle referral code linking and welcome email (fire-and-forget)
       const marketplaceUrl = process.env.REPLIT_DOMAINS
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}/marketplace`
         : 'http://localhost:5000/marketplace';
-      sendWelcomeEmail(user.email, user.name, marketplaceUrl).catch(() => {});
-    } catch (error: any) {
+
+      (async () => {
+        let referrerName: string | undefined;
+        if (referralCode) {
+          try {
+            const referrer = await storage.getPlayerByReferralCode(referralCode.toUpperCase());
+            if (referrer) {
+              referrerName = referrer.name;
+              const existingRef = await storage.getReferralByRefereeUserId(user.id);
+              if (!existingRef) {
+                await storage.createReferral({
+                  referrerId: referrer.id,
+                  refereeUserId: user.id,
+                  status: 'pending',
+                });
+                console.log(`[Referral] Linked ${user.email} to referrer ${referrer.name} (${referralCode})`);
+              }
+            }
+          } catch (err) {
+            console.error('[Referral] Signup link error:', err);
+          }
+        }
+        sendWelcomeEmail(user.email, user.name, marketplaceUrl, referrerName).catch(() => {});
+      })();
+    } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });
       }

@@ -4,7 +4,8 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { storage } from "./storage";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals } from "@shared/schema";
+import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -508,6 +509,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updated) {
         return res.status(404).json({ error: "Booking not found" });
       }
+
+      // Referral completion: check if this is the player's first-ever attended booking
+      if (booking.status === 'confirmed' || booking.status === 'attended') {
+        (async () => {
+          try {
+            const user = await storage.getMarketplaceUser(booking.userId);
+            if (!user?.linkedPlayerId) return;
+
+            const allBookings = await storage.getUserBookings(booking.userId);
+            const attendedCount = allBookings.filter(b => b.attendedAt && !b.isGuestBooking).length;
+            if (attendedCount > 1) return;
+
+            const referral = await storage.getReferralByRefereeUserId(booking.userId);
+            if (!referral || referral.status !== 'pending') return;
+
+            // Atomic: only complete if still pending (prevents double-processing)
+            const [completedRef] = await db
+              .update(referrals)
+              .set({ status: 'completed', completedAt: new Date() })
+              .where(and(eq(referrals.id, referral.id), eq(referrals.status, 'pending')))
+              .returning();
+            if (!completedRef) return;
+
+            const CREDIT_FILS = 1500;
+
+            // Atomic wallet credit
+            const [updatedReferrer] = await db
+              .update(players)
+              .set({ walletBalance: sql`${players.walletBalance} + ${CREDIT_FILS}` })
+              .where(eq(players.id, referral.referrerId))
+              .returning();
+            if (!updatedReferrer) return;
+
+            const completedCount = await storage.getCompletedReferralCount(referral.referrerId);
+
+            if (completedCount === 5 && !updatedReferrer.leaderboardMention) {
+              await storage.updatePlayer(referral.referrerId, { leaderboardMention: true });
+              if (updatedReferrer.email) {
+                sendReferralMilestoneEmail(updatedReferrer.email, updatedReferrer.name, 5).catch(() => {});
+              }
+            }
+            if (completedCount === 10 && !updatedReferrer.ambassadorStatus) {
+              await storage.updatePlayer(referral.referrerId, { ambassadorStatus: true });
+              if (updatedReferrer.email) {
+                sendReferralMilestoneEmail(updatedReferrer.email, updatedReferrer.name, 10).catch(() => {});
+              }
+            }
+
+            if (updatedReferrer.email) {
+              sendReferralCreditEmail(updatedReferrer.email, updatedReferrer.name, user.name, updatedReferrer.walletBalance).catch(() => {});
+            }
+
+            console.log(`[Referral] Completed referral ${referral.id}: ${user.name} → ${updatedReferrer.name} (+${CREDIT_FILS} fils)`);
+          } catch (err) {
+            console.error('[Referral] Completion hook error:', err);
+          }
+        })();
+      }
+
       res.json(updated);
     } catch (error) {
       console.error('Checkin booking error:', error);
@@ -3412,6 +3472,189 @@ Return ONLY valid JSON, no markdown, no other text:
       console.error('Error deleting blog post:', error);
       res.status(500).json({ error: 'Failed to delete blog post' });
     }
+  });
+
+  // ============================================================
+  // REFERRAL SYSTEM
+  // ============================================================
+
+  app.get('/api/referrals/validate/:code', async (req, res) => {
+    try {
+      const code = req.params.code.toUpperCase();
+      const player = await storage.getPlayerByReferralCode(code);
+      if (!player) {
+        return res.status(404).json({ valid: false, error: 'Invalid referral code' });
+      }
+      res.json({ valid: true, referrerName: player.name, referrerId: player.id });
+    } catch (error: unknown) {
+      console.error('Error validating referral code:', error);
+      res.status(500).json({ error: 'Failed to validate referral code' });
+    }
+  });
+
+  app.post('/api/referrals/link', requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      const schema = z.object({ referralCode: z.string().min(1) });
+      const { referralCode } = schema.parse(req.body);
+
+      const existing = await storage.getReferralByRefereeUserId(req.user.userId);
+      if (existing) {
+        return res.status(409).json({ error: 'You have already used a referral code' });
+      }
+
+      const referrer = await storage.getPlayerByReferralCode(referralCode.toUpperCase());
+      if (!referrer) {
+        return res.status(404).json({ error: 'Invalid referral code' });
+      }
+
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (user?.linkedPlayerId === referrer.id) {
+        return res.status(400).json({ error: 'You cannot refer yourself' });
+      }
+
+      const referral = await storage.createReferral({
+        referrerId: referrer.id,
+        refereeUserId: req.user.userId,
+        status: 'pending',
+      });
+
+      res.json(referral);
+    } catch (error: unknown) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors[0].message });
+      }
+      console.error('Error linking referral:', error);
+      res.status(500).json({ error: 'Failed to link referral' });
+    }
+  });
+
+  app.get('/api/referrals/player/:playerId', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      const { playerId } = req.params;
+
+      const isAdmin = req.user.role === 'admin';
+      if (!isAdmin) {
+        const user = await storage.getMarketplaceUser(req.user.userId);
+        if (!user?.linkedPlayerId || user.linkedPlayerId !== playerId) {
+          return res.status(403).json({ error: 'You can only view your own referral data' });
+        }
+      }
+
+      const player = await storage.getPlayer(playerId);
+      if (!player) return res.status(404).json({ error: 'Player not found' });
+
+      const referralsList = await storage.getReferralsByReferrerId(playerId);
+      const completedCount = await storage.getCompletedReferralCount(playerId);
+
+      res.json({
+        referralCode: player.referralCode,
+        walletBalance: player.walletBalance,
+        ambassadorStatus: player.ambassadorStatus,
+        jerseyDispatched: player.jerseyDispatched,
+        leaderboardMention: player.leaderboardMention,
+        completedCount,
+        referrals: referralsList,
+      });
+    } catch (error: unknown) {
+      console.error('Error getting player referral data:', error);
+      res.status(500).json({ error: 'Failed to get referral data' });
+    }
+  });
+
+  app.get('/api/referrals/leaderboard', async (_req, res) => {
+    try {
+      const leaderboard = await storage.getReferralLeaderboard(10);
+      res.json(leaderboard);
+    } catch (error: unknown) {
+      console.error('Error getting referral leaderboard:', error);
+      res.status(500).json({ error: 'Failed to get leaderboard' });
+    }
+  });
+
+  app.get('/api/referrals/all', requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const all = await storage.getAllReferrals();
+      res.json(all);
+    } catch (error: unknown) {
+      console.error('Error getting all referrals:', error);
+      res.status(500).json({ error: 'Failed to get referrals' });
+    }
+  });
+
+  app.patch('/api/referrals/:id/jersey-dispatched', requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const referral = await storage.getReferral(req.params.id);
+      if (!referral) return res.status(404).json({ error: 'Referral not found' });
+
+      const player = await storage.getPlayer(referral.referrerId);
+      if (!player) return res.status(404).json({ error: 'Referrer player not found' });
+
+      await storage.updatePlayer(player.id, { jerseyDispatched: true });
+      res.json({ success: true });
+    } catch (error: unknown) {
+      console.error('Error marking jersey dispatched:', error);
+      res.status(500).json({ error: 'Failed to mark jersey dispatched' });
+    }
+  });
+
+  app.post('/api/referrals/apply-wallet', requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+
+      const walletSchema = z.object({
+        bookingAmountFils: z.number().int().positive(),
+        bookingId: z.string().min(1),
+      });
+      const { bookingAmountFils, bookingId } = walletSchema.parse(req.body);
+
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (!user?.linkedPlayerId) {
+        return res.status(400).json({ error: 'No linked player account. Link your player profile first.' });
+      }
+
+      const booking = await storage.getBooking(bookingId);
+      if (!booking || booking.userId !== req.user.userId) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      const player = await storage.getPlayer(user.linkedPlayerId);
+      if (!player || player.walletBalance <= 0) {
+        return res.json({ walletApplied: 0, remainingToPay: bookingAmountFils });
+      }
+
+      const walletApplied = Math.min(player.walletBalance, bookingAmountFils);
+      const remainingToPay = bookingAmountFils - walletApplied;
+
+      // Atomic wallet deduction: only deducts if balance is still sufficient
+      const [updated] = await db
+        .update(players)
+        .set({ walletBalance: sql`${players.walletBalance} - ${walletApplied}` })
+        .where(and(eq(players.id, player.id), sql`${players.walletBalance} >= ${walletApplied}`))
+        .returning();
+
+      if (!updated) {
+        return res.status(409).json({ error: 'Wallet balance changed. Please try again.' });
+      }
+
+      await storage.updateBooking(bookingId, { walletAmountUsed: walletApplied });
+
+      res.json({ walletApplied, remainingToPay });
+    } catch (error: unknown) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors[0].message });
+      }
+      console.error('Error applying wallet:', error);
+      res.status(500).json({ error: 'Failed to apply wallet credit' });
+    }
+  });
+
+  // Backfill referral codes on startup (idempotent — skips players who already have codes)
+  storage.backfillReferralCodes().then(count => {
+    if (count > 0) console.log(`[Referral] Backfilled ${count} referral codes`);
+  }).catch(err => {
+    console.error('[Referral] Backfill failed:', err);
   });
 
   const httpServer = createServer(app);

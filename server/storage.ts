@@ -38,6 +38,8 @@ import {
   type TagSuggestion,
   type InsertTagSuggestion,
   type TagSuggestionWithVote,
+  type Referral,
+  type InsertReferral,
   players,
   courts,
   courtPlayers as courtPlayersTable,
@@ -59,6 +61,7 @@ import {
   tagSuggestionVotes,
   expenseCategories,
   expenses,
+  referrals,
   type ExpenseCategory,
   type InsertExpenseCategory,
   type Expense,
@@ -101,6 +104,12 @@ async function generateShuttleIqId(): Promise<string> {
   }
   
   return `SIQ-${nextNumber.toString().padStart(5, '0')}`;
+}
+
+function generateReferralCode(playerName: string, shuttleIqId: string | null): string {
+  const cleanName = playerName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 6).padEnd(3, 'X');
+  const numericPart = shuttleIqId ? shuttleIqId.replace(/\D/g, '') : String(Math.floor(Math.random() * 99999));
+  return `SIQ-${cleanName}-${numericPart}`;
 }
 
 // Return type for the public analytics endpoint
@@ -309,6 +318,18 @@ export interface IStorage {
   getAllBlogPosts(includeUnpublished?: boolean): Promise<BlogPost[]>;
   updateBlogPost(id: string, updates: Partial<BlogPost>): Promise<BlogPost | undefined>;
   deleteBlogPost(id: string): Promise<boolean>;
+
+  // Referral operations
+  createReferral(data: InsertReferral): Promise<Referral>;
+  getReferral(id: string): Promise<Referral | undefined>;
+  getReferralByRefereeUserId(refereeUserId: string): Promise<Referral | undefined>;
+  getReferralsByReferrerId(referrerId: string): Promise<Referral[]>;
+  getCompletedReferralCount(referrerId: string): Promise<number>;
+  getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string })[]>;
+  updateReferral(id: string, updates: Partial<Referral>): Promise<Referral | undefined>;
+  getReferralLeaderboard(limit?: number): Promise<{ playerId: string; playerName: string; referralCode: string | null; completedCount: number; ambassadorStatus: boolean }[]>;
+  getPlayerByReferralCode(code: string): Promise<Player | undefined>;
+  backfillReferralCodes(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -508,18 +529,17 @@ export class DatabaseStorage implements IStorage {
   async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
     const id = randomUUID();
     const shuttleIqId = await generateShuttleIqId();
+    const referralCode = generateReferralCode(insertPlayer.name, shuttleIqId);
     const [player] = await db
       .insert(players)
       .values({ 
         ...insertPlayer, 
         id,
         shuttleIqId,
+        referralCode,
         status: insertPlayer.status || 'waiting',
         gamesPlayed: insertPlayer.gamesPlayed || 0,
         wins: insertPlayer.wins || 0,
-        // Initialize the decay baseline to the player's starting score.
-        // This ensures the inactivity decay scheduler always has a stable anchor
-        // and never falls back to the (already-decayed) current skillScore.
         skillScoreBaseline: insertPlayer.skillScore ?? 50,
       })
       .returning();
@@ -2473,6 +2493,124 @@ export class DatabaseStorage implements IStorage {
   async deleteBlogPost(id: string): Promise<boolean> {
     const result = await db.delete(blogPosts).where(eq(blogPosts.id, id)).returning();
     return result.length > 0;
+  }
+
+  // ─── Referral operations ───────────────────────────────────────────────────
+
+  async createReferral(data: InsertReferral): Promise<Referral> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(referrals)
+      .values({ ...data, id })
+      .returning();
+    return row;
+  }
+
+  async getReferral(id: string): Promise<Referral | undefined> {
+    const [row] = await db.select().from(referrals).where(eq(referrals.id, id));
+    return row ?? undefined;
+  }
+
+  async getReferralByRefereeUserId(refereeUserId: string): Promise<Referral | undefined> {
+    const [row] = await db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.refereeUserId, refereeUserId));
+    return row ?? undefined;
+  }
+
+  async getReferralsByReferrerId(referrerId: string): Promise<Referral[]> {
+    return db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.referrerId, referrerId))
+      .orderBy(desc(referrals.createdAt));
+  }
+
+  async getCompletedReferralCount(referrerId: string): Promise<number> {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(referrals)
+      .where(and(eq(referrals.referrerId, referrerId), eq(referrals.status, 'completed')));
+    return result?.count ?? 0;
+  }
+
+  async getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string })[]> {
+    const rows = await db
+      .select({
+        id: referrals.id,
+        referrerId: referrals.referrerId,
+        refereeUserId: referrals.refereeUserId,
+        status: referrals.status,
+        completedAt: referrals.completedAt,
+        createdAt: referrals.createdAt,
+        referrerName: players.name,
+        refereeEmail: marketplaceUsers.email,
+      })
+      .from(referrals)
+      .leftJoin(players, eq(referrals.referrerId, players.id))
+      .leftJoin(marketplaceUsers, eq(referrals.refereeUserId, marketplaceUsers.id))
+      .orderBy(desc(referrals.createdAt));
+    return rows.map(r => ({
+      ...r,
+      referrerName: r.referrerName ?? 'Unknown',
+      refereeEmail: r.refereeEmail ?? 'Unknown',
+    }));
+  }
+
+  async updateReferral(id: string, updates: Partial<Referral>): Promise<Referral | undefined> {
+    const [row] = await db
+      .update(referrals)
+      .set(updates)
+      .where(eq(referrals.id, id))
+      .returning();
+    return row ?? undefined;
+  }
+
+  async getReferralLeaderboard(limit = 10): Promise<{ playerId: string; playerName: string; referralCode: string | null; completedCount: number; ambassadorStatus: boolean }[]> {
+    const rows = await db
+      .select({
+        playerId: players.id,
+        playerName: players.name,
+        referralCode: players.referralCode,
+        completedCount: sql<number>`count(${referrals.id})::int`,
+        ambassadorStatus: players.ambassadorStatus,
+      })
+      .from(referrals)
+      .innerJoin(players, eq(referrals.referrerId, players.id))
+      .where(eq(referrals.status, 'completed'))
+      .groupBy(players.id, players.name, players.referralCode, players.ambassadorStatus)
+      .orderBy(desc(sql`count(${referrals.id})`))
+      .limit(limit);
+    return rows;
+  }
+
+  async getPlayerByReferralCode(code: string): Promise<Player | undefined> {
+    const [player] = await db
+      .select()
+      .from(players)
+      .where(eq(players.referralCode, code.toUpperCase()));
+    return player ? addSkidToPlayer(player) : undefined;
+  }
+
+  async backfillReferralCodes(): Promise<number> {
+    const playersWithoutCodes = await db
+      .select()
+      .from(players)
+      .where(sql`${players.referralCode} IS NULL`);
+    let count = 0;
+    for (const p of playersWithoutCodes) {
+      const code = generateReferralCode(p.name, p.shuttleIqId);
+      try {
+        await db.update(players).set({ referralCode: code }).where(eq(players.id, p.id));
+        count++;
+      } catch {
+        const fallback = generateReferralCode(p.name, `SIQ-${Date.now() % 99999}`);
+        await db.update(players).set({ referralCode: fallback }).where(eq(players.id, p.id));
+        count++;
+      }
+    }
+    return count;
   }
 }
 

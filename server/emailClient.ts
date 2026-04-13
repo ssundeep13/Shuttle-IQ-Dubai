@@ -99,12 +99,16 @@ export async function sendPasswordResetEmail(toEmail: string, resetUrl: string):
 
 // ─── Welcome ──────────────────────────────────────────────────────────────
 
-export async function sendWelcomeEmail(toEmail: string, name: string, marketplaceUrl: string): Promise<void> {
+export async function sendWelcomeEmail(toEmail: string, name: string, marketplaceUrl: string, referrerName?: string): Promise<void> {
+  const referralNote = referrerName
+    ? `<p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">You were referred by <strong>${referrerName}</strong> — attend your first session and they'll earn a reward!</p>`
+    : '';
   const body = `
     <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">Welcome to ShuttleIQ, ${name}!</h1>
     <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">
       Your account is ready. Browse upcoming badminton sessions, book your spot, and track your stats — all in one place.
     </p>
+    ${referralNote}
     ${ctaButton(marketplaceUrl, 'Browse Sessions')}
     <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
     <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">If you didn't create this account, please ignore this email.</p>
@@ -291,6 +295,85 @@ export async function sendGuestBookingEmail(
     console.error('[Email] sendGuestBookingEmail failed:', err);
   }
 }
+
+// ─── Referral Credit Earned ──────────────────────────────────────────────
+
+export async function sendReferralCreditEmail(
+  toEmail: string,
+  referrerName: string,
+  refereeName: string,
+  newBalanceFils: number,
+): Promise<void> {
+  const balanceAed = (newBalanceFils / 100).toFixed(2);
+  const body = `
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">You earned AED 15!</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">
+      Hi ${referrerName}, your friend <strong>${refereeName}</strong> just attended their first session. As a thank you for referring them, we've added <strong>AED 15</strong> to your ShuttleIQ wallet.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f9ff;border-radius:6px;margin-bottom:24px;">
+      <tr>
+        <td style="padding:16px 20px;">
+          <p style="margin:0 0 4px;font-size:13px;color:#6b7280;">Your wallet balance</p>
+          <p style="margin:0;font-size:24px;font-weight:700;color:#0a2540;">AED ${balanceAed}</p>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 24px;font-size:14px;color:#4a5568;line-height:1.6;">
+      Use your wallet credit on your next booking. Keep referring friends to earn more!
+    </p>
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+    <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">Wallet credit is automatically applied at checkout.</p>
+  `;
+  try {
+    await sendEmail(toEmail, 'You earned AED 15 — Referral reward!', emailWrapper(body));
+    console.log(`[Email] Referral credit email sent to ${toEmail}`);
+  } catch (err) {
+    console.error('[Email] sendReferralCreditEmail failed:', err);
+  }
+}
+
+// ─── Referral Milestone ─────────────────────────────────────────────────
+
+export async function sendReferralMilestoneEmail(
+  toEmail: string,
+  name: string,
+  milestone: 5 | 10,
+): Promise<void> {
+  const isFive = milestone === 5;
+  const headline = isFive
+    ? 'You made the Referral Leaderboard!'
+    : 'You\'re a ShuttleIQ Ambassador!';
+  const description = isFive
+    ? `You've referred <strong>5 friends</strong> who attended their first session. You're now featured on the ShuttleIQ referral leaderboard — nice work!`
+    : `You've referred <strong>10 friends</strong> who attended their first session. You've earned <strong>Ambassador status</strong> and a ShuttleIQ jersey is on its way to you!`;
+  const body = `
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">${headline}</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">
+      Hi ${name}, ${description}
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f9ff;border-radius:6px;margin-bottom:24px;">
+      <tr>
+        <td style="padding:16px 20px;text-align:center;">
+          <p style="margin:0 0 4px;font-size:40px;font-weight:700;color:#0a7ea4;">${milestone}</p>
+          <p style="margin:0;font-size:14px;color:#4a5568;">Successful Referrals</p>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 24px;font-size:14px;color:#4a5568;line-height:1.6;">
+      ${isFive ? 'Keep going — at 10 referrals you earn Ambassador status and a free ShuttleIQ jersey!' : 'Thank you for being an incredible part of the ShuttleIQ community.'}
+    </p>
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+    <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">Share your referral code with friends to keep growing the community.</p>
+  `;
+  try {
+    await sendEmail(toEmail, headline, emailWrapper(body));
+    console.log(`[Email] Referral milestone (${milestone}) email sent to ${toEmail}`);
+  } catch (err) {
+    console.error('[Email] sendReferralMilestoneEmail failed:', err);
+  }
+}
+
+// ─── Score Dispute Resolution ────────────────────────────────────────────
 
 export async function sendDisputeResolutionEmail(
   toEmail: string,
