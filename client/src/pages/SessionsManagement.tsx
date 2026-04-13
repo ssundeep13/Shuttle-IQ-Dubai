@@ -2224,7 +2224,8 @@ function ReferralsTabContent() {
       ambassadorReferrers.set(r.referrerId, r);
     }
   });
-  const jerseyQueue = Array.from(ambassadorReferrers.values()).filter(r => !r.jerseyDispatched);
+  const jerseyEligible = Array.from(ambassadorReferrers.values());
+  const jerseyPending = jerseyEligible.filter(r => !r.jerseyDispatched);
 
   if (isLoading) {
     return (
@@ -2261,7 +2262,7 @@ function ReferralsTabContent() {
         <Card data-testid="kpi-jerseys-to-dispatch">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Jerseys to Dispatch</p>
-            <p className="text-2xl font-bold">{jerseyQueue.length}</p>
+            <p className="text-2xl font-bold">{jerseyPending.length}</p>
           </CardContent>
         </Card>
       </div>
@@ -2318,7 +2319,7 @@ function ReferralsTabContent() {
         </CardContent>
       </Card>
 
-      {jerseyQueue.length > 0 && (
+      {jerseyEligible.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -2330,7 +2331,7 @@ function ReferralsTabContent() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {jerseyQueue.map(ref => (
+            {jerseyEligible.map(ref => (
               <div
                 key={ref.id}
                 className="flex items-center justify-between gap-3 p-3 rounded-lg border"
@@ -2340,16 +2341,23 @@ function ReferralsTabContent() {
                   <p className="font-medium">{ref.referrerName}</p>
                   <p className="text-xs text-muted-foreground">Code: {ref.referralCode}</p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={jerseyMutation.isPending}
-                  onClick={() => jerseyMutation.mutate(ref.id)}
-                  data-testid={`button-dispatch-jersey-${ref.id}`}
-                >
-                  <Package className="h-3.5 w-3.5 mr-1.5" />
-                  Mark Dispatched
-                </Button>
+                {ref.jerseyDispatched ? (
+                  <Badge variant="default" className="no-default-hover-elevate no-default-active-elevate" data-testid={`badge-dispatched-${ref.id}`}>
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Dispatched
+                  </Badge>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={jerseyMutation.isPending}
+                    onClick={() => jerseyMutation.mutate(ref.id)}
+                    data-testid={`button-dispatch-jersey-${ref.id}`}
+                  >
+                    <Package className="h-3.5 w-3.5 mr-1.5" />
+                    Mark Dispatched
+                  </Button>
+                )}
               </div>
             ))}
           </CardContent>

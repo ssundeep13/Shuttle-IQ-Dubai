@@ -13,6 +13,7 @@ import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry, TagSuggestion, BookableSessionWithAvailability } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
+import { useToast } from '@/hooks/use-toast';
 import TagTrendingModal from '@/components/TagTrendingModal';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -190,6 +191,7 @@ export default function Dashboard() {
   const { user } = useMarketplaceAuth();
   const linkedPlayerId = user?.linkedPlayerId;
   const { canInstall, install } = useInstallPrompt();
+  const { toast } = useToast();
   const [showTrendingModal, setShowTrendingModal] = useState(false);
   const [milestoneDismissed, setMilestoneDismissed] = useState(false);
 

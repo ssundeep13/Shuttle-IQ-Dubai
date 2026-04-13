@@ -498,7 +498,7 @@ export default function Rankings() {
                           )}
                           {recruiter.completedCount >= 5 && !recruiter.ambassadorStatus && (
                             <Badge className="bg-[#006B5F] text-white border-0 text-[10px] px-1.5 py-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-leaderboard-${recruiter.playerId}`}>
-                              Top Recruiter
+                              Leaderboard Member
                             </Badge>
                           )}
                         </div>
