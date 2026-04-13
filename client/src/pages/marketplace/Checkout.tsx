@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useParams, useLocation, Link } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users } from 'lucide-react';
+import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet } from 'lucide-react';
 import { queryClient } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -18,9 +20,11 @@ interface Guest {
 
 interface BookingData {
   bookingId: string;
-  paymentMethod: 'ziina' | 'cash';
+  paymentMethod: 'ziina' | 'cash' | 'wallet';
   redirectUrl?: string;
   amount: number;
+  walletApplied?: number;
+  ziinaAmount?: number;
   spotsBooked?: number;
   session: {
     title: string;
@@ -171,21 +175,30 @@ function OrderSummary({ sessionInfo, amount, spotsBooked }: {
   );
 }
 
-function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots }: {
+function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots, walletBalanceFils, onWalletSuccess }: {
   sessionId: string;
   pricePerSpot: number;
   sessionInfo: BookingData['session'];
   availableSpots: number;
+  walletBalanceFils: number;
+  onWalletSuccess: (data: BookingData) => void;
 }) {
   const [processing, setProcessing] = useState(false);
   const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
+  const [useWallet, setUseWallet] = useState(false);
   const { toast } = useToast();
 
   const spotsBooked = 1 + guests.length;
   const totalAmount = pricePerSpot * spotsBooked;
+  const totalAmountFils = totalAmount * 100;
   const maxGuests = Math.min(3, availableSpots - 1);
+
+  const walletApplicable = Math.min(walletBalanceFils, totalAmountFils);
+  const walletApplicableAed = walletApplicable / 100;
+  const remainingAfterWallet = totalAmount - walletApplicableAed;
+  const walletCoversAll = useWallet && remainingAfterWallet <= 0;
 
   const validateGuests = () => {
     for (const g of guests) {
@@ -223,6 +236,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
           sessionId,
           paymentMethod: 'ziina',
           guests: guests.map(g => ({ name: g.name.trim(), email: g.email.trim() || null })),
+          applyWallet: useWallet,
         }),
       });
       const data = await res.json();
@@ -234,14 +248,21 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         return;
       }
 
+      if (data.paymentMethod === 'wallet') {
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+        onWalletSuccess(data);
+        return;
+      }
+
       if (!data.redirectUrl) {
         throw new Error('No payment URL received. Please try again.');
       }
 
       window.location.href = data.redirectUrl;
-    } catch (err: any) {
-      setError(err.message || 'Payment failed. Please try again.');
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Payment failed. Please try again.';
+      setError(message);
+      toast({ title: 'Error', description: message, variant: 'destructive' });
       setProcessing(false);
     }
   };
@@ -278,6 +299,43 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />
       )}
 
+      {walletBalanceFils > 0 && (
+        <Card data-testid="card-wallet-credit">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-[#006B5F]" />
+                <span className="text-sm font-medium">Use wallet credit</span>
+              </div>
+              <Switch
+                checked={useWallet}
+                onCheckedChange={setUseWallet}
+                data-testid="switch-use-wallet"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Available: AED {(walletBalanceFils / 100).toFixed(2)}
+            </p>
+            {useWallet && (
+              <div className="space-y-1 border-t pt-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Session cost</span>
+                  <span>AED {totalAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-[#006B5F]">
+                  <span>Wallet credit</span>
+                  <span data-testid="text-wallet-deduction">- AED {walletApplicableAed.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold border-t pt-1">
+                  <span>{walletCoversAll ? 'Amount due' : 'Pay via Ziina'}</span>
+                  <span data-testid="text-remaining-amount">AED {Math.max(0, remainingAfterWallet).toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <CancellationPolicy />
 
       {error && (
@@ -295,15 +353,21 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         data-testid="button-confirm-payment"
       >
         {processing ? (
-          <><Loader2 className="h-5 w-5 animate-spin" /> Preparing payment...</>
+          <><Loader2 className="h-5 w-5 animate-spin" /> {walletCoversAll ? 'Confirming booking...' : 'Preparing payment...'}</>
+        ) : walletCoversAll ? (
+          <><Wallet className="h-5 w-5" /> Book with Wallet Credit</>
+        ) : useWallet ? (
+          <><ShieldCheck className="h-5 w-5" /> Pay AED {remainingAfterWallet.toFixed(2)} — Secure Checkout</>
         ) : (
           <><ShieldCheck className="h-5 w-5" /> Pay AED {totalAmount} — Secure Checkout</>
         )}
       </Button>
 
-      <p className="text-xs text-muted-foreground text-center">
-        Payments are securely processed by Ziina. You'll be redirected to complete payment and brought back automatically.
-      </p>
+      {!walletCoversAll && (
+        <p className="text-xs text-muted-foreground text-center">
+          Payments are securely processed by Ziina. You'll be redirected to complete payment and brought back automatically.
+        </p>
+      )}
     </div>
   );
 }
@@ -454,7 +518,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 export default function Checkout() {
   usePageTitle('Checkout');
   const { id: sessionId } = useParams<{ id: string }>();
-  const { isAuthenticated } = useMarketplaceAuth();
+  const { isAuthenticated, user } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
   const [paymentMethod, setPaymentMethod] = useState<'ziina' | 'cash' | null>(null);
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
@@ -464,6 +528,16 @@ export default function Checkout() {
   const [availableSpots, setAvailableSpots] = useState<number>(99);
   const [error, setError] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+
+  interface WalletInfo {
+    walletBalance: number;
+  }
+  const { data: walletData } = useQuery<WalletInfo>({
+    queryKey: ['/api/referrals/player', user?.linkedPlayerId],
+    enabled: !!user?.linkedPlayerId,
+    staleTime: 30_000,
+  });
+  const walletBalanceFils = walletData?.walletBalance ?? 0;
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -537,8 +611,27 @@ export default function Checkout() {
                   Pay AED {bookingData?.amount || pricePerSpot * spots} in cash at the venue
                 </div>
               </div>
+            ) : bookingData?.paymentMethod === 'wallet' ? (
+              <div className="space-y-1 text-sm">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[rgba(0,107,95,0.1)] text-[#006B5F] dark:text-teal-400">
+                  <Wallet className="h-4 w-4" />
+                  Paid with wallet credit
+                </div>
+                {bookingData.walletApplied && (
+                  <p className="text-muted-foreground" data-testid="text-wallet-breakdown">
+                    Wallet credit: AED {(bookingData.walletApplied / 100).toFixed(2)}
+                  </p>
+                )}
+              </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Amount paid: AED {bookingData?.amount || pricePerSpot * spots}</p>
+              <div className="space-y-1 text-sm">
+                <p className="text-muted-foreground">Amount paid: AED {bookingData?.amount || pricePerSpot * spots}</p>
+                {bookingData?.walletApplied && bookingData.walletApplied > 0 && (
+                  <p className="text-muted-foreground" data-testid="text-wallet-breakdown">
+                    (Wallet credit: AED {(bookingData.walletApplied / 100).toFixed(2)}, Card: AED {((bookingData.ziinaAmount || 0)).toFixed(2)})
+                  </p>
+                )}
+              </div>
             )}
             <div className="flex gap-3 justify-center flex-wrap pt-2">
               <Link href="/marketplace/my-bookings">
@@ -597,6 +690,11 @@ export default function Checkout() {
           pricePerSpot={pricePerSpot}
           sessionInfo={sessionInfo}
           availableSpots={availableSpots}
+          walletBalanceFils={walletBalanceFils}
+          onWalletSuccess={(data) => {
+            setBookingData(data);
+            setConfirmed(true);
+          }}
         />
       )}
 

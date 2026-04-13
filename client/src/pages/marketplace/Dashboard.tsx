@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink, Lightbulb } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink, Lightbulb, Gift, Copy, Wallet } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -236,6 +236,29 @@ export default function Dashboard() {
     queryKey: ['/api/tags/suggestions/my'],
     enabled: !!linkedPlayerId,
     staleTime: 0,
+  });
+
+  interface ReferralData {
+    referralCode: string;
+    walletBalance: number;
+    ambassadorStatus: boolean;
+    jerseyDispatched: boolean;
+    leaderboardMention: boolean;
+    completedCount: number;
+    referrals: Array<{
+      id: string;
+      refereeUserId: string;
+      refereePlayerId: string | null;
+      status: string;
+      createdAt: string;
+      referee?: { name: string } | null;
+    }>;
+  }
+
+  const { data: referralData } = useQuery<ReferralData>({
+    queryKey: ['/api/referrals/player', linkedPlayerId],
+    enabled: !!linkedPlayerId,
+    staleTime: 60_000,
   });
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -549,6 +572,118 @@ export default function Dashboard() {
                     <Link href="/marketplace/profile">
                       <Button size="sm" variant="outline" data-testid="button-link-profile">Go to Profile</Button>
                     </Link>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {referralData && linkedPlayerId && (
+              <motion.div variants={fadeInUp}>
+                <Card data-testid="card-my-referrals">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Gift className="h-4 w-4 text-secondary" />
+                        My Referrals
+                      </CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-muted-foreground mb-0.5">Your referral code</p>
+                        <p className="font-mono font-semibold text-sm truncate" data-testid="text-referral-code">{referralData.referralCode}</p>
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => {
+                          navigator.clipboard.writeText(referralData.referralCode);
+                          toast({ title: 'Copied!', description: 'Referral code copied to clipboard' });
+                        }}
+                        data-testid="button-copy-referral"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
+                      <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-xs text-muted-foreground">Wallet Balance</p>
+                        <p className="font-semibold" data-testid="text-wallet-balance">
+                          AED {(referralData.walletBalance / 100).toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {!referralData.ambassadorStatus && (
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-muted-foreground">
+                            {referralData.completedCount < 5
+                              ? `${referralData.completedCount}/5 to Leaderboard`
+                              : `${referralData.completedCount}/10 to Ambassador + Jersey`}
+                          </span>
+                          <span className="font-medium">
+                            {referralData.completedCount < 5
+                              ? `${5 - referralData.completedCount} to go`
+                              : `${10 - referralData.completedCount} to go`}
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className="h-full bg-secondary rounded-full transition-all duration-500"
+                            style={{
+                              width: `${Math.min(100, (referralData.completedCount / (referralData.completedCount < 5 ? 5 : 10)) * 100)}%`,
+                            }}
+                            data-testid="progress-referral-milestone"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {(referralData.leaderboardMention || referralData.ambassadorStatus || referralData.jerseyDispatched) && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {referralData.leaderboardMention && (
+                          <Badge className="bg-[#006B5F] text-white border-0 text-xs no-default-hover-elevate no-default-active-elevate" data-testid="badge-leaderboard-mention">
+                            Leaderboard Member
+                          </Badge>
+                        )}
+                        {referralData.ambassadorStatus && (
+                          <Badge className="bg-[#003E8C] text-white border-0 text-xs no-default-hover-elevate no-default-active-elevate" data-testid="badge-ambassador">
+                            Ambassador
+                          </Badge>
+                        )}
+                        {referralData.jerseyDispatched && (
+                          <Badge variant="secondary" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid="badge-jersey">
+                            Jersey Dispatched
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+
+                    {referralData.referrals.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Referred Players</p>
+                        {referralData.referrals.map((ref) => (
+                          <div key={ref.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0" data-testid={`row-referral-${ref.id}`}>
+                            <span className="text-sm truncate">{ref.referee?.name || 'Pending link'}</span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {ref.status === 'completed' && (
+                                <span className="text-xs text-muted-foreground">AED 15</span>
+                              )}
+                              <Badge
+                                variant={ref.status === 'completed' ? 'default' : 'secondary'}
+                                className="text-xs no-default-hover-elevate no-default-active-elevate"
+                              >
+                                {ref.status === 'completed' ? 'Completed' : 'Pending'}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </motion.div>

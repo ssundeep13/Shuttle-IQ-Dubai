@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Trophy, Medal, Calendar, CalendarDays, CalendarRange, Percent, TrendingUp } from 'lucide-react';
+import { Trophy, Medal, Calendar, CalendarDays, CalendarRange, Percent, TrendingUp, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Player, PlayerTopTagEntry } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -116,6 +116,14 @@ function winPct(wins: number, games: number): number {
   return games > 0 ? Math.round((wins / games) * 100) : 0;
 }
 
+interface TopRecruiter {
+  playerId: string;
+  playerName: string;
+  referralCode: string | null;
+  completedCount: number;
+  ambassadorStatus: boolean;
+}
+
 export default function Rankings() {
   usePageTitle('Rankings');
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all-time');
@@ -151,6 +159,11 @@ export default function Rankings() {
   const { data: mostImprovedData, isLoading: loadingImproved } = useQuery<MostImprovedPlayer[]>({
     queryKey: ['/api/stats/most-improved'],
     enabled: isMostImproved,
+  });
+
+  const { data: topRecruiters = [] } = useQuery<TopRecruiter[]>({
+    queryKey: ['/api/referrals/leaderboard'],
+    staleTime: 5 * 60 * 1000,
   });
 
   const isLoading = isMostImproved
@@ -455,6 +468,52 @@ export default function Rankings() {
             )}
           </motion.div>
         </AnimatePresence>
+
+        {topRecruiters.length > 0 && (
+          <motion.div variants={fadeInUp} className="mt-10">
+            <h2 className="text-xl font-bold flex items-center gap-2 mb-1" data-testid="text-top-recruiters-title">
+              <Users className="h-5 w-5 text-secondary" /> Top Recruiters
+            </h2>
+            <p className="text-muted-foreground text-sm mb-4">Players who've brought the most friends to ShuttleIQ</p>
+
+            <Card>
+              <CardContent className="p-0">
+                <div className="divide-y">
+                  {topRecruiters.map((recruiter, index) => (
+                    <div
+                      key={recruiter.playerId}
+                      className="flex items-center gap-3 px-4 py-3"
+                      data-testid={`row-recruiter-${recruiter.playerId}`}
+                    >
+                      <div className="w-6 text-center shrink-0">
+                        <span className="text-sm text-muted-foreground font-medium">{index + 1}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{recruiter.playerName}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          {recruiter.ambassadorStatus && (
+                            <Badge className="bg-[#003E8C] text-white border-0 text-[10px] px-1.5 py-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-ambassador-${recruiter.playerId}`}>
+                              Ambassador
+                            </Badge>
+                          )}
+                          {recruiter.completedCount >= 5 && !recruiter.ambassadorStatus && (
+                            <Badge className="bg-[#006B5F] text-white border-0 text-[10px] px-1.5 py-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-leaderboard-${recruiter.playerId}`}>
+                              Top Recruiter
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-semibold">{recruiter.completedCount}</div>
+                        <div className="text-xs text-muted-foreground">referrals</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
       </motion.div>
     </div>
   );

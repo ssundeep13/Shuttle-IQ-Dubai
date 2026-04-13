@@ -21,7 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check, Upload, ImageIcon, Loader2 } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check, Upload, ImageIcon, Loader2, Gift, Package } from 'lucide-react';
 import FinanceTab from '@/components/FinanceTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
@@ -282,6 +282,10 @@ export default function SessionsManagement() {
                 <FileText className="w-4 h-4" />
                 Blog
               </TabsTrigger>
+              <TabsTrigger value="referrals" data-testid="tab-referrals" className="flex items-center gap-2">
+                <Gift className="w-4 h-4" />
+                Referrals
+              </TabsTrigger>
             </TabsList>
 
             {activeTab === 'sessions' && (
@@ -355,6 +359,10 @@ export default function SessionsManagement() {
 
           <TabsContent value="blog" className="mt-6">
             <BlogPanel />
+          </TabsContent>
+
+          <TabsContent value="referrals" className="mt-6">
+            <ReferralsTabContent />
           </TabsContent>
         </Tabs>
       </main>
@@ -2168,6 +2176,187 @@ function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 200);
+}
+
+interface AdminReferral {
+  id: string;
+  referrerId: string;
+  refereeUserId: string;
+  refereePlayerId: string | null;
+  status: string;
+  completedAt: string | null;
+  createdAt: string;
+  referrerName: string;
+  refereeEmail: string;
+  referralCode: string | null;
+  ambassadorStatus: boolean;
+  jerseyDispatched: boolean;
+}
+
+function ReferralsTabContent() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: referrals = [], isLoading } = useQuery<AdminReferral[]>({
+    queryKey: ['/api/referrals/all'],
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+
+  const jerseyMutation = useMutation({
+    mutationFn: async (referralId: string) => apiRequest('PATCH', `/api/referrals/${referralId}/jersey-dispatched`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/referrals/all'] });
+      toast({ title: 'Jersey marked as dispatched' });
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Failed to mark jersey dispatched';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    },
+  });
+
+  const totalReferrals = referrals.length;
+  const completedReferrals = referrals.filter(r => r.status === 'completed').length;
+  const creditsPaidAed = completedReferrals * 15;
+  const ambassadorReferrers = new Map<string, AdminReferral>();
+  referrals.forEach(r => {
+    if (r.ambassadorStatus && !ambassadorReferrers.has(r.referrerId)) {
+      ambassadorReferrers.set(r.referrerId, r);
+    }
+  });
+  const jerseyQueue = Array.from(ambassadorReferrers.values()).filter(r => !r.jerseyDispatched);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24" />)}
+        </div>
+        <Skeleton className="h-64" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card data-testid="kpi-total-referrals">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Total Referrals</p>
+            <p className="text-2xl font-bold">{totalReferrals}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="kpi-completed-referrals">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Completed</p>
+            <p className="text-2xl font-bold">{completedReferrals}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="kpi-credits-paid">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Credits Paid Out</p>
+            <p className="text-2xl font-bold">AED {creditsPaidAed}</p>
+          </CardContent>
+        </Card>
+        <Card data-testid="kpi-jerseys-to-dispatch">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Jerseys to Dispatch</p>
+            <p className="text-2xl font-bold">{jerseyQueue.length}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>All Referrals</CardTitle>
+          <CardDescription>{totalReferrals} referral{totalReferrals !== 1 ? 's' : ''} total</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {referrals.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No referrals yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="py-2 pr-4 font-medium text-muted-foreground">Referrer</th>
+                    <th className="py-2 pr-4 font-medium text-muted-foreground">Referee</th>
+                    <th className="py-2 pr-4 font-medium text-muted-foreground">Status</th>
+                    <th className="py-2 pr-4 font-medium text-muted-foreground">Date</th>
+                    <th className="py-2 font-medium text-muted-foreground">AED Credited</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {referrals.map((ref, idx) => (
+                    <tr
+                      key={ref.id}
+                      className={idx % 2 === 1 ? 'bg-muted/30' : ''}
+                      data-testid={`row-admin-referral-${ref.id}`}
+                    >
+                      <td className="py-2.5 pr-4">{ref.referrerName}</td>
+                      <td className="py-2.5 pr-4">{ref.refereeEmail}</td>
+                      <td className="py-2.5 pr-4">
+                        <Badge
+                          variant={ref.status === 'completed' ? 'default' : 'secondary'}
+                          className="text-xs no-default-hover-elevate no-default-active-elevate"
+                        >
+                          {ref.status === 'completed' ? 'Completed' : 'Pending'}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 pr-4 text-muted-foreground">
+                        {ref.createdAt ? format(new Date(ref.createdAt), 'MMM d, yyyy') : '—'}
+                      </td>
+                      <td className="py-2.5">
+                        {ref.status === 'completed' ? 'AED 15' : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {jerseyQueue.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-muted-foreground" />
+              Jersey Fulfilment Queue
+            </CardTitle>
+            <CardDescription>
+              Ambassador players eligible for jersey dispatch
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {jerseyQueue.map(ref => (
+              <div
+                key={ref.id}
+                className="flex items-center justify-between gap-3 p-3 rounded-lg border"
+                data-testid={`row-jersey-${ref.id}`}
+              >
+                <div>
+                  <p className="font-medium">{ref.referrerName}</p>
+                  <p className="text-xs text-muted-foreground">Code: {ref.referralCode}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={jerseyMutation.isPending}
+                  onClick={() => jerseyMutation.mutate(ref.id)}
+                  data-testid={`button-dispatch-jersey-${ref.id}`}
+                >
+                  <Package className="h-3.5 w-3.5 mr-1.5" />
+                  Mark Dispatched
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
 }
 
 function BlogPanel() {

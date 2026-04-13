@@ -17,7 +17,7 @@ interface MarketplaceAuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string, phone?: string) => Promise<void>;
+  signup: (email: string, password: string, name: string, phone?: string, referralCode?: string) => Promise<void>;
   loginWithTokens: (accessToken: string, refreshToken: string) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
@@ -120,13 +120,15 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     }
   };
 
-  const signup = async (email: string, password: string, name: string, phone?: string) => {
+  const signup = async (email: string, password: string, name: string, phone?: string, referralCode?: string) => {
     setError(null);
     try {
+      const payload: Record<string, string | undefined> = { email, password, name, phone };
+      if (referralCode) payload.referralCode = referralCode;
       const response = await fetch('/api/marketplace/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, name, phone }),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         const data = await response.json();

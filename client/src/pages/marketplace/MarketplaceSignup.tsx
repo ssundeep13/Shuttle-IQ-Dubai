@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle, Loader2, Gift } from 'lucide-react';
 import { SiGoogle } from 'react-icons/si';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -22,25 +22,129 @@ export default function MarketplaceSignup() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const [step, setStep] = useState<'form' | 'referral'>('form');
+  const [referralCode, setReferralCode] = useState('');
+  const [referralValidating, setReferralValidating] = useState(false);
+  const [referrerName, setReferrerName] = useState<string | null>(null);
+  const [referralError, setReferralError] = useState<string | null>(null);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const prefillEmail = params.get('email');
     if (prefillEmail) setEmail(prefillEmail);
+    const refCode = params.get('ref');
+    if (refCode) setReferralCode(refCode);
+  }, []);
+
+  const validateReferralCode = useCallback(async (code: string) => {
+    if (!code.trim()) {
+      setReferrerName(null);
+      setReferralError(null);
+      return;
+    }
+    setReferralValidating(true);
+    setReferralError(null);
+    setReferrerName(null);
+    try {
+      const res = await fetch(`/api/referrals/validate/${encodeURIComponent(code.trim())}`);
+      const data = await res.json();
+      if (data.valid) {
+        setReferrerName(data.referrerName);
+      } else {
+        setReferralError('Invalid referral code');
+      }
+    } catch {
+      setReferralError('Could not validate code');
+    } finally {
+      setReferralValidating(false);
+    }
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setStep('referral');
+  };
+
+  const handleFinishSignup = async (code?: string) => {
     setLoading(true);
     try {
-      await signup(email, password, name, phone);
+      await signup(email, password, name, phone, code || undefined);
       toast({ title: 'Account created!' });
       setLocation('/marketplace');
-    } catch (err: any) {
-      toast({ title: 'Signup failed', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Signup failed';
+      toast({ title: 'Signup failed', description: message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
+
+  if (step === 'referral') {
+    return (
+      <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-2 w-12 h-12 rounded-full bg-[rgba(0,107,95,0.1)] flex items-center justify-center">
+              <Gift className="h-6 w-6 text-[#006B5F]" />
+            </div>
+            <CardTitle data-testid="text-referral-title">Were you referred?</CardTitle>
+            <CardDescription>
+              If a friend shared their referral code with you, enter it below. You can also skip this step.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="referral-code">Referral Code</Label>
+              <Input
+                id="referral-code"
+                placeholder="e.g. SIQ-JOHN00-00123"
+                value={referralCode}
+                onChange={(e) => {
+                  setReferralCode(e.target.value);
+                  setReferrerName(null);
+                  setReferralError(null);
+                }}
+                onBlur={() => validateReferralCode(referralCode)}
+                data-testid="input-referral-code"
+              />
+              {referralValidating && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Validating...
+                </div>
+              )}
+              {referrerName && (
+                <div className="flex items-center gap-1.5 text-xs text-[#006B5F] font-medium" data-testid="text-referrer-name">
+                  <CheckCircle className="h-3.5 w-3.5" /> Referred by {referrerName}
+                </div>
+              )}
+              {referralError && (
+                <p className="text-xs text-destructive" data-testid="text-referral-error">{referralError}</p>
+              )}
+            </div>
+
+            <Button
+              className="w-full"
+              disabled={loading || referralValidating || (!!referralCode.trim() && !referrerName)}
+              onClick={() => handleFinishSignup(referralCode.trim() || undefined)}
+              data-testid="button-continue-referral"
+            >
+              {loading ? 'Creating account...' : 'Continue'}
+            </Button>
+
+            <Button
+              variant="ghost"
+              className="w-full"
+              disabled={loading}
+              onClick={() => handleFinishSignup()}
+              data-testid="button-skip-referral"
+            >
+              Skip
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">

@@ -326,7 +326,7 @@ export interface IStorage {
   getReferralByRefereePlayerId(refereePlayerId: string): Promise<Referral | undefined>;
   getReferralsByReferrerId(referrerId: string): Promise<Referral[]>;
   getCompletedReferralCount(referrerId: string): Promise<number>;
-  getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string })[]>;
+  getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string; referralCode: string | null; ambassadorStatus: boolean; jerseyDispatched: boolean })[]>;
   updateReferral(id: string, updates: Partial<Referral>): Promise<Referral | undefined>;
   getReferralLeaderboard(limit?: number): Promise<{ playerId: string; playerName: string; referralCode: string | null; completedCount: number; ambassadorStatus: boolean }[]>;
   getPlayerByReferralCode(code: string): Promise<Player | undefined>;
@@ -2544,7 +2544,7 @@ export class DatabaseStorage implements IStorage {
     return result?.count ?? 0;
   }
 
-  async getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string })[]> {
+  async getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string; referralCode: string | null; ambassadorStatus: boolean; jerseyDispatched: boolean })[]> {
     const rows = await db
       .select({
         id: referrals.id,
@@ -2556,6 +2556,9 @@ export class DatabaseStorage implements IStorage {
         createdAt: referrals.createdAt,
         referrerName: players.name,
         refereeEmail: marketplaceUsers.email,
+        referralCode: players.referralCode,
+        ambassadorStatus: players.ambassadorStatus,
+        jerseyDispatched: players.jerseyDispatched,
       })
       .from(referrals)
       .leftJoin(players, eq(referrals.referrerId, players.id))
@@ -2565,6 +2568,9 @@ export class DatabaseStorage implements IStorage {
       ...r,
       referrerName: r.referrerName ?? 'Unknown',
       refereeEmail: r.refereeEmail ?? 'Unknown',
+      referralCode: r.referralCode ?? null,
+      ambassadorStatus: r.ambassadorStatus ?? false,
+      jerseyDispatched: r.jerseyDispatched ?? false,
     }));
   }
 

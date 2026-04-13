@@ -19,7 +19,7 @@ function getAuthToken(url: string): string | null {
     return localStorage.getItem('accessToken');
   }
 
-  const isMarketplace = url.startsWith('/api/marketplace/') || url.startsWith('/api/tags/');
+  const isMarketplace = url.startsWith('/api/marketplace/') || url.startsWith('/api/tags/') || url.startsWith('/api/referrals/player');
   const isAdminMarketplace = url.startsWith('/api/marketplace/admin/') ||
     (url.startsWith('/api/marketplace/sessions/') && url.endsWith('/bookings')) ||
     (url.includes('/api/marketplace/bookings/') && url.endsWith('/attend'));
