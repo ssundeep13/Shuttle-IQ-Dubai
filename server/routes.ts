@@ -117,6 +117,17 @@ export async function completeReferral(referralId: string): Promise<{ success: b
     .returning();
   if (!updatedReferrer) return { success: false, error: 'Referrer player not found' };
 
+  // Resolve referee name for the credit email
+  let refereeName = 'a friend';
+  const refereeUser = await storage.getMarketplaceUser(referral.refereeUserId);
+  if (refereeUser) {
+    refereeName = refereeUser.name;
+    // If referee has a linked player, store the player ID on the referral for direct lookup
+    if (refereeUser.linkedPlayerId && !referral.refereePlayerId) {
+      await db.update(referrals).set({ refereePlayerId: refereeUser.linkedPlayerId }).where(eq(referrals.id, referralId));
+    }
+  }
+
   const completedCount = await storage.getCompletedReferralCount(referral.referrerId);
 
   if (completedCount === 5 && !updatedReferrer.leaderboardMention) {
@@ -133,7 +144,7 @@ export async function completeReferral(referralId: string): Promise<{ success: b
   }
 
   if (updatedReferrer.email) {
-    sendReferralCreditEmail(updatedReferrer.email, updatedReferrer.name, '', updatedReferrer.walletBalance).catch(() => {});
+    sendReferralCreditEmail(updatedReferrer.email, updatedReferrer.name, refereeName, updatedReferrer.walletBalance).catch(() => {});
   }
 
   return { success: true };
@@ -3525,6 +3536,7 @@ Return ONLY valid JSON, no markdown, no other text:
       const referral = await storage.createReferral({
         referrerId: referrer.id,
         refereeUserId: req.user.userId,
+        refereePlayerId: user?.linkedPlayerId ?? null,
         status: 'pending',
       });
 
@@ -3627,42 +3639,23 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const walletSchema = z.object({
         bookingAmountFils: z.number().int().positive(),
-        bookingId: z.string().min(1),
       });
-      const { bookingAmountFils, bookingId } = walletSchema.parse(req.body);
+      const { bookingAmountFils } = walletSchema.parse(req.body);
 
       const user = await storage.getMarketplaceUser(req.user.userId);
       if (!user?.linkedPlayerId) {
         return res.status(400).json({ error: 'No linked player account. Link your player profile first.' });
       }
 
-      const booking = await storage.getBooking(bookingId);
-      if (!booking || booking.userId !== req.user.userId) {
-        return res.status(404).json({ error: 'Booking not found' });
-      }
-
       const player = await storage.getPlayer(user.linkedPlayerId);
       if (!player || player.walletBalance <= 0) {
-        return res.json({ walletApplied: 0, remainingToPay: bookingAmountFils });
+        return res.json({ walletApplied: 0, remainingToPay: bookingAmountFils, walletBalance: 0 });
       }
 
       const walletApplied = Math.min(player.walletBalance, bookingAmountFils);
       const remainingToPay = bookingAmountFils - walletApplied;
 
-      // Atomic wallet deduction: only deducts if balance is still sufficient
-      const [updated] = await db
-        .update(players)
-        .set({ walletBalance: sql`${players.walletBalance} - ${walletApplied}` })
-        .where(and(eq(players.id, player.id), sql`${players.walletBalance} >= ${walletApplied}`))
-        .returning();
-
-      if (!updated) {
-        return res.status(409).json({ error: 'Wallet balance changed. Please try again.' });
-      }
-
-      await storage.updateBooking(bookingId, { walletAmountUsed: walletApplied });
-
-      res.json({ walletApplied, remainingToPay });
+      res.json({ walletApplied, remainingToPay, walletBalance: player.walletBalance });
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });

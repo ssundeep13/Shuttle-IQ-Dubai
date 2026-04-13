@@ -130,6 +130,7 @@ export function registerMarketplaceRoutes(app: Express) {
                 await storage.createReferral({
                   referrerId: referrer.id,
                   refereeUserId: user.id,
+                  refereePlayerId: null,
                   status: 'pending',
                 });
                 console.log(`[Referral] Linked ${user.email} to referrer ${referrer.name} (${referralCode})`);

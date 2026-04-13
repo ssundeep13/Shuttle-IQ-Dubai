@@ -57,8 +57,9 @@ export type Player = typeof players.$inferSelect & {
 // Referrals table (tracks referrer → referee relationships)
 export const referrals = pgTable("referrals", {
   id: varchar("id").primaryKey(),
-  referrerId: varchar("referrer_id").notNull(), // player.id of the person who referred
+  referrerId: varchar("referrer_id").notNull().references(() => players.id), // player.id of the person who referred
   refereeUserId: varchar("referee_user_id").notNull().unique(), // marketplace_users.id of the person who was referred (one referral per user)
+  refereePlayerId: varchar("referee_player_id"), // player.id of the referee (populated when marketplace user links a player account)
   status: text("status").notNull().default('pending'), // 'pending' | 'completed' | 'invalid'
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
