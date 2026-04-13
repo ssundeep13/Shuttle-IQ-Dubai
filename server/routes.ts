@@ -96,6 +96,49 @@ function applyTierBuffer(
   return { level: currentTier, tierCandidate: newCandidate, tierCandidateGames: newCount };
 }
 
+const REFERRAL_CREDIT_FILS = 1500;
+
+export async function completeReferral(referralId: string): Promise<{ success: boolean; error?: string }> {
+  const referral = await storage.getReferral(referralId);
+  if (!referral) return { success: false, error: 'Referral not found' };
+  if (referral.status !== 'pending') return { success: false, error: 'Referral already processed' };
+
+  const [completedRef] = await db
+    .update(referrals)
+    .set({ status: 'completed', completedAt: new Date() })
+    .where(and(eq(referrals.id, referralId), eq(referrals.status, 'pending')))
+    .returning();
+  if (!completedRef) return { success: false, error: 'Referral already completed (race)' };
+
+  const [updatedReferrer] = await db
+    .update(players)
+    .set({ walletBalance: sql`${players.walletBalance} + ${REFERRAL_CREDIT_FILS}` })
+    .where(eq(players.id, referral.referrerId))
+    .returning();
+  if (!updatedReferrer) return { success: false, error: 'Referrer player not found' };
+
+  const completedCount = await storage.getCompletedReferralCount(referral.referrerId);
+
+  if (completedCount === 5 && !updatedReferrer.leaderboardMention) {
+    await storage.updatePlayer(referral.referrerId, { leaderboardMention: true });
+    if (updatedReferrer.email) {
+      sendReferralMilestoneEmail(updatedReferrer.email, updatedReferrer.name, 5).catch(() => {});
+    }
+  }
+  if (completedCount === 10 && !updatedReferrer.ambassadorStatus) {
+    await storage.updatePlayer(referral.referrerId, { ambassadorStatus: true });
+    if (updatedReferrer.email) {
+      sendReferralMilestoneEmail(updatedReferrer.email, updatedReferrer.name, 10).catch(() => {});
+    }
+  }
+
+  if (updatedReferrer.email) {
+    sendReferralCreditEmail(updatedReferrer.email, updatedReferrer.name, '', updatedReferrer.walletBalance).catch(() => {});
+  }
+
+  return { success: true };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Seed admin user on startup (dev only), then rotate legacy password (all envs)
   await seedAdminUser();
@@ -524,44 +567,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const referral = await storage.getReferralByRefereeUserId(booking.userId);
             if (!referral || referral.status !== 'pending') return;
 
-            // Atomic: only complete if still pending (prevents double-processing)
-            const [completedRef] = await db
-              .update(referrals)
-              .set({ status: 'completed', completedAt: new Date() })
-              .where(and(eq(referrals.id, referral.id), eq(referrals.status, 'pending')))
-              .returning();
-            if (!completedRef) return;
-
-            const CREDIT_FILS = 1500;
-
-            // Atomic wallet credit
-            const [updatedReferrer] = await db
-              .update(players)
-              .set({ walletBalance: sql`${players.walletBalance} + ${CREDIT_FILS}` })
-              .where(eq(players.id, referral.referrerId))
-              .returning();
-            if (!updatedReferrer) return;
-
-            const completedCount = await storage.getCompletedReferralCount(referral.referrerId);
-
-            if (completedCount === 5 && !updatedReferrer.leaderboardMention) {
-              await storage.updatePlayer(referral.referrerId, { leaderboardMention: true });
-              if (updatedReferrer.email) {
-                sendReferralMilestoneEmail(updatedReferrer.email, updatedReferrer.name, 5).catch(() => {});
-              }
+            const result = await completeReferral(referral.id);
+            if (result.success) {
+              console.log(`[Referral] Completed referral ${referral.id}: ${user.name} (attendance hook)`);
             }
-            if (completedCount === 10 && !updatedReferrer.ambassadorStatus) {
-              await storage.updatePlayer(referral.referrerId, { ambassadorStatus: true });
-              if (updatedReferrer.email) {
-                sendReferralMilestoneEmail(updatedReferrer.email, updatedReferrer.name, 10).catch(() => {});
-              }
-            }
-
-            if (updatedReferrer.email) {
-              sendReferralCreditEmail(updatedReferrer.email, updatedReferrer.name, user.name, updatedReferrer.walletBalance).catch(() => {});
-            }
-
-            console.log(`[Referral] Completed referral ${referral.id}: ${user.name} → ${updatedReferrer.name} (+${CREDIT_FILS} fils)`);
           } catch (err) {
             console.error('[Referral] Completion hook error:', err);
           }
@@ -3596,6 +3605,19 @@ Return ONLY valid JSON, no markdown, no other text:
     } catch (error: unknown) {
       console.error('Error marking jersey dispatched:', error);
       res.status(500).json({ error: 'Failed to mark jersey dispatched' });
+    }
+  });
+
+  app.post('/api/referrals/:id/complete', requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await completeReferral(req.params.id);
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      res.json({ success: true });
+    } catch (error: unknown) {
+      console.error('Error completing referral:', error);
+      res.status(500).json({ error: 'Failed to complete referral' });
     }
   });
 
