@@ -3643,8 +3643,19 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const walletSchema = z.object({
         bookingAmountFils: z.number().int().positive(),
+        bookingId: z.string().min(1),
       });
-      const { bookingAmountFils } = walletSchema.parse(req.body);
+      const { bookingAmountFils, bookingId } = walletSchema.parse(req.body);
+
+      const booking = await storage.getBooking(bookingId);
+      if (!booking || booking.userId !== req.user.userId) {
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      // Idempotency: if wallet was already applied to this booking, return current state
+      if (booking.walletAmountUsed && booking.walletAmountUsed > 0) {
+        return res.json({ walletApplied: booking.walletAmountUsed, remainingToPay: bookingAmountFils - booking.walletAmountUsed });
+      }
 
       const user = await storage.getMarketplaceUser(req.user.userId);
       if (!user?.linkedPlayerId) {
@@ -3653,15 +3664,27 @@ Return ONLY valid JSON, no markdown, no other text:
 
       const player = await storage.getPlayer(user.linkedPlayerId);
       if (!player || player.walletBalance <= 0) {
-        return res.json({ walletApplied: 0, remainingToPay: bookingAmountFils, walletBalance: 0 });
+        return res.json({ walletApplied: 0, remainingToPay: bookingAmountFils });
       }
 
       const walletApplied = Math.min(player.walletBalance, bookingAmountFils);
       const remainingToPay = bookingAmountFils - walletApplied;
 
-      // Quote-only: returns how much wallet credit CAN be applied.
-      // Actual deduction happens atomically in POST /api/marketplace/bookings with applyWallet flag.
-      res.json({ walletApplied, remainingToPay, walletBalance: player.walletBalance });
+      // Atomic wallet deduction: only deducts if balance is still sufficient
+      const [updated] = await db
+        .update(players)
+        .set({ walletBalance: sql`${players.walletBalance} - ${walletApplied}` })
+        .where(and(eq(players.id, player.id), sql`${players.walletBalance} >= ${walletApplied}`))
+        .returning();
+
+      if (!updated) {
+        return res.status(409).json({ error: 'Wallet balance changed. Please try again.' });
+      }
+
+      // Record wallet usage on the booking
+      await storage.updateBooking(bookingId, { walletAmountUsed: walletApplied });
+
+      res.json({ walletApplied, remainingToPay });
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });

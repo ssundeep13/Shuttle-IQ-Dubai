@@ -1022,7 +1022,9 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       }
 
-      const ziinaAmountAed = Math.ceil((totalAmountFils - walletAppliedFils) / 100);
+      // Wallet credits are in multiples of 1500 fils (AED 15) and booking prices are in whole AED,
+      // so remainder should always be divisible by 100. Use Math.round for safety (never overcharge).
+      const ziinaAmountAed = Math.round((totalAmountFils - walletAppliedFils) / 100);
 
       let paymentIntent;
       try {
