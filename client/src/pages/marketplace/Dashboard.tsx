@@ -670,7 +670,7 @@ export default function Dashboard() {
                         <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Referred Players</p>
                         {referralData.referrals.map((ref) => (
                           <div key={ref.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0" data-testid={`row-referral-${ref.id}`}>
-                            <span className="text-sm truncate">{ref.referee?.name || 'Pending link'}</span>
+                            <span className="text-sm truncate">{ref.refereeName || 'Pending link'}</span>
                             <div className="flex items-center gap-2 shrink-0">
                               {ref.status === 'completed' && (
                                 <span className="text-xs text-muted-foreground">AED 15</span>

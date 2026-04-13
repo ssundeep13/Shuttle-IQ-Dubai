@@ -324,7 +324,7 @@ export interface IStorage {
   getReferral(id: string): Promise<Referral | undefined>;
   getReferralByRefereeUserId(refereeUserId: string): Promise<Referral | undefined>;
   getReferralByRefereePlayerId(refereePlayerId: string): Promise<Referral | undefined>;
-  getReferralsByReferrerId(referrerId: string): Promise<Referral[]>;
+  getReferralsByReferrerId(referrerId: string): Promise<(Referral & { refereeName: string | null })[]>;
   getCompletedReferralCount(referrerId: string): Promise<number>;
   getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string; referralCode: string | null; ambassadorStatus: boolean; jerseyDispatched: boolean })[]>;
   updateReferral(id: string, updates: Partial<Referral>): Promise<Referral | undefined>;
@@ -2528,12 +2528,23 @@ export class DatabaseStorage implements IStorage {
     return row ?? undefined;
   }
 
-  async getReferralsByReferrerId(referrerId: string): Promise<Referral[]> {
-    return db
-      .select()
+  async getReferralsByReferrerId(referrerId: string): Promise<(Referral & { refereeName: string | null })[]> {
+    const rows = await db
+      .select({
+        id: referrals.id,
+        referrerId: referrals.referrerId,
+        refereeUserId: referrals.refereeUserId,
+        refereePlayerId: referrals.refereePlayerId,
+        status: referrals.status,
+        completedAt: referrals.completedAt,
+        createdAt: referrals.createdAt,
+        refereeName: marketplaceUsers.name,
+      })
       .from(referrals)
+      .leftJoin(marketplaceUsers, eq(referrals.refereeUserId, marketplaceUsers.id))
       .where(eq(referrals.referrerId, referrerId))
       .orderBy(desc(referrals.createdAt));
+    return rows.map(r => ({ ...r, refereeName: r.refereeName ?? null }));
   }
 
   async getCompletedReferralCount(referrerId: string): Promise<number> {
