@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight, Users2 } from 'lucide-react';
+import { SiWhatsapp } from 'react-icons/si';
 import { motion } from 'framer-motion';
 import type { CommunitySpotlightEntry } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -107,6 +108,44 @@ export default function MarketplaceHome() {
                 <div className="text-sm text-muted-foreground mt-1">{stat.label}</div>
               </motion.div>
             ))}
+          </div>
+        </motion.div>
+      </section>
+
+      <section className="py-10 md:py-14 px-4">
+        <motion.div
+          className="max-w-5xl mx-auto"
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, amount: 0.3 }}
+          variants={fadeInUp}
+        >
+          <div className="relative rounded-md overflow-hidden bg-[#006B5F]">
+            <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
+            <div className="relative flex flex-col sm:flex-row items-center gap-5 sm:gap-6 px-6 py-6 sm:px-8 sm:py-7">
+              <div className="w-12 h-12 rounded-full bg-white/15 flex items-center justify-center shrink-0">
+                <SiWhatsapp className="h-6 w-6 text-white" />
+              </div>
+              <div className="flex-1 text-center sm:text-left">
+                <h3 className="text-lg font-bold text-white mb-1" data-testid="text-whatsapp-banner-title">Join Our WhatsApp Community</h3>
+                <p className="text-sm text-white/75 leading-relaxed">Stay on top of session updates, connect with players, and never miss a game.</p>
+              </div>
+              <Button
+                asChild
+                className="gap-2 bg-[#25D366] border-[#25D366] text-white shrink-0"
+                data-testid="button-join-whatsapp"
+              >
+                <a
+                  href="https://chat.whatsapp.com/EPeC5K3IaM2Fa4910p8XpE"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <SiWhatsapp className="h-4 w-4" />
+                  Join Group
+                  <ArrowRight className="h-4 w-4" />
+                </a>
+              </Button>
+            </div>
           </div>
         </motion.div>
       </section>
