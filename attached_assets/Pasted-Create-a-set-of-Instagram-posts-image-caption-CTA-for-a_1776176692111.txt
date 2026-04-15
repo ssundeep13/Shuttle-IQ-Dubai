@@ -1,0 +1,112 @@
+Create a set of Instagram posts (image + caption + CTA) for a premium badminton community brand called ShuttleIQ.
+
+🎯 Objective
+
+Drive bookings for upcoming sessions and incentivize referrals.
+
+📅 Session Details
+Thursday: 8:00 PM – 10:00 PM
+Saturday: 6:00 PM – 8:00 PM
+Location: Dubai (keep generic or use “Premium Indoor Courts”)
+Booking link: www.shuttleiq.org
+💰 Offer to Highlight
+Refer a friend → Get AED 15 credit
+Credit applies when friend books and plays
+🎨 Brand Guidelines
+Style: Premium, minimal, clean
+Tone: Confident, slightly bold, not loud or cheap
+Audience: Smart, urban, working professionals (South Asian audience preferred visually)
+Colors:
+Navy: #003E8C
+Teal: #006B5F
+Cream: #F5EFE0
+Logo: Wordmark “ShuttleIQ” (Shuttle in white, IQ in teal)
+📸 Deliverables Required
+1. MAIN POST (4:5 ratio – 1080x1350)
+Visual Concept:
+High-energy badminton scene (mid-smash / rally moment)
+3–4 players, premium indoor court lighting
+Clean composition, cinematic lighting
+Text Overlay (keep minimal, bold):
+
+Headline options (generate 3 variations):
+
+“Better Than The Gym.”
+“Play Smarter. Play More.”
+“Dubai’s Smartest Badminton Sessions.”
+
+Subtext:
+
+Thu 8–10 PM | Sat 6–8 PM
+
+Footer:
+
+Book Now: ShuttleIQ.org
+2. REFERRAL POST (4:5 ratio)
+Visual Concept:
+2 friends laughing / high-fiving after a game
+Social, energetic vibe
+Text Overlay:
+
+Headline:
+“Bring a Friend. Get Paid to Play.”
+
+Subtext:
+“Earn AED 15 credit when they join.”
+
+3. INSTAGRAM STORY (9:16)
+Visual Concept:
+
+Fast-paced, energetic, slightly urgent
+
+Text:
+
+“Got plans this week?
+Cancel them.”
+
+“Thursday & Saturday
+ShuttleIQ is ON.”
+
+👉 Book Now
+👉 Bring a friend → Earn AED 15
+
+✍️ CAPTIONS (Generate 3 Variants)
+
+Tone:
+
+Human, slightly witty
+Not salesy
+Feels like insider invite
+
+Include:
+
+Hook (first line must grab attention)
+Session timings
+Referral incentive
+Booking CTA
+Social proof tone (“people are switching…” / “you’ll see why…”)
+🔖 HASHTAGS
+
+Include 15–20 relevant hashtags:
+
+Dubai sports / badminton / fitness / social sports
+Example: #DubaiBadminton #PlayDubai #SocialSports #ShuttleIQ
+⚡ OUTPUT FORMAT
+Provide:
+Image generation prompts (for each post)
+Final overlay text
+Captions
+Hashtags
+🚀 EXTRA INSTRUCTION
+
+Make the posts feel like:
+
+“You’re missing out if you’re not here”
+Premium but accessible
+Community > just sport
+
+Avoid:
+
+Cheap fitness vibes
+Generic stock look
+Overcrowded text
