@@ -130,16 +130,16 @@ export async function seedAdminUser(): Promise<AdminUser | null> {
     console.log('[SEED] Created user admin account (development only)');
   }
 
-  // Create second super admin account
+  // Create second admin account
   const existingSecondAdmin = await findAdminByEmail('arjun.aj.anand@gmail.com');
   if (!existingSecondAdmin) {
     const secondAdminPasswordHash = await hashPassword('shuttleiqdubai');
     const secondAdmin = await createAdminUser({
       email: 'arjun.aj.anand@gmail.com',
       passwordHash: secondAdminPasswordHash,
-      role: 'super_admin',
+      role: 'admin',
     });
-    console.log('[SEED] Created second super admin account (development only)');
+    console.log('[SEED] Created second admin account (development only)');
     return secondAdmin;
   }
 
