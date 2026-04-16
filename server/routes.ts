@@ -28,7 +28,8 @@ import {
   deleteSessionsForUser,
   findAdminById,
   seedAdminUser,
-  rotateDefaultAdminPassword
+  rotateDefaultAdminPassword,
+  ensureOwnerSuperAdmin
 } from "./auth/storage";
 import {
   buildRestStatesFromHistory,
@@ -154,6 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Seed admin user on startup (dev only), then rotate legacy password (all envs)
   await seedAdminUser();
   await rotateDefaultAdminPassword();
+  await ensureOwnerSuperAdmin();
 
   // Register marketplace routes
   registerMarketplaceRoutes(app);

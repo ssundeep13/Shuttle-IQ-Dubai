@@ -75,6 +75,15 @@ export async function deleteExpiredSessions(): Promise<void> {
 // Rotate the default admin@shuttleiq.com password away from the legacy 'admin123'
 // default. Runs at every startup; is idempotent — exits immediately once the
 // old password no longer matches (i.e. already rotated or account doesn't exist).
+export async function ensureOwnerSuperAdmin(): Promise<void> {
+  const OWNER_EMAIL = 'ssundeep13@gmail.com';
+  const owner = await findAdminByEmail(OWNER_EMAIL);
+  if (owner && owner.role !== 'super_admin') {
+    await db.update(adminUsers).set({ role: 'super_admin' }).where(eq(adminUsers.email, OWNER_EMAIL));
+    console.log('[Auth] Promoted owner account to super_admin');
+  }
+}
+
 export async function rotateDefaultAdminPassword(): Promise<void> {
   const LEGACY_PASSWORD = 'admin123';
   const NEW_PASSWORD = 'admin@shuttleiq.com';
