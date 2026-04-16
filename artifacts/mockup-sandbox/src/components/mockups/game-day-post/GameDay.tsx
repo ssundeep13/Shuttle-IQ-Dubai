@@ -178,7 +178,7 @@ export function GameDay() {
             animation: 'pulse 2s infinite',
           }} />
           <span style={{ fontSize: 16, color: '#4ECDC4', fontWeight: 600 }}>
-            4 spots remaining
+            2 spots remaining
           </span>
         </div>
 
