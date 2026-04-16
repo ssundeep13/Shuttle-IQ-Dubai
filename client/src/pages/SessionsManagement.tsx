@@ -1128,6 +1128,12 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             </Badge>
           )}
         </div>
+        {booking.createdAt && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid={`text-booking-time-${booking.id}`}>
+            <Clock className="h-3 w-3 shrink-0" />
+            <span>Booked {format(new Date(booking.createdAt), 'MMM d, h:mm a')}</span>
+          </div>
+        )}
         <div className="flex items-center gap-2 flex-wrap">
           {booking.paymentMethod === 'cash' && booking.status !== 'cancelled' && (
             <Button
