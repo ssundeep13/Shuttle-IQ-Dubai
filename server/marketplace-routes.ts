@@ -1128,7 +1128,6 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error: unknown) {
       console.error('[Ziina] Confirm error for booking', {
         bookingId: req.params.id,
-        intentId: (await storage.getBooking(req.params.id).catch(() => null))?.ziinaPaymentIntentId,
         error: error instanceof Error ? error.message : error,
         rawError: error,
       });
