@@ -52,6 +52,7 @@ interface PlayerSearchResult {
 
 export default function SessionsManagement() {
   const { user, logout } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -270,10 +271,12 @@ export default function SessionsManagement() {
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="finance" data-testid="tab-finance" className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4" />
-                Finance
-              </TabsTrigger>
+              {isSuperAdmin && (
+                <TabsTrigger value="finance" data-testid="tab-finance" className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4" />
+                  Finance
+                </TabsTrigger>
+              )}
               <TabsTrigger value="tag-suggestions" data-testid="tab-tag-suggestions" className="flex items-center gap-2">
                 <Lightbulb className="w-4 h-4" />
                 Tag Ideas
@@ -339,9 +342,11 @@ export default function SessionsManagement() {
             <RefundsTabContent refunds={refunds} />
           </TabsContent>
 
-          <TabsContent value="finance" className="mt-6">
-            <FinanceTab />
-          </TabsContent>
+          {isSuperAdmin && (
+            <TabsContent value="finance" className="mt-6">
+              <FinanceTab />
+            </TabsContent>
+          )}
 
           <TabsContent value="tag-suggestions" className="mt-6">
             <Card>

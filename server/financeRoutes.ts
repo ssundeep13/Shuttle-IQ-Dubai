@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { storage } from "./storage";
 import { z } from "zod";
-import { requireAuth, requireAdmin } from "./auth/middleware";
+import { requireAuth, requireSuperAdmin } from "./auth/middleware";
 import { db } from "./db";
 import { expenseCategories, bookings, bookableSessions, marketplaceUsers, payments } from "@shared/schema";
 import { sql, eq, and, inArray, desc } from "drizzle-orm";
@@ -30,7 +30,7 @@ export async function seedExpenseCategories(): Promise<void> {
 export function registerFinanceRoutes(app: Express): void {
   // ── Summary / P&L ─────────────────────────────────────────────────────────
 
-  app.get("/api/finance/summary", requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/finance/summary", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const { from, to } = req.query as Record<string, string>;
 
@@ -60,7 +60,7 @@ export function registerFinanceRoutes(app: Express): void {
 
   // ── Expense Categories ─────────────────────────────────────────────────────
 
-  app.get("/api/finance/expense-categories", requireAuth, requireAdmin, async (_req, res) => {
+  app.get("/api/finance/expense-categories", requireAuth, requireSuperAdmin, async (_req, res) => {
     try {
       const cats = await storage.getAllExpenseCategories();
       res.json(cats);
@@ -70,7 +70,7 @@ export function registerFinanceRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/finance/expense-categories", requireAuth, requireAdmin, async (req, res) => {
+  app.post("/api/finance/expense-categories", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const schema = z.object({
         name: z.string().min(1).max(80),
@@ -87,7 +87,7 @@ export function registerFinanceRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/finance/expense-categories/:id", requireAuth, requireAdmin, async (req, res) => {
+  app.patch("/api/finance/expense-categories/:id", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const schema = z.object({
         name: z.string().min(1).max(80).optional(),
@@ -105,7 +105,7 @@ export function registerFinanceRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/finance/expense-categories/:id", requireAuth, requireAdmin, async (req, res) => {
+  app.delete("/api/finance/expense-categories/:id", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       // Check if any expenses reference this category
       const linked = await storage.getAllExpenses({ categoryId: req.params.id });
@@ -124,7 +124,7 @@ export function registerFinanceRoutes(app: Express): void {
 
   // ── Expenses ───────────────────────────────────────────────────────────────
 
-  app.get("/api/finance/expenses", requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/finance/expenses", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const { from, to, categoryId } = req.query as Record<string, string>;
       const fromDate = from ? new Date(from) : undefined;
@@ -152,7 +152,7 @@ export function registerFinanceRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/finance/expenses", requireAuth, requireAdmin, async (req, res) => {
+  app.post("/api/finance/expenses", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const schema = z.object({
         categoryId: z.string().min(1),
@@ -177,7 +177,7 @@ export function registerFinanceRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/finance/expenses/:id", requireAuth, requireAdmin, async (req, res) => {
+  app.patch("/api/finance/expenses/:id", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const schema = z.object({
         categoryId: z.string().min(1).optional(),
@@ -202,7 +202,7 @@ export function registerFinanceRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/finance/expenses/:id", requireAuth, requireAdmin, async (req, res) => {
+  app.delete("/api/finance/expenses/:id", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const expense = await storage.getExpense(req.params.id);
       if (!expense) return res.status(404).json({ error: "Expense not found" });
@@ -216,7 +216,7 @@ export function registerFinanceRoutes(app: Express): void {
 
   // ── Pending Cash Payments ──────────────────────────────────────────────────
 
-  app.get("/api/finance/pending-payments", requireAuth, requireAdmin, async (_req, res) => {
+  app.get("/api/finance/pending-payments", requireAuth, requireSuperAdmin, async (_req, res) => {
     try {
       // Fetch all cash bookings that are not yet collected
       const rows = await db
@@ -279,7 +279,7 @@ export function registerFinanceRoutes(app: Express): void {
 
   // ── Ziina Payment History ──────────────────────────────────────────────────
 
-  app.get("/api/finance/ziina-payments", requireAuth, requireAdmin, async (_req, res) => {
+  app.get("/api/finance/ziina-payments", requireAuth, requireSuperAdmin, async (_req, res) => {
     try {
       const rows = await db
         .select({
