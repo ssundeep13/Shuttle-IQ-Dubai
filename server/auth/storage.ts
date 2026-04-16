@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { adminUsers, authSessions, type InsertAdminUser, type AdminUser, type AuthSession } from "@shared/schema";
-import { eq, lt, gt } from "drizzle-orm";
+import { eq, lt, gt, ne, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { hashPassword, comparePassword } from "./utils";
 import bcrypt from "bcryptjs";
@@ -81,6 +81,13 @@ export async function ensureOwnerSuperAdmin(): Promise<void> {
   if (owner && owner.role !== 'super_admin') {
     await db.update(adminUsers).set({ role: 'super_admin' }).where(eq(adminUsers.email, OWNER_EMAIL));
     console.log('[Auth] Promoted owner account to super_admin');
+  }
+  const demoted = await db.update(adminUsers)
+    .set({ role: 'admin' })
+    .where(and(eq(adminUsers.role, 'super_admin'), ne(adminUsers.email, OWNER_EMAIL)))
+    .returning({ email: adminUsers.email });
+  if (demoted.length > 0) {
+    console.log(`[Auth] Demoted ${demoted.length} non-owner super_admin(s) to admin:`, demoted.map(d => d.email).join(', '));
   }
 }
 
