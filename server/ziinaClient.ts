@@ -17,9 +17,23 @@ async function ziinaRequest(method: string, path: string, body?: object): Promis
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 
-  const data = await res.json() as any;
+  let data: Record<string, unknown>;
+  try {
+    data = await res.json() as Record<string, unknown>;
+  } catch {
+    const text = await res.text().catch(() => '(unreadable)');
+    console.error(`[Ziina] API ${method} ${path} — HTTP ${res.status}, non-JSON response:`, text);
+    throw new Error(`Ziina API error: ${res.status} (non-JSON response)`);
+  }
   if (!res.ok) {
-    throw new Error(data?.message || data?.error || `Ziina API error: ${res.status}`);
+    console.error(`[Ziina] API ${method} ${path} failed — HTTP ${res.status}`, {
+      status: res.status,
+      errorMessage: data?.message || data?.error,
+      declineReason: data?.decline_reason || data?.reason,
+      code: data?.code,
+      responseBody: data,
+    });
+    throw new Error((data?.message || data?.error || `Ziina API error: ${res.status}`) as string);
   }
   return data;
 }
