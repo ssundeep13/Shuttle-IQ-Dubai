@@ -45,6 +45,7 @@ import GoogleAuthCallback from "@/pages/marketplace/GoogleAuthCallback";
 import BlogList from "@/pages/marketplace/BlogList";
 import BlogPost from "@/pages/marketplace/BlogPost";
 import InstagramCarousel from "@/pages/InstagramCarousel";
+import InstagramFeaturesCarousel from "@/pages/InstagramFeaturesCarousel";
 import InstagramLeaderboard from "@/pages/InstagramLeaderboard";
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -237,6 +238,7 @@ function Router() {
         </Route>
 
         <Route path="/carousel" component={InstagramCarousel} />
+        <Route path="/features-carousel" component={InstagramFeaturesCarousel} />
         <Route path="/instagram-leaderboard" component={InstagramLeaderboard} />
 
         <Route component={NotFound} />
