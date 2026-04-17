@@ -46,6 +46,7 @@ import BlogList from "@/pages/marketplace/BlogList";
 import BlogPost from "@/pages/marketplace/BlogPost";
 import InstagramCarousel from "@/pages/InstagramCarousel";
 import InstagramFeaturesCarousel from "@/pages/InstagramFeaturesCarousel";
+import ScreenshotHarness from "@/pages/ScreenshotHarness";
 import InstagramLeaderboard from "@/pages/InstagramLeaderboard";
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -239,6 +240,9 @@ function Router() {
 
         <Route path="/carousel" component={InstagramCarousel} />
         <Route path="/features-carousel" component={InstagramFeaturesCarousel} />
+        {import.meta.env.DEV && (
+          <Route path="/screenshot-harness" component={ScreenshotHarness} />
+        )}
         <Route path="/instagram-leaderboard" component={InstagramLeaderboard} />
 
         <Route component={NotFound} />
