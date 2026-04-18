@@ -96,15 +96,20 @@ function addSkidToPlayer(player: typeof players.$inferSelect): Player {
 // stray non-numeric ID (e.g. "SIQ-J-TZXX" from test data) cannot silently
 // reset the counter back to 1 and cause unique-key collisions on insert.
 async function generateShuttleIqId(): Promise<string> {
-  const result = await db.execute<{ max_num: number | null }>(sql`
-    SELECT MAX(CAST(SUBSTRING(${players.shuttleIqId} FROM '^SIQ-(\d+)$') AS INTEGER)) AS max_num
-    FROM ${players}
-    WHERE ${players.shuttleIqId} ~ '^SIQ-\d+$'
-  `);
+  // Use the strict 5-digit canonical shape so any malformed/test ID
+  // (e.g. "SIQ-J-TZXX" or "SIQ-1") is excluded from the max calculation.
+  const rows = await db
+    .select({
+      maxNum: sql<number | null>`MAX(CAST(SUBSTRING(${players.shuttleIqId} FROM '^SIQ-([0-9]{5})$') AS INTEGER))`,
+    })
+    .from(players)
+    .where(sql`${players.shuttleIqId} ~ '^SIQ-[0-9]{5}$'`);
 
-  const rows = (result as any).rows ?? result;
-  const maxNum = rows?.[0]?.max_num ?? null;
-  const nextNumber = (typeof maxNum === 'number' && maxNum > 0) ? maxNum + 1 : 1;
+  const maxNumRaw = rows[0]?.maxNum;
+  const maxNum = typeof maxNumRaw === 'number'
+    ? maxNumRaw
+    : (maxNumRaw != null ? Number(maxNumRaw) : null);
+  const nextNumber = (maxNum != null && Number.isFinite(maxNum) && maxNum > 0) ? maxNum + 1 : 1;
 
   const candidate = `SIQ-${nextNumber.toString().padStart(5, '0')}`;
   // Defense in depth: if somehow the candidate is already taken, advance
