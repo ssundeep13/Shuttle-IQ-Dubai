@@ -271,6 +271,7 @@ export const marketplaceUsers = pgTable("marketplace_users", {
   resetToken: text("reset_token"),
   resetTokenExpiry: timestamp("reset_token_expiry"),
   googleId: text("google_id").unique(),
+  pendingSignupCreditFils: integer("pending_signup_credit_fils").notNull().default(0),
 });
 
 export const insertMarketplaceUserSchema = createInsertSchema(marketplaceUsers).omit({ id: true, createdAt: true, lastLoginAt: true });

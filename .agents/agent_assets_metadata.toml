@@ -1,5 +1,4 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "vuDAz6H_uGcfijOXFi9_w"
@@ -12,3 +11,9 @@ id = "cQyQ3yUPFKW-9eiq3Ts9H"
 uri = "file://artifacts/mockup-sandbox/public/images/features-hero.png"
 type = "image"
 title = "generated_image"
+
+[[outputs]]
+id = "fp2ReOF8v7qbOWSrA3Yvs"
+uri = "file://attached_assets/jersey-qr.png"
+type = "image"
+title = "Jersey QR code (1500×1500 PNG, links to /welcome)"

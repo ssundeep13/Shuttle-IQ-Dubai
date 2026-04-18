@@ -44,6 +44,7 @@ import ScoringGuide from "@/pages/marketplace/ScoringGuide";
 import GoogleAuthCallback from "@/pages/marketplace/GoogleAuthCallback";
 import BlogList from "@/pages/marketplace/BlogList";
 import BlogPost from "@/pages/marketplace/BlogPost";
+import Welcome from "@/pages/marketplace/Welcome";
 import InstagramCarousel from "@/pages/InstagramCarousel";
 import InstagramFeaturesCarousel from "@/pages/InstagramFeaturesCarousel";
 import ScreenshotHarness from "@/pages/ScreenshotHarness";
@@ -237,6 +238,8 @@ function Router() {
         <Route path="/marketplace/auth/callback">
           <MarketplaceRoute component={GoogleAuthCallback} />
         </Route>
+
+        <Route path="/welcome" component={Welcome} />
 
         <Route path="/carousel" component={InstagramCarousel} />
         <Route path="/features-carousel" component={InstagramFeaturesCarousel} />

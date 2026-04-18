@@ -93,6 +93,10 @@ const staticRoutes: Record<string, PageMeta> = {
     title: "Blog | ShuttleIQ",
     description: "Tips, updates, and stories from the ShuttleIQ badminton community in the UAE. Stay up to date with the latest from the courts.",
   },
+  "/welcome": {
+    title: "ShuttleIQ — Upgrade Your Badminton Group | AED 15 Free",
+    description: "Smart matchmaking, fair queues, real rankings. Join ShuttleIQ — the badminton community in the UAE — and grab AED 15 free credit on signup.",
+  },
 };
 
 const dynamicRoutes: RoutePattern[] = [

@@ -27,6 +27,7 @@ export default function MarketplaceSignup() {
   const [referralValidating, setReferralValidating] = useState(false);
   const [referrerName, setReferrerName] = useState<string | null>(null);
   const [referralError, setReferralError] = useState<string | null>(null);
+  const [promo, setPromo] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -34,6 +35,8 @@ export default function MarketplaceSignup() {
     if (prefillEmail) setEmail(prefillEmail);
     const refCode = params.get('ref');
     if (refCode) setReferralCode(refCode);
+    const promoCode = params.get('promo');
+    if (promoCode) setPromo(promoCode);
   }, []);
 
   const validateReferralCode = useCallback(async (code: string) => {
@@ -68,7 +71,7 @@ export default function MarketplaceSignup() {
   const handleFinishSignup = async (code?: string) => {
     setLoading(true);
     try {
-      await signup(email, password, name, phone, code || undefined);
+      await signup(email, password, name, phone, code || undefined, promo || undefined);
       toast({ title: 'Account created!' });
       setLocation('/marketplace');
     } catch (err: unknown) {
@@ -93,6 +96,15 @@ export default function MarketplaceSignup() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {promo === 'jersey15' && !referralCode.trim() && (
+              <div
+                className="flex items-center gap-2 rounded-md border border-[#00BFA5]/30 bg-[#00BFA5]/10 px-3 py-2 text-sm text-[#006B5F]"
+                data-testid="banner-jersey-credit"
+              >
+                <Gift className="h-4 w-4 shrink-0" />
+                <span>AED 15 welcome credit will be added to your wallet.</span>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="referral-code">Referral Code</Label>
               <Input
@@ -158,7 +170,12 @@ export default function MarketplaceSignup() {
             type="button"
             variant="outline"
             className="w-full gap-2 mb-2"
-            onClick={() => { window.location.href = '/api/marketplace/auth/google'; }}
+            onClick={() => {
+              const url = promo
+                ? `/api/marketplace/auth/google?promo=${encodeURIComponent(promo)}`
+                : '/api/marketplace/auth/google';
+              window.location.href = url;
+            }}
             data-testid="button-google-signup"
           >
             <SiGoogle className="h-4 w-4" />

@@ -25,6 +25,7 @@ import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and } from "drizzle-orm";
 import { players } from "@shared/schema";
+import { applyPendingSignupCredit, creditForPromo } from "./promos";
 
 async function refundBookingWalletCredit(booking: { walletAmountUsed: number | null; userId: string }) {
   if (!booking.walletAmountUsed || booking.walletAmountUsed <= 0) return;
@@ -121,8 +122,12 @@ export function registerMarketplaceRoutes(app: Express) {
         name: z.string().min(1),
         phone: z.string().min(1, "Phone number is required"),
         referralCode: z.string().optional(),
+        promo: z.string().optional(),
       });
-      const { email, password, name, phone, referralCode } = schema.parse(req.body);
+      const { email, password, name, phone, referralCode, promo } = schema.parse(req.body);
+      // Jersey promo gives the new signup AED 15 wallet credit. It is
+      // ignored if a referral code is also used so credits don't stack.
+      const promoCredit = referralCode ? 0 : creditForPromo(promo);
 
       const existing = await storage.getMarketplaceUserByEmail(email);
       if (existing) {
@@ -137,6 +142,7 @@ export function registerMarketplaceRoutes(app: Express) {
         phone: phone || null,
         linkedPlayerId: null,
         role: "player",
+        pendingSignupCreditFils: promoCredit,
       });
 
       const payload = { userId: user.id, email: user.email, role: "marketplace_player" };
@@ -408,6 +414,8 @@ export function registerMarketplaceRoutes(app: Express) {
         if (returnDomain) qs.set('returnDomain', returnDomain);
         const returnPath = (req.query.returnPath as string) || '';
         if (returnPath) qs.set('returnPath', returnPath);
+        const promo = (req.query.promo as string) || '';
+        if (promo) qs.set('promo', promo);
         return res.redirect(`https://${canonicalDomain}/api/marketplace/auth/google?${qs.toString()}`);
       }
 
@@ -428,6 +436,13 @@ export function registerMarketplaceRoutes(app: Express) {
       }
       if (returnPath && returnPath.startsWith('/marketplace/') && returnPath.length < 300) {
         res.cookie('oauth_return_path', returnPath, cookieOpts);
+      }
+
+      // Carry promo slug through OAuth so /welcome → Google → callback
+      // still grants the AED 15 jersey signup credit.
+      const promo = req.query.promo as string | undefined;
+      if (promo && /^[a-z0-9_-]{1,32}$/i.test(promo)) {
+        res.cookie('oauth_promo', promo, cookieOpts);
       }
 
       const url = client.generateAuthUrl({
@@ -466,8 +481,10 @@ export function registerMarketplaceRoutes(app: Express) {
       // Read and clear return-context cookies
       const returnDomain: string | undefined = req.cookies?.oauth_return_domain;
       const returnPath: string | undefined = req.cookies?.oauth_return_path;
+      const promo: string | undefined = req.cookies?.oauth_promo;
       res.clearCookie('oauth_return_domain', clearOpts);
       res.clearCookie('oauth_return_path', clearOpts);
+      res.clearCookie('oauth_promo', clearOpts);
 
       const { client } = getGoogleOAuthClient();
       const { tokens } = await client.getToken(code);
@@ -499,7 +516,10 @@ export function registerMarketplaceRoutes(app: Express) {
           await storage.updateMarketplaceUser(user.id, { googleId });
           user = { ...user, googleId };
         } else {
-          // Brand new account via Google
+          // Brand new account via Google. The jersey promo slug (if any)
+          // grants the same AED 15 wallet credit as the email/password
+          // signup flow.
+          const promoCredit = creditForPromo(promo);
           user = await storage.createMarketplaceUser({
             email,
             passwordHash: null,
@@ -508,6 +528,7 @@ export function registerMarketplaceRoutes(app: Express) {
             linkedPlayerId: null,
             role: 'player',
             googleId,
+            pendingSignupCreditFils: promoCredit,
           });
           // Fire-and-forget welcome email
           const marketplaceUrl = process.env.REPLIT_DOMAINS
@@ -560,6 +581,7 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!player) return res.status(404).json({ error: "Player not found" });
 
       await storage.updateMarketplaceUser(req.user.userId, { linkedPlayerId: playerId });
+      await applyPendingSignupCredit(req.user.userId, playerId);
       res.json({ success: true, player });
     } catch (error) {
       res.status(500).json({ error: "Failed to link player" });
@@ -682,6 +704,7 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!player) return res.status(404).json({ error: "Player not found" });
 
       await storage.updateMarketplaceUser(marketplaceUserId, { linkedPlayerId: playerId });
+      await applyPendingSignupCredit(marketplaceUserId, playerId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to link player" });
