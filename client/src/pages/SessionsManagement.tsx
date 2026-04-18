@@ -1564,6 +1564,12 @@ function MarketplaceUsersSubTab() {
   const [linkingUser, setLinkingUser] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlayerSearchResult[]>([]);
+  const [conflict, setConflict] = useState<{
+    marketplaceUserId: string;
+    playerId: number;
+    playerName: string;
+    existingOwner: { id: string; email: string; name: string };
+  } | null>(null);
 
   const { data: users, isLoading } = useQuery<MarketplaceUserWithLinkedPlayer[]>({
     queryKey: ['/api/marketplace/admin/users'],
@@ -1588,18 +1594,57 @@ function MarketplaceUsersSubTab() {
     }
   };
 
+  interface LinkPlayerError extends Error {
+    status?: number;
+    code?: string;
+    existingOwner?: { id: string; email: string; name: string };
+    playerId?: number;
+    marketplaceUserId?: string;
+  }
+
+  const isLinkPlayerConflict = (
+    error: unknown,
+  ): error is LinkPlayerError & {
+    status: 409;
+    code: 'PLAYER_ALREADY_LINKED';
+    existingOwner: { id: string; email: string; name: string };
+    playerId: number;
+    marketplaceUserId: string;
+  } => {
+    if (!(error instanceof Error)) return false;
+    const e = error as LinkPlayerError;
+    return (
+      e.status === 409 &&
+      e.code === 'PLAYER_ALREADY_LINKED' &&
+      !!e.existingOwner &&
+      typeof e.playerId === 'number' &&
+      typeof e.marketplaceUserId === 'string'
+    );
+  };
+
   const linkMutation = useMutation({
-    mutationFn: async ({ marketplaceUserId, playerId }: { marketplaceUserId: string; playerId: number }) => {
+    mutationFn: async ({ marketplaceUserId, playerId, force }: { marketplaceUserId: string; playerId: number; force?: boolean }) => {
       const res = await fetch('/api/marketplace/admin/link-player', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ marketplaceUserId, playerId }),
+        body: JSON.stringify({ marketplaceUserId, playerId, force }),
       });
-      if (!res.ok) throw new Error('Failed');
-      return res.json();
+      const data: { error?: string; code?: string; existingOwner?: { id: string; email: string; name: string } } =
+        await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: LinkPlayerError = Object.assign(new Error(data?.error || 'Failed'), {
+          status: res.status,
+          code: data?.code,
+          existingOwner: data?.existingOwner,
+          playerId,
+          marketplaceUserId,
+        });
+        throw err;
+      }
+      return data;
     },
     onSuccess: () => {
       toast({ title: 'Player linked' });
@@ -1607,9 +1652,21 @@ function MarketplaceUsersSubTab() {
       setLinkingUser(null);
       setSearchQuery('');
       setSearchResults([]);
+      setConflict(null);
     },
-    onError: () => {
-      toast({ title: 'Failed to link player', variant: 'destructive' });
+    onError: (error: unknown) => {
+      if (isLinkPlayerConflict(error)) {
+        const player = searchResults.find(p => p.id === error.playerId);
+        setConflict({
+          marketplaceUserId: error.marketplaceUserId,
+          playerId: error.playerId,
+          playerName: player?.name || `Player #${error.playerId}`,
+          existingOwner: error.existingOwner,
+        });
+        return;
+      }
+      const message = error instanceof Error ? error.message : undefined;
+      toast({ title: 'Failed to link player', description: message, variant: 'destructive' });
     },
   });
 
@@ -1697,6 +1754,42 @@ function MarketplaceUsersSubTab() {
           ))}
         </div>
       )}
+      <AlertDialog open={!!conflict} onOpenChange={(open) => { if (!open) setConflict(null); }}>
+        <AlertDialogContent data-testid="dialog-link-conflict">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Player already linked</AlertDialogTitle>
+            <AlertDialogDescription>
+              {conflict && (
+                <>
+                  <span className="font-medium">{conflict.playerName}</span> is already linked to{' '}
+                  <span className="font-medium" data-testid="text-existing-owner">
+                    {conflict.existingOwner.name} ({conflict.existingOwner.email})
+                  </span>
+                  . Reassigning will unlink them from that account before linking the player here. This cannot be undone automatically.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-reassign" disabled={linkMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="button-confirm-reassign"
+              disabled={linkMutation.isPending}
+              onClick={() => {
+                if (conflict) {
+                  linkMutation.mutate({
+                    marketplaceUserId: conflict.marketplaceUserId,
+                    playerId: conflict.playerId,
+                    force: true,
+                  });
+                }
+              }}
+            >
+              Reassign player
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
