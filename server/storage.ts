@@ -208,6 +208,7 @@ export interface IStorage {
   getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined>;
   searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
+  linkPlayerIfUnclaimed(userId: string, playerId: string): Promise<MarketplaceUser | undefined>;
   getAllMarketplaceUsers(): Promise<MarketplaceUser[]>;
   createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void>;
   findMarketplaceAuthSession(refreshToken: string): Promise<{ id: string; userId: string; refreshToken: string; expiresAt: Date } | undefined>;
@@ -1147,6 +1148,21 @@ export class DatabaseStorage implements IStorage {
       .update(marketplaceUsers)
       .set(updates)
       .where(eq(marketplaceUsers.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // Atomically link a player to a marketplace user only if no other account already
+  // owns it. Returns the updated user on success, or undefined if the player is
+  // already claimed by someone else (race-safe at the SQL level).
+  async linkPlayerIfUnclaimed(userId: string, playerId: string): Promise<MarketplaceUser | undefined> {
+    const [updated] = await db
+      .update(marketplaceUsers)
+      .set({ linkedPlayerId: playerId })
+      .where(sql`${marketplaceUsers.id} = ${userId} AND NOT EXISTS (
+        SELECT 1 FROM ${marketplaceUsers} AS other
+        WHERE other.linked_player_id = ${playerId} AND other.id <> ${userId}
+      )`)
       .returning();
     return updated || undefined;
   }

@@ -580,10 +580,56 @@ export function registerMarketplaceRoutes(app: Express) {
       const player = await storage.getPlayer(playerId);
       if (!player) return res.status(404).json({ error: "Player not found" });
 
-      await storage.updateMarketplaceUser(req.user.userId, { linkedPlayerId: playerId });
+      const me = await storage.getMarketplaceUser(req.user.userId);
+      if (!me) return res.status(401).json({ error: "Account not found" });
+
+      // If this account already links to this player, treat as success (idempotent)
+      if (me.linkedPlayerId === playerId) {
+        return res.json({ success: true, player });
+      }
+
+      // Block re-linking a player already claimed by someone else
+      const existingOwner = await storage.getMarketplaceUserByLinkedPlayerId(playerId);
+      if (existingOwner && existingOwner.id !== req.user.userId) {
+        return res.status(409).json({
+          error: "This player profile is already linked to another account. If this is you, please contact support.",
+          code: "PLAYER_ALREADY_LINKED",
+        });
+      }
+
+      // Ownership proof: only a Google-verified email match is accepted on the
+      // self-service path. Email/phone on a password-signup account is unverified
+      // user input — trusting it would let an attacker register with someone
+      // else's known contact info and claim their player wallet. Unverified
+      // users must go through the admin path (or a future OTP flow).
+      const normEmail = (s?: string | null) => (s ?? "").trim().toLowerCase();
+      const emailVerified = !!me.googleId;
+      const emailMatch =
+        emailVerified &&
+        !!me.email &&
+        !!player.email &&
+        normEmail(me.email) === normEmail(player.email);
+
+      if (!emailMatch) {
+        return res.status(403).json({
+          error:
+            "We couldn't verify this player profile belongs to you. Sign in with the Google account whose email matches the player record, or contact support to link manually.",
+          code: "OWNERSHIP_NOT_VERIFIED",
+        });
+      }
+
+      // Atomic claim: only succeeds if no other account grabbed it in a race.
+      const linked = await storage.linkPlayerIfUnclaimed(req.user.userId, playerId);
+      if (!linked) {
+        return res.status(409).json({
+          error: "This player profile was just claimed by another account. Please contact support if this is you.",
+          code: "PLAYER_ALREADY_LINKED",
+        });
+      }
       await applyPendingSignupCredit(req.user.userId, playerId);
       res.json({ success: true, player });
     } catch (error) {
+      console.error("link-player error:", error);
       res.status(500).json({ error: "Failed to link player" });
     }
   });
@@ -694,7 +740,7 @@ export function registerMarketplaceRoutes(app: Express) {
   // Admin link player
   app.post("/api/marketplace/admin/link-player", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const { marketplaceUserId, playerId } = req.body;
+      const { marketplaceUserId, playerId, force } = req.body;
       if (!marketplaceUserId || !playerId) return res.status(400).json({ error: "Both user ID and player ID required" });
 
       const user = await storage.getMarketplaceUser(marketplaceUserId);
@@ -703,10 +749,32 @@ export function registerMarketplaceRoutes(app: Express) {
       const player = await storage.getPlayer(playerId);
       if (!player) return res.status(404).json({ error: "Player not found" });
 
+      // Guard against silently stealing a player from another account
+      const existingOwner = await storage.getMarketplaceUserByLinkedPlayerId(playerId);
+      if (existingOwner && existingOwner.id !== marketplaceUserId && !force) {
+        return res.status(409).json({
+          error: `This player is already linked to ${existingOwner.email}. Pass force=true to reassign.`,
+          code: "PLAYER_ALREADY_LINKED",
+          existingOwner: { id: existingOwner.id, email: existingOwner.email, name: existingOwner.name },
+        });
+      }
+
+      if (existingOwner && existingOwner.id !== marketplaceUserId && force) {
+        console.warn(
+          `[audit] admin/link-player reassignment by adminId=${req.user?.userId}: player ${playerId} moved from marketplaceUser ${existingOwner.id} (${existingOwner.email}) to ${marketplaceUserId} (${user.email})`
+        );
+        await storage.updateMarketplaceUser(existingOwner.id, { linkedPlayerId: null });
+      } else {
+        console.info(
+          `[audit] admin/link-player by adminId=${req.user?.userId}: linked player ${playerId} to marketplaceUser ${marketplaceUserId} (${user.email})`
+        );
+      }
+
       await storage.updateMarketplaceUser(marketplaceUserId, { linkedPlayerId: playerId });
       await applyPendingSignupCredit(marketplaceUserId, playerId);
       res.json({ success: true });
     } catch (error) {
+      console.error("admin/link-player error:", error);
       res.status(500).json({ error: "Failed to link player" });
     }
   });
