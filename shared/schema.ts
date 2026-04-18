@@ -509,12 +509,17 @@ export const expenses = pgTable("expenses", {
   amountAed: integer("amount_aed").notNull(),
   description: text("description").notNull(),
   vendor: text("vendor"),
+  paidBy: text("paid_by"),
   date: timestamp("date").notNull(),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
-export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true, updatedAt: true });
+export const EXPENSE_PAID_BY_OPTIONS = ["Sandeep", "Arjun", "Hari", "Akhila"] as const;
+export type ExpensePaidBy = typeof EXPENSE_PAID_BY_OPTIONS[number];
+export const insertExpenseSchema = createInsertSchema(expenses)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({ paidBy: z.enum(EXPENSE_PAID_BY_OPTIONS).nullable().optional() });
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type Expense = typeof expenses.$inferSelect;
 

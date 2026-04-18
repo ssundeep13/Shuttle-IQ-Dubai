@@ -316,7 +316,7 @@ export interface IStorage {
   createExpense(data: InsertExpense): Promise<Expense>;
   getExpense(id: string): Promise<Expense | undefined>;
   getAllExpenses(filters?: { from?: Date; to?: Date; categoryId?: string }): Promise<ExpenseWithCategory[]>;
-  updateExpense(id: string, updates: Partial<Pick<Expense, 'categoryId' | 'amountAed' | 'description' | 'vendor' | 'date' | 'notes'>>): Promise<Expense | undefined>;
+  updateExpense(id: string, updates: Partial<Pick<Expense, 'categoryId' | 'amountAed' | 'description' | 'vendor' | 'paidBy' | 'date' | 'notes'>>): Promise<Expense | undefined>;
   deleteExpense(id: string): Promise<void>;
 
   getFinanceSummary(from: Date, to: Date): Promise<FinanceSummary>;
@@ -2253,6 +2253,7 @@ export class DatabaseStorage implements IStorage {
         amountAed: expenses.amountAed,
         description: expenses.description,
         vendor: expenses.vendor,
+        paidBy: expenses.paidBy,
         date: expenses.date,
         notes: expenses.notes,
         createdAt: expenses.createdAt,
@@ -2269,7 +2270,7 @@ export class DatabaseStorage implements IStorage {
     return rows;
   }
 
-  async updateExpense(id: string, updates: Partial<Pick<Expense, 'categoryId' | 'amountAed' | 'description' | 'vendor' | 'date' | 'notes'>>): Promise<Expense | undefined> {
+  async updateExpense(id: string, updates: Partial<Pick<Expense, 'categoryId' | 'amountAed' | 'description' | 'vendor' | 'paidBy' | 'date' | 'notes'>>): Promise<Expense | undefined> {
     const [row] = await db
       .update(expenses)
       .set({ ...updates, updatedAt: new Date() })

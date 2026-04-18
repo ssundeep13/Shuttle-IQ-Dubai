@@ -18,6 +18,7 @@ import {
   BarChart3, ListOrdered, Settings2, Clock, CheckCircle2, AlertCircle, CreditCard
 } from 'lucide-react';
 import type { ExpenseCategory, ExpenseWithCategory, FinanceSummary } from '@shared/schema';
+import { EXPENSE_PAID_BY_OPTIONS } from '@shared/schema';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -215,6 +216,7 @@ interface ExpenseFormData {
   amountAed: string;
   description: string;
   vendor: string;
+  paidBy: string;
   date: string;
   notes: string;
 }
@@ -239,6 +241,7 @@ function ExpenseFormDialog({
     amountAed: editExpense?.amountAed?.toString() ?? '',
     description: editExpense?.description ?? '',
     vendor: editExpense?.vendor ?? '',
+    paidBy: editExpense?.paidBy ?? '',
     date: editExpense?.date ? format(new Date(editExpense.date), 'yyyy-MM-dd') : todayStr,
     notes: editExpense?.notes ?? '',
   });
@@ -275,6 +278,7 @@ function ExpenseFormDialog({
       amountAed: amt,
       description: form.description.trim(),
       vendor: form.vendor.trim() || null,
+      paidBy: form.paidBy || null,
       date: form.date,
       notes: form.notes.trim() || null,
     });
@@ -339,14 +343,33 @@ function ExpenseFormDialog({
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="text-sm font-medium">Vendor (optional)</label>
-            <Input
-              placeholder="Al Wasl Sports Club"
-              value={form.vendor}
-              onChange={e => setField('vendor', e.target.value)}
-              data-testid="input-expense-vendor"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Vendor (optional)</label>
+              <Input
+                placeholder="Al Wasl Sports Club"
+                value={form.vendor}
+                onChange={e => setField('vendor', e.target.value)}
+                data-testid="input-expense-vendor"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Paid By (optional)</label>
+              <Select
+                value={form.paidBy === '' ? 'none' : form.paidBy}
+                onValueChange={v => setField('paidBy', v === 'none' ? '' : v)}
+              >
+                <SelectTrigger data-testid="select-expense-paidby">
+                  <SelectValue placeholder="Select person" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">—</SelectItem>
+                  {EXPENSE_PAID_BY_OPTIONS.map(p => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="space-y-1">
@@ -564,6 +587,7 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
                 <th className="text-left p-3 font-medium">Description</th>
                 <th className="text-left p-3 font-medium hidden md:table-cell">Category</th>
                 <th className="text-left p-3 font-medium hidden md:table-cell">Vendor</th>
+                <th className="text-left p-3 font-medium hidden md:table-cell">Paid By</th>
                 <th className="text-right p-3 font-medium">Amount</th>
                 <th className="p-3 w-20"></th>
               </tr>
@@ -587,6 +611,7 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
                     </Badge>
                   </td>
                   <td className="p-3 text-muted-foreground hidden md:table-cell">{e.vendor ?? '—'}</td>
+                  <td className="p-3 text-muted-foreground hidden md:table-cell" data-testid={`text-paidby-${e.id}`}>{e.paidBy ?? '—'}</td>
                   <td className="p-3 text-right font-semibold whitespace-nowrap">{fmtAed(e.amountAed)}</td>
                   <td className="p-3">
                     <div className="flex items-center justify-end gap-1">
@@ -603,7 +628,7 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
             </tbody>
             <tfoot>
               <tr className="bg-muted/50 border-t">
-                <td colSpan={4} className="p-3 font-medium">Total</td>
+                <td colSpan={5} className="p-3 font-medium">Total</td>
                 <td className="p-3 text-right font-bold">{fmtAed(total)}</td>
                 <td />
               </tr>

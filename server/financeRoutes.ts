@@ -3,7 +3,7 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { requireAuth, requireSuperAdmin } from "./auth/middleware";
 import { db } from "./db";
-import { expenseCategories, bookings, bookableSessions, marketplaceUsers, payments } from "@shared/schema";
+import { expenseCategories, bookings, bookableSessions, marketplaceUsers, payments, EXPENSE_PAID_BY_OPTIONS } from "@shared/schema";
 import { sql, eq, and, inArray, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
@@ -159,6 +159,7 @@ export function registerFinanceRoutes(app: Express): void {
         amountAed: z.number().int().positive(),
         description: z.string().min(1).max(500),
         vendor: z.string().max(200).optional().nullable(),
+        paidBy: z.enum(EXPENSE_PAID_BY_OPTIONS).optional().nullable(),
         date: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
         notes: z.string().max(1000).optional().nullable(),
       });
@@ -167,6 +168,7 @@ export function registerFinanceRoutes(app: Express): void {
         ...raw,
         date: new Date(raw.date),
         vendor: raw.vendor ?? null,
+        paidBy: raw.paidBy ?? null,
         notes: raw.notes ?? null,
       });
       res.status(201).json(expense);
@@ -184,6 +186,7 @@ export function registerFinanceRoutes(app: Express): void {
         amountAed: z.number().int().positive().optional(),
         description: z.string().min(1).max(500).optional(),
         vendor: z.string().max(200).optional().nullable(),
+        paidBy: z.enum(EXPENSE_PAID_BY_OPTIONS).optional().nullable(),
         date: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
         notes: z.string().max(1000).optional().nullable(),
       });
