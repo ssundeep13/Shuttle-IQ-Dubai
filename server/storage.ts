@@ -2325,6 +2325,7 @@ export class DatabaseStorage implements IStorage {
         paidBy: expenses.paidBy,
         date: expenses.date,
         notes: expenses.notes,
+        paidBy: expenses.paidBy,
         createdAt: expenses.createdAt,
         updatedAt: expenses.updatedAt,
         categoryName: expenseCategories.name,
@@ -2390,6 +2391,7 @@ export class DatabaseStorage implements IStorage {
         categoryId: expenses.categoryId,
         amountAed: expenses.amountAed,
         date: expenses.date,
+        paidBy: expenses.paidBy,
         categoryName: expenseCategories.name,
         categoryColor: expenseCategories.color,
         categoryIcon: expenseCategories.icon,
@@ -2415,6 +2417,27 @@ export class DatabaseStorage implements IStorage {
       .map(c => ({ id: c.id, name: c.name, color: c.color, icon: c.icon, totalAed: c.total, count: c.count }))
       .sort((a, b) => b.totalAed - a.totalAed);
 
+    // Aggregate by Paid By person
+    const paidByMap = new Map<string, { paidBy: string | null; total: number; count: number }>();
+    for (const e of expenseRows) {
+      const key = e.paidBy ?? '__unassigned__';
+      const existing = paidByMap.get(key);
+      if (existing) {
+        existing.total += e.amountAed;
+        existing.count += 1;
+      } else {
+        paidByMap.set(key, { paidBy: e.paidBy ?? null, total: e.amountAed, count: 1 });
+      }
+    }
+    const byPaidBy = Array.from(paidByMap.values())
+      .map(p => ({
+        paidBy: p.paidBy,
+        label: p.paidBy ?? 'Unassigned',
+        totalAed: p.total,
+        count: p.count,
+      }))
+      .sort((a, b) => b.totalAed - a.totalAed);
+
     // ── Monthly rows ──────────────────────────────────────────────────────
     const revenueByMonth = new Map<string, number>();
     for (const b of confirmed) {
@@ -2438,7 +2461,7 @@ export class DatabaseStorage implements IStorage {
 
     return {
       revenue: { chargedAed, collectedAed, pendingCashAed, lateFeesAed },
-      expenses: { totalAed: totalExpensesAed, byCategory },
+      expenses: { totalAed: totalExpensesAed, byCategory, byPaidBy },
       netProfitAed: collectedAed - totalExpensesAed,
       monthlyRows,
     };

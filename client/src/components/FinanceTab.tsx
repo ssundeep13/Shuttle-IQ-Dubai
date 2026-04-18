@@ -15,7 +15,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useToast } from '@/hooks/use-toast';
 import {
   TrendingUp, TrendingDown, DollarSign, Wallet, PlusCircle, Pencil, Trash2,
-  BarChart3, ListOrdered, Settings2, Clock, CheckCircle2, AlertCircle, CreditCard
+  BarChart3, ListOrdered, Settings2, Clock, CheckCircle2, AlertCircle, CreditCard,
+  Users
 } from 'lucide-react';
 import type { ExpenseCategory, ExpenseWithCategory, FinanceSummary } from '@shared/schema';
 import { EXPENSE_PAID_BY_OPTIONS } from '@shared/schema';
@@ -198,6 +199,50 @@ function CategoryBreakdown({ byCategory }: { byCategory: FinanceSummary['expense
                 <div
                   className="h-full rounded-full transition-all"
                   style={{ width: `${pct}%`, backgroundColor: cat.color }}
+                />
+              </div>
+            </div>
+            <span className="text-xs text-muted-foreground w-8 text-right">{pct}%</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Paid By Breakdown ────────────────────────────────────────────────────────
+
+function PaidByBreakdown({ byPaidBy }: { byPaidBy: FinanceSummary['expenses']['byPaidBy'] }) {
+  if (!byPaidBy || byPaidBy.length === 0) {
+    return <p className="text-sm text-muted-foreground text-center py-4" data-testid="paid-by-empty">No expenses in this period.</p>;
+  }
+  const total = byPaidBy.reduce((s, p) => s + p.totalAed, 0);
+  return (
+    <div className="space-y-3" data-testid="paid-by-breakdown">
+      {byPaidBy.map(p => {
+        const pct = total > 0 ? Math.round((p.totalAed / total) * 100) : 0;
+        const isUnassigned = p.paidBy === null;
+        const key = p.paidBy ?? '__unassigned__';
+        return (
+          <div key={key} className="flex items-center gap-3" data-testid={`paid-by-row-${key}`}>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`text-sm font-medium truncate ${isUnassigned ? 'text-muted-foreground italic' : ''}`} data-testid={`paid-by-label-${key}`}>
+                    {p.label}
+                  </span>
+                  <Badge variant="secondary" className="shrink-0" data-testid={`paid-by-count-${key}`}>
+                    {p.count}
+                  </Badge>
+                </div>
+                <span className="text-sm font-semibold whitespace-nowrap" data-testid={`paid-by-total-${key}`}>
+                  {fmtAed(p.totalAed)}
+                </span>
+              </div>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all bg-primary"
+                  style={{ width: `${pct}%` }}
                 />
               </div>
             </div>
@@ -1245,15 +1290,26 @@ export default function FinanceTab() {
                     <CategoryBreakdown byCategory={summary.expenses.byCategory} />
                   </CardContent>
                 </Card>
-                <Card>
+                <Card data-testid="card-paid-by-breakdown">
                   <CardHeader>
-                    <CardTitle className="text-base">Monthly P&L</CardTitle>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Users className="w-4 h-4 text-muted-foreground" />
+                      Out of Pocket by Person
+                    </CardTitle>
                   </CardHeader>
-                  <CardContent className="px-0 pb-0">
-                    <MonthlyTable rows={summary.monthlyRows} />
+                  <CardContent>
+                    <PaidByBreakdown byPaidBy={summary.expenses.byPaidBy} />
                   </CardContent>
                 </Card>
               </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Monthly P&L</CardTitle>
+                </CardHeader>
+                <CardContent className="px-0 pb-0">
+                  <MonthlyTable rows={summary.monthlyRows} />
+                </CardContent>
+              </Card>
             </>
           ) : (
             <Card>

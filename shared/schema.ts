@@ -503,6 +503,9 @@ export const insertExpenseCategorySchema = createInsertSchema(expenseCategories)
 export type InsertExpenseCategory = z.infer<typeof insertExpenseCategorySchema>;
 export type ExpenseCategory = typeof expenseCategories.$inferSelect;
 
+export const EXPENSE_PAID_BY_OPTIONS = ["Sandeep", "Arjun", "Hari", "Akhila"] as const;
+export type ExpensePaidBy = typeof EXPENSE_PAID_BY_OPTIONS[number];
+
 export const expenses = pgTable("expenses", {
   id: varchar("id").primaryKey(),
   categoryId: varchar("category_id").notNull().references(() => expenseCategories.id),
@@ -512,6 +515,7 @@ export const expenses = pgTable("expenses", {
   paidBy: text("paid_by"),
   date: timestamp("date").notNull(),
   notes: text("notes"),
+  paidBy: text("paid_by"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -611,6 +615,7 @@ export interface FinanceSummary {
   expenses: {
     totalAed: number;
     byCategory: Array<{ id: string; name: string; color: string; icon: string; totalAed: number; count: number }>;
+    byPaidBy: Array<{ paidBy: string | null; label: string; totalAed: number; count: number }>;
   };
   netProfitAed: number;
   monthlyRows: Array<{
