@@ -91,25 +91,41 @@ function addSkidToPlayer(player: typeof players.$inferSelect): Player {
   };
 }
 
-// Helper function to generate the next ShuttleIQ ID
+// Helper function to generate the next ShuttleIQ ID.
+// Only considers IDs that strictly match the canonical "SIQ-#####" shape so a
+// stray non-numeric ID (e.g. "SIQ-J-TZXX" from test data) cannot silently
+// reset the counter back to 1 and cause unique-key collisions on insert.
 async function generateShuttleIqId(): Promise<string> {
-  // Get the highest existing ShuttleIQ ID number
-  const result = await db.select({ shuttleIqId: players.shuttleIqId })
-    .from(players)
-    .where(sql`${players.shuttleIqId} IS NOT NULL`)
-    .orderBy(desc(players.shuttleIqId))
-    .limit(1);
-  
-  let nextNumber = 1;
-  if (result.length > 0 && result[0].shuttleIqId) {
-    // Extract number from "SIQ-00001" format
-    const match = result[0].shuttleIqId.match(/SIQ-(\d+)/);
-    if (match) {
-      nextNumber = parseInt(match[1], 10) + 1;
+  const result = await db.execute<{ max_num: number | null }>(sql`
+    SELECT MAX(CAST(SUBSTRING(${players.shuttleIqId} FROM '^SIQ-(\d+)$') AS INTEGER)) AS max_num
+    FROM ${players}
+    WHERE ${players.shuttleIqId} ~ '^SIQ-\d+$'
+  `);
+
+  const rows = (result as any).rows ?? result;
+  const maxNum = rows?.[0]?.max_num ?? null;
+  const nextNumber = (typeof maxNum === 'number' && maxNum > 0) ? maxNum + 1 : 1;
+
+  const candidate = `SIQ-${nextNumber.toString().padStart(5, '0')}`;
+  // Defense in depth: if somehow the candidate is already taken, advance
+  // until we find a free slot rather than blowing up the whole insert.
+  let probe = nextNumber;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const taken = await db.select({ id: players.id })
+      .from(players)
+      .where(eq(players.shuttleIqId, `SIQ-${probe.toString().padStart(5, '0')}`))
+      .limit(1);
+    if (taken.length === 0) {
+      return `SIQ-${probe.toString().padStart(5, '0')}`;
+    }
+    probe += 1;
+    if (probe - nextNumber > 1000) {
+      // Safety valve — should never happen, but avoid an infinite loop.
+      console.error('[generateShuttleIqId] Could not find free SIQ ID after 1000 probes from', candidate);
+      throw new Error('Unable to allocate next ShuttleIQ ID');
     }
   }
-  
-  return `SIQ-${nextNumber.toString().padStart(5, '0')}`;
 }
 
 function generateReferralCode(playerName: string, shuttleIqId: string | null): string {
