@@ -551,6 +551,29 @@ export const playerLinkOtps = pgTable("player_link_otps", {
 });
 export type PlayerLinkOtp = typeof playerLinkOtps.$inferSelect;
 
+// ─── Player contact-info change requests (self-service profile update) ────
+// When a user is in the player-link OTP flow but the on-file email/phone is
+// stale, they can request to update that contact. The new value is verified
+// via OTP (sent to the NEW value) before it replaces the old one. The row
+// itself doubles as the audit trail: who (marketplaceUserId) changed which
+// field on which player from oldValue → newValue, and when (verifiedAt).
+export const playerContactChangeRequests = pgTable("player_contact_change_requests", {
+  id: varchar("id").primaryKey(),
+  marketplaceUserId: varchar("marketplace_user_id").notNull(),
+  playerId: varchar("player_id").notNull(),
+  field: text("field").notNull(), // 'email' | 'phone'
+  oldValue: text("old_value"),
+  newValue: text("new_value").notNull(),
+  codeHash: text("code_hash").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  status: text("status").notNull().default('pending'), // 'pending' | 'verified' | 'cancelled'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  verifiedAt: timestamp("verified_at"),
+});
+export type PlayerContactChangeRequest = typeof playerContactChangeRequests.$inferSelect;
+
 // ─── Blog Posts ────────────────────────────────────────────────────────────────
 export const blogPosts = pgTable("blog_posts", {
   id: varchar("id").primaryKey(),

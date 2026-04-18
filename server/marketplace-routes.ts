@@ -11,6 +11,7 @@ import {
   sendDisputeResolutionEmail,
   sendGuestBookingEmail,
   sendPlayerLinkOtpEmail,
+  sendPlayerContactChangeOtpEmail,
 } from "./emailClient";
 import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
 import { createHash, randomInt } from "crypto";
@@ -918,6 +919,217 @@ export function registerMarketplaceRoutes(app: Express) {
       res.status(500).json({ error: "Failed to verify code" });
     }
   });
+
+  // ─── Self-service player contact info update ────────────────────────────
+  // For users in the link-OTP flow whose player record has a stale or wrong
+  // email/phone. They can request a contact change; we send the OTP to the
+  // NEW value so only someone with access to that mailbox/number can complete
+  // the change. The change is recorded as an audit row (who, field, old→new,
+  // when) in player_contact_change_requests. Once verified, the player record
+  // is updated and the player is linked to the requesting user.
+  const CONTACT_CHANGE_PER_USER_WINDOW_MS = 60 * 60 * 1000;
+  const CONTACT_CHANGE_PER_USER_LIMIT = 5;
+
+  // Lightweight phone normalization: strip everything but digits and a leading +.
+  function normalizePhone(input: string): string {
+    const trimmed = input.trim();
+    const hasPlus = trimmed.startsWith('+');
+    const digits = trimmed.replace(/\D/g, '');
+    return hasPlus ? `+${digits}` : digits;
+  }
+
+  app.post(
+    "/api/marketplace/link-player/contact-change/request-otp",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+        const schema = z.object({
+          playerId: z.string().min(1),
+          field: z.enum(['email', 'phone']),
+          newValue: z.string().min(3).max(200),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+        const { playerId, field } = parsed.data;
+        let { newValue } = parsed.data;
+
+        // Validate value shape per field type
+        if (field === 'email') {
+          const emailParse = z.string().email().safeParse(newValue.trim());
+          if (!emailParse.success) return res.status(400).json({ error: "Enter a valid email address" });
+          newValue = emailParse.data.trim().toLowerCase();
+        } else {
+          newValue = normalizePhone(newValue);
+          if (newValue.replace(/\D/g, '').length < 7) {
+            return res.status(400).json({ error: "Enter a valid phone number" });
+          }
+          if (!isSmsConfigured()) {
+            return res.status(422).json({
+              error: "SMS delivery isn't enabled in this environment, so phone updates can't be verified right now. Try email instead or contact support.",
+              code: "SMS_NOT_CONFIGURED",
+            });
+          }
+        }
+
+        const me = await storage.getMarketplaceUser(req.user.userId);
+        if (!me) return res.status(401).json({ error: "Account not found" });
+
+        const player = await storage.getPlayer(playerId);
+        if (!player) return res.status(404).json({ error: "Player not found" });
+
+        const existingOwner = await storage.getMarketplaceUserByLinkedPlayerId(playerId);
+        if (existingOwner && existingOwner.id !== req.user.userId) {
+          return res.status(409).json({
+            error: "This player profile is already linked to another account. If this is you, please contact support.",
+            code: "PLAYER_ALREADY_LINKED",
+          });
+        }
+
+        const oldValue = field === 'email' ? (player.email ?? null) : (player.phone ?? null);
+        if (oldValue && oldValue.trim().toLowerCase() === newValue.toLowerCase()) {
+          return res.status(400).json({ error: `That ${field} already matches the player record.` });
+        }
+
+        // Per-user rate limit on contact change requests
+        const userCount = await storage.countPlayerContactChangeRequestsForUserSince(
+          req.user.userId,
+          new Date(Date.now() - CONTACT_CHANGE_PER_USER_WINDOW_MS),
+        );
+        if (userCount >= CONTACT_CHANGE_PER_USER_LIMIT) {
+          return res.status(429).json({
+            error: "Too many contact-change requests. Please wait an hour and try again.",
+            code: "OTP_RATE_LIMITED",
+          });
+        }
+
+        const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+        await storage.createPlayerContactChangeRequest({
+          marketplaceUserId: req.user.userId,
+          playerId,
+          field,
+          oldValue,
+          newValue,
+          codeHash: hashOtp(code),
+          expiresAt: new Date(Date.now() + OTP_TTL_MS),
+        });
+
+        try {
+          if (field === 'email') {
+            await sendPlayerContactChangeOtpEmail(newValue, player.name, code);
+          } else {
+            await sendPlayerLinkOtpSms(newValue, code);
+          }
+        } catch (err) {
+          console.error(`contact-change OTP ${field} send failed:`, err);
+          return res.status(502).json({
+            error: field === 'email'
+              ? "Failed to send verification email. Please try again shortly."
+              : "Failed to send verification SMS. Please try again shortly.",
+          });
+        }
+
+        const masked = field === 'email' ? maskEmail(newValue) : maskPhone(newValue);
+        res.json({
+          success: true,
+          field,
+          destination: masked,
+          expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
+        });
+      } catch (error) {
+        console.error("contact-change/request-otp error:", error);
+        res.status(500).json({ error: "Failed to send code" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/marketplace/link-player/contact-change/verify-otp",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+        const schema = z.object({
+          playerId: z.string().min(1),
+          code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+        const { playerId, code } = parsed.data;
+
+        const me = await storage.getMarketplaceUser(req.user.userId);
+        if (!me) return res.status(401).json({ error: "Account not found" });
+
+        const player = await storage.getPlayer(playerId);
+        if (!player) return res.status(404).json({ error: "Player not found" });
+
+        const existingOwner = await storage.getMarketplaceUserByLinkedPlayerId(playerId);
+        if (existingOwner && existingOwner.id !== req.user.userId) {
+          return res.status(409).json({
+            error: "This player profile is already linked to another account.",
+            code: "PLAYER_ALREADY_LINKED",
+          });
+        }
+
+        const request = await storage.getLatestActivePlayerContactChangeRequest(req.user.userId, playerId);
+        if (!request) {
+          return res.status(400).json({
+            error: "No active contact-change request. Please request a new code.",
+            code: "OTP_NOT_FOUND",
+          });
+        }
+        if (request.attempts >= OTP_MAX_ATTEMPTS) {
+          await storage.consumePlayerContactChangeRequest(request.id, 'cancelled');
+          return res.status(429).json({
+            error: "Too many incorrect attempts. Please request a new code.",
+            code: "OTP_ATTEMPTS_EXCEEDED",
+          });
+        }
+
+        if (hashOtp(code) !== request.codeHash) {
+          const updated = await storage.incrementPlayerContactChangeAttempts(request.id);
+          const remaining = Math.max(0, OTP_MAX_ATTEMPTS - (updated?.attempts ?? request.attempts + 1));
+          return res.status(400).json({
+            error: remaining > 0
+              ? `Incorrect code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+              : "Incorrect code. Please request a new one.",
+            code: "OTP_INVALID",
+            attemptsRemaining: remaining,
+          });
+        }
+
+        // Apply the contact change to the player record
+        if (request.field === 'email') {
+          await storage.updatePlayer(playerId, { email: request.newValue });
+        } else {
+          await storage.updatePlayer(playerId, { phone: request.newValue });
+        }
+        await storage.consumePlayerContactChangeRequest(request.id, 'verified');
+
+        // Now that ownership of the new contact is proven, link the player.
+        const linked = await storage.linkPlayerIfUnclaimed(req.user.userId, playerId);
+        if (!linked && me.linkedPlayerId !== playerId) {
+          return res.status(409).json({
+            error: "This player profile was just claimed by another account.",
+            code: "PLAYER_ALREADY_LINKED",
+          });
+        }
+        await applyPendingSignupCredit(req.user.userId, playerId);
+
+        console.info(
+          `[audit] player-contact-change: marketplaceUser=${req.user.userId} playerId=${playerId} field=${request.field} old=${request.oldValue ?? ''} new=${request.newValue} verifiedAt=${new Date().toISOString()}`,
+        );
+
+        const updatedPlayer = await storage.getPlayer(playerId);
+        res.json({ success: true, player: updatedPlayer, field: request.field });
+      } catch (error) {
+        console.error("contact-change/verify-otp error:", error);
+        res.status(500).json({ error: "Failed to verify code" });
+      }
+    },
+  );
 
   app.get("/api/marketplace/search-players", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -45,6 +45,12 @@ export default function Profile() {
     maskedEmail: string | null;
     maskedPhone: string | null;
   } | null>(null);
+  // Self-service contact change sub-flow (within OTP flow)
+  const [contactEdit, setContactEdit] = useState<
+    | { mode: 'form'; field: 'email' | 'phone'; value: string }
+    | { mode: 'verify'; field: 'email' | 'phone'; destination: string; code: string }
+    | null
+  >(null);
 
   const handleSearch = async () => {
     if (searchQuery.length < 2) return;
@@ -65,6 +71,7 @@ export default function Profile() {
     setOtpFlow(null);
     setOtpCode('');
     setPreviewFlow(null);
+    setContactEdit(null);
   };
 
   // apiRequest throws a plain object `{ error, status }` (not a true Error) —
@@ -167,6 +174,37 @@ export default function Profile() {
     },
     onSuccess: () => {
       toast({ title: 'Player linked!' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+      resetLinkUI();
+    },
+    onError: (err) => {
+      toast({ title: 'Verification failed', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const requestContactChangeMutation = useMutation({
+    mutationFn: async ({ playerId, field, newValue }: { playerId: string; field: 'email' | 'phone'; newValue: string }) => {
+      return apiRequest<{ destination: string; field: 'email' | 'phone' }>(
+        'POST',
+        '/api/marketplace/link-player/contact-change/request-otp',
+        { playerId, field, newValue },
+      );
+    },
+    onSuccess: (resp, vars) => {
+      toast({ title: 'Verification code sent', description: `Check ${resp.destination}.` });
+      setContactEdit({ mode: 'verify', field: vars.field, destination: resp.destination, code: '' });
+    },
+    onError: (err) => {
+      toast({ title: 'Could not send code', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const verifyContactChangeMutation = useMutation({
+    mutationFn: async ({ playerId, code }: { playerId: string; code: string }) => {
+      return apiRequest('POST', '/api/marketplace/link-player/contact-change/verify-otp', { playerId, code });
+    },
+    onSuccess: () => {
+      toast({ title: 'Contact updated and player linked!' });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
       resetLinkUI();
     },
@@ -439,15 +477,127 @@ export default function Profile() {
                         {verifyOtpMutation.isPending ? 'Verifying…' : 'Verify'}
                       </Button>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => resendOtpMutation.mutate({ playerId: otpFlow.player.id })}
-                      disabled={resendOtpMutation.isPending}
-                      data-testid="button-resend-otp"
-                    >
-                      {resendOtpMutation.isPending ? 'Sending…' : 'Resend code'}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => resendOtpMutation.mutate({ playerId: otpFlow.player.id })}
+                        disabled={resendOtpMutation.isPending}
+                        data-testid="button-resend-otp"
+                      >
+                        {resendOtpMutation.isPending ? 'Sending…' : 'Resend code'}
+                      </Button>
+                      {!contactEdit && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1 text-muted-foreground"
+                          onClick={() => setContactEdit({ mode: 'form', field: 'email', value: '' })}
+                          data-testid="button-update-contact"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Wrong {otpFlow.channel === 'phone' ? 'number' : 'email'}? Update it
+                        </Button>
+                      )}
+                    </div>
+
+                    {contactEdit && (
+                      <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3" data-testid="section-contact-change">
+                        {contactEdit.mode === 'form' ? (
+                          <>
+                            <div className="text-sm font-medium">Update {contactEdit.field === 'email' ? 'email' : 'phone'} on the player record</div>
+                            <p className="text-xs text-muted-foreground">
+                              We'll send a 6-digit code to the new {contactEdit.field === 'email' ? 'email' : 'phone'} you enter. The change is only applied once that code is verified.
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                variant={contactEdit.field === 'email' ? 'default' : 'outline'}
+                                onClick={() => setContactEdit({ mode: 'form', field: 'email', value: '' })}
+                                data-testid="button-contact-field-email"
+                              >
+                                Email
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant={contactEdit.field === 'phone' ? 'default' : 'outline'}
+                                onClick={() => setContactEdit({ mode: 'form', field: 'phone', value: '' })}
+                                data-testid="button-contact-field-phone"
+                              >
+                                Phone
+                              </Button>
+                            </div>
+                            <div className="flex gap-2">
+                              <Input
+                                type={contactEdit.field === 'email' ? 'email' : 'tel'}
+                                placeholder={contactEdit.field === 'email' ? 'new.email@example.com' : '+971 50 123 4567'}
+                                value={contactEdit.value}
+                                onChange={(e) => setContactEdit({ ...contactEdit, value: e.target.value })}
+                                data-testid="input-contact-new-value"
+                              />
+                              <Button
+                                onClick={() => requestContactChangeMutation.mutate({
+                                  playerId: otpFlow.player.id,
+                                  field: contactEdit.field,
+                                  newValue: contactEdit.value,
+                                })}
+                                disabled={contactEdit.value.length < 3 || requestContactChangeMutation.isPending}
+                                data-testid="button-send-contact-otp"
+                              >
+                                {requestContactChangeMutation.isPending ? 'Sending…' : 'Send code'}
+                              </Button>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setContactEdit(null)}
+                              data-testid="button-cancel-contact-edit"
+                            >
+                              Cancel
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-sm font-medium">Confirm new {contactEdit.field === 'email' ? 'email' : 'phone'}</div>
+                            <p className="text-xs text-muted-foreground">
+                              We sent a code to{' '}
+                              <span className="font-medium text-foreground" data-testid="text-contact-new-destination">{contactEdit.destination}</span>
+                              . Enter it below to update the player profile and finish linking.
+                            </p>
+                            <div className="flex gap-2">
+                              <Input
+                                placeholder="123456"
+                                inputMode="numeric"
+                                maxLength={6}
+                                value={contactEdit.code}
+                                onChange={(e) => setContactEdit({ ...contactEdit, code: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && contactEdit.code.length === 6) {
+                                    verifyContactChangeMutation.mutate({ playerId: otpFlow.player.id, code: contactEdit.code });
+                                  }
+                                }}
+                                data-testid="input-contact-otp"
+                                className="font-mono tracking-widest text-center text-lg"
+                              />
+                              <Button
+                                onClick={() => verifyContactChangeMutation.mutate({ playerId: otpFlow.player.id, code: contactEdit.code })}
+                                disabled={contactEdit.code.length !== 6 || verifyContactChangeMutation.isPending}
+                                data-testid="button-verify-contact-otp"
+                              >
+                                {verifyContactChangeMutation.isPending ? 'Verifying…' : 'Confirm'}
+                              </Button>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setContactEdit({ mode: 'form', field: contactEdit.field, value: '' })}
+                              data-testid="button-contact-edit-back"
+                            >
+                              Use a different value
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-4">

@@ -73,6 +73,8 @@ import {
   blogPosts,
   playerLinkOtps,
   type PlayerLinkOtp,
+  playerContactChangeRequests,
+  type PlayerContactChangeRequest,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, SQL } from "drizzle-orm";
@@ -214,6 +216,12 @@ export interface IStorage {
   countPlayerLinkOtpsForPairSince(marketplaceUserId: string, playerId: string, since: Date): Promise<number>;
   incrementPlayerLinkOtpAttempts(otpId: string): Promise<PlayerLinkOtp | undefined>;
   consumePlayerLinkOtp(otpId: string): Promise<void>;
+  // Player contact-info change requests (verify new email/phone before replacing)
+  createPlayerContactChangeRequest(input: { marketplaceUserId: string; playerId: string; field: 'email' | 'phone'; oldValue: string | null; newValue: string; codeHash: string; expiresAt: Date }): Promise<PlayerContactChangeRequest>;
+  getLatestActivePlayerContactChangeRequest(marketplaceUserId: string, playerId: string): Promise<PlayerContactChangeRequest | undefined>;
+  countPlayerContactChangeRequestsForUserSince(marketplaceUserId: string, since: Date): Promise<number>;
+  incrementPlayerContactChangeAttempts(requestId: string): Promise<PlayerContactChangeRequest | undefined>;
+  consumePlayerContactChangeRequest(requestId: string, status: 'verified' | 'cancelled'): Promise<void>;
   getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined>;
   searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
@@ -1199,6 +1207,67 @@ export class DatabaseStorage implements IStorage {
       .update(playerLinkOtps)
       .set({ consumedAt: new Date() })
       .where(eq(playerLinkOtps.id, otpId));
+  }
+
+  async createPlayerContactChangeRequest(input: { marketplaceUserId: string; playerId: string; field: 'email' | 'phone'; oldValue: string | null; newValue: string; codeHash: string; expiresAt: Date }): Promise<PlayerContactChangeRequest> {
+    const [row] = await db.insert(playerContactChangeRequests).values({
+      id: randomUUID(),
+      marketplaceUserId: input.marketplaceUserId,
+      playerId: input.playerId,
+      field: input.field,
+      oldValue: input.oldValue,
+      newValue: input.newValue,
+      codeHash: input.codeHash,
+      expiresAt: input.expiresAt,
+    }).returning();
+    return row;
+  }
+
+  async getLatestActivePlayerContactChangeRequest(marketplaceUserId: string, playerId: string): Promise<PlayerContactChangeRequest | undefined> {
+    const [row] = await db
+      .select()
+      .from(playerContactChangeRequests)
+      .where(and(
+        eq(playerContactChangeRequests.marketplaceUserId, marketplaceUserId),
+        eq(playerContactChangeRequests.playerId, playerId),
+        sql`${playerContactChangeRequests.consumedAt} IS NULL`,
+        sql`${playerContactChangeRequests.expiresAt} > NOW()`,
+        eq(playerContactChangeRequests.status, 'pending'),
+      ))
+      .orderBy(desc(playerContactChangeRequests.createdAt))
+      .limit(1);
+    return row || undefined;
+  }
+
+  async countPlayerContactChangeRequestsForUserSince(marketplaceUserId: string, since: Date): Promise<number> {
+    const [row] = await db
+      .select({ c: sql<number>`COUNT(*)::int` })
+      .from(playerContactChangeRequests)
+      .where(and(
+        eq(playerContactChangeRequests.marketplaceUserId, marketplaceUserId),
+        gte(playerContactChangeRequests.createdAt, since),
+      ));
+    return row?.c ?? 0;
+  }
+
+  async incrementPlayerContactChangeAttempts(requestId: string): Promise<PlayerContactChangeRequest | undefined> {
+    const [row] = await db
+      .update(playerContactChangeRequests)
+      .set({ attempts: sql`${playerContactChangeRequests.attempts} + 1` })
+      .where(eq(playerContactChangeRequests.id, requestId))
+      .returning();
+    return row || undefined;
+  }
+
+  async consumePlayerContactChangeRequest(requestId: string, status: 'verified' | 'cancelled'): Promise<void> {
+    await db
+      .update(playerContactChangeRequests)
+      .set({
+        consumedAt: new Date(),
+        status,
+        verifiedAt: status === 'verified' ? new Date() : null,
+      })
+      .where(eq(playerContactChangeRequests.id, requestId));
   }
 
   async getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined> {
