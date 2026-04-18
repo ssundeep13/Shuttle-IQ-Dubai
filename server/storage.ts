@@ -101,9 +101,15 @@ async function generateShuttleIqId(): Promise<string> {
   const rows = await db
     .select({
       maxNum: sql<number | null>`MAX(CAST(SUBSTRING(${players.shuttleIqId} FROM '^SIQ-([0-9]{5})$') AS INTEGER))`,
+      malformed: sql<number>`COUNT(*) FILTER (WHERE ${players.shuttleIqId} IS NOT NULL AND ${players.shuttleIqId} !~ '^SIQ-[0-9]{5}$')`,
     })
     .from(players)
-    .where(sql`${players.shuttleIqId} ~ '^SIQ-[0-9]{5}$'`);
+    .where(sql`${players.shuttleIqId} ~ '^SIQ-[0-9]{5}$' OR ${players.shuttleIqId} IS NOT NULL`);
+
+  const malformedCount = Number(rows[0]?.malformed ?? 0);
+  if (malformedCount > 0) {
+    console.warn(`[generateShuttleIqId] Ignoring ${malformedCount} non-canonical shuttle_iq_id value(s) when computing next ID`);
+  }
 
   const maxNumRaw = rows[0]?.maxNum;
   const maxNum = typeof maxNumRaw === 'number'
