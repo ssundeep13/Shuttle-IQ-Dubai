@@ -538,16 +538,18 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
   const [editExpense, setEditExpense] = useState<ExpenseWithCategory | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [filterCat, setFilterCat] = useState<string>('all');
+  const [filterPaidBy, setFilterPaidBy] = useState<string>('all');
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
 
   const { data: expenses = [], isLoading } = useQuery<ExpenseWithCategory[]>({
-    queryKey: ['/api/finance/expenses', filterFrom, filterTo, filterCat],
+    queryKey: ['/api/finance/expenses', filterFrom, filterTo, filterCat, filterPaidBy],
     queryFn: () => {
       const params = new URLSearchParams();
       if (filterFrom) params.set('from', filterFrom);
       if (filterTo) params.set('to', filterTo);
       if (filterCat !== 'all') params.set('categoryId', filterCat);
+      if (filterPaidBy !== 'all') params.set('paidBy', filterPaidBy);
       return apiRequest<ExpenseWithCategory[]>('GET', `/api/finance/expenses?${params.toString()}`);
     },
     staleTime: 30 * 1000,
@@ -602,6 +604,20 @@ function ExpensesSection({ categories }: { categories: ExpenseCategory[] }) {
               <SelectItem value="all">All categories</SelectItem>
               {categories.map(c => (
                 <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-muted-foreground">Paid By</label>
+          <Select value={filterPaidBy} onValueChange={setFilterPaidBy}>
+            <SelectTrigger className="w-40" data-testid="select-filter-paid-by">
+              <SelectValue placeholder="Anyone" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Anyone</SelectItem>
+              {EXPENSE_PAID_BY_OPTIONS.map(p => (
+                <SelectItem key={p} value={p}>{p}</SelectItem>
               ))}
             </SelectContent>
           </Select>

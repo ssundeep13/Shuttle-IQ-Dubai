@@ -519,8 +519,6 @@ export const expenses = pgTable("expenses", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
-export const EXPENSE_PAID_BY_OPTIONS = ["Sandeep", "Arjun", "Hari", "Akhila"] as const;
-export type ExpensePaidBy = typeof EXPENSE_PAID_BY_OPTIONS[number];
 export const insertExpenseSchema = createInsertSchema(expenses)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({ paidBy: z.enum(EXPENSE_PAID_BY_OPTIONS).nullable().optional() });

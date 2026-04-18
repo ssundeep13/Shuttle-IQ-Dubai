@@ -126,7 +126,7 @@ export function registerFinanceRoutes(app: Express): void {
 
   app.get("/api/finance/expenses", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-      const { from, to, categoryId } = req.query as Record<string, string>;
+      const { from, to, categoryId, paidBy } = req.query as Record<string, string>;
       const fromDate = from ? new Date(from) : undefined;
       const toDate = to ? new Date(to) : undefined;
 
@@ -139,11 +139,15 @@ export function registerFinanceRoutes(app: Express): void {
       if (fromDate && toDate && fromDate > toDate) {
         return res.status(400).json({ error: "'from' date must be before or equal to 'to' date." });
       }
+      if (paidBy && !EXPENSE_PAID_BY_OPTIONS.includes(paidBy as typeof EXPENSE_PAID_BY_OPTIONS[number])) {
+        return res.status(400).json({ error: "Invalid 'paidBy' value." });
+      }
 
       const list = await storage.getAllExpenses({
         from: fromDate,
         to: toDate,
         categoryId: categoryId || undefined,
+        paidBy: paidBy || undefined,
       });
       res.json(list);
     } catch (err: unknown) {

@@ -323,7 +323,7 @@ export interface IStorage {
 
   createExpense(data: InsertExpense): Promise<Expense>;
   getExpense(id: string): Promise<Expense | undefined>;
-  getAllExpenses(filters?: { from?: Date; to?: Date; categoryId?: string }): Promise<ExpenseWithCategory[]>;
+  getAllExpenses(filters?: { from?: Date; to?: Date; categoryId?: string; paidBy?: string }): Promise<ExpenseWithCategory[]>;
   updateExpense(id: string, updates: Partial<Pick<Expense, 'categoryId' | 'amountAed' | 'description' | 'vendor' | 'paidBy' | 'date' | 'notes'>>): Promise<Expense | undefined>;
   deleteExpense(id: string): Promise<void>;
 
@@ -2305,7 +2305,7 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async getAllExpenses(filters?: { from?: Date; to?: Date; categoryId?: string }): Promise<ExpenseWithCategory[]> {
+  async getAllExpenses(filters?: { from?: Date; to?: Date; categoryId?: string; paidBy?: string }): Promise<ExpenseWithCategory[]> {
     const conditions: SQL[] = [];
     if (filters?.from) conditions.push(gte(expenses.date, filters.from));
     if (filters?.to) {
@@ -2314,6 +2314,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(lt(expenses.date, exclusiveTo));
     }
     if (filters?.categoryId) conditions.push(eq(expenses.categoryId, filters.categoryId));
+    if (filters?.paidBy) conditions.push(eq(expenses.paidBy, filters.paidBy));
 
     const rows = await db
       .select({
