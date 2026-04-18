@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -37,6 +37,14 @@ export default function Profile() {
   const [searching, setSearching] = useState(false);
   const [otpFlow, setOtpFlow] = useState<{ player: PlayerSearchResult; destination: string; channel: 'email' | 'phone'; availableChannels: string[] } | null>(null);
   const [otpCode, setOtpCode] = useState('');
+  const [previewFlow, setPreviewFlow] = useState<{
+    player: PlayerSearchResult;
+    destination: string;
+    channel: 'email' | 'phone';
+    availableChannels: string[];
+    maskedEmail: string | null;
+    maskedPhone: string | null;
+  } | null>(null);
 
   const handleSearch = async () => {
     if (searchQuery.length < 2) return;
@@ -56,6 +64,7 @@ export default function Profile() {
     setSearchQuery('');
     setOtpFlow(null);
     setOtpCode('');
+    setPreviewFlow(null);
   };
 
   // apiRequest throws a plain object `{ error, status }` (not a true Error) —
@@ -85,12 +94,23 @@ export default function Profile() {
         return { linked: true as const };
       } catch (err) {
         if (isOwnershipNotVerified(err)) {
-          const resp = await apiRequest<{ destination: string; channel: string; availableChannels?: string[] }>(
-            'POST',
-            '/api/marketplace/link-player/request-otp',
-            { playerId: player.id },
-          );
-          return { linked: false as const, destination: resp.destination, channel: resp.channel, availableChannels: resp.availableChannels ?? [] };
+          // Fetch a preview of where the code would go BEFORE sending anything,
+          // so the user can confirm the contact (or bail out if it's wrong).
+          const preview = await apiRequest<{
+            destination: string;
+            channel: string;
+            availableChannels?: string[];
+            maskedEmail: string | null;
+            maskedPhone: string | null;
+          }>('GET', `/api/marketplace/link-player/contact-preview?playerId=${encodeURIComponent(player.id)}`);
+          return {
+            linked: false as const,
+            destination: preview.destination,
+            channel: preview.channel,
+            availableChannels: preview.availableChannels ?? [],
+            maskedEmail: preview.maskedEmail,
+            maskedPhone: preview.maskedPhone,
+          };
         }
         throw err;
       }
@@ -101,13 +121,43 @@ export default function Profile() {
         queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
         resetLinkUI();
       } else {
-        setOtpFlow({ player, destination: result.destination, channel: result.channel as 'email' | 'phone', availableChannels: result.availableChannels });
-        setOtpCode('');
-        toast({ title: 'Verification code sent', description: `Check ${result.destination}.` });
+        setPreviewFlow({
+          player,
+          destination: result.destination,
+          channel: result.channel as 'email' | 'phone',
+          availableChannels: result.availableChannels,
+          maskedEmail: result.maskedEmail,
+          maskedPhone: result.maskedPhone,
+        });
       }
     },
     onError: (err) => {
       toast({ title: 'Link failed', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const sendCodeMutation = useMutation({
+    mutationFn: async ({ playerId, channel }: { playerId: string; channel: 'email' | 'phone' }) => {
+      return apiRequest<{ destination: string; channel: string; availableChannels?: string[] }>(
+        'POST',
+        '/api/marketplace/link-player/request-otp',
+        { playerId, channel },
+      );
+    },
+    onSuccess: (resp) => {
+      if (!previewFlow) return;
+      setOtpFlow({
+        player: previewFlow.player,
+        destination: resp.destination,
+        channel: resp.channel as 'email' | 'phone',
+        availableChannels: resp.availableChannels ?? previewFlow.availableChannels,
+      });
+      setOtpCode('');
+      setPreviewFlow(null);
+      toast({ title: 'Verification code sent', description: `Check ${resp.destination}.` });
+    },
+    onError: (err) => {
+      toast({ title: 'Could not send code', description: errorMessage(err), variant: 'destructive' });
     },
   });
 
@@ -232,6 +282,87 @@ export default function Profile() {
                     </div>
                     <div className="flex items-center gap-1 text-sm text-green-600">
                       <Check className="h-4 w-4" /> Linked
+                    </div>
+                  </div>
+                ) : previewFlow ? (
+                  <div className="space-y-4" data-testid="section-preview-flow">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1 -ml-2"
+                      onClick={resetLinkUI}
+                      data-testid="button-preview-back"
+                    >
+                      <ArrowLeft className="h-4 w-4" /> Back
+                    </Button>
+                    <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <ShieldCheck className="h-4 w-4 text-secondary" />
+                        Verify ownership of <span data-testid="text-preview-player-name">{previewFlow.player.name}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        We'll send a 6-digit verification code to{' '}
+                        <span className="font-medium text-foreground" data-testid="text-preview-destination">{previewFlow.destination}</span>
+                        {' '}— the {previewFlow.channel === 'phone' ? 'phone number' : 'email'} on this player's record.
+                      </p>
+                      {previewFlow.availableChannels.length > 1 && (
+                        <div className="flex items-center gap-2 pt-1 flex-wrap">
+                          <span className="text-xs text-muted-foreground">Send to:</span>
+                          {previewFlow.availableChannels.includes('email') && previewFlow.maskedEmail && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={previewFlow.channel === 'email' ? 'default' : 'outline'}
+                              onClick={() => setPreviewFlow((cur) => cur ? { ...cur, channel: 'email', destination: cur.maskedEmail ?? cur.destination } : cur)}
+                              data-testid="button-preview-channel-email"
+                            >
+                              <Mail className="h-3.5 w-3.5" /> Email
+                            </Button>
+                          )}
+                          {previewFlow.availableChannels.includes('phone') && previewFlow.maskedPhone && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={previewFlow.channel === 'phone' ? 'default' : 'outline'}
+                              onClick={() => setPreviewFlow((cur) => cur ? { ...cur, channel: 'phone', destination: cur.maskedPhone ?? cur.destination } : cur)}
+                              data-testid="button-preview-channel-phone"
+                            >
+                              <Phone className="h-3.5 w-3.5" /> SMS
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        onClick={() => sendCodeMutation.mutate({ playerId: previewFlow.player.id, channel: previewFlow.channel })}
+                        disabled={sendCodeMutation.isPending}
+                        data-testid="button-send-code"
+                      >
+                        {sendCodeMutation.isPending ? 'Sending…' : 'Send code'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={resetLinkUI}
+                        data-testid="button-preview-cancel"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground flex items-start gap-2">
+                      <HelpCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <div>
+                        <span className="font-medium text-foreground">Not your {previewFlow.channel === 'phone' ? 'number' : 'email'}?</span>{' '}
+                        Don't request the code — it'll just go to someone else.{' '}
+                        <a
+                          href="mailto:support@shuttleiq.app?subject=Help%20linking%20my%20player%20profile"
+                          className="underline text-foreground"
+                          data-testid="link-contact-support"
+                        >
+                          Contact support
+                        </a>{' '}
+                        and we'll link your profile manually.
+                      </div>
                     </div>
                   </div>
                 ) : otpFlow ? (

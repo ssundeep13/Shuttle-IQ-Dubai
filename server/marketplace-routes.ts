@@ -664,6 +664,75 @@ export function registerMarketplaceRoutes(app: Express) {
     return `${"•".repeat(Math.max(2, digits.length - 2))}${last}`;
   };
 
+  // Lightweight preview of where the verification code WOULD be sent — no
+  // OTP row is created and no email/SMS is dispatched. Lets the UI show
+  // "We'll send a code to ja***@gmail.com" before the user commits, so they
+  // don't waste rate-limit slots on the wrong contact.
+  app.get("/api/marketplace/link-player/contact-preview", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const playerId = (req.query.playerId as string | undefined)?.trim();
+      if (!playerId) return res.status(400).json({ error: "Player ID required" });
+
+      const me = await storage.getMarketplaceUser(req.user.userId);
+      if (!me) return res.status(401).json({ error: "Account not found" });
+      if (me.linkedPlayerId === playerId) {
+        return res.json({ alreadyLinked: true });
+      }
+
+      const player = await storage.getPlayer(playerId);
+      if (!player) return res.status(404).json({ error: "Player not found" });
+
+      const existingOwner = await storage.getMarketplaceUserByLinkedPlayerId(playerId);
+      if (existingOwner && existingOwner.id !== req.user.userId) {
+        return res.status(409).json({
+          error: "This player profile is already linked to another account. If this is you, please contact support.",
+          code: "PLAYER_ALREADY_LINKED",
+        });
+      }
+
+      const playerEmail = (player.email ?? "").trim();
+      const playerPhone = (player.phone ?? "").trim();
+      const canEmail = !!playerEmail;
+      const canSms = !!playerPhone && isSmsConfigured();
+
+      if (!canEmail && !canSms) {
+        if (playerPhone && !isSmsConfigured()) {
+          return res.status(422).json({
+            error: "This player profile only has a phone number, and SMS delivery isn't enabled in this environment. Please contact support to link manually.",
+            code: "SMS_NOT_CONFIGURED",
+          });
+        }
+        return res.status(422).json({
+          error: "This player profile has no email or phone on file. Please contact support to link manually.",
+          code: "NO_DELIVERY_CHANNEL",
+        });
+      }
+
+      // Default channel mirrors the request-otp logic: prefer email when available.
+      const defaultChannel: "email" | "phone" = canEmail ? "email" : "phone";
+      const destination = defaultChannel === "email"
+        ? maskEmail(playerEmail)
+        : maskPhone(playerPhone);
+
+      res.json({
+        playerId,
+        playerName: player.name,
+        channel: defaultChannel,
+        destination,
+        availableChannels: [
+          ...(canEmail ? ["email"] : []),
+          ...(canSms ? ["phone"] : []),
+        ],
+        maskedEmail: canEmail ? maskEmail(playerEmail) : null,
+        maskedPhone: canSms ? maskPhone(playerPhone) : null,
+      });
+    } catch (error) {
+      console.error("link-player/contact-preview error:", error);
+      res.status(500).json({ error: "Failed to load contact preview" });
+    }
+  });
+
   app.post("/api/marketplace/link-player/request-otp", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
