@@ -531,6 +531,21 @@ export const sessionRestStatesTable = pgTable("session_rest_states", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// ─── Player Link OTPs (proof of player-profile ownership) ─────────────────
+export const playerLinkOtps = pgTable("player_link_otps", {
+  id: varchar("id").primaryKey(),
+  marketplaceUserId: varchar("marketplace_user_id").notNull(),
+  playerId: varchar("player_id").notNull(),
+  channel: text("channel").notNull(), // 'email' (only channel currently wired)
+  destination: text("destination").notNull(), // raw destination used for delivery (audit)
+  codeHash: text("code_hash").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type PlayerLinkOtp = typeof playerLinkOtps.$inferSelect;
+
 // ─── Blog Posts ────────────────────────────────────────────────────────────────
 export const blogPosts = pgTable("blog_posts", {
   id: varchar("id").primaryKey(),

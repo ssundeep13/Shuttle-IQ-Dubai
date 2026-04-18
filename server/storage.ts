@@ -71,6 +71,8 @@ import {
   type BlogPost,
   type InsertBlogPost,
   blogPosts,
+  playerLinkOtps,
+  type PlayerLinkOtp,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, SQL } from "drizzle-orm";
@@ -205,6 +207,13 @@ export interface IStorage {
   getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByLinkedPlayerId(playerId: string): Promise<MarketplaceUser | undefined>;
+  // Player-link OTP (proof of player-profile ownership)
+  createPlayerLinkOtp(input: { marketplaceUserId: string; playerId: string; channel: string; destination: string; codeHash: string; expiresAt: Date }): Promise<PlayerLinkOtp>;
+  getLatestActivePlayerLinkOtp(marketplaceUserId: string, playerId: string): Promise<PlayerLinkOtp | undefined>;
+  countPlayerLinkOtpsForUserSince(marketplaceUserId: string, since: Date): Promise<number>;
+  countPlayerLinkOtpsForPairSince(marketplaceUserId: string, playerId: string, since: Date): Promise<number>;
+  incrementPlayerLinkOtpAttempts(otpId: string): Promise<PlayerLinkOtp | undefined>;
+  consumePlayerLinkOtp(otpId: string): Promise<void>;
   getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined>;
   searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
@@ -1123,6 +1132,73 @@ export class DatabaseStorage implements IStorage {
       .from(marketplaceUsers)
       .where(eq(marketplaceUsers.linkedPlayerId, playerId));
     return user || undefined;
+  }
+
+  async createPlayerLinkOtp(input: { marketplaceUserId: string; playerId: string; channel: string; destination: string; codeHash: string; expiresAt: Date }): Promise<PlayerLinkOtp> {
+    const [row] = await db.insert(playerLinkOtps).values({
+      id: randomUUID(),
+      marketplaceUserId: input.marketplaceUserId,
+      playerId: input.playerId,
+      channel: input.channel,
+      destination: input.destination,
+      codeHash: input.codeHash,
+      expiresAt: input.expiresAt,
+    }).returning();
+    return row;
+  }
+
+  async getLatestActivePlayerLinkOtp(marketplaceUserId: string, playerId: string): Promise<PlayerLinkOtp | undefined> {
+    const [row] = await db
+      .select()
+      .from(playerLinkOtps)
+      .where(and(
+        eq(playerLinkOtps.marketplaceUserId, marketplaceUserId),
+        eq(playerLinkOtps.playerId, playerId),
+        sql`${playerLinkOtps.consumedAt} IS NULL`,
+        sql`${playerLinkOtps.expiresAt} > NOW()`,
+      ))
+      .orderBy(desc(playerLinkOtps.createdAt))
+      .limit(1);
+    return row || undefined;
+  }
+
+  async countPlayerLinkOtpsForUserSince(marketplaceUserId: string, since: Date): Promise<number> {
+    const [row] = await db
+      .select({ c: sql<number>`COUNT(*)::int` })
+      .from(playerLinkOtps)
+      .where(and(
+        eq(playerLinkOtps.marketplaceUserId, marketplaceUserId),
+        gte(playerLinkOtps.createdAt, since),
+      ));
+    return row?.c ?? 0;
+  }
+
+  async countPlayerLinkOtpsForPairSince(marketplaceUserId: string, playerId: string, since: Date): Promise<number> {
+    const [row] = await db
+      .select({ c: sql<number>`COUNT(*)::int` })
+      .from(playerLinkOtps)
+      .where(and(
+        eq(playerLinkOtps.marketplaceUserId, marketplaceUserId),
+        eq(playerLinkOtps.playerId, playerId),
+        gte(playerLinkOtps.createdAt, since),
+      ));
+    return row?.c ?? 0;
+  }
+
+  async incrementPlayerLinkOtpAttempts(otpId: string): Promise<PlayerLinkOtp | undefined> {
+    const [row] = await db
+      .update(playerLinkOtps)
+      .set({ attempts: sql`${playerLinkOtps.attempts} + 1` })
+      .where(eq(playerLinkOtps.id, otpId))
+      .returning();
+    return row || undefined;
+  }
+
+  async consumePlayerLinkOtp(otpId: string): Promise<void> {
+    await db
+      .update(playerLinkOtps)
+      .set({ consumedAt: new Date() })
+      .where(eq(playerLinkOtps.id, otpId));
   }
 
   async getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined> {

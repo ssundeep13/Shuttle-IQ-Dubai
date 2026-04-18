@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -35,6 +35,8 @@ export default function Profile() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlayerSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [otpFlow, setOtpFlow] = useState<{ player: PlayerSearchResult; destination: string; channel: 'email' | 'phone'; availableChannels: string[] } | null>(null);
+  const [otpCode, setOtpCode] = useState('');
 
   const handleSearch = async () => {
     if (searchQuery.length < 2) return;
@@ -49,18 +51,95 @@ export default function Profile() {
     }
   };
 
+  const resetLinkUI = () => {
+    setSearchResults([]);
+    setSearchQuery('');
+    setOtpFlow(null);
+    setOtpCode('');
+  };
+
+  // apiRequest throws a plain object `{ error, status }` (not a true Error) —
+  // be defensive and look at both shapes.
+  const errorMessage = (err: unknown): string => {
+    if (!err) return 'Something went wrong';
+    if (typeof err === 'string') return err;
+    if (err instanceof Error) return err.message;
+    const e = err as { error?: string; message?: string };
+    return e.error || e.message || 'Something went wrong';
+  };
+  const errorStatus = (err: unknown): number | undefined => {
+    if (err && typeof err === 'object') return (err as { status?: number }).status;
+    return undefined;
+  };
+  const isOwnershipNotVerified = (err: unknown): boolean => {
+    const code = err && typeof err === 'object' ? (err as { code?: string }).code : undefined;
+    if (code === 'OWNERSHIP_NOT_VERIFIED') return true;
+    // Fallback for older clients/responses that don't set `code`.
+    return errorStatus(err) === 403 && /verify this player profile belongs to you/i.test(errorMessage(err));
+  };
+
   const linkMutation = useMutation({
-    mutationFn: async (playerId: string) => {
-      return apiRequest('POST', '/api/marketplace/link-player', { playerId });
+    mutationFn: async (player: PlayerSearchResult) => {
+      try {
+        await apiRequest('POST', '/api/marketplace/link-player', { playerId: player.id });
+        return { linked: true as const };
+      } catch (err) {
+        if (isOwnershipNotVerified(err)) {
+          const resp = await apiRequest<{ destination: string; channel: string; availableChannels?: string[] }>(
+            'POST',
+            '/api/marketplace/link-player/request-otp',
+            { playerId: player.id },
+          );
+          return { linked: false as const, destination: resp.destination, channel: resp.channel, availableChannels: resp.availableChannels ?? [] };
+        }
+        throw err;
+      }
+    },
+    onSuccess: (result, player) => {
+      if (result.linked) {
+        toast({ title: 'Player linked!' });
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+        resetLinkUI();
+      } else {
+        setOtpFlow({ player, destination: result.destination, channel: result.channel as 'email' | 'phone', availableChannels: result.availableChannels });
+        setOtpCode('');
+        toast({ title: 'Verification code sent', description: `Check ${result.destination}.` });
+      }
+    },
+    onError: (err) => {
+      toast({ title: 'Link failed', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const verifyOtpMutation = useMutation({
+    mutationFn: async ({ playerId, code }: { playerId: string; code: string }) => {
+      return apiRequest('POST', '/api/marketplace/link-player/verify-otp', { playerId, code });
     },
     onSuccess: () => {
       toast({ title: 'Player linked!' });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
-      setSearchResults([]);
-      setSearchQuery('');
+      resetLinkUI();
     },
-    onError: (error: Error) => {
-      toast({ title: 'Link failed', description: error.message, variant: 'destructive' });
+    onError: (err) => {
+      toast({ title: 'Verification failed', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const resendOtpMutation = useMutation({
+    mutationFn: async ({ playerId, channel }: { playerId: string; channel?: 'email' | 'phone' }) => {
+      return apiRequest<{ destination: string; channel: string; availableChannels?: string[] }>(
+        'POST',
+        '/api/marketplace/link-player/request-otp',
+        channel ? { playerId, channel } : { playerId },
+      );
+    },
+    onSuccess: (resp) => {
+      toast({ title: 'New code sent', description: `Check ${resp.destination}.` });
+      setOtpFlow((cur) => cur ? { ...cur, destination: resp.destination, channel: resp.channel as 'email' | 'phone' } : cur);
+      setOtpCode('');
+    },
+    onError: (err) => {
+      toast({ title: 'Could not resend code', description: errorMessage(err), variant: 'destructive' });
     },
   });
 
@@ -155,6 +234,90 @@ export default function Profile() {
                       <Check className="h-4 w-4" /> Linked
                     </div>
                   </div>
+                ) : otpFlow ? (
+                  <div className="space-y-4" data-testid="section-otp-flow">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1 -ml-2"
+                      onClick={resetLinkUI}
+                      data-testid="button-otp-back"
+                    >
+                      <ArrowLeft className="h-4 w-4" /> Back
+                    </Button>
+                    <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <ShieldCheck className="h-4 w-4 text-secondary" />
+                        Verify ownership of <span data-testid="text-otp-player-name">{otpFlow.player.name}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        We sent a 6-digit code to{' '}
+                        <span className="font-medium text-foreground" data-testid="text-otp-destination">{otpFlow.destination}</span>
+                        {' '}— the {otpFlow.channel === 'phone' ? 'phone number' : 'email'} on this player's record. Enter it below to finish linking. The code expires in 10 minutes.
+                      </p>
+                      {otpFlow.availableChannels.length > 1 && (
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className="text-xs text-muted-foreground">Send to:</span>
+                          {otpFlow.availableChannels.includes('email') && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={otpFlow.channel === 'email' ? 'default' : 'outline'}
+                              onClick={() => resendOtpMutation.mutate({ playerId: otpFlow.player.id, channel: 'email' })}
+                              disabled={resendOtpMutation.isPending}
+                              data-testid="button-otp-channel-email"
+                            >
+                              Email
+                            </Button>
+                          )}
+                          {otpFlow.availableChannels.includes('phone') && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={otpFlow.channel === 'phone' ? 'default' : 'outline'}
+                              onClick={() => resendOtpMutation.mutate({ playerId: otpFlow.player.id, channel: 'phone' })}
+                              disabled={resendOtpMutation.isPending}
+                              data-testid="button-otp-channel-phone"
+                            >
+                              SMS
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="123456"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && otpCode.length === 6) {
+                            verifyOtpMutation.mutate({ playerId: otpFlow.player.id, code: otpCode });
+                          }
+                        }}
+                        data-testid="input-otp-code"
+                        className="font-mono tracking-widest text-center text-lg"
+                      />
+                      <Button
+                        onClick={() => verifyOtpMutation.mutate({ playerId: otpFlow.player.id, code: otpCode })}
+                        disabled={otpCode.length !== 6 || verifyOtpMutation.isPending}
+                        data-testid="button-verify-otp"
+                      >
+                        {verifyOtpMutation.isPending ? 'Verifying…' : 'Verify'}
+                      </Button>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => resendOtpMutation.mutate({ playerId: otpFlow.player.id })}
+                      disabled={resendOtpMutation.isPending}
+                      data-testid="button-resend-otp"
+                    >
+                      {resendOtpMutation.isPending ? 'Sending…' : 'Resend code'}
+                    </Button>
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     <p className="text-sm text-muted-foreground">
@@ -205,7 +368,7 @@ export default function Profile() {
                               <Badge variant="outline" className="text-xs">{getTierDisplayName(player.level)}</Badge>
                               <Button
                                 size="sm"
-                                onClick={() => linkMutation.mutate(player.id)}
+                                onClick={() => linkMutation.mutate(player)}
                                 disabled={linkMutation.isPending}
                                 data-testid={`button-link-${player.id}`}
                               >

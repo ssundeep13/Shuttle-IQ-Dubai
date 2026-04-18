@@ -10,7 +10,10 @@ import {
   sendCancellationEmail,
   sendDisputeResolutionEmail,
   sendGuestBookingEmail,
+  sendPlayerLinkOtpEmail,
 } from "./emailClient";
+import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
+import { createHash, randomInt } from "crypto";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import {
   generateAccessToken,
@@ -631,6 +634,219 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error) {
       console.error("link-player error:", error);
       res.status(500).json({ error: "Failed to link player" });
+    }
+  });
+
+  // ─── OTP-based ownership proof ──────────────────────────────────────────
+  // For users whose marketplace email/phone doesn't match the player record
+  // (typo, old number, no email on file). We send a one-time code to the
+  // contact ON THE PLAYER record — only someone with access to that mailbox
+  // can complete the link.
+
+  const OTP_TTL_MS = 10 * 60 * 1000;       // 10 minutes
+  const OTP_MAX_ATTEMPTS = 5;
+  const OTP_PER_PAIR_WINDOW_MS = 10 * 60 * 1000;
+  const OTP_PER_PAIR_LIMIT = 3;
+  const OTP_PER_USER_WINDOW_MS = 60 * 60 * 1000;
+  const OTP_PER_USER_LIMIT = 8;
+
+  const hashOtp = (code: string) => createHash("sha256").update(code).digest("hex");
+  const maskEmail = (email: string) => {
+    const [local, domain] = email.split("@");
+    if (!local || !domain) return email;
+    const visible = local.slice(0, Math.min(2, local.length));
+    return `${visible}${"*".repeat(Math.max(1, local.length - visible.length))}@${domain}`;
+  };
+  const maskPhone = (phone: string) => {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 4) return phone.replace(/.(?=.{0})/g, "*");
+    const last = digits.slice(-2);
+    return `${"•".repeat(Math.max(2, digits.length - 2))}${last}`;
+  };
+
+  app.post("/api/marketplace/link-player/request-otp", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const schema = z.object({ playerId: z.string().min(1) });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Player ID required" });
+      const { playerId } = parsed.data;
+
+      const me = await storage.getMarketplaceUser(req.user.userId);
+      if (!me) return res.status(401).json({ error: "Account not found" });
+      if (me.linkedPlayerId === playerId) return res.json({ success: true, alreadyLinked: true });
+
+      const player = await storage.getPlayer(playerId);
+      if (!player) return res.status(404).json({ error: "Player not found" });
+
+      const existingOwner = await storage.getMarketplaceUserByLinkedPlayerId(playerId);
+      if (existingOwner && existingOwner.id !== req.user.userId) {
+        return res.status(409).json({
+          error: "This player profile is already linked to another account. If this is you, please contact support.",
+          code: "PLAYER_ALREADY_LINKED",
+        });
+      }
+
+      // Determine which channels we can deliver to. Email always works
+      // (Resend is wired); SMS only if Twilio env vars are set.
+      const playerEmail = (player.email ?? "").trim();
+      const playerPhone = (player.phone ?? "").trim();
+      const requestedChannel = (req.body?.channel as string | undefined)?.toLowerCase();
+      const canEmail = !!playerEmail;
+      const canSms = !!playerPhone && isSmsConfigured();
+
+      let channel: "email" | "phone";
+      if (requestedChannel === "phone" && canSms) channel = "phone";
+      else if (requestedChannel === "email" && canEmail) channel = "email";
+      else if (canEmail) channel = "email";
+      else if (canSms) channel = "phone";
+      else if (playerPhone && !isSmsConfigured()) {
+        return res.status(422).json({
+          error: "This player profile only has a phone number, and SMS delivery isn't enabled in this environment. Please contact support to link manually.",
+          code: "SMS_NOT_CONFIGURED",
+        });
+      } else {
+        return res.status(422).json({
+          error: "This player profile has no email or phone on file. Please contact support to link manually.",
+          code: "NO_DELIVERY_CHANNEL",
+        });
+      }
+      const destination = channel === "email" ? playerEmail : playerPhone;
+
+      // Rate limit: per (user, player) and per user.
+      const pairCount = await storage.countPlayerLinkOtpsForPairSince(
+        req.user.userId, playerId, new Date(Date.now() - OTP_PER_PAIR_WINDOW_MS),
+      );
+      if (pairCount >= OTP_PER_PAIR_LIMIT) {
+        return res.status(429).json({
+          error: "Too many codes requested for this player. Please wait a few minutes and try again.",
+          code: "OTP_RATE_LIMITED",
+        });
+      }
+      const userCount = await storage.countPlayerLinkOtpsForUserSince(
+        req.user.userId, new Date(Date.now() - OTP_PER_USER_WINDOW_MS),
+      );
+      if (userCount >= OTP_PER_USER_LIMIT) {
+        return res.status(429).json({
+          error: "Too many verification codes requested. Please wait an hour and try again.",
+          code: "OTP_RATE_LIMITED",
+        });
+      }
+
+      const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+      await storage.createPlayerLinkOtp({
+        marketplaceUserId: req.user.userId,
+        playerId,
+        channel,
+        destination,
+        codeHash: hashOtp(code),
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+      });
+
+      try {
+        if (channel === "email") {
+          await sendPlayerLinkOtpEmail(destination, player.name, code);
+        } else {
+          await sendPlayerLinkOtpSms(destination, code);
+        }
+      } catch (err) {
+        // Don't leak details; the OTP row will simply expire unused.
+        console.error(`link-player OTP ${channel} send failed:`, err);
+        return res.status(502).json({
+          error: channel === "email"
+            ? "Failed to send verification email. Please try again shortly."
+            : "Failed to send verification SMS. Please try again shortly.",
+        });
+      }
+
+      const maskedDestination = channel === "email" ? maskEmail(destination) : maskPhone(destination);
+      res.json({
+        success: true,
+        channel,
+        destination: maskedDestination,
+        availableChannels: [
+          ...(canEmail ? ["email"] : []),
+          ...(canSms ? ["phone"] : []),
+        ],
+        expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
+      });
+    } catch (error) {
+      console.error("link-player/request-otp error:", error);
+      res.status(500).json({ error: "Failed to send code" });
+    }
+  });
+
+  app.post("/api/marketplace/link-player/verify-otp", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const schema = z.object({
+        playerId: z.string().min(1),
+        code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+      const { playerId, code } = parsed.data;
+
+      const me = await storage.getMarketplaceUser(req.user.userId);
+      if (!me) return res.status(401).json({ error: "Account not found" });
+      if (me.linkedPlayerId === playerId) {
+        const player = await storage.getPlayer(playerId);
+        return res.json({ success: true, player });
+      }
+
+      const player = await storage.getPlayer(playerId);
+      if (!player) return res.status(404).json({ error: "Player not found" });
+
+      const existingOwner = await storage.getMarketplaceUserByLinkedPlayerId(playerId);
+      if (existingOwner && existingOwner.id !== req.user.userId) {
+        return res.status(409).json({
+          error: "This player profile is already linked to another account.",
+          code: "PLAYER_ALREADY_LINKED",
+        });
+      }
+
+      const otp = await storage.getLatestActivePlayerLinkOtp(req.user.userId, playerId);
+      if (!otp) {
+        return res.status(400).json({
+          error: "No active code. Please request a new one.",
+          code: "OTP_NOT_FOUND",
+        });
+      }
+      if (otp.attempts >= OTP_MAX_ATTEMPTS) {
+        await storage.consumePlayerLinkOtp(otp.id);
+        return res.status(429).json({
+          error: "Too many incorrect attempts. Please request a new code.",
+          code: "OTP_ATTEMPTS_EXCEEDED",
+        });
+      }
+
+      if (hashOtp(code) !== otp.codeHash) {
+        const updated = await storage.incrementPlayerLinkOtpAttempts(otp.id);
+        const remaining = Math.max(0, OTP_MAX_ATTEMPTS - (updated?.attempts ?? otp.attempts + 1));
+        return res.status(400).json({
+          error: remaining > 0
+            ? `Incorrect code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+            : "Incorrect code. Please request a new one.",
+          code: "OTP_INVALID",
+          attemptsRemaining: remaining,
+        });
+      }
+
+      await storage.consumePlayerLinkOtp(otp.id);
+
+      const linked = await storage.linkPlayerIfUnclaimed(req.user.userId, playerId);
+      if (!linked) {
+        return res.status(409).json({
+          error: "This player profile was just claimed by another account.",
+          code: "PLAYER_ALREADY_LINKED",
+        });
+      }
+      await applyPendingSignupCredit(req.user.userId, playerId);
+      console.info(`[audit] link-player via OTP: marketplaceUser=${req.user.userId} playerId=${playerId}`);
+      res.json({ success: true, player });
+    } catch (error) {
+      console.error("link-player/verify-otp error:", error);
+      res.status(500).json({ error: "Failed to verify code" });
     }
   });
 
