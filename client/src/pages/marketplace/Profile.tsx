@@ -51,6 +51,12 @@ export default function Profile() {
     | { mode: 'verify'; field: 'email' | 'phone'; destination: string; code: string }
     | null
   >(null);
+  // Self-service marketplace account email/phone update (Account Details card)
+  const [accountEdit, setAccountEdit] = useState<
+    | { mode: 'form'; field: 'email' | 'phone'; value: string }
+    | { mode: 'verify'; field: 'email' | 'phone'; destination: string; code: string }
+    | null
+  >(null);
 
   const handleSearch = async () => {
     if (searchQuery.length < 2) return;
@@ -213,6 +219,37 @@ export default function Profile() {
     },
   });
 
+  const requestAccountChangeMutation = useMutation({
+    mutationFn: async ({ field, newValue }: { field: 'email' | 'phone'; newValue: string }) => {
+      return apiRequest<{ destination: string; field: 'email' | 'phone' }>(
+        'POST',
+        '/api/marketplace/account/contact-change/request-otp',
+        { field, newValue },
+      );
+    },
+    onSuccess: (resp, vars) => {
+      toast({ title: 'Verification code sent', description: `Check ${resp.destination}.` });
+      setAccountEdit({ mode: 'verify', field: vars.field, destination: resp.destination, code: '' });
+    },
+    onError: (err) => {
+      toast({ title: 'Could not send code', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const verifyAccountChangeMutation = useMutation({
+    mutationFn: async ({ code }: { code: string }) => {
+      return apiRequest('POST', '/api/marketplace/account/contact-change/verify-otp', { code });
+    },
+    onSuccess: () => {
+      toast({ title: 'Account updated' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+      setAccountEdit(null);
+    },
+    onError: (err) => {
+      toast({ title: 'Verification failed', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
   const resendOtpMutation = useMutation({
     mutationFn: async ({ playerId, channel }: { playerId: string; channel?: 'email' | 'phone' }) => {
       return apiRequest<{ destination: string; channel: string; availableChannels?: string[] }>(
@@ -271,20 +308,138 @@ export default function Profile() {
                     <div className="text-sm font-medium" data-testid="text-user-name">{user?.name}</div>
                   </div>
                 </div>
+
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-muted-foreground">Email</div>
                     <div className="text-sm font-medium" data-testid="text-user-email">{user?.email}</div>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setAccountEdit({ mode: 'form', field: 'email', value: '' })}
+                    data-testid="button-edit-account-email"
+                    aria-label="Edit email"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                 </div>
-                {user?.phone && (
-                  <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
-                    <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs text-muted-foreground">Phone</div>
-                      <div className="text-sm font-medium">{user.phone}</div>
+
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                  <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-muted-foreground">Phone</div>
+                    <div className="text-sm font-medium" data-testid="text-user-phone">
+                      {user?.phone || <span className="text-muted-foreground">Not set</span>}
                     </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setAccountEdit({ mode: 'form', field: 'phone', value: '' })}
+                    data-testid="button-edit-account-phone"
+                    aria-label="Edit phone"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {accountEdit && (
+                  <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3" data-testid="section-account-contact-change">
+                    {accountEdit.mode === 'form' ? (
+                      <>
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <ShieldCheck className="h-4 w-4 text-secondary" />
+                          Update {accountEdit.field === 'email' ? 'email' : 'phone'} on your marketplace account
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          We'll send a 6-digit code to the new {accountEdit.field === 'email' ? 'email' : 'phone'} you enter. The change is only applied once that code is verified.
+                        </p>
+                        <div className="flex gap-2">
+                          <Input
+                            type={accountEdit.field === 'email' ? 'email' : 'tel'}
+                            placeholder={accountEdit.field === 'email' ? 'new.email@example.com' : '+971 50 123 4567'}
+                            value={accountEdit.value}
+                            onChange={(e) => setAccountEdit({ ...accountEdit, value: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && accountEdit.value.length >= 3) {
+                                requestAccountChangeMutation.mutate({ field: accountEdit.field, newValue: accountEdit.value });
+                              }
+                            }}
+                            data-testid="input-account-new-value"
+                          />
+                          <Button
+                            onClick={() => requestAccountChangeMutation.mutate({ field: accountEdit.field, newValue: accountEdit.value })}
+                            disabled={accountEdit.value.length < 3 || requestAccountChangeMutation.isPending}
+                            data-testid="button-send-account-otp"
+                          >
+                            {requestAccountChangeMutation.isPending ? 'Sending…' : 'Send code'}
+                          </Button>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setAccountEdit(null)}
+                          data-testid="button-cancel-account-edit"
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <ShieldCheck className="h-4 w-4 text-secondary" />
+                          Confirm new {accountEdit.field === 'email' ? 'email' : 'phone'}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          We sent a code to{' '}
+                          <span className="font-medium text-foreground" data-testid="text-account-otp-destination">{accountEdit.destination}</span>
+                          . Enter it below to update your account. The code expires in 10 minutes.
+                        </p>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="123456"
+                            inputMode="numeric"
+                            maxLength={6}
+                            value={accountEdit.code}
+                            onChange={(e) => setAccountEdit({ ...accountEdit, code: e.target.value.replace(/\D/g, '').slice(0, 6) })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && accountEdit.code.length === 6) {
+                                verifyAccountChangeMutation.mutate({ code: accountEdit.code });
+                              }
+                            }}
+                            data-testid="input-account-otp"
+                            className="font-mono tracking-widest text-center text-lg"
+                          />
+                          <Button
+                            onClick={() => verifyAccountChangeMutation.mutate({ code: accountEdit.code })}
+                            disabled={accountEdit.code.length !== 6 || verifyAccountChangeMutation.isPending}
+                            data-testid="button-verify-account-otp"
+                          >
+                            {verifyAccountChangeMutation.isPending ? 'Verifying…' : 'Confirm'}
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setAccountEdit({ mode: 'form', field: accountEdit.field, value: '' })}
+                            data-testid="button-account-edit-back"
+                          >
+                            Use a different value
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setAccountEdit(null)}
+                            data-testid="button-account-edit-cancel"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </CardContent>

@@ -12,6 +12,7 @@ import {
   sendGuestBookingEmail,
   sendPlayerLinkOtpEmail,
   sendPlayerContactChangeOtpEmail,
+  sendMarketplaceContactChangeOtpEmail,
 } from "./emailClient";
 import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
 import { createHash, randomInt } from "crypto";
@@ -1126,6 +1127,203 @@ export function registerMarketplaceRoutes(app: Express) {
         res.json({ success: true, player: updatedPlayer, field: request.field });
       } catch (error) {
         console.error("contact-change/verify-otp error:", error);
+        res.status(500).json({ error: "Failed to verify code" });
+      }
+    },
+  );
+
+  // ─── Self-service marketplace account contact info update ───────────────
+  // Lets a marketplace user update the email or phone on their own
+  // marketplace_users record. The new value is verified via a 6-digit OTP
+  // sent to the NEW value (so only someone with access to that mailbox/number
+  // can complete the change). The change is recorded as an audit row in
+  // marketplace_user_contact_changes (who, field, old→new, when).
+  const ACCOUNT_CONTACT_CHANGE_PER_USER_WINDOW_MS = 60 * 60 * 1000;
+  const ACCOUNT_CONTACT_CHANGE_PER_USER_LIMIT = 5;
+
+  app.post(
+    "/api/marketplace/account/contact-change/request-otp",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+        const schema = z.object({
+          field: z.enum(['email', 'phone']),
+          newValue: z.string().min(3).max(200),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+        const { field } = parsed.data;
+        let { newValue } = parsed.data;
+
+        if (field === 'email') {
+          const emailParse = z.string().email().safeParse(newValue.trim());
+          if (!emailParse.success) return res.status(400).json({ error: "Enter a valid email address" });
+          newValue = emailParse.data.trim().toLowerCase();
+        } else {
+          newValue = normalizePhone(newValue);
+          if (newValue.replace(/\D/g, '').length < 7) {
+            return res.status(400).json({ error: "Enter a valid phone number" });
+          }
+          if (!isSmsConfigured()) {
+            return res.status(422).json({
+              error: "SMS delivery isn't enabled in this environment, so phone updates can't be verified right now. Try email instead or contact support.",
+              code: "SMS_NOT_CONFIGURED",
+            });
+          }
+        }
+
+        const me = await storage.getMarketplaceUser(req.user.userId);
+        if (!me) return res.status(401).json({ error: "Account not found" });
+
+        const oldValue = field === 'email' ? me.email : (me.phone ?? null);
+        if (oldValue && oldValue.trim().toLowerCase() === newValue.toLowerCase()) {
+          return res.status(400).json({ error: `That ${field} already matches your account.` });
+        }
+
+        // Email uniqueness check. (Phone is intentionally not deduped here:
+        // marketplace_users.phone has no unique constraint, multiple players
+        // legitimately share a number — e.g. family — and we don't key any
+        // lookups off phone.)
+        if (field === 'email') {
+          const existing = await storage.getMarketplaceUserByEmail(newValue);
+          if (existing && existing.id !== req.user.userId) {
+            return res.status(409).json({
+              error: "That email is already in use by another account.",
+              code: "EMAIL_IN_USE",
+            });
+          }
+        }
+
+        const userCount = await storage.countMarketplaceUserContactChangesForUserSince(
+          req.user.userId,
+          new Date(Date.now() - ACCOUNT_CONTACT_CHANGE_PER_USER_WINDOW_MS),
+        );
+        if (userCount >= ACCOUNT_CONTACT_CHANGE_PER_USER_LIMIT) {
+          return res.status(429).json({
+            error: "Too many contact-change requests. Please wait an hour and try again.",
+            code: "OTP_RATE_LIMITED",
+          });
+        }
+
+        const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+        await storage.createMarketplaceUserContactChange({
+          marketplaceUserId: req.user.userId,
+          field,
+          oldValue,
+          newValue,
+          codeHash: hashOtp(code),
+          expiresAt: new Date(Date.now() + OTP_TTL_MS),
+        });
+
+        try {
+          if (field === 'email') {
+            await sendMarketplaceContactChangeOtpEmail(newValue, code);
+          } else {
+            await sendPlayerLinkOtpSms(newValue, code);
+          }
+        } catch (err) {
+          console.error(`account contact-change OTP ${field} send failed:`, err);
+          return res.status(502).json({
+            error: field === 'email'
+              ? "Failed to send verification email. Please try again shortly."
+              : "Failed to send verification SMS. Please try again shortly.",
+          });
+        }
+
+        const masked = field === 'email' ? maskEmail(newValue) : maskPhone(newValue);
+        res.json({
+          success: true,
+          field,
+          destination: masked,
+          expiresInSeconds: Math.floor(OTP_TTL_MS / 1000),
+        });
+      } catch (error) {
+        console.error("account/contact-change/request-otp error:", error);
+        res.status(500).json({ error: "Failed to send code" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/marketplace/account/contact-change/verify-otp",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+        const schema = z.object({
+          code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
+        });
+        const parsed = schema.safeParse(req.body);
+        if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+        const { code } = parsed.data;
+
+        const me = await storage.getMarketplaceUser(req.user.userId);
+        if (!me) return res.status(401).json({ error: "Account not found" });
+
+        const request = await storage.getLatestActiveMarketplaceUserContactChange(req.user.userId);
+        if (!request) {
+          return res.status(400).json({
+            error: "No active contact-change request. Please request a new code.",
+            code: "OTP_NOT_FOUND",
+          });
+        }
+        if (request.attempts >= OTP_MAX_ATTEMPTS) {
+          await storage.consumeMarketplaceUserContactChange(request.id, 'cancelled');
+          return res.status(429).json({
+            error: "Too many incorrect attempts. Please request a new code.",
+            code: "OTP_ATTEMPTS_EXCEEDED",
+          });
+        }
+
+        if (hashOtp(code) !== request.codeHash) {
+          const updated = await storage.incrementMarketplaceUserContactChangeAttempts(request.id);
+          const remaining = Math.max(0, OTP_MAX_ATTEMPTS - (updated?.attempts ?? request.attempts + 1));
+          return res.status(400).json({
+            error: remaining > 0
+              ? `Incorrect code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+              : "Incorrect code. Please request a new one.",
+            code: "OTP_INVALID",
+            attemptsRemaining: remaining,
+          });
+        }
+
+        // Re-check email uniqueness right before applying, to close the
+        // tiny race where another account claimed the email after the request
+        // was issued.
+        if (request.field === 'email') {
+          const existing = await storage.getMarketplaceUserByEmail(request.newValue);
+          if (existing && existing.id !== req.user.userId) {
+            await storage.consumeMarketplaceUserContactChange(request.id, 'cancelled');
+            return res.status(409).json({
+              error: "That email is already in use by another account.",
+              code: "EMAIL_IN_USE",
+            });
+          }
+        }
+
+        if (request.field === 'email') {
+          await storage.updateMarketplaceUser(req.user.userId, { email: request.newValue });
+        } else {
+          await storage.updateMarketplaceUser(req.user.userId, { phone: request.newValue });
+        }
+        await storage.consumeMarketplaceUserContactChange(request.id, 'verified');
+
+        console.info(
+          `[audit] marketplace-account-contact-change: marketplaceUser=${req.user.userId} field=${request.field} old=${request.oldValue ?? ''} new=${request.newValue} verifiedAt=${new Date().toISOString()}`,
+        );
+
+        const updated = await storage.getMarketplaceUser(req.user.userId);
+        res.json({
+          success: true,
+          field: request.field,
+          email: updated?.email,
+          phone: updated?.phone,
+        });
+      } catch (error) {
+        console.error("account/contact-change/verify-otp error:", error);
         res.status(500).json({ error: "Failed to verify code" });
       }
     },

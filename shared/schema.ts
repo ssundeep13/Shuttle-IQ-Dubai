@@ -576,6 +576,27 @@ export const playerContactChangeRequests = pgTable("player_contact_change_reques
 });
 export type PlayerContactChangeRequest = typeof playerContactChangeRequests.$inferSelect;
 
+// Self-service contact change for the marketplace account itself
+// (marketplace_users.email / marketplace_users.phone). Same OTP-to-new-value
+// pattern as playerContactChangeRequests; the row doubles as an audit trail
+// of who changed which field on their own marketplace account from
+// oldValue → newValue, and when (verifiedAt).
+export const marketplaceUserContactChanges = pgTable("marketplace_user_contact_changes", {
+  id: varchar("id").primaryKey(),
+  marketplaceUserId: varchar("marketplace_user_id").notNull(),
+  field: text("field").notNull(), // 'email' | 'phone'
+  oldValue: text("old_value"),
+  newValue: text("new_value").notNull(),
+  codeHash: text("code_hash").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  status: text("status").notNull().default('pending'), // 'pending' | 'verified' | 'cancelled'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  verifiedAt: timestamp("verified_at"),
+});
+export type MarketplaceUserContactChange = typeof marketplaceUserContactChanges.$inferSelect;
+
 // ─── Blog Posts ────────────────────────────────────────────────────────────────
 export const blogPosts = pgTable("blog_posts", {
   id: varchar("id").primaryKey(),

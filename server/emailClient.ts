@@ -141,6 +141,27 @@ export async function sendPlayerContactChangeOtpEmail(toEmail: string, playerNam
   }
 }
 
+export async function sendMarketplaceContactChangeOtpEmail(toEmail: string, code: string): Promise<void> {
+  const body = `
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">Confirm your new email</h1>
+    <p style="margin:0 0 20px;font-size:15px;color:#4a5568;line-height:1.6;">
+      Someone requested to change the email address on a ShuttleIQ marketplace account to this address.
+      If that's you, enter the code below to confirm. The code expires in <strong>10 minutes</strong>.
+    </p>
+    <div style="margin:0 0 24px;padding:18px 24px;background-color:#f7f9fb;border-radius:6px;text-align:center;">
+      <p style="margin:0;font-size:30px;font-weight:700;letter-spacing:6px;color:#0a2540;">${code}</p>
+    </div>
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+    <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">If you didn't request this, you can safely ignore this email — the account email won't change.</p>
+  `;
+  try {
+    await sendEmail(toEmail, `Confirm your ShuttleIQ account email update: ${code}`, emailWrapper(body));
+  } catch (err) {
+    console.error('[Email] sendMarketplaceContactChangeOtpEmail failed:', err);
+    throw err;
+  }
+}
+
 // ─── Welcome ──────────────────────────────────────────────────────────────
 
 export async function sendWelcomeEmail(toEmail: string, name: string, marketplaceUrl: string, referrerName?: string): Promise<void> {

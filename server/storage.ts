@@ -75,6 +75,8 @@ import {
   type PlayerLinkOtp,
   playerContactChangeRequests,
   type PlayerContactChangeRequest,
+  marketplaceUserContactChanges,
+  type MarketplaceUserContactChange,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, SQL } from "drizzle-orm";
@@ -222,6 +224,12 @@ export interface IStorage {
   countPlayerContactChangeRequestsForUserSince(marketplaceUserId: string, since: Date): Promise<number>;
   incrementPlayerContactChangeAttempts(requestId: string): Promise<PlayerContactChangeRequest | undefined>;
   consumePlayerContactChangeRequest(requestId: string, status: 'verified' | 'cancelled'): Promise<void>;
+  // Marketplace-account contact-info change requests (verify new email/phone before replacing)
+  createMarketplaceUserContactChange(input: { marketplaceUserId: string; field: 'email' | 'phone'; oldValue: string | null; newValue: string; codeHash: string; expiresAt: Date }): Promise<MarketplaceUserContactChange>;
+  getLatestActiveMarketplaceUserContactChange(marketplaceUserId: string): Promise<MarketplaceUserContactChange | undefined>;
+  countMarketplaceUserContactChangesForUserSince(marketplaceUserId: string, since: Date): Promise<number>;
+  incrementMarketplaceUserContactChangeAttempts(requestId: string): Promise<MarketplaceUserContactChange | undefined>;
+  consumeMarketplaceUserContactChange(requestId: string, status: 'verified' | 'cancelled'): Promise<void>;
   getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined>;
   searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
@@ -1268,6 +1276,65 @@ export class DatabaseStorage implements IStorage {
         verifiedAt: status === 'verified' ? new Date() : null,
       })
       .where(eq(playerContactChangeRequests.id, requestId));
+  }
+
+  async createMarketplaceUserContactChange(input: { marketplaceUserId: string; field: 'email' | 'phone'; oldValue: string | null; newValue: string; codeHash: string; expiresAt: Date }): Promise<MarketplaceUserContactChange> {
+    const [row] = await db.insert(marketplaceUserContactChanges).values({
+      id: randomUUID(),
+      marketplaceUserId: input.marketplaceUserId,
+      field: input.field,
+      oldValue: input.oldValue,
+      newValue: input.newValue,
+      codeHash: input.codeHash,
+      expiresAt: input.expiresAt,
+    }).returning();
+    return row;
+  }
+
+  async getLatestActiveMarketplaceUserContactChange(marketplaceUserId: string): Promise<MarketplaceUserContactChange | undefined> {
+    const [row] = await db
+      .select()
+      .from(marketplaceUserContactChanges)
+      .where(and(
+        eq(marketplaceUserContactChanges.marketplaceUserId, marketplaceUserId),
+        sql`${marketplaceUserContactChanges.consumedAt} IS NULL`,
+        sql`${marketplaceUserContactChanges.expiresAt} > NOW()`,
+        eq(marketplaceUserContactChanges.status, 'pending'),
+      ))
+      .orderBy(desc(marketplaceUserContactChanges.createdAt))
+      .limit(1);
+    return row || undefined;
+  }
+
+  async countMarketplaceUserContactChangesForUserSince(marketplaceUserId: string, since: Date): Promise<number> {
+    const [row] = await db
+      .select({ c: sql<number>`COUNT(*)::int` })
+      .from(marketplaceUserContactChanges)
+      .where(and(
+        eq(marketplaceUserContactChanges.marketplaceUserId, marketplaceUserId),
+        gte(marketplaceUserContactChanges.createdAt, since),
+      ));
+    return row?.c ?? 0;
+  }
+
+  async incrementMarketplaceUserContactChangeAttempts(requestId: string): Promise<MarketplaceUserContactChange | undefined> {
+    const [row] = await db
+      .update(marketplaceUserContactChanges)
+      .set({ attempts: sql`${marketplaceUserContactChanges.attempts} + 1` })
+      .where(eq(marketplaceUserContactChanges.id, requestId))
+      .returning();
+    return row || undefined;
+  }
+
+  async consumeMarketplaceUserContactChange(requestId: string, status: 'verified' | 'cancelled'): Promise<void> {
+    await db
+      .update(marketplaceUserContactChanges)
+      .set({
+        consumedAt: new Date(),
+        status,
+        verifiedAt: status === 'verified' ? new Date() : null,
+      })
+      .where(eq(marketplaceUserContactChanges.id, requestId));
   }
 
   async getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined> {
