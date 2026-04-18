@@ -172,6 +172,87 @@ export default function Welcome() {
         </div>
       </section>
 
+      {/* Social proof — sample leaderboard */}
+      <section className="px-5 pt-12">
+        <div className="mx-auto max-w-2xl">
+          <h2
+            className="mb-1 text-center text-2xl font-bold sm:text-3xl"
+            data-testid="text-social-proof-title"
+          >
+            Real players. Real rankings.
+          </h2>
+          <p
+            className="mb-5 text-center text-sm text-muted-foreground"
+            data-testid="text-social-proof-subtitle"
+          >
+            A look at this month&apos;s leaderboard.
+          </p>
+          <Card className="border-border/60" data-testid="card-sample-leaderboard">
+            <CardContent className="p-0">
+              <div className="divide-y divide-border">
+                {[
+                  { rank: 1, name: 'Arjun A.', score: 1742, games: 38, badge: 'Smasher' },
+                  { rank: 2, name: 'Ramya S.', score: 1698, games: 41, badge: 'Wall' },
+                  { rank: 3, name: 'Mridul K.', score: 1664, games: 29, badge: 'Hustler' },
+                  { rank: 4, name: 'Priya N.', score: 1631, games: 33, badge: 'Clutch' },
+                  { rank: 5, name: 'Sundeep M.', score: 1607, games: 36, badge: 'Smasher' },
+                ].map((row) => (
+                  <div
+                    key={row.rank}
+                    className="flex items-center gap-3 px-4 py-3"
+                    data-testid={`row-leaderboard-${row.rank}`}
+                  >
+                    <div
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                        row.rank === 1
+                          ? 'bg-[#00BFA5] text-[#003D3A]'
+                          : 'bg-muted text-muted-foreground'
+                      }`}
+                      data-testid={`text-leaderboard-rank-${row.rank}`}
+                    >
+                      {row.rank}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className="truncate text-sm font-semibold text-foreground"
+                        data-testid={`text-leaderboard-name-${row.rank}`}
+                      >
+                        {row.name}
+                      </p>
+                      <p
+                        className="truncate text-xs text-muted-foreground"
+                        data-testid={`text-leaderboard-games-${row.rank}`}
+                      >
+                        {row.games} games this month
+                      </p>
+                    </div>
+                    <Badge
+                      variant="secondary"
+                      className="shrink-0"
+                      data-testid={`badge-leaderboard-tag-${row.rank}`}
+                    >
+                      {row.badge}
+                    </Badge>
+                    <div
+                      className="w-14 shrink-0 text-right text-sm font-bold tabular-nums text-foreground"
+                      data-testid={`text-leaderboard-score-${row.rank}`}
+                    >
+                      {row.score}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <p
+            className="mt-3 text-center text-xs text-muted-foreground"
+            data-testid="text-social-proof-footnote"
+          >
+            Sample view. Your score updates after every match you play.
+          </p>
+        </div>
+      </section>
+
       {/* Secondary CTA */}
       <section className="px-5 pt-10">
         <div className="mx-auto max-w-2xl text-center">
