@@ -244,11 +244,10 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
       }
     } finally {
       clearTokens();
-      try {
-        localStorage.removeItem(REMEMBERED_EMAIL_KEY);
-      } catch {
-        // ignore
-      }
+      // Intentionally keep `mp_rememberedEmail` so the user's email stays
+      // pre-filled on the login page after they log out — typical
+      // "remember me" UX. The email is only removed when the user
+      // explicitly unchecks the box during a subsequent login.
       queryClient.clear();
     }
   };
