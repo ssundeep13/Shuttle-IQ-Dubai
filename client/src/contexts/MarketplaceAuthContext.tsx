@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useToast } from '@/hooks/use-toast';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface MarketplaceUser {
   id: string;
@@ -16,24 +15,81 @@ interface MarketplaceAuthContextType {
   user: MarketplaceUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, name: string, phone?: string, referralCode?: string, promo?: string) => Promise<void>;
-  loginWithTokens: (accessToken: string, refreshToken: string) => Promise<void>;
+  login: (email: string, password: string, remember?: boolean) => Promise<void>;
+  signup: (email: string, password: string, name: string, phone?: string, referralCode?: string, promo?: string, remember?: boolean) => Promise<void>;
+  loginWithTokens: (accessToken: string, refreshToken: string, remember?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
 }
 
 const MarketplaceAuthContext = createContext<MarketplaceAuthContextType | undefined>(undefined);
 
+const ACCESS_KEY = 'mp_accessToken';
+const REFRESH_KEY = 'mp_refreshToken';
+const REMEMBER_KEY = 'mp_remember';
+const REMEMBERED_EMAIL_KEY = 'mp_rememberedEmail';
+
+function getRememberPreference(): boolean {
+  try {
+    return localStorage.getItem(REMEMBER_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function getStore(remember: boolean): Storage {
+  return remember ? localStorage : sessionStorage;
+}
+
+// Read a token, preferring localStorage (persistent) and falling back to
+// sessionStorage (current-browser-session only).
+function readToken(key: string): string | null {
+  try {
+    return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeTokens(accessToken: string, refreshToken: string, remember: boolean) {
+  try {
+    localStorage.setItem(REMEMBER_KEY, remember ? 'true' : 'false');
+    const store = getStore(remember);
+    const otherStore = remember ? sessionStorage : localStorage;
+    store.setItem(ACCESS_KEY, accessToken);
+    store.setItem(REFRESH_KEY, refreshToken);
+    // Make sure the same keys aren't lingering in the other store.
+    otherStore.removeItem(ACCESS_KEY);
+    otherStore.removeItem(REFRESH_KEY);
+  } catch {
+    // ignore storage errors (private mode, quota, etc.)
+  }
+}
+
+function writeAccessToken(accessToken: string) {
+  try {
+    const remember = getRememberPreference();
+    getStore(remember).setItem(ACCESS_KEY, accessToken);
+  } catch {
+    // ignore
+  }
+}
+
+function clearAllTokens() {
+  try {
+    localStorage.removeItem(ACCESS_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    sessionStorage.removeItem(ACCESS_KEY);
+    sessionStorage.removeItem(REFRESH_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export function MarketplaceAuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const [accessToken, setAccessToken] = useState<string | null>(() =>
-    localStorage.getItem('mp_accessToken')
-  );
-  const [refreshToken, setRefreshToken] = useState<string | null>(() =>
-    localStorage.getItem('mp_refreshToken')
-  );
+  const [accessToken, setAccessToken] = useState<string | null>(() => readToken(ACCESS_KEY));
+  const [refreshToken, setRefreshToken] = useState<string | null>(() => readToken(REFRESH_KEY));
   const [error, setError] = useState<string | null>(null);
   const isRefreshing = useRef(false);
   const lastRefreshAttempt = useRef(0);
@@ -56,6 +112,13 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     },
   });
 
+  const clearTokens = useCallback(() => {
+    setAccessToken(null);
+    setRefreshToken(null);
+    clearAllTokens();
+    queryClient.setQueryData(['/api/marketplace/auth/me'], null);
+  }, [queryClient]);
+
   const refreshAccessToken = useCallback(async () => {
     if (!refreshToken || isRefreshing.current) return false;
     const now = Date.now();
@@ -71,7 +134,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
       if (!response.ok) throw new Error('Refresh failed');
       const data = await response.json();
       setAccessToken(data.accessToken);
-      localStorage.setItem('mp_accessToken', data.accessToken);
+      writeAccessToken(data.accessToken);
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
       isRefreshing.current = false;
       return true;
@@ -80,15 +143,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
       clearTokens();
       return false;
     }
-  }, [refreshToken, queryClient]);
-
-  function clearTokens() {
-    setAccessToken(null);
-    setRefreshToken(null);
-    localStorage.removeItem('mp_accessToken');
-    localStorage.removeItem('mp_refreshToken');
-    queryClient.setQueryData(['/api/marketplace/auth/me'], null);
-  }
+  }, [refreshToken, queryClient, clearTokens]);
 
   useEffect(() => {
     if (!accessToken || !refreshToken) return;
@@ -96,7 +151,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     return () => clearInterval(interval);
   }, [accessToken, refreshToken, refreshAccessToken]);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, remember: boolean = true) => {
     setError(null);
     try {
       const response = await fetch('/api/marketplace/auth/login', {
@@ -111,8 +166,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
       const data = await response.json();
       setAccessToken(data.accessToken);
       setRefreshToken(data.refreshToken);
-      localStorage.setItem('mp_accessToken', data.accessToken);
-      localStorage.setItem('mp_refreshToken', data.refreshToken);
+      writeTokens(data.accessToken, data.refreshToken, remember);
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
     } catch (err: any) {
       setError(err.message);
@@ -120,7 +174,15 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     }
   };
 
-  const signup = async (email: string, password: string, name: string, phone?: string, referralCode?: string, promo?: string) => {
+  const signup = async (
+    email: string,
+    password: string,
+    name: string,
+    phone?: string,
+    referralCode?: string,
+    promo?: string,
+    remember: boolean = true,
+  ) => {
     setError(null);
     try {
       const payload: Record<string, string | undefined> = { email, password, name, phone };
@@ -138,8 +200,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
       const data = await response.json();
       setAccessToken(data.accessToken);
       setRefreshToken(data.refreshToken);
-      localStorage.setItem('mp_accessToken', data.accessToken);
-      localStorage.setItem('mp_refreshToken', data.refreshToken);
+      writeTokens(data.accessToken, data.refreshToken, remember);
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
     } catch (err: any) {
       setError(err.message);
@@ -147,11 +208,10 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     }
   };
 
-  const loginWithTokens = async (accessToken: string, refreshToken: string) => {
+  const loginWithTokens = async (accessToken: string, refreshToken: string, remember: boolean = true) => {
     setAccessToken(accessToken);
     setRefreshToken(refreshToken);
-    localStorage.setItem('mp_accessToken', accessToken);
-    localStorage.setItem('mp_refreshToken', refreshToken);
+    writeTokens(accessToken, refreshToken, remember);
 
     // Immediately fetch the user profile using the new token and populate the
     // query cache. This ensures isAuthenticated is true before the caller
@@ -184,6 +244,11 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
       }
     } finally {
       clearTokens();
+      try {
+        localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+      } catch {
+        // ignore
+      }
       queryClient.clear();
     }
   };

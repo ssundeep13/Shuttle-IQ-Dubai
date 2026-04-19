@@ -71,7 +71,7 @@ export default function MarketplaceSignup() {
   const handleFinishSignup = async (code?: string) => {
     setLoading(true);
     try {
-      await signup(email, password, name, phone, code || undefined, promo || undefined);
+      await signup(email, password, name, phone, code || undefined, promo || undefined, true);
       toast({ title: 'Account created!' });
       setLocation('/marketplace');
     } catch (err: unknown) {
@@ -207,7 +207,9 @@ export default function MarketplaceSignup() {
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
+                name="email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -231,7 +233,9 @@ export default function MarketplaceSignup() {
               <div className="relative">
                 <Input
                   id="password"
+                  name="password"
                   type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required

@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,6 +12,9 @@ import { apiRequest } from '@/lib/queryClient';
 import { Mail, Eye, EyeOff } from 'lucide-react';
 import { SiGoogle } from 'react-icons/si';
 import { usePageTitle } from '@/hooks/usePageTitle';
+
+const REMEMBER_KEY = 'mp_remember';
+const REMEMBERED_EMAIL_KEY = 'mp_rememberedEmail';
 
 function ForgotPasswordForm() {
   const { toast } = useToast();
@@ -94,12 +98,37 @@ export default function MarketplaceLogin() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(REMEMBER_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const savedEmail = localStorage.getItem(REMEMBERED_EMAIL_KEY);
+      if (savedEmail) setEmail(savedEmail);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email, password, remember);
+      try {
+        if (remember) {
+          localStorage.setItem(REMEMBERED_EMAIL_KEY, email);
+        } else {
+          localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+        }
+      } catch {
+        // ignore
+      }
       toast({ title: 'Welcome back!' });
       setLocation('/marketplace');
     } catch (err: any) {
@@ -129,7 +158,9 @@ export default function MarketplaceLogin() {
                   <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
+                    name="email"
                     type="email"
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
@@ -141,7 +172,9 @@ export default function MarketplaceLogin() {
                   <div className="relative">
                     <Input
                       id="password"
+                      name="password"
                       type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
@@ -159,6 +192,21 @@ export default function MarketplaceLogin() {
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="remember-me"
+                    checked={remember}
+                    onCheckedChange={(checked) => setRemember(checked === true)}
+                    data-testid="checkbox-remember-me"
+                  />
+                  <Label
+                    htmlFor="remember-me"
+                    className="text-sm font-normal cursor-pointer select-none"
+                    data-testid="label-remember-me"
+                  >
+                    Keep me signed in on this device
+                  </Label>
                 </div>
                 <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-login">
                   {loading ? 'Logging in...' : 'Log In'}
