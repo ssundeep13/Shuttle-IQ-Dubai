@@ -29,7 +29,14 @@ export default function GoogleAuthCallback() {
     const returnPath = params.get('returnPath');
     const destination = returnPath && returnPath.startsWith('/marketplace/') ? returnPath : '/marketplace/dashboard';
 
-    loginWithTokens(accessToken, refreshToken, true)
+    let remember = true;
+    try {
+      remember = localStorage.getItem('mp_remember') !== 'false';
+    } catch {
+      // ignore
+    }
+
+    loginWithTokens(accessToken, refreshToken, remember)
       .then(() => {
         toast({ title: 'Signed in with Google!' });
         setLocation(destination);

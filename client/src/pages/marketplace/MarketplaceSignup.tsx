@@ -71,7 +71,13 @@ export default function MarketplaceSignup() {
   const handleFinishSignup = async (code?: string) => {
     setLoading(true);
     try {
-      await signup(email, password, name, phone, code || undefined, promo || undefined, true);
+      let remember = true;
+      try {
+        remember = localStorage.getItem('mp_remember') !== 'false';
+      } catch {
+        // ignore
+      }
+      await signup(email, password, name, phone, code || undefined, promo || undefined, remember);
       toast({ title: 'Account created!' });
       setLocation('/marketplace');
     } catch (err: unknown) {
