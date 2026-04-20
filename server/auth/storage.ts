@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { adminUsers, authSessions, type InsertAdminUser, type AdminUser, type AuthSession } from "@shared/schema";
-import { eq, lt, gt, ne, and } from "drizzle-orm";
+import { eq, lt, gt, and, notInArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { hashPassword, comparePassword } from "./utils";
 import bcrypt from "bcryptjs";
@@ -72,19 +72,22 @@ export async function deleteExpiredSessions(): Promise<void> {
   await db.delete(authSessions).where(lt(authSessions.expiresAt, new Date()));
 }
 
-// Rotate the default admin@shuttleiq.com password away from the legacy 'admin123'
-// default. Runs at every startup; is idempotent — exits immediately once the
-// old password no longer matches (i.e. already rotated or account doesn't exist).
+// Ensures the canonical super-admin accounts have the super_admin role on every
+// startup, and demotes any other accounts that somehow ended up as super_admin.
+// Idempotent.
+const SUPER_ADMIN_EMAILS = ['ssundeep13@gmail.com', 'arjun.aj.anand@gmail.com'];
+
 export async function ensureOwnerSuperAdmin(): Promise<void> {
-  const OWNER_EMAIL = 'ssundeep13@gmail.com';
-  const owner = await findAdminByEmail(OWNER_EMAIL);
-  if (owner && owner.role !== 'super_admin') {
-    await db.update(adminUsers).set({ role: 'super_admin' }).where(eq(adminUsers.email, OWNER_EMAIL));
-    console.log('[Auth] Promoted owner account to super_admin');
+  for (const email of SUPER_ADMIN_EMAILS) {
+    const acct = await findAdminByEmail(email);
+    if (acct && acct.role !== 'super_admin') {
+      await db.update(adminUsers).set({ role: 'super_admin' }).where(eq(adminUsers.email, email));
+      console.log(`[Auth] Promoted ${email} to super_admin`);
+    }
   }
   const demoted = await db.update(adminUsers)
     .set({ role: 'admin' })
-    .where(and(eq(adminUsers.role, 'super_admin'), ne(adminUsers.email, OWNER_EMAIL)))
+    .where(and(eq(adminUsers.role, 'super_admin'), notInArray(adminUsers.email, SUPER_ADMIN_EMAILS)))
     .returning({ email: adminUsers.email });
   if (demoted.length > 0) {
     console.log(`[Auth] Demoted ${demoted.length} non-owner super_admin(s) to admin:`, demoted.map(d => d.email).join(', '));
