@@ -39,6 +39,9 @@ export default function VerifyEmail() {
         }
         setStatus('success');
         queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+        setTimeout(() => {
+          setLocation(isAuthenticated ? '/marketplace/profile' : '/marketplace/login');
+        }, 2000);
       } catch {
         setErrorMsg('Could not reach the server. Please try again.');
         setStatus('error');
