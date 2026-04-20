@@ -97,6 +97,30 @@ export async function sendPasswordResetEmail(toEmail: string, resetUrl: string):
   }
 }
 
+// ─── Email Verification ───────────────────────────────────────────────────
+
+export async function sendEmailVerificationEmail(toEmail: string, name: string, verifyUrl: string): Promise<void> {
+  const body = `
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">Verify your email</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">
+      Hi ${name}, confirm this is your email so you can link your ShuttleIQ player profile, recover your account, and receive booking updates.
+      This link expires in <strong>24 hours</strong>.
+    </p>
+    ${ctaButton(verifyUrl, 'Verify My Email')}
+    <p style="margin:0 0 8px;font-size:13px;color:#718096;">If the button above doesn't work, copy and paste this link into your browser:</p>
+    <p style="margin:0 0 28px;font-size:13px;color:#0a7ea4;word-break:break-all;"><a href="${verifyUrl}" style="color:#0a7ea4;">${verifyUrl}</a></p>
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+    <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">If you didn't create a ShuttleIQ account, you can safely ignore this email.</p>
+  `;
+  try {
+    await sendEmail(toEmail, 'Verify your ShuttleIQ email', emailWrapper(body));
+    console.log(`[Email] Verification sent to ${toEmail}`);
+  } catch (err) {
+    console.error('[Email] sendEmailVerificationEmail failed:', err);
+    throw err;
+  }
+}
+
 // ─── Player Link OTP ──────────────────────────────────────────────────────
 
 export async function sendPlayerLinkOtpEmail(toEmail: string, playerName: string, code: string): Promise<void> {
@@ -172,6 +196,9 @@ export async function sendWelcomeEmail(toEmail: string, name: string, marketplac
     <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">Welcome to ShuttleIQ, ${name}!</h1>
     <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">
       Your account is ready. Browse upcoming badminton sessions, book your spot, and track your stats — all in one place.
+    </p>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">
+      We've sent you a separate email with a link to verify your address. Verifying lets you link your existing player profile and recover your account if you forget your password.
     </p>
     ${referralNote}
     ${ctaButton(marketplaceUrl, 'Browse Sessions')}

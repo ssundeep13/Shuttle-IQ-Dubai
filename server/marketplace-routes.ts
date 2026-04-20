@@ -4,6 +4,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import {
   sendPasswordResetEmail,
+  sendEmailVerificationEmail,
   sendWelcomeEmail,
   sendBookingConfirmationEmail,
   sendWaitlistPromotionEmail,
@@ -140,6 +141,8 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       const passwordHash = await hashPassword(password);
+      const verificationToken = randomUUID().replace(/-/g, '');
+      const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
       const user = await storage.createMarketplaceUser({
         email,
         passwordHash,
@@ -148,6 +151,9 @@ export function registerMarketplaceRoutes(app: Express) {
         linkedPlayerId: null,
         role: "player",
         pendingSignupCreditFils: promoCredit,
+        emailVerified: false,
+        emailVerificationToken: verificationToken,
+        emailVerificationTokenExpiry: verificationExpiry,
       });
 
       const payload = { userId: user.id, email: user.email, role: "marketplace_player" };
@@ -195,12 +201,101 @@ export function registerMarketplaceRoutes(app: Express) {
           }
         }
         sendWelcomeEmail(user.email, user.name, marketplaceUrl, referrerName).catch(() => {});
+        const baseUrl = marketplaceUrl.replace(/\/marketplace$/, '');
+        const verifyUrl = `${baseUrl}/marketplace/verify-email?token=${verificationToken}`;
+        sendEmailVerificationEmail(user.email, user.name, verifyUrl).catch(() => {});
       })();
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });
       }
       res.status(500).json({ error: "Signup failed" });
+    }
+  });
+
+  // ============================================================
+  // EMAIL VERIFICATION
+  // ============================================================
+
+  // In-memory rate limiter for verification email resends.
+  const verificationSendTimestamps = new Map<string, number[]>();
+  const VERIFICATION_MIN_INTERVAL_MS = 60 * 1000; // 60s between sends
+  const VERIFICATION_HOURLY_LIMIT = 5;
+  const VERIFICATION_HOURLY_WINDOW_MS = 60 * 60 * 1000;
+
+  app.post("/api/marketplace/auth/send-verification", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if (user.emailVerified) {
+        return res.json({ success: true, alreadyVerified: true });
+      }
+
+      const now = Date.now();
+      const history = (verificationSendTimestamps.get(user.id) ?? []).filter(
+        (t) => now - t < VERIFICATION_HOURLY_WINDOW_MS,
+      );
+      const last = history.length > 0 ? history[history.length - 1] : 0;
+      if (last && now - last < VERIFICATION_MIN_INTERVAL_MS) {
+        const retryAfter = Math.ceil((VERIFICATION_MIN_INTERVAL_MS - (now - last)) / 1000);
+        return res.status(429).json({
+          error: `Please wait ${retryAfter}s before requesting another verification email.`,
+          retryAfter,
+        });
+      }
+      if (history.length >= VERIFICATION_HOURLY_LIMIT) {
+        return res.status(429).json({
+          error: "Too many verification emails requested. Please try again later.",
+        });
+      }
+      history.push(now);
+      verificationSendTimestamps.set(user.id, history);
+
+      const token = randomUUID().replace(/-/g, '');
+      const expiry = new Date(now + 24 * 60 * 60 * 1000);
+      await storage.updateMarketplaceUser(user.id, {
+        emailVerificationToken: token,
+        emailVerificationTokenExpiry: expiry,
+      });
+
+      const host = req.get('host') || 'localhost:5000';
+      const protocol = req.get('x-forwarded-proto') || req.protocol || 'https';
+      const verifyUrl = `${protocol}://${host}/marketplace/verify-email?token=${token}`;
+
+      try {
+        await sendEmailVerificationEmail(user.email, user.name, verifyUrl);
+      } catch (emailErr) {
+        console.error('[Email Verification] send failed:', emailErr);
+        return res.status(500).json({ error: "Failed to send verification email" });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Email Verification] send error:', error);
+      res.status(500).json({ error: "Failed to send verification email" });
+    }
+  });
+
+  app.post("/api/marketplace/auth/verify-email", async (req, res) => {
+    try {
+      const { token } = req.body;
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ error: "Verification token required" });
+      }
+      const user = await storage.getMarketplaceUserByVerificationToken(token);
+      if (!user || !user.emailVerificationTokenExpiry || new Date() > user.emailVerificationTokenExpiry) {
+        return res.status(400).json({ error: "Invalid or expired verification link. Please request a new one." });
+      }
+      await storage.updateMarketplaceUser(user.id, {
+        emailVerified: true,
+        emailVerificationToken: null,
+        emailVerificationTokenExpiry: null,
+      });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Email Verification] verify error:', error);
+      res.status(500).json({ error: "Failed to verify email" });
     }
   });
 
@@ -288,6 +383,8 @@ export function registerMarketplaceRoutes(app: Express) {
         linkedPlayerId: user.linkedPlayerId,
         linkedPlayer,
         role: user.role,
+        emailVerified: user.emailVerified,
+        hasPassword: !!user.passwordHash,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get user" });
@@ -517,9 +614,15 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!user) {
         user = await storage.getMarketplaceUserByEmail(email);
         if (user) {
-          // Existing email/password account — attach Google ID
-          await storage.updateMarketplaceUser(user.id, { googleId });
-          user = { ...user, googleId };
+          // Existing email/password account — attach Google ID and treat the
+          // email as verified (Google has confirmed it).
+          await storage.updateMarketplaceUser(user.id, {
+            googleId,
+            emailVerified: true,
+            emailVerificationToken: null,
+            emailVerificationTokenExpiry: null,
+          });
+          user = { ...user, googleId, emailVerified: true };
         } else {
           // Brand new account via Google. The jersey promo slug (if any)
           // grants the same AED 15 wallet credit as the email/password
@@ -534,6 +637,7 @@ export function registerMarketplaceRoutes(app: Express) {
             role: 'player',
             googleId,
             pendingSignupCreditFils: promoCredit,
+            emailVerified: true,
           });
           // Fire-and-forget welcome email
           const marketplaceUrl = process.env.REPLIT_DOMAINS
@@ -543,6 +647,11 @@ export function registerMarketplaceRoutes(app: Express) {
           // Retroactive guest linking
           storage.linkGuestsByEmail(user.email, user.id).catch(() => {});
         }
+      } else if (!user.emailVerified) {
+        // Returning Google user that pre-dates the verification feature —
+        // backfill the flag now.
+        await storage.updateMarketplaceUser(user.id, { emailVerified: true });
+        user = { ...user, emailVerified: true };
       }
 
       await storage.updateMarketplaceUser(user.id, { lastLoginAt: new Date() });
@@ -602,23 +711,30 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      // Ownership proof: only a Google-verified email match is accepted on the
-      // self-service path. Email/phone on a password-signup account is unverified
+      // Ownership proof: only a verified-email match is accepted on the
+      // self-service fast path. Email/phone on an unverified account is just
       // user input — trusting it would let an attacker register with someone
-      // else's known contact info and claim their player wallet. Unverified
-      // users must go through the admin path (or a future OTP flow).
+      // else's known contact info and claim their player wallet.
       const normEmail = (s?: string | null) => (s ?? "").trim().toLowerCase();
-      const emailVerified = !!me.googleId;
-      const emailMatch =
-        emailVerified &&
+      const emailsMatch =
         !!me.email &&
         !!player.email &&
         normEmail(me.email) === normEmail(player.email);
 
-      if (!emailMatch) {
+      if (emailsMatch && !me.emailVerified) {
+        // Distinct path: tell the client the emails do match but our copy of
+        // the email isn't verified yet, so they can verify and retry.
         return res.status(403).json({
           error:
-            "We couldn't verify this player profile belongs to you. Sign in with the Google account whose email matches the player record, or contact support to link manually.",
+            "Your email matches this player profile, but we need to verify your email first. Please verify your email and try again.",
+          code: "EMAIL_NOT_VERIFIED",
+        });
+      }
+
+      if (!emailsMatch || !me.emailVerified) {
+        return res.status(403).json({
+          error:
+            "We couldn't verify this player profile belongs to you. Verify your email, or use the OTP flow to confirm with the contact on the player record.",
           code: "OWNERSHIP_NOT_VERIFIED",
         });
       }

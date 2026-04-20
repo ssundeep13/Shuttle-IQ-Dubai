@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -106,6 +106,9 @@ export default function Profile() {
         await apiRequest('POST', '/api/marketplace/link-player', { playerId: player.id });
         return { linked: true as const };
       } catch (err) {
+        if (isEmailNotVerified(err)) {
+          return { linked: false as const, emailNotVerified: true as const };
+        }
         if (isOwnershipNotVerified(err)) {
           // Fetch a preview of where the code would go BEFORE sending anything,
           // so the user can confirm the contact (or bail out if it's wrong).
@@ -133,16 +136,24 @@ export default function Profile() {
         toast({ title: 'Player linked!' });
         queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
         resetLinkUI();
-      } else {
-        setPreviewFlow({
-          player,
-          destination: result.destination,
-          channel: result.channel as 'email' | 'phone',
-          availableChannels: result.availableChannels,
-          maskedEmail: result.maskedEmail,
-          maskedPhone: result.maskedPhone,
-        });
+        return;
       }
+      if ('emailNotVerified' in result && result.emailNotVerified) {
+        toast({
+          title: 'Verify your email first',
+          description: 'Your email matches this player profile. Verify your email and try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      setPreviewFlow({
+        player,
+        destination: result.destination!,
+        channel: result.channel as 'email' | 'phone',
+        availableChannels: result.availableChannels!,
+        maskedEmail: result.maskedEmail!,
+        maskedPhone: result.maskedPhone!,
+      });
     },
     onError: (err) => {
       toast({ title: 'Link failed', description: errorMessage(err), variant: 'destructive' });
@@ -249,6 +260,21 @@ export default function Profile() {
       toast({ title: 'Verification failed', description: errorMessage(err), variant: 'destructive' });
     },
   });
+
+  const sendVerificationMutation = useMutation({
+    mutationFn: async () => apiRequest('POST', '/api/marketplace/auth/send-verification'),
+    onSuccess: () => {
+      toast({ title: 'Verification email sent', description: 'Check your inbox for the link.' });
+    },
+    onError: (err) => {
+      toast({ title: 'Could not send', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const isEmailNotVerified = (err: unknown): boolean => {
+    const code = err && typeof err === 'object' ? (err as { code?: string }).code : undefined;
+    return code === 'EMAIL_NOT_VERIFIED';
+  };
 
   const resendOtpMutation = useMutation({
     mutationFn: async ({ playerId, channel }: { playerId: string; channel?: 'email' | 'phone' }) => {
@@ -445,6 +471,30 @@ export default function Profile() {
               </CardContent>
             </Card>
           </motion.div>
+
+          {user && !user.emailVerified && (
+            <motion.div variants={fadeInUp}>
+              <Card className="border-amber-500/40 bg-amber-500/5">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" /> Verify your email
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Verifying your email lets you link your ShuttleIQ player profile and recover your account if you forget your password. We sent a link when you signed up — if you can't find it, request a new one below.
+                  </p>
+                  <Button
+                    onClick={() => sendVerificationMutation.mutate()}
+                    disabled={sendVerificationMutation.isPending}
+                    data-testid="button-send-verification"
+                  >
+                    {sendVerificationMutation.isPending ? 'Sending…' : 'Send verification email'}
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
 
           <motion.div variants={fadeInUp}>
             <Card>

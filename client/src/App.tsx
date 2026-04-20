@@ -37,6 +37,7 @@ import CheckoutCancel from "@/pages/marketplace/CheckoutCancel";
 import PlayerPublicProfile from "@/pages/marketplace/PlayerPublicProfile";
 import PersonalityCard from "@/pages/marketplace/PersonalityCard";
 import ResetPassword from "@/pages/marketplace/ResetPassword";
+import VerifyEmail from "@/pages/marketplace/VerifyEmail";
 import GuestCancel from "@/pages/marketplace/GuestCancel";
 import GameHistory from "@/pages/marketplace/GameHistory";
 import JoinTheCrew from "@/pages/marketplace/JoinTheCrew";
@@ -182,6 +183,9 @@ function Router() {
         </Route>
         <Route path="/marketplace/reset-password">
           <MarketplaceRoute component={ResetPassword} />
+        </Route>
+        <Route path="/marketplace/verify-email">
+          <MarketplaceRoute component={VerifyEmail} />
         </Route>
         <Route path="/marketplace/book">
           <MarketplaceRoute component={BookSessions} />

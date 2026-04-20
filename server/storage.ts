@@ -237,6 +237,7 @@ export interface IStorage {
   getMarketplaceUser(id: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined>;
+  getMarketplaceUserByVerificationToken(token: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByLinkedPlayerId(playerId: string): Promise<MarketplaceUser | undefined>;
   // Player-link OTP (proof of player-profile ownership)
   createPlayerLinkOtp(input: { marketplaceUserId: string; playerId: string; channel: string; destination: string; codeHash: string; expiresAt: Date }): Promise<PlayerLinkOtp>;
@@ -1161,6 +1162,14 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(marketplaceUsers)
       .where(eq(marketplaceUsers.resetToken, token));
+    return user || undefined;
+  }
+
+  async getMarketplaceUserByVerificationToken(token: string): Promise<MarketplaceUser | undefined> {
+    const [user] = await db
+      .select()
+      .from(marketplaceUsers)
+      .where(eq(marketplaceUsers.emailVerificationToken, token));
     return user || undefined;
   }
 

@@ -9,6 +9,8 @@ interface MarketplaceUser {
   linkedPlayerId: string | null;
   linkedPlayer: any | null;
   role: string;
+  emailVerified: boolean;
+  hasPassword: boolean;
 }
 
 interface MarketplaceAuthContextType {
