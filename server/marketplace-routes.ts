@@ -780,11 +780,18 @@ export function registerMarketplaceRoutes(app: Express) {
           // Retroactive guest linking
           storage.linkGuestsByEmail(user.email, user.id).catch(() => {});
         }
-      } else if (!user.emailVerified) {
-        // Returning Google user that pre-dates the verification feature —
-        // backfill the flag now.
-        await storage.updateMarketplaceUser(user.id, { emailVerified: true });
-        user = { ...user, emailVerified: true };
+      } else {
+        // Returning Google user. Backfill emailVerified (for accounts that
+        // pre-date the verification feature) and the photoUrl (for accounts
+        // that pre-date the photo feature). Never overwrite an existing
+        // user-uploaded photo.
+        const updates: Partial<typeof user> = {};
+        if (!user.emailVerified) updates.emailVerified = true;
+        if (!user.photoUrl && googlePicture) updates.photoUrl = googlePicture;
+        if (Object.keys(updates).length > 0) {
+          await storage.updateMarketplaceUser(user.id, updates);
+          user = { ...user, ...updates } as typeof user;
+        }
       }
 
       await storage.updateMarketplaceUser(user.id, { lastLoginAt: new Date() });

@@ -4,7 +4,7 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -219,6 +219,9 @@ export function MarketplaceNav() {
                     data-testid="button-user-menu"
                   >
                     <Avatar className="h-7 w-7">
+                      {user?.photoUrl ? (
+                        <AvatarImage src={user.photoUrl} alt={user.name} data-testid="img-nav-avatar" />
+                      ) : null}
                       <AvatarFallback className="text-xs font-semibold" style={{ backgroundColor: '#006B5F', color: '#ffffff' }}>
                         {getInitials(user?.name)}
                       </AvatarFallback>
