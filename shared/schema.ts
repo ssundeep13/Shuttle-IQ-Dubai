@@ -275,6 +275,7 @@ export const marketplaceUsers = pgTable("marketplace_users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   emailVerificationToken: text("email_verification_token"),
   emailVerificationTokenExpiry: timestamp("email_verification_token_expiry"),
+  photoUrl: text("photo_url"),
 });
 
 export const insertMarketplaceUserSchema = createInsertSchema(marketplaceUsers).omit({ id: true, createdAt: true, lastLoginAt: true });

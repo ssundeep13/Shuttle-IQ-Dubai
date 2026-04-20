@@ -11,6 +11,7 @@ interface MarketplaceUser {
   role: string;
   emailVerified: boolean;
   hasPassword: boolean;
+  photoUrl?: string | null;
 }
 
 interface MarketplaceAuthContextType {

@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { storage } from "./storage";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import {
   sendPasswordResetEmail,
   sendEmailVerificationEmail,
@@ -180,7 +183,7 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({
         accessToken,
         refreshToken,
-        user: { id: user.id, email: user.email, name: user.name, phone: user.phone, linkedPlayerId: user.linkedPlayerId },
+        user: { id: user.id, email: user.email, name: user.name, phone: user.phone, linkedPlayerId: user.linkedPlayerId, photoUrl: user.photoUrl },
       });
 
       // Retroactive guest linking: link any prior guest records with this email to the new user
@@ -359,7 +362,7 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({
         accessToken,
         refreshToken,
-        user: { id: user.id, email: user.email, name: user.name, phone: user.phone, linkedPlayerId: user.linkedPlayerId },
+        user: { id: user.id, email: user.email, name: user.name, phone: user.phone, linkedPlayerId: user.linkedPlayerId, photoUrl: user.photoUrl },
       });
     } catch (error) {
       res.status(500).json({ error: "Login failed" });
@@ -412,6 +415,7 @@ export function registerMarketplaceRoutes(app: Express) {
         role: user.role,
         emailVerified: user.emailVerified,
         hasPassword: !!user.passwordHash,
+        photoUrl: user.photoUrl,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get user" });
@@ -489,6 +493,102 @@ export function registerMarketplaceRoutes(app: Express) {
       res.status(500).json({ error: "Failed to reset password" });
     }
   });
+
+  // ============================================================
+  // PROFILE PHOTO
+  // ============================================================
+
+  const profilePhotoDir = path.resolve(process.cwd(), "uploads/profile");
+  if (!fs.existsSync(profilePhotoDir)) {
+    fs.mkdirSync(profilePhotoDir, { recursive: true });
+  }
+
+  const PROFILE_ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  const PROFILE_MAX_SIZE = 5 * 1024 * 1024;
+
+  const profilePhotoUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, profilePhotoDir),
+      filename: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, `${randomUUID()}${ext}`);
+      },
+    }),
+    limits: { fileSize: PROFILE_MAX_SIZE },
+    fileFilter: (_req, file, cb) => {
+      if (PROFILE_ALLOWED_MIME.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Only JPEG, PNG, WebP, and GIF images are allowed"));
+      }
+    },
+  });
+
+  function unlinkLocalPhoto(photoUrl: string | null | undefined) {
+    if (!photoUrl) return;
+    if (!photoUrl.startsWith("/uploads/profile/")) return;
+    const filename = path.basename(photoUrl);
+    const fullPath = path.join(profilePhotoDir, filename);
+    fs.unlink(fullPath, () => {});
+  }
+
+  app.post(
+    "/api/marketplace/profile/photo",
+    requireAuth,
+    requireMarketplaceAuth,
+    (req: AuthRequest, res) => {
+      profilePhotoUpload.single("photo")(req, res, async (err: unknown) => {
+        if (err instanceof multer.MulterError) {
+          if (err.code === "LIMIT_FILE_SIZE") {
+            return res.status(400).json({ error: "File size exceeds 5MB limit" });
+          }
+          return res.status(400).json({ error: err.message });
+        }
+        if (err instanceof Error) {
+          return res.status(400).json({ error: err.message });
+        }
+        if (!req.file) {
+          return res.status(400).json({ error: "No image file provided" });
+        }
+        try {
+          if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+          const existing = await storage.getMarketplaceUser(req.user.userId);
+          const newUrl = `/uploads/profile/${req.file.filename}`;
+          const updated = await storage.updateMarketplaceUser(req.user.userId, { photoUrl: newUrl });
+          if (!updated) {
+            unlinkLocalPhoto(newUrl);
+            return res.status(404).json({ error: "User not found" });
+          }
+          if (existing?.photoUrl && existing.photoUrl !== newUrl) {
+            unlinkLocalPhoto(existing.photoUrl);
+          }
+          res.json({ photoUrl: newUrl });
+        } catch (e) {
+          console.error("[Profile Photo] upload error:", e);
+          res.status(500).json({ error: "Failed to save photo" });
+        }
+      });
+    },
+  );
+
+  app.delete(
+    "/api/marketplace/profile/photo",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+        const existing = await storage.getMarketplaceUser(req.user.userId);
+        if (!existing) return res.status(404).json({ error: "User not found" });
+        await storage.updateMarketplaceUser(req.user.userId, { photoUrl: null });
+        unlinkLocalPhoto(existing.photoUrl);
+        res.json({ success: true });
+      } catch (e) {
+        console.error("[Profile Photo] delete error:", e);
+        res.status(500).json({ error: "Failed to remove photo" });
+      }
+    },
+  );
 
   // ============================================================
   // GOOGLE OAUTH
@@ -633,7 +733,7 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.redirect('/marketplace/login?error=google_email_unverified');
       }
 
-      const { sub: googleId, email, name: googleName } = payload;
+      const { sub: googleId, email, name: googleName, picture: googlePicture } = payload;
       const displayName = googleName || email.split('@')[0];
 
       // Look up or create marketplace user
@@ -642,14 +742,19 @@ export function registerMarketplaceRoutes(app: Express) {
         user = await storage.getMarketplaceUserByEmail(email);
         if (user) {
           // Existing email/password account — attach Google ID and treat the
-          // email as verified (Google has confirmed it).
-          await storage.updateMarketplaceUser(user.id, {
+          // email as verified (Google has confirmed it). Also backfill the
+          // photo from Google if the user hasn't uploaded one of their own.
+          const updates: Partial<typeof user> = {
             googleId,
             emailVerified: true,
             emailVerificationToken: null,
             emailVerificationTokenExpiry: null,
-          });
-          user = { ...user, googleId, emailVerified: true };
+          };
+          if (!user.photoUrl && googlePicture) {
+            updates.photoUrl = googlePicture;
+          }
+          await storage.updateMarketplaceUser(user.id, updates);
+          user = { ...user, ...updates } as typeof user;
         } else {
           // Brand new account via Google. The jersey promo slug (if any)
           // grants the same AED 15 wallet credit as the email/password
@@ -665,6 +770,7 @@ export function registerMarketplaceRoutes(app: Express) {
             googleId,
             pendingSignupCreditFils: promoCredit,
             emailVerified: true,
+            photoUrl: googlePicture ?? null,
           });
           // Fire-and-forget welcome email
           const marketplaceUrl = process.env.REPLIT_DOMAINS

@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2 } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -58,6 +58,60 @@ export default function Profile() {
     | { mode: 'verify'; field: 'email' | 'phone'; destination: string; code: string }
     | null
   >(null);
+
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const uploadPhotoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const fd = new FormData();
+      fd.append('photo', file);
+      const token =
+        localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
+      const res = await fetch('/api/marketplace/profile/photo', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      return data as { photoUrl: string };
+    },
+    onSuccess: () => {
+      toast({ title: 'Photo updated' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+    },
+    onError: (err) => {
+      toast({ title: 'Upload failed', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const removePhotoMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest('DELETE', '/api/marketplace/profile/photo');
+    },
+    onSuccess: () => {
+      toast({ title: 'Photo removed' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+    },
+    onError: (err) => {
+      toast({ title: 'Could not remove photo', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const handlePhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      toast({ title: 'Unsupported file', description: 'Use JPEG, PNG, WebP, or GIF.', variant: 'destructive' });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: 'Image too large', description: 'Max 5MB.', variant: 'destructive' });
+      return;
+    }
+    uploadPhotoMutation.mutate(file);
+  };
 
   const handleSearch = async () => {
     if (searchQuery.length < 2) return;
@@ -302,17 +356,61 @@ export default function Profile() {
         </motion.div>
 
         <motion.div variants={fadeInUp} className="flex items-center gap-4 mb-8">
-          <Avatar className="h-16 w-16">
-            <AvatarFallback className="bg-secondary text-secondary-foreground font-bold text-xl">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-          <div>
+          <div className="relative">
+            <Avatar className="h-20 w-20">
+              {user?.photoUrl ? (
+                <AvatarImage src={user.photoUrl} alt={user.name} data-testid="img-profile-photo" />
+              ) : null}
+              <AvatarFallback className="bg-secondary text-secondary-foreground font-bold text-xl">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={handlePhotoSelected}
+              data-testid="input-profile-photo"
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="default"
+              className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full shadow-md"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={uploadPhotoMutation.isPending}
+              data-testid="button-upload-photo"
+              aria-label="Change profile photo"
+            >
+              {uploadPhotoMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Camera className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          <div className="flex-1 min-w-0">
             <h2 className="text-xl font-semibold" data-testid="text-profile-name">{user?.name}</h2>
             <p className="text-sm text-muted-foreground">{user?.email}</p>
-            {user?.linkedPlayer && (
-              <Badge variant="secondary" className="mt-1 text-xs">{getTierDisplayName(user.linkedPlayer.level)}</Badge>
-            )}
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              {user?.linkedPlayer && (
+                <Badge variant="secondary" className="text-xs">{getTierDisplayName(user.linkedPlayer.level)}</Badge>
+              )}
+              {user?.photoUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs text-muted-foreground"
+                  onClick={() => removePhotoMutation.mutate()}
+                  disabled={removePhotoMutation.isPending}
+                  data-testid="button-remove-photo"
+                >
+                  <X className="h-3 w-3 mr-1" /> Remove photo
+                </Button>
+              )}
+            </div>
           </div>
         </motion.div>
 
