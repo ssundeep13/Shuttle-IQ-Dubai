@@ -89,6 +89,7 @@ export interface OpponentStats {
 // Player profile statistics (computed from game history)
 export interface PlayerStats {
   player: Player;
+  playerPhotoUrl: string | null;
   winRate: number;
   totalGames: number;
   totalWins: number;
@@ -671,6 +672,7 @@ export interface CommunitySpotlightEntry {
     level: string;
     skillScore: number;
     shuttleIqId: string | null;
+    photoUrl: string | null;
   };
 }
 export interface ReceivedTagEntry {

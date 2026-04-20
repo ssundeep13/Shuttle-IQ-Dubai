@@ -3000,7 +3000,7 @@ export function registerMarketplaceRoutes(app: Express) {
       const sessionBookings = await storage.getSessionBookings(req.params.id);
       const confirmedBookings = sessionBookings.filter(b => b.status === 'confirmed' || b.status === 'attended');
 
-      const playerEntries: Array<{ name: string; level: string | null; skillScore: number | null; linkedPlayerId: string | null; isGuest?: boolean }> = [];
+      const playerEntries: Array<{ name: string; level: string | null; skillScore: number | null; linkedPlayerId: string | null; photoUrl: string | null; isGuest?: boolean }> = [];
 
       for (const booking of confirmedBookings) {
         let level: string | null = null;
@@ -3020,6 +3020,7 @@ export function registerMarketplaceRoutes(app: Express) {
           level,
           skillScore,
           linkedPlayerId: booking.user?.linkedPlayerId ?? null,
+          photoUrl: booking.user?.photoUrl ?? null,
         });
 
         // Additional guests only (exclude primary slot — already represented above by booking.user)
@@ -3029,9 +3030,13 @@ export function registerMarketplaceRoutes(app: Express) {
             let guestLevel: string | null = null;
             let guestSkillScore: number | null = null;
             let guestLinkedPlayerId: string | null = null;
+            let guestPhotoUrl: string | null = null;
             // If guest has a linked marketplace user, resolve their linked player
             if (guest.linkedUserId) {
               const guestUser = await storage.getMarketplaceUser(guest.linkedUserId);
+              if (guestUser) {
+                guestPhotoUrl = guestUser.photoUrl ?? null;
+              }
               if (guestUser?.linkedPlayerId) {
                 const guestPlayer = await storage.getPlayer(guestUser.linkedPlayerId);
                 if (guestPlayer) {
@@ -3046,6 +3051,7 @@ export function registerMarketplaceRoutes(app: Express) {
               level: guestLevel,
               skillScore: guestSkillScore,
               linkedPlayerId: guestLinkedPlayerId,
+              photoUrl: guestPhotoUrl,
               isGuest: true,
             });
           }

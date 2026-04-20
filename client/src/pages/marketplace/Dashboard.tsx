@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink, Lightbulb, Gift, Copy, Wallet } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
@@ -330,6 +330,9 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <Link href="/marketplace/profile" data-testid="link-profile-avatar" className="shrink-0 cursor-pointer md:pointer-events-none md:cursor-default">
               <Avatar className="h-12 w-12">
+                {user?.photoUrl ? (
+                  <AvatarImage src={user.photoUrl} alt={user.name} data-testid="img-dashboard-avatar" />
+                ) : null}
                 <AvatarFallback className="bg-secondary text-secondary-foreground font-bold text-lg">
                   {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                 </AvatarFallback>

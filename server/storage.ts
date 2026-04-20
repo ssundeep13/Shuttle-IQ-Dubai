@@ -384,7 +384,7 @@ export interface IStorage {
   getCompletedReferralCount(referrerId: string): Promise<number>;
   getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string; referralCode: string | null; ambassadorStatus: boolean; jerseyDispatched: boolean })[]>;
   updateReferral(id: string, updates: Partial<Referral>): Promise<Referral | undefined>;
-  getReferralLeaderboard(limit?: number): Promise<{ playerId: string; playerName: string; referralCode: string | null; completedCount: number; ambassadorStatus: boolean }[]>;
+  getReferralLeaderboard(limit?: number): Promise<{ playerId: string; playerName: string; referralCode: string | null; completedCount: number; ambassadorStatus: boolean; photoUrl: string | null }[]>;
   getPlayerByReferralCode(code: string): Promise<Player | undefined>;
   backfillReferralCodes(): Promise<number>;
 }
@@ -627,6 +627,8 @@ export class DatabaseStorage implements IStorage {
   async getPlayerStats(playerId: string): Promise<PlayerStats | null> {
     const player = await this.getPlayer(playerId);
     if (!player) return null;
+    const linkedUser = await this.getMarketplaceUserByLinkedPlayerId(playerId);
+    const playerPhotoUrl = linkedUser?.photoUrl ?? null;
 
     // Get all players for ranking calculations
     const allPlayers = await this.getAllPlayers();
@@ -656,6 +658,7 @@ export class DatabaseStorage implements IStorage {
     if (playerGames.length === 0) {
       return {
         player,
+        playerPhotoUrl,
         winRate: 0,
         totalGames: player.gamesPlayed,
         totalWins: player.wins,
@@ -693,6 +696,7 @@ export class DatabaseStorage implements IStorage {
     if (nonSandboxGameIds.length === 0) {
       return {
         player,
+        playerPhotoUrl,
         winRate: 0,
         totalGames: player.gamesPlayed,
         totalWins: player.wins,
@@ -916,6 +920,7 @@ export class DatabaseStorage implements IStorage {
 
     return {
       player,
+      playerPhotoUrl,
       winRate: player.gamesPlayed > 0 ? Math.round((player.wins / player.gamesPlayed) * 100) : 0,
       totalGames: player.gamesPlayed,
       totalWins: player.wins,
@@ -2119,6 +2124,7 @@ export class DatabaseStorage implements IStorage {
       top_player_level: string;
       top_player_skill_score: number;
       top_player_shuttle_iq_id: string | null;
+      top_player_photo_url: string | null;
     }>(sql`
       WITH weekly AS (
         SELECT tag_id, tagged_player_id, count(*)::int AS cnt
@@ -2152,11 +2158,13 @@ export class DatabaseStorage implements IStorage {
         p.name AS top_player_name,
         p.level AS top_player_level,
         p.skill_score AS top_player_skill_score,
-        p.shuttle_iq_id AS top_player_shuttle_iq_id
+        p.shuttle_iq_id AS top_player_shuttle_iq_id,
+        mu.photo_url AS top_player_photo_url
       FROM tag_totals tt
       JOIN tags t ON t.id = tt.tag_id
       JOIN top_players tp ON tp.tag_id = tt.tag_id
       JOIN players p ON p.id = tp.top_player_id
+      LEFT JOIN marketplace_users mu ON mu.linked_player_id = p.id
       ORDER BY tt.weekly_count DESC
     `);
 
@@ -2169,6 +2177,7 @@ export class DatabaseStorage implements IStorage {
         level: r.top_player_level,
         skillScore: Number(r.top_player_skill_score),
         shuttleIqId: r.top_player_shuttle_iq_id,
+        photoUrl: r.top_player_photo_url,
       },
     }));
   }
@@ -2902,7 +2911,7 @@ export class DatabaseStorage implements IStorage {
     return row ?? undefined;
   }
 
-  async getReferralLeaderboard(limit = 10): Promise<{ playerId: string; playerName: string; referralCode: string | null; completedCount: number; ambassadorStatus: boolean }[]> {
+  async getReferralLeaderboard(limit = 10): Promise<{ playerId: string; playerName: string; referralCode: string | null; completedCount: number; ambassadorStatus: boolean; photoUrl: string | null }[]> {
     const rows = await db
       .select({
         playerId: players.id,
@@ -2910,11 +2919,13 @@ export class DatabaseStorage implements IStorage {
         referralCode: players.referralCode,
         completedCount: sql<number>`count(${referrals.id})::int`,
         ambassadorStatus: players.ambassadorStatus,
+        photoUrl: marketplaceUsers.photoUrl,
       })
       .from(referrals)
       .innerJoin(players, eq(referrals.referrerId, players.id))
+      .leftJoin(marketplaceUsers, eq(marketplaceUsers.linkedPlayerId, players.id))
       .where(eq(referrals.status, 'completed'))
-      .groupBy(players.id, players.name, players.referralCode, players.ambassadorStatus)
+      .groupBy(players.id, players.name, players.referralCode, players.ambassadorStatus, marketplaceUsers.photoUrl)
       .orderBy(desc(sql`count(${referrals.id})`))
       .limit(limit);
     return rows;

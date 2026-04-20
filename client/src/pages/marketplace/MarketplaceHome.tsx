@@ -226,9 +226,18 @@ export default function MarketplaceHome() {
                           <span className="opacity-60 ml-0.5 text-xs">{entry.count}×</span>
                         </div>
                         <div className="flex items-center gap-3 mt-2">
-                          <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-bold shrink-0">
-                            {entry.topPlayer.name.charAt(0).toUpperCase()}
-                          </div>
+                          {entry.topPlayer.photoUrl ? (
+                            <img
+                              src={entry.topPlayer.photoUrl}
+                              alt={entry.topPlayer.name}
+                              className="w-9 h-9 rounded-full object-cover shrink-0"
+                              data-testid={`img-spotlight-${entry.tag.id}`}
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-bold shrink-0">
+                              {entry.topPlayer.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
                           <div className="min-w-0">
                             <p className="text-sm font-semibold truncate">{entry.topPlayer.name}</p>
                             <p className="text-xs text-muted-foreground">{getTierDisplayName(entry.topPlayer.level)} · {entry.topPlayer.skillScore} pts</p>

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import {
   Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info,
@@ -41,6 +41,7 @@ interface SessionPlayer {
   level: string | null;
   skillScore: number | null;
   linkedPlayerId: string | null;
+  photoUrl: string | null;
 }
 
 interface GuestSearchResult {
@@ -347,6 +348,9 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
             const cardContent = (
               <>
                 <Avatar className="h-8 w-8 shrink-0">
+                  {player.photoUrl ? (
+                    <AvatarImage src={player.photoUrl} alt={player.name} data-testid={`img-player-avatar-${idx}`} />
+                  ) : null}
                   <AvatarFallback className="text-xs font-semibold bg-secondary/20 text-secondary">
                     {getInitials(player.name)}
                   </AvatarFallback>

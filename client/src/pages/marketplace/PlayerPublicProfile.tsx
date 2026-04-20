@@ -174,9 +174,18 @@ export default function PlayerPublicProfile() {
             style={{ background: 'linear-gradient(135deg, #0f2b46 0%, #163a5f 50%, #1a4a6e 100%)' }}
             data-testid="hero-banner"
           >
-            <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white/20 border-2 border-white/30 flex items-center justify-center text-white text-xl md:text-2xl font-bold shrink-0">
-              {getInitial(stats.player.name)}
-            </div>
+            {stats.playerPhotoUrl ? (
+              <img
+                src={stats.playerPhotoUrl}
+                alt={stats.player.name}
+                className="w-14 h-14 md:w-16 md:h-16 rounded-full object-cover border-2 border-white/30 shrink-0"
+                data-testid="img-player-profile-photo"
+              />
+            ) : (
+              <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white/20 border-2 border-white/30 flex items-center justify-center text-white text-xl md:text-2xl font-bold shrink-0">
+                {getInitial(stats.player.name)}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <h1 className="text-xl md:text-2xl font-bold text-white truncate" data-testid="text-player-name">
                 {stats.player.name}
