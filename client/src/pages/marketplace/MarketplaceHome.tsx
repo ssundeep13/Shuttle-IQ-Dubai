@@ -52,7 +52,7 @@ export default function MarketplaceHome() {
           variants={stagger}
         >
           <motion.p variants={fadeInUp} className="text-sm font-semibold uppercase tracking-wider text-primary-foreground/60 mb-4">
-            Dubai's Badminton Community Platform
+            Dubai's Best Badminton Social Platform
           </motion.p>
           <motion.h1
             variants={fadeInUp}
