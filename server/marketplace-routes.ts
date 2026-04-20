@@ -77,6 +77,19 @@ async function deductWalletForBooking(
 }
 
 export function registerMarketplaceRoutes(app: Express) {
+  // One-time idempotent backfill: any marketplace user with a googleId is
+  // considered email-verified (Google has already verified their address).
+  void (async () => {
+    try {
+      const updated = await storage.backfillEmailVerifiedForGoogleUsers();
+      if (updated > 0) {
+        console.log(`[EmailVerification] Backfilled emailVerified=true for ${updated} Google-linked marketplace user(s).`);
+      }
+    } catch (err) {
+      console.error('[EmailVerification] Backfill failed:', err);
+    }
+  })();
+
   // ============================================================
   // PUBLIC ANALYTICS (no auth required — aggregated data only)
   // ============================================================
@@ -277,8 +290,22 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // In-memory IP-based rate limiter for verify-email (mitigates token brute-force).
+  const verifyEmailIpHits = new Map<string, number[]>();
+  const VERIFY_EMAIL_WINDOW_MS = 60 * 1000;
+  const VERIFY_EMAIL_MAX_PER_WINDOW = 10;
+
   app.post("/api/marketplace/auth/verify-email", async (req, res) => {
     try {
+      const ip = (req.ip || req.socket.remoteAddress || 'unknown').toString();
+      const now = Date.now();
+      const hits = (verifyEmailIpHits.get(ip) ?? []).filter((t) => now - t < VERIFY_EMAIL_WINDOW_MS);
+      if (hits.length >= VERIFY_EMAIL_MAX_PER_WINDOW) {
+        return res.status(429).json({ error: "Too many verification attempts. Please try again shortly." });
+      }
+      hits.push(now);
+      verifyEmailIpHits.set(ip, hits);
+
       const { token } = req.body;
       if (!token || typeof token !== 'string') {
         return res.status(400).json({ error: "Verification token required" });

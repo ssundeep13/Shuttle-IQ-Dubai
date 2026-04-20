@@ -79,7 +79,7 @@ import {
   type MarketplaceUserContactChange,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, inArray, desc, sql, asc, like, gte, lt, SQL } from "drizzle-orm";
+import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -238,6 +238,7 @@ export interface IStorage {
   getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByVerificationToken(token: string): Promise<MarketplaceUser | undefined>;
+  backfillEmailVerifiedForGoogleUsers(): Promise<number>;
   getMarketplaceUserByLinkedPlayerId(playerId: string): Promise<MarketplaceUser | undefined>;
   // Player-link OTP (proof of player-profile ownership)
   createPlayerLinkOtp(input: { marketplaceUserId: string; playerId: string; channel: string; destination: string; codeHash: string; expiresAt: Date }): Promise<PlayerLinkOtp>;
@@ -1171,6 +1172,19 @@ export class DatabaseStorage implements IStorage {
       .from(marketplaceUsers)
       .where(eq(marketplaceUsers.emailVerificationToken, token));
     return user || undefined;
+  }
+
+  async backfillEmailVerifiedForGoogleUsers(): Promise<number> {
+    // Idempotent: any account with a googleId is by definition email-verified.
+    const result = await db
+      .update(marketplaceUsers)
+      .set({ emailVerified: true })
+      .where(and(
+        isNotNull(marketplaceUsers.googleId),
+        eq(marketplaceUsers.emailVerified, false),
+      ))
+      .returning({ id: marketplaceUsers.id });
+    return result.length;
   }
 
   async getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined> {

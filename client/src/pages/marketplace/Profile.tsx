@@ -45,6 +45,7 @@ export default function Profile() {
     maskedEmail: string | null;
     maskedPhone: string | null;
   } | null>(null);
+  const [emailNotVerifiedFor, setEmailNotVerifiedFor] = useState<PlayerSearchResult | null>(null);
   // Self-service contact change sub-flow (within OTP flow)
   const [contactEdit, setContactEdit] = useState<
     | { mode: 'form'; field: 'email' | 'phone'; value: string }
@@ -78,6 +79,7 @@ export default function Profile() {
     setOtpCode('');
     setPreviewFlow(null);
     setContactEdit(null);
+    setEmailNotVerifiedFor(null);
   };
 
   // apiRequest throws a plain object `{ error, status }` (not a true Error) —
@@ -139,11 +141,7 @@ export default function Profile() {
         return;
       }
       if ('emailNotVerified' in result && result.emailNotVerified) {
-        toast({
-          title: 'Verify your email first',
-          description: 'Your email matches this player profile. Verify your email and try again.',
-          variant: 'destructive',
-        });
+        setEmailNotVerifiedFor(player);
         return;
       }
       setPreviewFlow({
@@ -338,7 +336,18 @@ export default function Profile() {
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs text-muted-foreground">Email</div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-2">
+                      Email
+                      {user?.emailVerified ? (
+                        <Badge variant="secondary" className="gap-1" data-testid="badge-email-verified">
+                          <ShieldCheck className="h-3 w-3" /> Verified
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="gap-1 border-amber-500/40 text-amber-700 dark:text-amber-400" data-testid="badge-email-unverified">
+                          <AlertTriangle className="h-3 w-3" /> Unverified
+                        </Badge>
+                      )}
+                    </div>
                     <div className="text-sm font-medium" data-testid="text-user-email">{user?.email}</div>
                   </div>
                   <Button
@@ -525,6 +534,43 @@ export default function Profile() {
                     </div>
                     <div className="flex items-center gap-1 text-sm text-green-600">
                       <Check className="h-4 w-4" /> Linked
+                    </div>
+                  </div>
+                ) : emailNotVerifiedFor ? (
+                  <div className="space-y-4" data-testid="section-email-not-verified">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1 -ml-2"
+                      onClick={resetLinkUI}
+                      data-testid="button-email-not-verified-back"
+                    >
+                      <ArrowLeft className="h-4 w-4" /> Back
+                    </Button>
+                    <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        Verify your email to link <span data-testid="text-email-not-verified-player">{emailNotVerifiedFor.name}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Your account email matches the player profile, but it isn't verified yet. Send yourself a verification link to finish linking instantly — no SMS code needed.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          onClick={() => sendVerificationMutation.mutate()}
+                          disabled={sendVerificationMutation.isPending}
+                          data-testid="button-email-not-verified-send"
+                        >
+                          {sendVerificationMutation.isPending ? 'Sending…' : 'Send verification email'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={resetLinkUI}
+                          data-testid="button-email-not-verified-cancel"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 ) : previewFlow ? (
