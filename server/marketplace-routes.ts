@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import sharp from "sharp";
 import {
   sendPasswordResetEmail,
   sendEmailVerificationEmail,
@@ -505,17 +506,25 @@ export function registerMarketplaceRoutes(app: Express) {
 
   const PROFILE_ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif"];
   const PROFILE_MAX_SIZE = 5 * 1024 * 1024;
+  // Map sharp's detected format -> safe server-controlled extension. The
+  // client-supplied filename and mimetype are NEVER used to derive the
+  // extension on disk; doing so would let an attacker upload a `.html` file
+  // with a spoofed `image/jpeg` Content-Type and have it served back as
+  // HTML from the same origin (stored XSS).
+  const SHARP_FORMAT_TO_EXT: Record<string, string> = {
+    jpeg: ".jpg",
+    png: ".png",
+    webp: ".webp",
+    gif: ".gif",
+  };
 
   const profilePhotoUpload = multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => cb(null, profilePhotoDir),
-      filename: (_req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
-        cb(null, `${randomUUID()}${ext}`);
-      },
-    }),
+    storage: multer.memoryStorage(),
     limits: { fileSize: PROFILE_MAX_SIZE },
     fileFilter: (_req, file, cb) => {
+      // First-pass filter on the client-declared MIME so that obviously wrong
+      // uploads (e.g. .exe with text/plain) are rejected before we read them
+      // into memory. The authoritative check happens after upload via sharp.
       if (PROFILE_ALLOWED_MIME.includes(file.mimetype)) {
         cb(null, true);
       } else {
@@ -552,8 +561,31 @@ export function registerMarketplaceRoutes(app: Express) {
         }
         try {
           if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+
+          // Authoritative content-based validation: decode the image with
+          // sharp and trust ONLY its detected format. This rejects
+          // disguised payloads (e.g. an HTML file with a fake image/jpeg
+          // Content-Type) and lets us pick a safe server-side extension.
+          let detectedFormat: string | undefined;
+          try {
+            const meta = await sharp(req.file.buffer).metadata();
+            detectedFormat = meta.format;
+          } catch {
+            return res.status(400).json({ error: "Uploaded file is not a valid image" });
+          }
+          const ext = detectedFormat ? SHARP_FORMAT_TO_EXT[detectedFormat] : undefined;
+          if (!ext) {
+            return res
+              .status(400)
+              .json({ error: "Only JPEG, PNG, WebP, and GIF images are allowed" });
+          }
+
+          const filename = `${req.user.userId}-${Date.now()}-${randomUUID()}${ext}`;
+          const fullPath = path.join(profilePhotoDir, filename);
+          await fs.promises.writeFile(fullPath, req.file.buffer);
+
           const existing = await storage.getMarketplaceUser(req.user.userId);
-          const newUrl = `/uploads/profile/${req.file.filename}`;
+          const newUrl = `/uploads/profile/${filename}`;
           const updated = await storage.updateMarketplaceUser(req.user.userId, { photoUrl: newUrl });
           if (!updated) {
             unlinkLocalPhoto(newUrl);

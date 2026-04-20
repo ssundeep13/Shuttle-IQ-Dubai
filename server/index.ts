@@ -11,7 +11,15 @@ import { registerZiinaWebhookRoute } from "./webhookHandler";
 const app = express();
 app.set('trust proxy', 1);
 
-app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads"), { maxAge: "30d" }));
+app.use(
+  "/uploads",
+  express.static(path.resolve(process.cwd(), "uploads"), {
+    maxAge: "30d",
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+    },
+  }),
+);
 
 // Register the Ziina webhook endpoint BEFORE express.json() so we can read
 // the raw request body for HMAC-SHA256 signature verification.
