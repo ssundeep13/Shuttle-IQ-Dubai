@@ -87,6 +87,7 @@ function Tag({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'inline-flex', marginBottom: '32px' }}>
       <span style={{
+        display: 'inline-block', whiteSpace: 'nowrap',
         fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: '18px',
         letterSpacing: '0.18em', textTransform: 'uppercase', color: TEAL,
         padding: '12px 26px', border: `2px solid ${TEAL}`, borderRadius: '100px',
