@@ -262,6 +262,7 @@ export interface IStorage {
   getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined>;
   searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
+  updateMarketplaceUserPhoto(id: string, photoUrl: string | null): Promise<MarketplaceUser | undefined>;
   linkPlayerIfUnclaimed(userId: string, playerId: string): Promise<MarketplaceUser | undefined>;
   getAllMarketplaceUsers(): Promise<MarketplaceUser[]>;
   createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void>;
@@ -1412,6 +1413,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(marketplaceUsers.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  async updateMarketplaceUserPhoto(id: string, photoUrl: string | null): Promise<MarketplaceUser | undefined> {
+    return this.updateMarketplaceUser(id, { photoUrl });
   }
 
   // Atomically link a player to a marketplace user only if no other account already

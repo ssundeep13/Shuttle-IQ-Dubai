@@ -586,7 +586,7 @@ export function registerMarketplaceRoutes(app: Express) {
 
           const existing = await storage.getMarketplaceUser(req.user.userId);
           const newUrl = `/uploads/profile/${filename}`;
-          const updated = await storage.updateMarketplaceUser(req.user.userId, { photoUrl: newUrl });
+          const updated = await storage.updateMarketplaceUserPhoto(req.user.userId, newUrl);
           if (!updated) {
             unlinkLocalPhoto(newUrl);
             return res.status(404).json({ error: "User not found" });
@@ -612,7 +612,7 @@ export function registerMarketplaceRoutes(app: Express) {
         if (!req.user) return res.status(401).json({ error: "Not authenticated" });
         const existing = await storage.getMarketplaceUser(req.user.userId);
         if (!existing) return res.status(404).json({ error: "User not found" });
-        await storage.updateMarketplaceUser(req.user.userId, { photoUrl: null });
+        await storage.updateMarketplaceUserPhoto(req.user.userId, null);
         unlinkLocalPhoto(existing.photoUrl);
         res.json({ success: true });
       } catch (e) {
