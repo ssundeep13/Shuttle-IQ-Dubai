@@ -62,7 +62,7 @@ export default function CheckoutSuccess() {
         const res = await fetch('/api/marketplace/auth/resume', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: resumeToken, bookingId }),
+          body: JSON.stringify({ resume: resumeToken }),
         });
         if (res.ok) {
           const data = await res.json();

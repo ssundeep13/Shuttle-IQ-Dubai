@@ -419,36 +419,34 @@ export function registerMarketplaceRoutes(app: Express) {
   // (PWA → system browser, in-app browser → Safari, etc.). Generic 401 on any
   // failure so we don't leak why a token didn't work.
   app.post("/api/marketplace/auth/resume", async (req, res) => {
+    const log = (outcome: 'ok' | 'expired' | 'used' | 'unknown' | 'invalid' | 'error', bookingId: string | null) => {
+      console.log(JSON.stringify({ event: 'payment_resume_exchange', bookingId, outcome }));
+    };
     try {
-      const raw = typeof req.body?.token === 'string' ? req.body.token : '';
-      const bookingId = typeof req.body?.bookingId === 'string' ? req.body.bookingId : '';
-      if (!raw || !bookingId) {
-        console.warn('[ResumeToken] resume request missing token or bookingId');
+      const raw = typeof req.body?.resume === 'string' ? req.body.resume : '';
+      if (!raw) {
+        log('invalid', null);
         return res.status(401).json({ error: 'Invalid resume token' });
       }
 
       const tokenHash = createHash('sha256').update(raw).digest('hex');
       const result = await storage.consumePaymentResumeToken(tokenHash);
       if (result.status !== 'ok') {
-        console.warn('[ResumeToken] resume failed', { bookingId, status: result.status });
+        log(result.status, null);
         return res.status(401).json({ error: 'Invalid resume token' });
       }
       const token = result.token;
-      if (token.bookingId !== bookingId) {
-        console.warn('[ResumeToken] booking mismatch on resume', { expected: token.bookingId, got: bookingId });
-        return res.status(401).json({ error: 'Invalid resume token' });
-      }
 
       const user = await storage.getMarketplaceUser(token.marketplaceUserId);
       if (!user) {
-        console.warn('[ResumeToken] resume: user not found', { bookingId, userId: token.marketplaceUserId });
+        log('invalid', token.bookingId);
         return res.status(401).json({ error: 'Invalid resume token' });
       }
 
       // Defense-in-depth: verify the booking still belongs to this user.
-      const booking = await storage.getBooking(bookingId);
+      const booking = await storage.getBooking(token.bookingId);
       if (!booking || booking.userId !== user.id) {
-        console.warn('[ResumeToken] booking ownership mismatch', { bookingId, userId: user.id });
+        log('invalid', token.bookingId);
         return res.status(401).json({ error: 'Invalid resume token' });
       }
 
@@ -459,10 +457,10 @@ export function registerMarketplaceRoutes(app: Express) {
       expiresAt.setDate(expiresAt.getDate() + 7);
       await storage.createMarketplaceAuthSession(user.id, refreshToken, expiresAt);
 
-      console.log('[ResumeToken] resume ok', { bookingId, userId: user.id });
+      log('ok', token.bookingId);
       return res.json({ accessToken, refreshToken });
     } catch (error) {
-      console.error('[ResumeToken] resume endpoint error', error);
+      log('error', null);
       return res.status(401).json({ error: 'Invalid resume token' });
     }
   });
