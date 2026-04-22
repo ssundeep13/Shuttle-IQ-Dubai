@@ -30,12 +30,30 @@ import {
   verifyRefreshToken,
 } from "./auth/utils";
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook } from "./ziinaClient";
+import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and } from "drizzle-orm";
 import { players } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
+
+// Mint a single-use payment-resume token and return the URL fragment to append
+// to a Ziina success_url. Stored as SHA-256 hash, 30-min TTL. Returns an empty
+// string if minting fails — we never want to break the payment flow over a
+// non-essential session-restoration aid.
+async function mintPaymentResumeParam(marketplaceUserId: string, bookingId: string): Promise<string> {
+  try {
+    const raw = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(raw).digest('hex');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await storage.createPaymentResumeToken({ marketplaceUserId, bookingId, tokenHash, expiresAt });
+    return `&resume=${raw}`;
+  } catch (err) {
+    console.error('[ResumeToken] Failed to mint resume token', { bookingId, error: err instanceof Error ? err.message : err });
+    return '';
+  }
+}
 
 async function refundBookingWalletCredit(booking: { walletAmountUsed: number | null; userId: string }) {
   if (!booking.walletAmountUsed || booking.walletAmountUsed <= 0) return;
@@ -392,6 +410,60 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({ accessToken: newAccessToken });
     } catch (error) {
       res.status(500).json({ error: "Token refresh failed" });
+    }
+  });
+
+  // Exchange a single-use payment-resume token for a fresh access+refresh
+  // token pair. Used by CheckoutSuccess after Ziina hands the redirect to a
+  // browser context that does not share localStorage with the original tab
+  // (PWA → system browser, in-app browser → Safari, etc.). Generic 401 on any
+  // failure so we don't leak why a token didn't work.
+  app.post("/api/marketplace/auth/resume", async (req, res) => {
+    try {
+      const raw = typeof req.body?.token === 'string' ? req.body.token : '';
+      const bookingId = typeof req.body?.bookingId === 'string' ? req.body.bookingId : '';
+      if (!raw || !bookingId) {
+        console.warn('[ResumeToken] resume request missing token or bookingId');
+        return res.status(401).json({ error: 'Invalid resume token' });
+      }
+
+      const tokenHash = createHash('sha256').update(raw).digest('hex');
+      const result = await storage.consumePaymentResumeToken(tokenHash);
+      if (result.status !== 'ok') {
+        console.warn('[ResumeToken] resume failed', { bookingId, status: result.status });
+        return res.status(401).json({ error: 'Invalid resume token' });
+      }
+      const token = result.token;
+      if (token.bookingId !== bookingId) {
+        console.warn('[ResumeToken] booking mismatch on resume', { expected: token.bookingId, got: bookingId });
+        return res.status(401).json({ error: 'Invalid resume token' });
+      }
+
+      const user = await storage.getMarketplaceUser(token.marketplaceUserId);
+      if (!user) {
+        console.warn('[ResumeToken] resume: user not found', { bookingId, userId: token.marketplaceUserId });
+        return res.status(401).json({ error: 'Invalid resume token' });
+      }
+
+      // Defense-in-depth: verify the booking still belongs to this user.
+      const booking = await storage.getBooking(bookingId);
+      if (!booking || booking.userId !== user.id) {
+        console.warn('[ResumeToken] booking ownership mismatch', { bookingId, userId: user.id });
+        return res.status(401).json({ error: 'Invalid resume token' });
+      }
+
+      const payload = { userId: user.id, email: user.email, role: 'marketplace_player' };
+      const accessToken = generateAccessToken(payload);
+      const refreshToken = generateRefreshToken(payload);
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+      await storage.createMarketplaceAuthSession(user.id, refreshToken, expiresAt);
+
+      console.log('[ResumeToken] resume ok', { bookingId, userId: user.id });
+      return res.json({ accessToken, refreshToken });
+    } catch (error) {
+      console.error('[ResumeToken] resume endpoint error', error);
+      return res.status(401).json({ error: 'Invalid resume token' });
     }
   });
 
@@ -2107,10 +2179,11 @@ export function registerMarketplaceRoutes(app: Express) {
 
       let paymentIntent;
       try {
+        const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: ziinaAmountAed,
           message: `Booking for ${bookableSession.title}${spotsBooked > 1 ? ` (${spotsBooked} spots)` : ''}`,
-          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}`,
+          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
         });
@@ -2241,10 +2314,11 @@ export function registerMarketplaceRoutes(app: Express) {
 
       let paymentIntent;
       try {
+        const resumeParam = await mintPaymentResumeParam(req.user.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: booking.amountAed,
           message: `Payment for ${bookableSession.title}${(booking.spotsBooked ?? 1) > 1 ? ` (${booking.spotsBooked} spots)` : ''}`,
-          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}`,
+          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
         });
@@ -2573,10 +2647,11 @@ export function registerMarketplaceRoutes(app: Express) {
 
       let paymentIntent;
       try {
+        const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: bookableSession.priceAed,
           message: `Extra spot for ${bookableSession.title}`,
-          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}&extra_guest=1`,
+          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}&extra_guest=1${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
         });

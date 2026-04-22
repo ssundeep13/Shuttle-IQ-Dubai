@@ -294,6 +294,22 @@ export const marketplaceAuthSessions = pgTable("marketplace_auth_sessions", {
 
 export type MarketplaceAuthSession = typeof marketplaceAuthSessions.$inferSelect;
 
+// Payment Resume Tokens — short-lived single-use tokens that allow a Ziina
+// hosted-checkout return URL to silently re-establish the user's session even
+// when the redirect lands in a different browser context (PWA -> system browser,
+// in-app browser -> Safari, etc.) where localStorage tokens are not shared.
+export const paymentResumeTokens = pgTable("payment_resume_tokens", {
+  id: varchar("id").primaryKey(),
+  marketplaceUserId: varchar("marketplace_user_id").notNull(),
+  bookingId: varchar("booking_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type PaymentResumeToken = typeof paymentResumeTokens.$inferSelect;
+
 // Bookable Sessions (distinct from internal court management sessions)
 export const bookableSessions = pgTable("bookable_sessions", {
   id: varchar("id").primaryKey(),

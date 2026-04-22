@@ -7,6 +7,7 @@ import { queryClient } from '@/lib/queryClient';
 import type { BookingWithDetails } from '@shared/schema';
 import { InstallAppBar } from '@/components/InstallAppBar';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 
 const MAX_ATTEMPTS = 10;
 const RETRY_DELAY_MS = 3000;
@@ -24,11 +25,13 @@ export default function CheckoutSuccess() {
   const [errorMessage, setErrorMessage] = useState('');
   const [countdown, setCountdown] = useState(REDIRECT_DELAY_S);
   const [, setLocation] = useLocation();
+  const { loginWithTokens, isAuthenticated } = useMarketplaceAuth();
   const isExtraGuest = new URLSearchParams(window.location.search).get('extra_guest') === '1';
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get('booking_id');
+    const resumeToken = params.get('resume');
 
     if (!bookingId) {
       setStatus('error');
@@ -41,9 +44,41 @@ export default function CheckoutSuccess() {
     // their side, so we give them a few seconds to settle before giving up.
     // The confirm endpoint does not require auth — the UUID booking ID is sufficient.
     let cancelled = false;
-    const token = localStorage.getItem('mp_accessToken');
+
+    // If Ziina handed us a resume token AND we don't already have a session in
+    // this browser context (e.g. PWA -> system browser redirect lost the
+    // original tab's localStorage), exchange it for fresh JWTs so the user
+    // stays signed in for "View My Bookings" and the rest of the marketplace.
+    async function maybeResumeSession() {
+      if (!resumeToken) return;
+      const haveLocal = !!(localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken'));
+      if (haveLocal || isAuthenticated) {
+        // Already signed in — strip the param so it isn't shareable/replayable.
+        const cleanUrl = `${window.location.pathname}?booking_id=${bookingId}${isExtraGuest ? '&extra_guest=1' : ''}`;
+        try { window.history.replaceState({}, '', cleanUrl); } catch {}
+        return;
+      }
+      try {
+        const res = await fetch('/api/marketplace/auth/resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: resumeToken, bookingId }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          await loginWithTokens(data.accessToken, data.refreshToken, true);
+        }
+      } catch {
+        // Non-fatal — confirm-poll below still works without auth.
+      } finally {
+        // Always strip the resume param so it can't be replayed from history.
+        const cleanUrl = `${window.location.pathname}?booking_id=${bookingId}${isExtraGuest ? '&extra_guest=1' : ''}`;
+        try { window.history.replaceState({}, '', cleanUrl); } catch {}
+      }
+    }
 
     async function pollConfirm() {
+      const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
         if (cancelled) return;
         if (i > 0) {
@@ -101,8 +136,12 @@ export default function CheckoutSuccess() {
       }
     }
 
-    pollConfirm();
+    (async () => {
+      await maybeResumeSession();
+      if (!cancelled) await pollConfirm();
+    })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-redirect to My Bookings after success

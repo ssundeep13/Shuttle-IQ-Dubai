@@ -77,6 +77,8 @@ import {
   type PlayerContactChangeRequest,
   marketplaceUserContactChanges,
   type MarketplaceUserContactChange,
+  paymentResumeTokens,
+  type PaymentResumeToken,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
@@ -268,6 +270,10 @@ export interface IStorage {
   createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void>;
   findMarketplaceAuthSession(refreshToken: string): Promise<{ id: string; userId: string; refreshToken: string; expiresAt: Date } | undefined>;
   deleteMarketplaceAuthSession(id: string): Promise<void>;
+
+  // Payment resume tokens (post-Ziina-redirect session re-establishment)
+  createPaymentResumeToken(input: { marketplaceUserId: string; bookingId: string; tokenHash: string; expiresAt: Date }): Promise<PaymentResumeToken>;
+  consumePaymentResumeToken(tokenHash: string): Promise<{ status: 'ok'; token: PaymentResumeToken } | { status: 'unknown' | 'expired' | 'used' }>;
 
   // Bookable Session operations
   createBookableSession(session: InsertBookableSession): Promise<BookableSession>;
@@ -2957,6 +2963,43 @@ export class DatabaseStorage implements IStorage {
       }
     }
     return count;
+  }
+
+  async createPaymentResumeToken(input: { marketplaceUserId: string; bookingId: string; tokenHash: string; expiresAt: Date }): Promise<PaymentResumeToken> {
+    const [row] = await db
+      .insert(paymentResumeTokens)
+      .values({
+        id: randomUUID(),
+        marketplaceUserId: input.marketplaceUserId,
+        bookingId: input.bookingId,
+        tokenHash: input.tokenHash,
+        expiresAt: input.expiresAt,
+      })
+      .returning();
+    return row;
+  }
+
+  async consumePaymentResumeToken(tokenHash: string): Promise<{ status: 'ok'; token: PaymentResumeToken } | { status: 'unknown' | 'expired' | 'used' }> {
+    const [existing] = await db
+      .select()
+      .from(paymentResumeTokens)
+      .where(eq(paymentResumeTokens.tokenHash, tokenHash))
+      .limit(1);
+    if (!existing) return { status: 'unknown' };
+    if (existing.usedAt) return { status: 'used' };
+    if (new Date() > existing.expiresAt) return { status: 'expired' };
+
+    // Atomic single-use claim — only succeeds if used_at is still null.
+    const [claimed] = await db
+      .update(paymentResumeTokens)
+      .set({ usedAt: new Date() })
+      .where(and(
+        eq(paymentResumeTokens.id, existing.id),
+        sql`${paymentResumeTokens.usedAt} IS NULL`,
+      ))
+      .returning();
+    if (!claimed) return { status: 'used' };
+    return { status: 'ok', token: claimed };
   }
 }
 
