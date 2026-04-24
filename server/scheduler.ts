@@ -7,6 +7,7 @@ import { sql } from "drizzle-orm";
 const REMINDER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const PAYMENT_WINDOW_MS = 4 * 60 * 60 * 1000; // 4-hour payment window for waitlist promotions
+const RESUME_TOKEN_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 const MIN_SKILL_SCORE = 10;
 const INACTIVITY_THRESHOLD_DAYS = 14;
@@ -337,6 +338,15 @@ async function runExpiredPaymentJob(): Promise<void> {
   }
 }
 
+async function runResumeTokenCleanupJob(): Promise<void> {
+  try {
+    const removed = await storage.deleteExpiredPaymentResumeTokens();
+    console.log(`[Scheduler] Payment resume token cleanup: removed ${removed} expired/used token(s).`);
+  } catch (err) {
+    console.error('[Scheduler] Payment resume token cleanup error:', err);
+  }
+}
+
 export function startScheduler(): void {
   console.log('[Scheduler] Session reminder scheduler started (runs every 30 min)');
   setInterval(runReminderJob, REMINDER_INTERVAL_MS);
@@ -352,4 +362,8 @@ export function startScheduler(): void {
     runInactivityDecayJob();
   });
   setInterval(runInactivityDecayJob, DECAY_INTERVAL_MS);
+
+  console.log('[Scheduler] Payment resume token cleanup scheduler started (runs every 1 h)');
+  setInterval(runResumeTokenCleanupJob, RESUME_TOKEN_CLEANUP_INTERVAL_MS);
+  runResumeTokenCleanupJob();
 }

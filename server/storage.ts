@@ -274,6 +274,7 @@ export interface IStorage {
   // Payment resume tokens (post-Ziina-redirect session re-establishment)
   createPaymentResumeToken(input: { marketplaceUserId: string; bookingId: string; tokenHash: string; expiresAt: Date }): Promise<PaymentResumeToken>;
   consumePaymentResumeToken(tokenHash: string): Promise<{ status: 'ok'; token: PaymentResumeToken } | { status: 'unknown' | 'expired' | 'used' }>;
+  deleteExpiredPaymentResumeTokens(): Promise<number>;
 
   // Bookable Session operations
   createBookableSession(session: InsertBookableSession): Promise<BookableSession>;
@@ -3000,6 +3001,13 @@ export class DatabaseStorage implements IStorage {
       .returning();
     if (!claimed) return { status: 'used' };
     return { status: 'ok', token: claimed };
+  }
+
+  async deleteExpiredPaymentResumeTokens(): Promise<number> {
+    const result = await db
+      .delete(paymentResumeTokens)
+      .where(sql`${paymentResumeTokens.usedAt} IS NOT NULL OR ${paymentResumeTokens.expiresAt} < NOW()`);
+    return result.rowCount ?? 0;
   }
 }
 
