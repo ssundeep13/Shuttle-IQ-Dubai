@@ -3207,11 +3207,10 @@ export class DatabaseStorage implements IStorage {
     const gameId = randomUUID();
 
     return await db.transaction(async (tx) => {
-      // ── Idempotency on matchSuggestionId ──────────────────────────────
+      // ── Idempotency on matchSuggestionId (fast-path pre-check) ────────
       // game_results.matchSuggestionId is UNIQUE. If a game has already
-      // been recorded for this suggestion (e.g. retried submission), short
-      // circuit and return the original result instead of duplicating
-      // work or violating the constraint.
+      // been recorded for this suggestion (retried submission), short
+      // circuit immediately — no reads of players, no writes.
       if (args.matchSuggestionId) {
         const [existing] = await tx
           .select()
@@ -3241,8 +3240,8 @@ export class DatabaseStorage implements IStorage {
       // READ COMMITTED — this re-read narrows the stale-data window but
       // does NOT prevent two concurrent end-game requests from racing.
       // Court status gating in the route is the existing defense; row-level
-      // SELECT FOR UPDATE locking and an idempotency token are tracked as
-      // follow-up work for full concurrency safety.
+      // SELECT FOR UPDATE locking and an admin-side idempotency token are
+      // tracked as follow-up work for full concurrency safety.
       const freshRows = await tx
         .select()
         .from(players)
@@ -3257,16 +3256,14 @@ export class DatabaseStorage implements IStorage {
         throw new Error(`completeGameTransaction: computePerPlayer must return 4 entries, got ${computed.length}`);
       }
 
-      // Apply per-player updates. Sandbox sessions pass minimal updates
-      // (status only) — that's the caller's responsibility.
-      for (const c of computed) {
-        await tx.update(players).set(c.playerUpdates).where(eq(players.id, c.playerId));
-      }
-
-      // Insert game result. matchSuggestionId is nullable; when present it
-      // acts as an idempotency key thanks to the UNIQUE constraint.
-      // onConflictDoNothing(matchSuggestionId) handles the race where two
-      // concurrent end-game calls slip past the pre-check above.
+      // ── CLAIM: insert game_results FIRST so the matchSuggestionId unique
+      //    index decides the winner BEFORE any player updates happen. If
+      //    two end-game requests race past the pre-check above, only one
+      //    will succeed here; the loser returns the canonical existing row
+      //    without applying any player skill / stat deltas (preventing
+      //    double-counting). matchSuggestionId is nullable — Postgres
+      //    treats NULLs as distinct in unique indexes by default, so
+      //    suggestion-less games never conflict here.
       const insertedRows = await tx
         .insert(gameResults)
         .values({
@@ -3282,11 +3279,9 @@ export class DatabaseStorage implements IStorage {
         .returning({ id: gameResults.id });
 
       if (insertedRows.length === 0) {
-        // Lost the race to a concurrent caller. The other writer owns the
-        // canonical row + participants; surface theirs and skip our writes
-        // so we don't double-apply player skill updates. (We've already
-        // applied our own player updates above — this race is rare and the
-        // values converge because both callers re-read inside their tx.)
+        // Lost the race. By definition matchSuggestionId is non-null here
+        // (NULLs cannot conflict). Return the canonical existing row with
+        // NO player updates and NO participants insert.
         if (!args.matchSuggestionId) {
           throw new Error('completeGameTransaction: insert conflict without matchSuggestionId');
         }
@@ -3311,6 +3306,13 @@ export class DatabaseStorage implements IStorage {
             skillAfter: p.skillScoreAfter,
           })),
         };
+      }
+
+      // ── Won the claim. Now safe to apply per-player updates. Sandbox
+      //    sessions pass minimal updates (status only) — that's the
+      //    caller's responsibility.
+      for (const c of computed) {
+        await tx.update(players).set(c.playerUpdates).where(eq(players.id, c.playerId));
       }
 
       // Insert game participants
