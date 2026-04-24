@@ -2101,116 +2101,107 @@ Return ONLY valid JSON, no markdown, no other text:
 
       // Calculate average skill scores for each team (using 10-200 scale)
       const { calculateSkillAdjustment, calculateTeamAverage, getSkillTier } = await import('@shared/utils/skillUtils');
-      
-      const team1AvgSkill = calculateTeamAverage(team1.map(p => p.skillScore || 50));
-      const team2AvgSkill = calculateTeamAverage(team2.map(p => p.skillScore || 50));
-      
+
       // Calculate point differential for skill adjustment
       const pointDifferential = Math.abs(team1Score - team2Score);
-      
-      // Track skill score changes for game history
-      const participantData: Array<{
-        playerId: string;
-        team: number;
-        skillBefore: number;
-        skillAfter: number;
-      }> = [];
 
       const now = new Date();
       const RETURN_BOOST_THRESHOLD_DAYS = 14;
       const RETURN_BOOST_GAMES = 2;
-      
-      for (const player of players) {
-        const isWinner = winners.some(w => w.id === player.id);
-        const isTeam1 = player.team === 1;
-        
-        const opponentAvgSkill = isTeam1 ? team2AvgSkill : team1AvgSkill;
-        
-        // Fix 1: Find partner score for contribution factor
-        const partnerScore = players.find(p => p.team === player.team && p.id !== player.id)?.skillScore ?? null;
 
-        // Fix 6: Determine return boost — if player was inactive 14+ days, grant 2-game boost
-        const lastPlayed = player.lastPlayedAt;
-        const daysInactive = lastPlayed
-          ? (now.getTime() - new Date(lastPlayed).getTime()) / (24 * 60 * 60 * 1000)
-          : 0;
-        const isReturning = lastPlayed !== null && daysInactive >= RETURN_BOOST_THRESHOLD_DAYS;
-        // Effective credits for THIS game: if returning, reset to full RETURN_BOOST_GAMES;
-        // otherwise carry over existing credits unchanged (decrement happens after use).
-        const currentReturnGames = isReturning ? RETURN_BOOST_GAMES : (player.returnGamesRemaining ?? 0);
-        // After this game, consume one credit (floor 0). That way:
-        //   comeback game: credits=2 (boost on) → stored=1
-        //   2nd game back: credits=1 (boost on) → stored=0
-        //   3rd game back: credits=0 (no boost)  → stored=0
-        const newReturnGamesRemaining = Math.max(0, currentReturnGames - 1);
+      // Build a map of playerId → team assignment so the callback (which
+      // receives DB-fresh player rows without the .team field) can recover it.
+      const teamByPlayerId = new Map<string, number>(players.map(p => [p.id, p.team]));
+      const winnerIdSet = new Set(winners.map(w => w.id));
+      const playerIds = players.map(p => p.id);
 
-        // Calculate new skill score using ELO-style adjustment (Fix 1 + Fix 2 + Fix 6)
-        const skillBefore = player.skillScore || 50;
-        const skillAfter = calculateSkillAdjustment(
-          skillBefore,
-          opponentAvgSkill,
-          isWinner,
-          pointDifferential,
-          player.gamesPlayed || 0,
-          partnerScore,
-          currentReturnGames
-        );
-        
-        // Apply 3-game tier promotion buffer
-        const tierResult = applyTierBuffer(
-          { level: player.level, tierCandidate: player.tierCandidate ?? null, tierCandidateGames: player.tierCandidateGames ?? 0 },
-          skillAfter,
-          getSkillTier
-        );
-        
-        // Track for game history
-        participantData.push({
-          playerId: player.id,
-          team: player.team,
-          skillBefore,
-          skillAfter,
-        });
-        
-        if (isSandboxSession) {
-          // Sandbox sessions: only reset operational player state (status) — skip ELO/stats updates
-          await storage.updatePlayer(player.id, { status: 'waiting' });
-        } else {
-          await storage.updatePlayer(player.id, {
-            gamesPlayed: player.gamesPlayed + 1,
-            wins: isWinner ? player.wins + 1 : player.wins,
-            skillScore: skillAfter,
-            level: tierResult.level,
-            tierCandidate: tierResult.tierCandidate,
-            tierCandidateGames: tierResult.tierCandidateGames,
-            status: 'waiting',
-            lastPlayedAt: now,
-            skillScoreBaseline: skillAfter,
-            returnGamesRemaining: newReturnGamesRemaining,
-          });
-        }
-      }
-
-      // Save game result
-      const gameId = randomUUID();
-      await db.insert(gameResults).values({
-        id: gameId,
-        courtId: court.id,
+      // Wrap player updates + game_results + game_participants in a single
+      // transaction. The callback runs INSIDE the tx with freshly-read player
+      // rows so concurrent end-game calls (defense in depth: court state
+      // already gates against this) cannot corrupt skill scores via stale reads.
+      const txResult = await storage.completeGameTransaction({
         sessionId: activeSession.id,
+        courtId: court.id,
         team1Score,
         team2Score,
         winningTeam,
+        matchSuggestionId: null, // admin end-game does not yet link to a suggestion
+        isSandboxSession,
+        playerIds,
+        computePerPlayer: (freshPlayers) => {
+          // Recompute team averages from fresh skill scores
+          const freshTeam1 = freshPlayers.filter(p => teamByPlayerId.get(p.id) === 1);
+          const freshTeam2 = freshPlayers.filter(p => teamByPlayerId.get(p.id) === 2);
+          const team1AvgSkill = calculateTeamAverage(freshTeam1.map(p => p.skillScore || 50));
+          const team2AvgSkill = calculateTeamAverage(freshTeam2.map(p => p.skillScore || 50));
+
+          return freshPlayers.map(player => {
+            const team = teamByPlayerId.get(player.id);
+            if (team !== 1 && team !== 2) {
+              throw new Error(`Player ${player.id} missing team assignment`);
+            }
+            const isWinner = winnerIdSet.has(player.id);
+            const isTeam1 = team === 1;
+            const opponentAvgSkill = isTeam1 ? team2AvgSkill : team1AvgSkill;
+
+            // Fix 1: Find partner score for contribution factor
+            const partnerScore = freshPlayers.find(
+              p => teamByPlayerId.get(p.id) === team && p.id !== player.id,
+            )?.skillScore ?? null;
+
+            // Fix 6: Determine return boost — if player was inactive 14+ days, grant 2-game boost
+            const lastPlayed = player.lastPlayedAt;
+            const daysInactive = lastPlayed
+              ? (now.getTime() - new Date(lastPlayed).getTime()) / (24 * 60 * 60 * 1000)
+              : 0;
+            const isReturning = lastPlayed !== null && daysInactive >= RETURN_BOOST_THRESHOLD_DAYS;
+            const currentReturnGames = isReturning ? RETURN_BOOST_GAMES : (player.returnGamesRemaining ?? 0);
+            const newReturnGamesRemaining = Math.max(0, currentReturnGames - 1);
+
+            const skillBefore = player.skillScore || 50;
+            const skillAfter = calculateSkillAdjustment(
+              skillBefore,
+              opponentAvgSkill,
+              isWinner,
+              pointDifferential,
+              player.gamesPlayed || 0,
+              partnerScore,
+              currentReturnGames,
+            );
+
+            const tierResult = applyTierBuffer(
+              { level: player.level, tierCandidate: player.tierCandidate ?? null, tierCandidateGames: player.tierCandidateGames ?? 0 },
+              skillAfter,
+              getSkillTier,
+            );
+
+            const playerUpdates = isSandboxSession
+              ? { status: 'waiting' as const }
+              : {
+                  gamesPlayed: player.gamesPlayed + 1,
+                  wins: isWinner ? player.wins + 1 : player.wins,
+                  skillScore: skillAfter,
+                  level: tierResult.level,
+                  tierCandidate: tierResult.tierCandidate,
+                  tierCandidateGames: tierResult.tierCandidateGames,
+                  status: 'waiting' as const,
+                  lastPlayedAt: now,
+                  skillScoreBaseline: skillAfter,
+                  returnGamesRemaining: newReturnGamesRemaining,
+                };
+
+            return {
+              playerId: player.id,
+              team,
+              skillBefore,
+              skillAfter,
+              playerUpdates,
+            };
+          });
+        },
       });
 
-      // Save game participants
-      for (const participant of participantData) {
-        await db.insert(gameParticipants).values({
-          gameId,
-          playerId: participant.playerId,
-          team: participant.team,
-          skillScoreBefore: participant.skillBefore,
-          skillScoreAfter: participant.skillAfter,
-        });
-      }
+      const participantData = txResult.participants;
 
       // Update rest states: players who just played have their consecutive count incremented
       for (const participant of participantData) {

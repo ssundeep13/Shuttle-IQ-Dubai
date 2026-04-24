@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex, unique, primaryKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -227,7 +227,10 @@ export const matchSuggestionPlayers = pgTable("match_suggestion_players", {
   courtId: varchar("court_id").notNull(), // duplicated from parent suggestion for single-table lookups
   playerId: varchar("player_id").notNull(), // FK -> players.id
   team: integer("team").notNull(), // 1 or 2
-});
+}, (table) => ({
+  // Composite PK guards integrity: a player can appear at most once per suggestion.
+  pk: primaryKey({ columns: [table.suggestionId, table.playerId] }),
+}));
 
 export type MatchSuggestionPlayer = typeof matchSuggestionPlayers.$inferSelect;
 

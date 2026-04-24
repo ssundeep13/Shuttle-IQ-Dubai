@@ -79,6 +79,11 @@ import {
   type MarketplaceUserContactChange,
   paymentResumeTokens,
   type PaymentResumeToken,
+  matchSuggestions,
+  matchSuggestionPlayers,
+  type MatchSuggestion,
+  type MatchSuggestionPlayer,
+  type InsertMatchSuggestion,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
@@ -394,6 +399,43 @@ export interface IStorage {
   getReferralLeaderboard(limit?: number): Promise<{ playerId: string; playerName: string; referralCode: string | null; completedCount: number; ambassadorStatus: boolean; photoUrl: string | null }[]>;
   getPlayerByReferralCode(code: string): Promise<Player | undefined>;
   backfillReferralCodes(): Promise<number>;
+
+  // Match suggestion operations (Phase 1 of player-facing gameplay flow)
+  createMatchSuggestion(input: {
+    sessionId: string;
+    courtId: string;
+    pendingUntil: Date;
+    players: Array<{ playerId: string; team: number }>;
+  }): Promise<MatchSuggestion>;
+  getMatchSuggestion(id: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
+  getPendingMatchSuggestionForCourt(courtId: string): Promise<MatchSuggestion | undefined>;
+  getPendingMatchSuggestionsForPlayer(playerId: string): Promise<(MatchSuggestion & { courtId: string })[]>;
+  listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
+  updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
+
+  // Transactional game completion — wraps player updates + game_results +
+  // game_participants (and optional match_suggestion completion) in a single
+  // db.transaction so partial writes can never leave skill scores corrupted.
+  completeGameTransaction(args: {
+    sessionId: string;
+    courtId: string;
+    team1Score: number;
+    team2Score: number;
+    winningTeam: number;
+    matchSuggestionId?: string | null;
+    isSandboxSession: boolean;
+    playerIds: string[];
+    computePerPlayer: (freshPlayers: Player[]) => Array<{
+      playerId: string;
+      team: number;
+      skillBefore: number;
+      skillAfter: number;
+      playerUpdates: Partial<Player>;
+    }>;
+  }): Promise<{
+    gameId: string;
+    participants: Array<{ playerId: string; team: number; skillBefore: number; skillAfter: number }>;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3008,6 +3050,221 @@ export class DatabaseStorage implements IStorage {
       .delete(paymentResumeTokens)
       .where(sql`${paymentResumeTokens.usedAt} IS NOT NULL OR ${paymentResumeTokens.expiresAt} < NOW()`);
     return result.rowCount ?? 0;
+  }
+
+  // ─── Match suggestion operations ─────────────────────────────────────────
+  async createMatchSuggestion(input: {
+    sessionId: string;
+    courtId: string;
+    pendingUntil: Date;
+    players: Array<{ playerId: string; team: number }>;
+  }): Promise<MatchSuggestion> {
+    if (input.players.length !== 4) {
+      throw new Error(`createMatchSuggestion expects exactly 4 players, got ${input.players.length}`);
+    }
+    const uniqueIds = new Set(input.players.map(p => p.playerId));
+    if (uniqueIds.size !== 4) {
+      throw new Error(`createMatchSuggestion player IDs must be unique`);
+    }
+    const team1Count = input.players.filter(p => p.team === 1).length;
+    const team2Count = input.players.filter(p => p.team === 2).length;
+    if (team1Count !== 2 || team2Count !== 2) {
+      throw new Error(`createMatchSuggestion expects 2v2 split, got ${team1Count}v${team2Count}`);
+    }
+
+    const id = randomUUID();
+    return await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(matchSuggestions)
+        .values({
+          id,
+          sessionId: input.sessionId,
+          courtId: input.courtId,
+          pendingUntil: input.pendingUntil,
+          status: 'pending',
+        })
+        .returning();
+      // courtId on the child rows is duplicated from the parent suggestion
+      // so "which court is player X queued for" is a single-table read.
+      await tx.insert(matchSuggestionPlayers).values(
+        input.players.map(p => ({
+          suggestionId: id,
+          courtId: input.courtId,
+          playerId: p.playerId,
+          team: p.team,
+        }))
+      );
+      return row;
+    });
+  }
+
+  async getMatchSuggestion(id: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
+    const [row] = await db.select().from(matchSuggestions).where(eq(matchSuggestions.id, id)).limit(1);
+    if (!row) return undefined;
+    const playerRows = await db
+      .select()
+      .from(matchSuggestionPlayers)
+      .where(eq(matchSuggestionPlayers.suggestionId, id));
+    return { ...row, players: playerRows };
+  }
+
+  async getPendingMatchSuggestionForCourt(courtId: string): Promise<MatchSuggestion | undefined> {
+    const [row] = await db
+      .select()
+      .from(matchSuggestions)
+      .where(and(eq(matchSuggestions.courtId, courtId), eq(matchSuggestions.status, 'pending')))
+      .orderBy(desc(matchSuggestions.suggestedAt))
+      .limit(1);
+    return row;
+  }
+
+  async getPendingMatchSuggestionsForPlayer(playerId: string): Promise<(MatchSuggestion & { courtId: string })[]> {
+    const rows = await db
+      .select({
+        id: matchSuggestions.id,
+        sessionId: matchSuggestions.sessionId,
+        courtId: matchSuggestions.courtId,
+        suggestedAt: matchSuggestions.suggestedAt,
+        pendingUntil: matchSuggestions.pendingUntil,
+        status: matchSuggestions.status,
+        approvedBy: matchSuggestions.approvedBy,
+        createdAt: matchSuggestions.createdAt,
+      })
+      .from(matchSuggestionPlayers)
+      .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+      .where(and(
+        eq(matchSuggestionPlayers.playerId, playerId),
+        eq(matchSuggestions.status, 'pending'),
+      ))
+      .orderBy(desc(matchSuggestions.suggestedAt));
+    return rows;
+  }
+
+  async listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]> {
+    return await db
+      .select()
+      .from(matchSuggestions)
+      .where(and(
+        eq(matchSuggestions.status, 'pending'),
+        lt(matchSuggestions.pendingUntil, now),
+      ));
+  }
+
+  async updateMatchSuggestionStatus(
+    id: string,
+    status: string,
+    approvedBy?: string | null,
+  ): Promise<MatchSuggestion | undefined> {
+    const updates: Partial<MatchSuggestion> = { status };
+    if (approvedBy !== undefined) {
+      updates.approvedBy = approvedBy;
+    }
+    const [row] = await db
+      .update(matchSuggestions)
+      .set(updates)
+      .where(eq(matchSuggestions.id, id))
+      .returning();
+    return row;
+  }
+
+  // ─── Transactional game completion ───────────────────────────────────────
+  async completeGameTransaction(args: {
+    sessionId: string;
+    courtId: string;
+    team1Score: number;
+    team2Score: number;
+    winningTeam: number;
+    matchSuggestionId?: string | null;
+    isSandboxSession: boolean;
+    playerIds: string[];
+    computePerPlayer: (freshPlayers: Player[]) => Array<{
+      playerId: string;
+      team: number;
+      skillBefore: number;
+      skillAfter: number;
+      playerUpdates: Partial<Player>;
+    }>;
+  }): Promise<{
+    gameId: string;
+    participants: Array<{ playerId: string; team: number; skillBefore: number; skillAfter: number }>;
+  }> {
+    if (args.playerIds.length !== 4) {
+      throw new Error(`completeGameTransaction expects exactly 4 players, got ${args.playerIds.length}`);
+    }
+
+    const gameId = randomUUID();
+
+    return await db.transaction(async (tx) => {
+      // Re-read all 4 players inside the transaction so skill calculations
+      // use the freshest values, not whatever the route happened to read
+      // before entering the tx. NOTE: Postgres' default isolation is
+      // READ COMMITTED — this re-read narrows the stale-data window but
+      // does NOT prevent two concurrent end-game requests from racing.
+      // Court status gating in the route is the existing defense; row-level
+      // SELECT FOR UPDATE locking and an idempotency token are tracked as
+      // follow-up work for full concurrency safety.
+      const freshRows = await tx
+        .select()
+        .from(players)
+        .where(inArray(players.id, args.playerIds));
+      if (freshRows.length !== 4) {
+        throw new Error(`completeGameTransaction: expected 4 players in DB, found ${freshRows.length}`);
+      }
+      const freshPlayers: Player[] = freshRows.map(addSkidToPlayer);
+
+      const computed = args.computePerPlayer(freshPlayers);
+      if (computed.length !== 4) {
+        throw new Error(`completeGameTransaction: computePerPlayer must return 4 entries, got ${computed.length}`);
+      }
+
+      // Apply per-player updates. Sandbox sessions pass minimal updates
+      // (status only) — that's the caller's responsibility.
+      for (const c of computed) {
+        await tx.update(players).set(c.playerUpdates).where(eq(players.id, c.playerId));
+      }
+
+      // Insert game result. matchSuggestionId is nullable; when present it
+      // acts as an idempotency key thanks to the UNIQUE constraint.
+      await tx.insert(gameResults).values({
+        id: gameId,
+        courtId: args.courtId,
+        sessionId: args.sessionId,
+        team1Score: args.team1Score,
+        team2Score: args.team2Score,
+        winningTeam: args.winningTeam,
+        matchSuggestionId: args.matchSuggestionId ?? null,
+      });
+
+      // Insert game participants
+      await tx.insert(gameParticipants).values(
+        computed.map(c => ({
+          gameId,
+          playerId: c.playerId,
+          team: c.team,
+          skillScoreBefore: c.skillBefore,
+          skillScoreAfter: c.skillAfter,
+        }))
+      );
+
+      // If this game came from a match suggestion, mark it completed in the
+      // same tx so the suggestion can never be re-submitted.
+      if (args.matchSuggestionId) {
+        await tx
+          .update(matchSuggestions)
+          .set({ status: 'completed' })
+          .where(eq(matchSuggestions.id, args.matchSuggestionId));
+      }
+
+      return {
+        gameId,
+        participants: computed.map(c => ({
+          playerId: c.playerId,
+          team: c.team,
+          skillBefore: c.skillBefore,
+          skillAfter: c.skillAfter,
+        })),
+      };
+    });
   }
 }
 
