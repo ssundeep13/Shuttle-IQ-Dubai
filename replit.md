@@ -59,6 +59,7 @@ Preferred communication style: Simple, everyday language.
 - **Vite**: Frontend build tool.
 - **ESBuild**: Production server bundling.
 - **tsx**: TypeScript execution in development.
+- **Vitest**: Component test runner (jsdom env, `@testing-library/react`). Run with `npm test` (one-shot) or `npm run test:watch`. Suite lives in `tests/*.test.tsx` with shared setup in `tests/setup.ts`. Registered as the `test` validation command — run before merging to catch checkout regressions (e.g. `tests/checkout-success-signin-notice.test.tsx` covers the post-payment sign-in notice and happy-path auto-redirect).
 
 #### Payments
 - **Ziina**: Payment processing (UAE-focused, redirect-based hosted checkout).

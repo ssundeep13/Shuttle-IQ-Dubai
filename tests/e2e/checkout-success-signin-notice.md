@@ -6,9 +6,13 @@ payment-resume token exchange fails and the user has no session, which is hard
 to reproduce organically (requires expired/replayed resume tokens combined
 with a fresh browser context).
 
-The project has no in-process test runner. Re-run this plan on demand by
-loading the `testing` skill and invoking `runTest({ testPlan, relevantTechnicalDocumentation })`
-with the contents of the two sections below.
+**Status:** Both scenarios are now covered by the in-process Vitest suite at
+`tests/checkout-success-signin-notice.test.tsx`. Run them locally with
+`npm test` or as the registered `test` validation command. This markdown is
+preserved as a higher-fidelity Playwright-style backup that can still be
+re-run on demand against a real database via the `testing` skill —
+`runTest({ testPlan, relevantTechnicalDocumentation })` — when behavior at
+the HTTP/DB boundary needs to be re-validated end-to-end.
 
 ## Page under test
 
