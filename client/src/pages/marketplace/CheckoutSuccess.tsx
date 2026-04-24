@@ -195,20 +195,20 @@ export default function CheckoutSuccess() {
             {status === 'waitlisted' && (
               <>
                 <ListOrdered className="h-12 w-12 mx-auto text-amber-500 mb-4" />
-                <CardTitle>Added to Waitlist</CardTitle>
+                <CardTitle data-testid="text-waitlisted-title">Added to Waitlist</CardTitle>
               </>
             )}
             {status === 'error' && (
               <>
                 <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
-                <CardTitle>Something went wrong</CardTitle>
+                <CardTitle data-testid="text-error-title">Something went wrong</CardTitle>
               </>
             )}
           </CardHeader>
           <CardContent className="text-center space-y-4">
             {status === 'success' && booking && (
               <>
-                <p className="text-muted-foreground">
+                <p className="text-muted-foreground" data-testid="text-success-message">
                   {isExtraGuest
                     ? <>The extra spot has been confirmed for <span className="font-semibold text-foreground">{booking.session?.title}</span>.</>
                     : <>Your spot for <span className="font-semibold text-foreground">{booking.session?.title}</span> has been reserved.</>
@@ -237,19 +237,19 @@ export default function CheckoutSuccess() {
               </>
             )}
             {status === 'success' && !booking && (
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground" data-testid="text-success-message">
                 {isExtraGuest
                   ? 'The extra spot has been confirmed.'
                   : 'Your payment is confirmed. Your booking has been reserved.'}
               </p>
             )}
             {status === 'waitlisted' && (
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground" data-testid="text-waitlisted-message">
                 Your payment went through, but the session filled up just as you completed it. You have been added to the waitlist and will be confirmed if a spot opens up.
               </p>
             )}
             {status === 'error' && (
-              <p className="text-muted-foreground">{errorMessage}</p>
+              <p className="text-muted-foreground" data-testid="text-error-message">{errorMessage}</p>
             )}
             {status === 'success' && !showSignInNotice && (
               <p className="text-sm text-muted-foreground">
