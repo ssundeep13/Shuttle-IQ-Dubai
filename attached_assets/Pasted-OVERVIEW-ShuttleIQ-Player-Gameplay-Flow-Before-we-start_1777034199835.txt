@@ -1,0 +1,89 @@
+OVERVIEW — ShuttleIQ Player Gameplay Flow
+Before we start building, here is the full context for what we are about to add to this codebase. Read this carefully before responding. Do not build anything yet — just confirm you understand the existing architecture and what we are about to build.
+What ShuttleIQ is
+ShuttleIQ is a managed badminton session platform based in Dubai. It is not a court booking tool. The model is: ShuttleIQ rents courts at venues, provides shuttles, and employs a host (Shannon) who manages player rotation and matchmaking during live sessions. Players book spots in advance via the marketplace. During sessions, Shannon runs the admin panel to manage courts, queues, and game flow. Players access the platform via the marketplace (player-facing side).
+The existing tech stack
+
+Frontend: React + Vite, TanStack Query for data fetching, shadcn/ui components, Tailwind CSS
+Backend: Express + TypeScript
+Database: PostgreSQL via Drizzle ORM, hosted on Neon
+Payments: Ziina webhooks
+Email: Resend
+AI matchmaking: Claude Sonnet called server-side via the Anthropic API
+Background jobs: a scheduler already running via startScheduler() in server/scheduler.ts
+The app serves both an admin panel (Shannon's interface) and a marketplace (player-facing interface) from the same Express server
+
+Existing database tables relevant to this build
+
+sessions — venue sessions with status: draft, active, upcoming, ended
+courts — session-specific courts with status: available, occupied
+court_players — which players are on which court and which team
+queue_entries — ordered waitlist per session
+game_results — scores per game linked to session and court
+game_participants — per-player game record with skillScoreBefore and skillScoreAfter
+score_disputes — player-filed disputes against game results, already has admin resolution view
+marketplace_users — player-facing accounts with authentication
+marketplace_notifications — in-app notifications stored in the database, polled by the frontend
+players — global player registry with skill score, tier, wins, games played
+bookings — user to session bookings with status: pending, confirmed, waitlisted, attended, cancelled
+
+Existing functionality relevant to this build
+
+AI matchmaking endpoint already exists and returns suggested 4-player lineups with court assignments
+The scheduler already handles background jobs including inactivity decay and session reminders
+Score disputes table and Shannon's admin resolution view are already built
+The attendance confirmation handler already exists and fires referral credit logic when a booking is marked attended
+Marketplace notifications are written to the database and the frontend polls for them
+
+What we are about to build — the player gameplay flow
+We are adding a self-service gameplay experience for players on the marketplace side. The flow works like this:
+
+Player arrives at the venue, opens the app, and checks in
+They are shown their next game immediately if a court is available, or a waiting screen showing their upcoming game, court, partners, and opponents if not
+Once their game is on court they see a live game screen with court, teammates, opponents, and a timer
+When the game ends, any one of the 4 players on that court can submit the score
+The score is recorded immediately — no confirmation from other players required
+The other 3 players can tap a flag button on the completed result if they believe the score is wrong. This creates a score dispute and alerts Shannon to resolve manually
+After submitting or seeing a confirmed score, the player is shown their next game
+At the end of the session, after the last game is recorded, the player sees a session summary screen
+
+Key constraints for everything we build
+
+Shannon's existing admin flow must not be broken or changed. We are adding to the marketplace side only
+When a game ends and a score is submitted, the AI matchmaking suggestion must fire in the background — it must never block the player's screen or the API response
+The matchmaking suggestion should auto-approve after 90 seconds unless Shannon overrides it in her admin panel. This timer lives in the existing scheduler
+All new player-facing screens live within the existing marketplace routing structure
+TanStack Query polling interval on the active game screen should be set to 5 seconds
+No new npm packages should be installed unless absolutely necessary — use what is already in the codebase
+All new components must follow the existing shadcn/ui and Tailwind patterns already used in the marketplace
+Skill score updates must be wrapped in a Drizzle database transaction — all reads, calculations, and writes for all 4 players in a game must succeed together or roll back together
+
+Build order
+We will build in this order across separate prompts. Do not combine phases:
+Phase 1 — Backend only (4 tasks):
+
+Wrap skill score updates in a Drizzle transaction
+Wire score submission to trigger AI matchmaking in the background
+Add 90-second auto-approve timer to the scheduler
+Add flag/dispute endpoint for players to flag a completed game result
+
+Phase 2 — Player-facing frontend (5 screens):
+5. Check-in screen
+6. Waiting screen — next game shown
+7. Playing screen — live game view
+8. Score entry screen — any of the 4 players can submit
+9. Session end screen — summary of the session
+Phase 3 — Shannon's admin additions (2 tasks):
+10. Pending suggestions panel with 90-second countdown and override button
+11. Unresolved score disputes alert on the live session dashboard
+Confirm understanding
+Before we proceed, confirm:
+
+You can see the existing schema in shared/schema.ts
+You can see the existing scheduler in server/scheduler.ts
+You can see the existing AI matchmaking route
+You can see the existing marketplace routing structure on the frontend
+You understand that we are not changing Shannon's admin flow
+You are ready to receive the first build prompt
+
+Do not write any code yet.
