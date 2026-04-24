@@ -182,6 +182,7 @@ export const gameResults = pgTable("game_results", {
   team1Score: integer("team1_score").notNull(),
   team2Score: integer("team2_score").notNull(),
   winningTeam: integer("winning_team").notNull(), // 1 or 2
+  matchSuggestionId: varchar("match_suggestion_id").unique(), // nullable; idempotency key — links a recorded game back to the AI/admin lineup that was played, prevents double-submission for the same match
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -199,6 +200,36 @@ export const gameParticipants = pgTable("game_participants", {
 });
 
 export type GameParticipant = typeof gameParticipants.$inferSelect;
+
+// Match Suggestions (AI- or admin-proposed lineup for a court — Phase 1 of player-facing gameplay flow)
+// A row is created when matchmaking proposes a 2v2 lineup for a court. It moves through
+// pending -> approved -> playing -> completed. The 90s auto-approve sweep uses pendingUntil.
+export const matchSuggestions = pgTable("match_suggestions", {
+  id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull(), // FK -> sessions.id
+  courtId: varchar("court_id").notNull(), // FK -> courts.id
+  suggestedAt: timestamp("suggested_at").notNull().defaultNow(),
+  pendingUntil: timestamp("pending_until").notNull(), // suggestedAt + 90s; sweep job auto-approves past this
+  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'playing' | 'completed'
+  approvedBy: text("approved_by"), // marketplace_users.id of approver, or the literal "auto" when the timer fires
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertMatchSuggestionSchema = createInsertSchema(matchSuggestions).omit({ id: true, suggestedAt: true, createdAt: true });
+export type InsertMatchSuggestion = z.infer<typeof insertMatchSuggestionSchema>;
+export type MatchSuggestion = typeof matchSuggestions.$inferSelect;
+
+// Match Suggestion Players (the 4 players in a suggested lineup, with team assignment)
+// courtId is duplicated from the parent match_suggestions row so "which court is player X queued for"
+// is a single-table read with no join — kept in sync by the createSuggestion storage method.
+export const matchSuggestionPlayers = pgTable("match_suggestion_players", {
+  suggestionId: varchar("suggestion_id").notNull(), // FK -> match_suggestions.id
+  courtId: varchar("court_id").notNull(), // duplicated from parent suggestion for single-table lookups
+  playerId: varchar("player_id").notNull(), // FK -> players.id
+  team: integer("team").notNull(), // 1 or 2
+});
+
+export type MatchSuggestionPlayer = typeof matchSuggestionPlayers.$inferSelect;
 
 // Notification types
 export type NotificationType = 'success' | 'warning' | 'danger' | 'info';
