@@ -409,12 +409,13 @@ export interface IStorage {
   }): Promise<MatchSuggestion>;
   getMatchSuggestion(id: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
   getPendingMatchSuggestionForCourt(courtId: string): Promise<MatchSuggestion | undefined>;
-  // Singular: a player can be in at most one pending suggestion at a time.
-  // Implementation is single-table on match_suggestion_players (followed by a
-  // PK lookup on the parent for full fields) — child rows are deleted by
-  // updateMatchSuggestionStatus / completeGameTransaction whenever the parent
-  // leaves the 'pending' state, so the existence of a child row alone implies
-  // a pending suggestion.
+  // Singular: a player should be in at most one pending suggestion at a time
+  // (enforced by the createMatchSuggestion path). The 4-row lineup on
+  // match_suggestion_players is preserved across the suggestion's lifetime
+  // (pending → approved → playing → completed) so historical lookups stay
+  // intact; the duplicated courtId on match_suggestion_players is for
+  // hot-path court-side queries that don't need parent state. To check
+  // pending status we still join the parent.
   getPendingMatchSuggestionForPlayer(playerId: string): Promise<MatchSuggestion | undefined>;
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
@@ -3125,24 +3126,30 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPendingMatchSuggestionForPlayer(playerId: string): Promise<MatchSuggestion | undefined> {
-    // Single-table read: child rows for non-pending suggestions are deleted
-    // by updateMatchSuggestionStatus / completeGameTransaction, so the mere
-    // existence of a child row implies the parent is still pending. The
-    // duplicated courtId on match_suggestion_players makes "what court is
-    // this player about to play on?" a single read with no join.
-    const [child] = await db
-      .select()
+    // Singular: a player should be in at most one pending suggestion at a
+    // time (enforced by createMatchSuggestion). Child rows are preserved for
+    // the suggestion's lifetime, so we filter pending state via a parent
+    // status check rather than relying on child-row presence.
+    const [row] = await db
+      .select({
+        id: matchSuggestions.id,
+        sessionId: matchSuggestions.sessionId,
+        courtId: matchSuggestions.courtId,
+        suggestedAt: matchSuggestions.suggestedAt,
+        pendingUntil: matchSuggestions.pendingUntil,
+        status: matchSuggestions.status,
+        approvedBy: matchSuggestions.approvedBy,
+        createdAt: matchSuggestions.createdAt,
+      })
       .from(matchSuggestionPlayers)
-      .where(eq(matchSuggestionPlayers.playerId, playerId))
+      .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+      .where(and(
+        eq(matchSuggestionPlayers.playerId, playerId),
+        eq(matchSuggestions.status, 'pending'),
+      ))
+      .orderBy(desc(matchSuggestions.suggestedAt))
       .limit(1);
-    if (!child) return undefined;
-    // PK lookup for full parent fields — no join.
-    const [parent] = await db
-      .select()
-      .from(matchSuggestions)
-      .where(eq(matchSuggestions.id, child.suggestionId))
-      .limit(1);
-    return parent;
+    return row;
   }
 
   async listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]> {
@@ -3160,26 +3167,16 @@ export class DatabaseStorage implements IStorage {
     status: string,
     approvedBy?: string | null,
   ): Promise<MatchSuggestion | undefined> {
-    // Wrap in a tx so the status update and the child-row delete (when
-    // transitioning out of 'pending') are atomic. Deleting the child rows
-    // is what keeps getPendingMatchSuggestionForPlayer single-table.
-    return await db.transaction(async (tx) => {
-      const updates: Partial<MatchSuggestion> = { status };
-      if (approvedBy !== undefined) {
-        updates.approvedBy = approvedBy;
-      }
-      const [row] = await tx
-        .update(matchSuggestions)
-        .set(updates)
-        .where(eq(matchSuggestions.id, id))
-        .returning();
-      if (status !== 'pending') {
-        await tx
-          .delete(matchSuggestionPlayers)
-          .where(eq(matchSuggestionPlayers.suggestionId, id));
-      }
-      return row;
-    });
+    const updates: Partial<MatchSuggestion> = { status };
+    if (approvedBy !== undefined) {
+      updates.approvedBy = approvedBy;
+    }
+    const [row] = await db
+      .update(matchSuggestions)
+      .set(updates)
+      .where(eq(matchSuggestions.id, id))
+      .returning();
+    return row;
   }
 
   // ─── Transactional game completion ───────────────────────────────────────
@@ -3328,17 +3325,15 @@ export class DatabaseStorage implements IStorage {
       );
 
       // If this game came from a match suggestion, mark it completed in the
-      // same tx so the suggestion can never be re-submitted, and clear the
-      // child rows so getPendingMatchSuggestionForPlayer (single-table)
-      // stops reporting these players as pending.
+      // same tx so the suggestion can never be re-submitted. The 4-row
+      // lineup on match_suggestion_players is intentionally preserved across
+      // the suggestion lifecycle for historical/marketplace reads;
+      // getPendingMatchSuggestionForPlayer filters by parent.status='pending'.
       if (args.matchSuggestionId) {
         await tx
           .update(matchSuggestions)
           .set({ status: 'completed' })
           .where(eq(matchSuggestions.id, args.matchSuggestionId));
-        await tx
-          .delete(matchSuggestionPlayers)
-          .where(eq(matchSuggestionPlayers.suggestionId, args.matchSuggestionId));
       }
 
       return {
