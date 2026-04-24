@@ -24,6 +24,7 @@ export default function CheckoutSuccess() {
   const [booking, setBooking] = useState<BookingWithDetails | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [countdown, setCountdown] = useState(REDIRECT_DELAY_S);
+  const [sessionLost, setSessionLost] = useState(false);
   const [, setLocation] = useLocation();
   const { loginWithTokens, isAuthenticated } = useMarketplaceAuth();
   const isExtraGuest = new URLSearchParams(window.location.search).get('extra_guest') === '1';
@@ -67,9 +68,12 @@ export default function CheckoutSuccess() {
         if (res.ok) {
           const data = await res.json();
           await loginWithTokens(data.accessToken, data.refreshToken, true);
+        } else {
+          setSessionLost(true);
         }
       } catch {
         // Non-fatal — confirm-poll below still works without auth.
+        setSessionLost(true);
       } finally {
         // Always strip the resume param so it can't be replayed from history.
         const cleanUrl = `${window.location.pathname}?booking_id=${bookingId}${isExtraGuest ? '&extra_guest=1' : ''}`;
@@ -144,9 +148,13 @@ export default function CheckoutSuccess() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-redirect to My Bookings after success
+  const showSignInNotice = status === 'success' && sessionLost && !isAuthenticated;
+
+  // Auto-redirect to My Bookings after success — but not if the user has no
+  // session (they'd just bounce to the login screen).
   useEffect(() => {
     if (status !== 'success') return;
+    if (showSignInNotice) return;
     let count = REDIRECT_DELAY_S;
     setCountdown(count);
     const interval = setInterval(() => {
@@ -158,7 +166,7 @@ export default function CheckoutSuccess() {
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [status, setLocation]);
+  }, [status, setLocation, showSignInNotice]);
 
   const verifyingLabel = attempt > 0
     ? `Checking with payment provider… (attempt ${attempt + 1} of ${MAX_ATTEMPTS})`
@@ -243,16 +251,30 @@ export default function CheckoutSuccess() {
             {status === 'error' && (
               <p className="text-muted-foreground">{errorMessage}</p>
             )}
-            {status === 'success' && (
+            {status === 'success' && !showSignInNotice && (
               <p className="text-sm text-muted-foreground">
                 Redirecting to your bookings in {countdown}s…
               </p>
             )}
+            {showSignInNotice && (
+              <div
+                className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground text-left"
+                data-testid="notice-signin-required"
+              >
+                Your booking is confirmed. Please sign in again to view your bookings.
+              </div>
+            )}
             {status !== 'verifying' && (
               <div className="flex gap-3 justify-center flex-wrap pt-2">
-                <Link href="/marketplace/my-bookings">
-                  <Button data-testid="button-view-bookings">View My Bookings</Button>
-                </Link>
+                {showSignInNotice ? (
+                  <Link href={`/marketplace/login?from=${encodeURIComponent('/marketplace/my-bookings')}`}>
+                    <Button data-testid="button-signin-required">Sign In</Button>
+                  </Link>
+                ) : (
+                  <Link href="/marketplace/my-bookings">
+                    <Button data-testid="button-view-bookings">View My Bookings</Button>
+                  </Link>
+                )}
                 <Link href="/marketplace/book">
                   <Button variant="outline" data-testid="button-browse-sessions">Browse Sessions</Button>
                 </Link>
