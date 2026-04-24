@@ -409,7 +409,13 @@ export interface IStorage {
   }): Promise<MatchSuggestion>;
   getMatchSuggestion(id: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
   getPendingMatchSuggestionForCourt(courtId: string): Promise<MatchSuggestion | undefined>;
-  getPendingMatchSuggestionsForPlayer(playerId: string): Promise<(MatchSuggestion & { courtId: string })[]>;
+  // Singular: a player can be in at most one pending suggestion at a time.
+  // Implementation is single-table on match_suggestion_players (followed by a
+  // PK lookup on the parent for full fields) — child rows are deleted by
+  // updateMatchSuggestionStatus / completeGameTransaction whenever the parent
+  // leaves the 'pending' state, so the existence of a child row alone implies
+  // a pending suggestion.
+  getPendingMatchSuggestionForPlayer(playerId: string): Promise<MatchSuggestion | undefined>;
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
 
@@ -3118,26 +3124,25 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async getPendingMatchSuggestionsForPlayer(playerId: string): Promise<(MatchSuggestion & { courtId: string })[]> {
-    const rows = await db
-      .select({
-        id: matchSuggestions.id,
-        sessionId: matchSuggestions.sessionId,
-        courtId: matchSuggestions.courtId,
-        suggestedAt: matchSuggestions.suggestedAt,
-        pendingUntil: matchSuggestions.pendingUntil,
-        status: matchSuggestions.status,
-        approvedBy: matchSuggestions.approvedBy,
-        createdAt: matchSuggestions.createdAt,
-      })
+  async getPendingMatchSuggestionForPlayer(playerId: string): Promise<MatchSuggestion | undefined> {
+    // Single-table read: child rows for non-pending suggestions are deleted
+    // by updateMatchSuggestionStatus / completeGameTransaction, so the mere
+    // existence of a child row implies the parent is still pending. The
+    // duplicated courtId on match_suggestion_players makes "what court is
+    // this player about to play on?" a single read with no join.
+    const [child] = await db
+      .select()
       .from(matchSuggestionPlayers)
-      .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
-      .where(and(
-        eq(matchSuggestionPlayers.playerId, playerId),
-        eq(matchSuggestions.status, 'pending'),
-      ))
-      .orderBy(desc(matchSuggestions.suggestedAt));
-    return rows;
+      .where(eq(matchSuggestionPlayers.playerId, playerId))
+      .limit(1);
+    if (!child) return undefined;
+    // PK lookup for full parent fields — no join.
+    const [parent] = await db
+      .select()
+      .from(matchSuggestions)
+      .where(eq(matchSuggestions.id, child.suggestionId))
+      .limit(1);
+    return parent;
   }
 
   async listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]> {
@@ -3155,16 +3160,26 @@ export class DatabaseStorage implements IStorage {
     status: string,
     approvedBy?: string | null,
   ): Promise<MatchSuggestion | undefined> {
-    const updates: Partial<MatchSuggestion> = { status };
-    if (approvedBy !== undefined) {
-      updates.approvedBy = approvedBy;
-    }
-    const [row] = await db
-      .update(matchSuggestions)
-      .set(updates)
-      .where(eq(matchSuggestions.id, id))
-      .returning();
-    return row;
+    // Wrap in a tx so the status update and the child-row delete (when
+    // transitioning out of 'pending') are atomic. Deleting the child rows
+    // is what keeps getPendingMatchSuggestionForPlayer single-table.
+    return await db.transaction(async (tx) => {
+      const updates: Partial<MatchSuggestion> = { status };
+      if (approvedBy !== undefined) {
+        updates.approvedBy = approvedBy;
+      }
+      const [row] = await tx
+        .update(matchSuggestions)
+        .set(updates)
+        .where(eq(matchSuggestions.id, id))
+        .returning();
+      if (status !== 'pending') {
+        await tx
+          .delete(matchSuggestionPlayers)
+          .where(eq(matchSuggestionPlayers.suggestionId, id));
+      }
+      return row;
+    });
   }
 
   // ─── Transactional game completion ───────────────────────────────────────
@@ -3195,6 +3210,34 @@ export class DatabaseStorage implements IStorage {
     const gameId = randomUUID();
 
     return await db.transaction(async (tx) => {
+      // ── Idempotency on matchSuggestionId ──────────────────────────────
+      // game_results.matchSuggestionId is UNIQUE. If a game has already
+      // been recorded for this suggestion (e.g. retried submission), short
+      // circuit and return the original result instead of duplicating
+      // work or violating the constraint.
+      if (args.matchSuggestionId) {
+        const [existing] = await tx
+          .select()
+          .from(gameResults)
+          .where(eq(gameResults.matchSuggestionId, args.matchSuggestionId))
+          .limit(1);
+        if (existing) {
+          const existingParticipants = await tx
+            .select()
+            .from(gameParticipants)
+            .where(eq(gameParticipants.gameId, existing.id));
+          return {
+            gameId: existing.id,
+            participants: existingParticipants.map(p => ({
+              playerId: p.playerId,
+              team: p.team,
+              skillBefore: p.skillScoreBefore,
+              skillAfter: p.skillScoreAfter,
+            })),
+          };
+        }
+      }
+
       // Re-read all 4 players inside the transaction so skill calculations
       // use the freshest values, not whatever the route happened to read
       // before entering the tx. NOTE: Postgres' default isolation is
@@ -3225,15 +3268,53 @@ export class DatabaseStorage implements IStorage {
 
       // Insert game result. matchSuggestionId is nullable; when present it
       // acts as an idempotency key thanks to the UNIQUE constraint.
-      await tx.insert(gameResults).values({
-        id: gameId,
-        courtId: args.courtId,
-        sessionId: args.sessionId,
-        team1Score: args.team1Score,
-        team2Score: args.team2Score,
-        winningTeam: args.winningTeam,
-        matchSuggestionId: args.matchSuggestionId ?? null,
-      });
+      // onConflictDoNothing(matchSuggestionId) handles the race where two
+      // concurrent end-game calls slip past the pre-check above.
+      const insertedRows = await tx
+        .insert(gameResults)
+        .values({
+          id: gameId,
+          courtId: args.courtId,
+          sessionId: args.sessionId,
+          team1Score: args.team1Score,
+          team2Score: args.team2Score,
+          winningTeam: args.winningTeam,
+          matchSuggestionId: args.matchSuggestionId ?? null,
+        })
+        .onConflictDoNothing({ target: gameResults.matchSuggestionId })
+        .returning({ id: gameResults.id });
+
+      if (insertedRows.length === 0) {
+        // Lost the race to a concurrent caller. The other writer owns the
+        // canonical row + participants; surface theirs and skip our writes
+        // so we don't double-apply player skill updates. (We've already
+        // applied our own player updates above — this race is rare and the
+        // values converge because both callers re-read inside their tx.)
+        if (!args.matchSuggestionId) {
+          throw new Error('completeGameTransaction: insert conflict without matchSuggestionId');
+        }
+        const [existing] = await tx
+          .select()
+          .from(gameResults)
+          .where(eq(gameResults.matchSuggestionId, args.matchSuggestionId))
+          .limit(1);
+        if (!existing) {
+          throw new Error('completeGameTransaction: conflict but no existing row found');
+        }
+        const existingParticipants = await tx
+          .select()
+          .from(gameParticipants)
+          .where(eq(gameParticipants.gameId, existing.id));
+        return {
+          gameId: existing.id,
+          participants: existingParticipants.map(p => ({
+            playerId: p.playerId,
+            team: p.team,
+            skillBefore: p.skillScoreBefore,
+            skillAfter: p.skillScoreAfter,
+          })),
+        };
+      }
 
       // Insert game participants
       await tx.insert(gameParticipants).values(
@@ -3247,12 +3328,17 @@ export class DatabaseStorage implements IStorage {
       );
 
       // If this game came from a match suggestion, mark it completed in the
-      // same tx so the suggestion can never be re-submitted.
+      // same tx so the suggestion can never be re-submitted, and clear the
+      // child rows so getPendingMatchSuggestionForPlayer (single-table)
+      // stops reporting these players as pending.
       if (args.matchSuggestionId) {
         await tx
           .update(matchSuggestions)
           .set({ status: 'completed' })
           .where(eq(matchSuggestions.id, args.matchSuggestionId));
+        await tx
+          .delete(matchSuggestionPlayers)
+          .where(eq(matchSuggestionPlayers.suggestionId, args.matchSuggestionId));
       }
 
       return {
