@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeZiinaMessage } from '../server/ziinaClient';
+import { sanitizeZiinaMessage, buildZiinaBookingMessage } from '../server/ziinaClient';
 
 const CAP = 50;
 
@@ -45,5 +45,60 @@ describe('sanitizeZiinaMessage', () => {
     const out = sanitizeZiinaMessage(exact);
     expect(out).toBe(exact);
     expect(out.endsWith('…')).toBe(false);
+  });
+});
+
+describe('buildZiinaBookingMessage', () => {
+  it('uses the brand-first form when the title fits under the cap', () => {
+    expect(buildZiinaBookingMessage({ title: 'Drop In' })).toBe('ShuttleIQ — Drop In');
+  });
+
+  it('appends the ×N count suffix when more than one spot is booked', () => {
+    expect(buildZiinaBookingMessage({ title: 'Drop In', spots: 3 })).toBe('ShuttleIQ — Drop In ×3');
+  });
+
+  it('omits the count suffix for a single spot', () => {
+    expect(buildZiinaBookingMessage({ title: 'Drop In', spots: 1 })).toBe('ShuttleIQ — Drop In');
+  });
+
+  it('downgrades to a length-safe brand-only form when the title would exceed the cap', () => {
+    // Real prod failure title that previously broke Ziina
+    const longTitle = 'ISM Sports Services at Greenfield International School Session';
+    const out = buildZiinaBookingMessage({ title: longTitle, spots: 2 });
+    expect(out.length).toBeLessThanOrEqual(CAP);
+    expect(out).toBe('ShuttleIQ booking ×2');
+  });
+
+  it('uses the extra-spot variant prefix when extraSpot is true', () => {
+    expect(buildZiinaBookingMessage({ title: 'Drop In', extraSpot: true })).toBe(
+      'ShuttleIQ extra spot — Drop In',
+    );
+  });
+
+  it('downgrades the extra-spot variant to a brand-only form for long titles', () => {
+    const longTitle = 'ISM Sports Services at Greenfield International School Session';
+    const out = buildZiinaBookingMessage({ title: longTitle, extraSpot: true });
+    expect(out.length).toBeLessThanOrEqual(CAP);
+    expect(out).toBe('ShuttleIQ extra spot');
+  });
+
+  it('falls back to a brand-only form when the title is empty/null/undefined', () => {
+    expect(buildZiinaBookingMessage({ title: '', spots: 2 })).toBe('ShuttleIQ booking ×2');
+    expect(buildZiinaBookingMessage({ title: null })).toBe('ShuttleIQ booking');
+    expect(buildZiinaBookingMessage({ title: undefined, extraSpot: true })).toBe(
+      'ShuttleIQ extra spot',
+    );
+  });
+
+  it('always returns a string within the Ziina cap', () => {
+    const cases = [
+      { title: 'A'.repeat(500), spots: 2 },
+      { title: 'A'.repeat(500), extraSpot: true },
+      { title: 'B'.repeat(48) },
+      { title: 'C'.repeat(49), spots: 99 },
+    ];
+    for (const c of cases) {
+      expect(buildZiinaBookingMessage(c).length).toBeLessThanOrEqual(CAP);
+    }
   });
 });

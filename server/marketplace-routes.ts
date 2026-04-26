@@ -29,7 +29,7 @@ import {
   hashPassword,
   verifyRefreshToken,
 } from "./auth/utils";
-import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook } from "./ziinaClient";
+import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage } from "./ziinaClient";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { OAuth2Client } from "google-auth-library";
@@ -2180,7 +2180,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: ziinaAmountAed,
-          message: `ShuttleIQ — ${bookableSession.title}${spotsBooked > 1 ? ` ×${spotsBooked}` : ''}`,
+          message: buildZiinaBookingMessage({ title: bookableSession.title, spots: spotsBooked }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
@@ -2315,7 +2315,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const resumeParam = await mintPaymentResumeParam(req.user.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: booking.amountAed,
-          message: `ShuttleIQ — ${bookableSession.title}${(booking.spotsBooked ?? 1) > 1 ? ` ×${booking.spotsBooked}` : ''}`,
+          message: buildZiinaBookingMessage({ title: bookableSession.title, spots: booking.spotsBooked ?? 1 }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
@@ -2648,7 +2648,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: bookableSession.priceAed,
-          message: `ShuttleIQ extra spot — ${bookableSession.title}`,
+          message: buildZiinaBookingMessage({ title: bookableSession.title, extraSpot: true }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}&extra_guest=1${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,

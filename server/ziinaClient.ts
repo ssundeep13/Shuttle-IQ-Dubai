@@ -69,6 +69,33 @@ export function sanitizeZiinaMessage(input: string | null | undefined): string {
   return cleaned.slice(0, ZIINA_MESSAGE_MAX - 1).trimEnd() + '…';
 }
 
+/**
+ * Build a Ziina-safe payment message for a booking. Prefers the brand-first
+ * "ShuttleIQ — {title} ×N" form; if the title would push the message over
+ * the safe cap, downgrades to a length-safe brand-only form ("ShuttleIQ
+ * booking ×N" / "ShuttleIQ extra spot") so we never deliberately produce
+ * near-cap strings. Sanitizer remains the final safety net via
+ * createZiinaPaymentIntent.
+ */
+export function buildZiinaBookingMessage(opts: {
+  title: string | null | undefined;
+  spots?: number;
+  extraSpot?: boolean;
+}): string {
+  const cleanedTitle = (opts.title ?? '').replace(/\s+/g, ' ').trim();
+  const count = opts.spots ?? 1;
+  const countSuffix = count > 1 ? ` ×${count}` : '';
+  const prefix = opts.extraSpot ? 'ShuttleIQ extra spot' : 'ShuttleIQ';
+  if (cleanedTitle) {
+    const full = `${prefix} — ${cleanedTitle}${countSuffix}`;
+    if (full.length <= ZIINA_MESSAGE_MAX) return full;
+  }
+  const fallback = opts.extraSpot
+    ? 'ShuttleIQ extra spot'
+    : `ShuttleIQ booking${countSuffix}`;
+  return fallback;
+}
+
 export async function createZiinaPaymentIntent(input: ZiinaPaymentIntentInput): Promise<ZiinaPaymentIntent> {
   return ziinaRequest('POST', '/payment_intent', {
     amount: input.amountAed * 100,
