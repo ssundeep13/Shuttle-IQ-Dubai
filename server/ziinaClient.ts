@@ -58,6 +58,15 @@ export interface ZiinaPaymentIntent {
 
 const ZIINA_MESSAGE_MAX = 50;
 const ZIINA_MESSAGE_FALLBACK = 'ShuttleIQ booking';
+const ZIINA_TRUNCATE_SUFFIX = '...';
+
+function truncateToByteCap(input: string, byteCap: number): string {
+  const buf = Buffer.from(input, 'utf8');
+  if (buf.byteLength <= byteCap) return input;
+  // Decoding a buffer that ends mid-codepoint inserts a replacement char (\uFFFD).
+  // Strip trailing replacement chars so we never emit a broken sequence.
+  return buf.subarray(0, byteCap).toString('utf8').replace(/\uFFFD+$/, '');
+}
 
 export function sanitizeZiinaMessage(input: string | null | undefined): string {
   const cleaned = (input ?? '')
@@ -65,17 +74,25 @@ export function sanitizeZiinaMessage(input: string | null | undefined): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (!cleaned) return ZIINA_MESSAGE_FALLBACK;
-  if (cleaned.length <= ZIINA_MESSAGE_MAX) return cleaned;
-  return cleaned.slice(0, ZIINA_MESSAGE_MAX - 1).trimEnd() + '…';
+  if (
+    cleaned.length <= ZIINA_MESSAGE_MAX &&
+    Buffer.byteLength(cleaned, 'utf8') <= ZIINA_MESSAGE_MAX
+  ) {
+    return cleaned;
+  }
+  const room = ZIINA_MESSAGE_MAX - ZIINA_TRUNCATE_SUFFIX.length;
+  const head = truncateToByteCap(cleaned, room).trimEnd();
+  return head + ZIINA_TRUNCATE_SUFFIX;
 }
 
 /**
  * Build a Ziina-safe payment message for a booking. Prefers the brand-first
- * "ShuttleIQ — {title} ×N" form; if the title would push the message over
+ * "ShuttleIQ - {title} xN" form; if the title would push the message over
  * the safe cap, downgrades to a length-safe brand-only form ("ShuttleIQ
- * booking ×N" / "ShuttleIQ extra spot") so we never deliberately produce
- * near-cap strings. Sanitizer remains the final safety net via
- * createZiinaPaymentIntent.
+ * booking xN" / "ShuttleIQ extra spot") so we never deliberately produce
+ * near-cap strings. ASCII-only by design so the 50-char cap is also a
+ * safe ≤50-byte cap (avoids surprises if Ziina's validator is byte-based).
+ * Sanitizer remains the final safety net via createZiinaPaymentIntent.
  */
 export function buildZiinaBookingMessage(opts: {
   title: string | null | undefined;
@@ -84,10 +101,10 @@ export function buildZiinaBookingMessage(opts: {
 }): string {
   const cleanedTitle = (opts.title ?? '').replace(/\s+/g, ' ').trim();
   const count = opts.spots ?? 1;
-  const countSuffix = count > 1 ? ` ×${count}` : '';
+  const countSuffix = count > 1 ? ` x${count}` : '';
   const prefix = opts.extraSpot ? 'ShuttleIQ extra spot' : 'ShuttleIQ';
   if (cleanedTitle) {
-    const full = `${prefix} — ${cleanedTitle}${countSuffix}`;
+    const full = `${prefix} - ${cleanedTitle}${countSuffix}`;
     if (full.length <= ZIINA_MESSAGE_MAX) return full;
   }
   const fallback = opts.extraSpot
