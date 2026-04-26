@@ -2192,15 +2192,15 @@ export function registerMarketplaceRoutes(app: Express) {
           if (failedBooking) await refundBookingWalletCredit(failedBooking);
         }
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), walletAmountUsed: 0 });
-        const errMsg = intentError instanceof Error ? intentError.message : 'Payment provider error. Please try again.';
+        const rawErr = intentError instanceof Error ? intentError.message : String(intentError);
         console.error('[Ziina] Payment intent creation failed — booking cancelled', {
           bookingId: booking.id,
           sessionId: booking.sessionId,
           amountAed: ziinaAmountAed,
-          error: errMsg,
+          error: rawErr,
           rawError: intentError,
         });
-        return res.status(502).json({ error: errMsg });
+        return res.status(502).json({ error: "We couldn't start your card payment — please try again, or choose Pay at Venue." });
       }
 
       await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
@@ -2321,15 +2321,15 @@ export function registerMarketplaceRoutes(app: Express) {
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
         });
       } catch (intentError: unknown) {
-        const errMsg = intentError instanceof Error ? intentError.message : 'Payment provider error. Please try again.';
+        const rawErr = intentError instanceof Error ? intentError.message : String(intentError);
         console.error('[Ziina] Intent creation failed for pending_payment booking', {
           bookingId: booking.id,
           sessionId: booking.sessionId,
           amountAed: booking.amountAed,
-          error: errMsg,
+          error: rawErr,
           rawError: intentError,
         });
-        return res.status(502).json({ error: errMsg });
+        return res.status(502).json({ error: "We couldn't start your card payment — please try again, or choose Pay at Venue." });
       }
 
       await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
@@ -2656,8 +2656,14 @@ export function registerMarketplaceRoutes(app: Express) {
       } catch (intentError) {
         // Clean up the pending guest row on Ziina failure — delete it so it leaves no trace
         await storage.deleteBookingGuest(pendingGuest.id);
-        const msg = intentError instanceof Error ? intentError.message : 'Payment provider error';
-        return res.status(502).json({ error: msg });
+        const rawErr = intentError instanceof Error ? intentError.message : String(intentError);
+        console.error('[Ziina] Intent creation failed for extra-guest add', {
+          bookingId: booking.id,
+          sessionId: booking.sessionId,
+          error: rawErr,
+          rawError: intentError,
+        });
+        return res.status(502).json({ error: "We couldn't start your card payment — please try again, or choose Pay at Venue." });
       }
 
       await storage.updateBookingGuest(pendingGuest.id, { pendingPaymentIntentId: paymentIntent.id });

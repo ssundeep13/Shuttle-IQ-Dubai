@@ -56,11 +56,24 @@ export interface ZiinaPaymentIntent {
   cancel_url: string;
 }
 
+const ZIINA_MESSAGE_MAX = 150;
+const ZIINA_MESSAGE_FALLBACK = 'ShuttleIQ booking';
+
+export function sanitizeZiinaMessage(input: string | null | undefined): string {
+  const cleaned = (input ?? '')
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return ZIINA_MESSAGE_FALLBACK;
+  if (cleaned.length <= ZIINA_MESSAGE_MAX) return cleaned;
+  return cleaned.slice(0, ZIINA_MESSAGE_MAX - 1).trimEnd() + '…';
+}
+
 export async function createZiinaPaymentIntent(input: ZiinaPaymentIntentInput): Promise<ZiinaPaymentIntent> {
   return ziinaRequest('POST', '/payment_intent', {
     amount: input.amountAed * 100,
     currency_code: 'AED',
-    message: input.message,
+    message: sanitizeZiinaMessage(input.message),
     success_url: input.successUrl,
     cancel_url: input.cancelUrl,
     failure_url: input.failureUrl,
