@@ -56,7 +56,7 @@ export interface ZiinaPaymentIntent {
   cancel_url: string;
 }
 
-const ZIINA_MESSAGE_MAX = 150;
+const ZIINA_MESSAGE_MAX = 50;
 const ZIINA_MESSAGE_FALLBACK = 'ShuttleIQ booking';
 
 export function sanitizeZiinaMessage(input: string | null | undefined): string {
