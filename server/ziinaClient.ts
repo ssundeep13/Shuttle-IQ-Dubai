@@ -87,12 +87,14 @@ export function sanitizeZiinaMessage(input: string | null | undefined): string {
 
 /**
  * Build a Ziina-safe payment message for a booking. Prefers the brand-first
- * "ShuttleIQ - {title} xN" form; if the title would push the message over
- * the safe cap, downgrades to a length-safe brand-only form ("ShuttleIQ
- * booking xN" / "ShuttleIQ extra spot") so we never deliberately produce
- * near-cap strings. ASCII-only by design so the 50-char cap is also a
- * safe ≤50-byte cap (avoids surprises if Ziina's validator is byte-based).
- * Sanitizer remains the final safety net via createZiinaPaymentIntent.
+ * "ShuttleIQ - {title} xN" form; if the title would push the message past
+ * the safe cap (in either characters OR UTF-8 bytes), downgrades to a
+ * length-safe brand-only form ("ShuttleIQ booking xN" / "ShuttleIQ extra
+ * spot") so we never deliberately produce near-cap strings. The brand
+ * scaffolding ("ShuttleIQ", " - ", " x", "extra spot", "booking") is
+ * ASCII-only; the title is the only potential non-ASCII contributor and
+ * is dropped in the fallback path. Sanitizer remains the final safety net
+ * via createZiinaPaymentIntent.
  */
 export function buildZiinaBookingMessage(opts: {
   title: string | null | undefined;
@@ -105,7 +107,12 @@ export function buildZiinaBookingMessage(opts: {
   const prefix = opts.extraSpot ? 'ShuttleIQ extra spot' : 'ShuttleIQ';
   if (cleanedTitle) {
     const full = `${prefix} - ${cleanedTitle}${countSuffix}`;
-    if (full.length <= ZIINA_MESSAGE_MAX) return full;
+    if (
+      full.length <= ZIINA_MESSAGE_MAX &&
+      Buffer.byteLength(full, 'utf8') <= ZIINA_MESSAGE_MAX
+    ) {
+      return full;
+    }
   }
   const fallback = opts.extraSpot
     ? 'ShuttleIQ extra spot'

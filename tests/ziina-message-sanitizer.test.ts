@@ -97,6 +97,14 @@ describe('buildZiinaBookingMessage', () => {
     );
   });
 
+  it('downgrades when a short title would exceed the byte cap (non-ASCII)', () => {
+    // 40 Ω chars = 40 × 2 = 80 UTF-8 bytes. Brand-first form would be
+    // "ShuttleIQ - {ΩΩΩ...} x2" — under 50 chars but well over 50 bytes.
+    const out = buildZiinaBookingMessage({ title: 'Ω'.repeat(40), spots: 2 });
+    expect(out).toBe('ShuttleIQ booking x2');
+    expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(CAP);
+  });
+
   it('always returns ASCII-only output within the cap (chars and bytes)', () => {
     const cases = [
       { title: 'A'.repeat(500), spots: 2 },
