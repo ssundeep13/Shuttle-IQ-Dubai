@@ -368,7 +368,7 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
               className="text-sm text-destructive text-center"
               data-testid="text-error-tied"
             >
-              Scores cannot be tied — badminton always has a winner.
+              Scores cannot be tied — badminton always has a winner
             </p>
           ) : winnerMismatch ? (
             <p
@@ -408,8 +408,8 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
                 data-testid="text-submit-confirmation"
               >
                 {submittedAlreadyRecorded
-                  ? 'Score already recorded.'
-                  : 'Score submitted!'}
+                  ? 'Score already recorded'
+                  : 'Score submitted'}
               </p>
 
               {flagResolved ? (
@@ -417,7 +417,7 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
                   className="text-xs text-center text-muted-foreground"
                   data-testid="text-flag-confirmation"
                 >
-                  Flagged for review.
+                  Flagged for review
                 </p>
               ) : (
                 <>
