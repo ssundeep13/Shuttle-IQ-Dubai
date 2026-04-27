@@ -48,6 +48,7 @@ import BlogList from "@/pages/marketplace/BlogList";
 import BlogPost from "@/pages/marketplace/BlogPost";
 import Welcome from "@/pages/marketplace/Welcome";
 import Play from "@/pages/marketplace/Play";
+import PlayingScreen from "@/pages/marketplace/PlayingScreen";
 import InstagramCarousel from "@/pages/InstagramCarousel";
 import InstagramFeaturesCarousel from "@/pages/InstagramFeaturesCarousel";
 import ScreenshotHarness from "@/pages/ScreenshotHarness";
@@ -203,6 +204,9 @@ function Router() {
         </Route>
         <Route path="/marketplace/play">
           <MarketplaceAuthRoute component={Play} />
+        </Route>
+        <Route path="/marketplace/play/playing">
+          <MarketplaceAuthRoute component={PlayingScreen} />
         </Route>
         <Route path="/marketplace/rankings">
           <MarketplaceRoute component={Rankings} />
