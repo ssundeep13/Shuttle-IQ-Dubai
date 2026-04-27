@@ -3975,94 +3975,52 @@ export function registerMarketplaceRoutes(app: Express) {
           });
         }
 
-        // 11. First-time success: mirror admin end-game side effects.
-        //     The transaction has already persisted the game_results row and
-        //     marked the suggestion 'completed', so the SCORE itself is safe.
-        //     The remaining steps (rest states, partner history, queue rotation,
-        //     court reset) are operational state — if any single step throws
-        //     we still want the player to receive their success confirmation,
-        //     and we log loudly so an admin can reconcile via the dashboard.
-        let sideEffectsOk = true;
-        try {
-          for (const playerId of playerIds) {
-            updatePlayerRestState(session.id, playerId, true);
-          }
-          // updatePartnerHistory only reads .id off each participant, so a
-          // narrow Pick<Player, "id"> shape is sufficient (and keeps the
-          // call free of unsafe casts).
-          const team1Players = team1Ids.map(id => ({ id }));
-          const team2Players = team2Ids.map(id => ({ id }));
-          updatePartnerHistory(session.id, team1Players, team2Players);
-
-          const currentQueue = await storage.getQueue(session.id);
-          const playedSet = new Set(playerIds);
-          for (const playerId of currentQueue) {
-            if (!playedSet.has(playerId)) {
-              updatePlayerRestState(session.id, playerId, false);
-            }
-          }
-          // Re-queue: losers first, then winners (matches admin convention)
-          const newQueue = [
-            ...currentQueue.filter(id => !playedSet.has(id)),
-            ...loserIds,
-            ...winnerIds,
-          ];
-          await storage.setQueue(session.id, newQueue);
-
-          await storage.updateCourt(court.id, {
-            status: 'available',
-            timeRemaining: 0,
-            winningTeam: null,
-            startedAt: null,
-          });
-          await storage.setCourtPlayers(court.id, []);
-
-          await persistRestStatesToDb(session.id);
-        } catch (sideEffectErr) {
-          // The score is already saved in the DB; surface the failure
-          // prominently so an admin can manually reset court/queue state.
-          // Without this, a crash here would bubble to the outer catch,
-          // return 500, and trick the player into retrying — but the retry
-          // would hit the idempotency short-circuit and never re-attempt
-          // the side effects, leaving the court permanently stuck.
-          sideEffectsOk = false;
-          console.error(
-            `[POST submit-score] CRITICAL: side-effect step failed AFTER game_results was saved. ` +
-            `gameResultId=${txResult.gameId} sessionId=${session.id} courtId=${court.id} ` +
-            `suggestionId=${suggestionId}. Admin must reset court / queue state manually.`,
-            sideEffectErr,
-          );
+        // First-time success: mirror admin end-game cleanup. Failures
+        // propagate to the outer catch and surface as 500 so the client
+        // retries — the retry hits the tx UNIQUE-constraint short-circuit
+        // and re-runs this block.
+        for (const playerId of playerIds) {
+          updatePlayerRestState(session.id, playerId, true);
         }
+        const team1Players = team1Ids.map(id => ({ id }));
+        const team2Players = team2Ids.map(id => ({ id }));
+        updatePartnerHistory(session.id, team1Players, team2Players);
 
-        // 12. Respond immediately so the player sees the confirmation.
-        //     The score IS recorded — even if some operational state above
-        //     failed, the canonical game_results row exists and the player
-        //     should not be told to retry.
+        const currentQueue = await storage.getQueue(session.id);
+        const playedSet = new Set(playerIds);
+        for (const playerId of currentQueue) {
+          if (!playedSet.has(playerId)) {
+            updatePlayerRestState(session.id, playerId, false);
+          }
+        }
+        const newQueue = [
+          ...currentQueue.filter(id => !playedSet.has(id)),
+          ...loserIds,
+          ...winnerIds,
+        ];
+        await storage.setQueue(session.id, newQueue);
+
+        await storage.updateCourt(court.id, {
+          status: 'available',
+          timeRemaining: 0,
+          winningTeam: null,
+          startedAt: null,
+        });
+        await storage.setCourtPlayers(court.id, []);
+        await persistRestStatesToDb(session.id);
+
         res.json({
           success: true,
           gameResultId: txResult.gameId,
           alreadySubmitted: false,
         });
 
-        // 13. Fire-and-forget background matchmaking — must not block the
-        //     response, must never throw out of the request lifecycle.
-        //     Skipped when side effects failed: the court/queue are in an
-        //     inconsistent state and queueing a fresh suggestion against
-        //     them would just compound the inconsistency. The CRITICAL log
-        //     above is the signal for an admin to reconcile and (manually)
-        //     trigger the next match.
-        if (sideEffectsOk) {
-          setImmediate(() => {
-            runP3BackgroundMatchmaking(session.id, court.id).catch(err => {
-              console.error('[P3 background matchmaking] unhandled:', err);
-            });
+        // Fire-and-forget matchmaking for the just-vacated court.
+        setImmediate(() => {
+          runP3BackgroundMatchmaking(session.id, court.id).catch(err => {
+            console.error('[P3 background matchmaking] unhandled:', err);
           });
-        } else {
-          console.warn(
-            `[POST submit-score] background matchmaking skipped because post-tx ` +
-            `side effects failed for sessionId=${session.id} courtId=${court.id}.`,
-          );
-        }
+        });
       } catch (err) {
         console.error('[POST /api/marketplace/games/:suggestionId/submit-score] error:', err);
         if (!res.headersSent) {
