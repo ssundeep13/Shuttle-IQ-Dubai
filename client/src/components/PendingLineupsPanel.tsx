@@ -149,7 +149,16 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
     },
   });
 
-  if (suggestions.length === 0) return null;
+  // The list endpoint returns both 'pending' and 'approved' for transparency,
+  // but the panel itself is purely an *action surface* — once a suggestion is
+  // approved (by Approve-now or by the auto-sweep) there's nothing left for
+  // the captain to do, so the card disappears immediately. Filtering here
+  // (rather than on the server) keeps the API contract per spec while
+  // matching the spec's UX requirement that "the card disappears" after
+  // Approve-now.
+  const actionable = suggestions.filter(s => s.status === 'pending');
+
+  if (actionable.length === 0) return null;
 
   const pendingId = approveMutation.variables ?? dismissMutation.variables;
 
@@ -159,7 +168,7 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
         <CardTitle className="text-base">Pending Lineups (Court Captain)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {suggestions.map((s) => (
+        {actionable.map((s) => (
           <SuggestionRow
             key={s.id}
             suggestion={s}

@@ -3581,24 +3581,32 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(200).json({ success: true, disputeId: existing.id, alreadyFlagged: true });
       }
 
+      // Captain notification fan-out is gated on the FIRST flag for the game,
+      // not the first flag from this user. We snapshot "any prior dispute"
+      // BEFORE writing this dispute so the fan-out gate doesn't see our own
+      // row. A second participant flagging the same game gets the row but no
+      // additional captain notification.
+      const isFirstFlagForGame = !(await storage.hasAnyDisputeForGame(gameResultId));
+
       const dispute = await storage.createScoreDispute({ gameResultId, filedByUserId: userId, note });
 
-      // Fan out an in-app notification to every Court Captain (marketplace
-      // admin/super_admin). Failures must not roll back the flag itself, so
-      // each notification is wrapped in its own try/catch.
-      try {
-        const admins = await storage.listMarketplaceAdmins();
-        const playerName = user.name;
-        await Promise.all(admins.map(admin =>
-          storage.createMarketplaceNotification({
-            userId: admin.id,
-            type: 'score_flag',
-            title: 'Score flagged for review',
-            message: `${playerName} flagged the score of game ${gameResultId.slice(0, 8)} for Court Captain review.`,
-          }).catch(err => console.error('[Score flag] notify admin failed:', err))
-        ));
-      } catch (notifyErr) {
-        console.error('[Score flag] admin notification batch failed:', notifyErr);
+      // Only fan out on the first flag. Failures must not roll back the flag
+      // itself, so each notification is wrapped in its own try/catch.
+      if (isFirstFlagForGame) {
+        try {
+          const admins = await storage.listMarketplaceAdmins();
+          const playerName = user.name;
+          await Promise.all(admins.map(admin =>
+            storage.createMarketplaceNotification({
+              userId: admin.id,
+              type: 'score_flag',
+              title: 'Score flagged for review',
+              message: `${playerName} flagged the score of game ${gameResultId.slice(0, 8)} for Court Captain review.`,
+            }).catch(err => console.error('[Score flag] notify admin failed:', err))
+          ));
+        } catch (notifyErr) {
+          console.error('[Score flag] admin notification batch failed:', notifyErr);
+        }
       }
 
       res.status(201).json({ success: true, disputeId: dispute.id, alreadyFlagged: false });

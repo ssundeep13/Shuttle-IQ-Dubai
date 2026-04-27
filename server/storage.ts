@@ -361,6 +361,7 @@ export interface IStorage {
   createScoreDispute(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<ScoreDispute>;
   getScoreDispute(id: string): Promise<ScoreDispute | undefined>;
   getDisputeByUserAndGame(userId: string, gameResultId: string): Promise<ScoreDispute | undefined>;
+  hasAnyDisputeForGame(gameResultId: string): Promise<boolean>;
   getAllDisputesWithDetails(): Promise<ScoreDisputeWithDetails[]>;
   getDisputesByUser(userId: string): Promise<ScoreDispute[]>;
   updateScoreDispute(id: string, updates: Partial<ScoreDispute>): Promise<ScoreDispute | undefined>;
@@ -2274,6 +2275,19 @@ export class DatabaseStorage implements IStorage {
       .from(scoreDisputes)
       .where(and(eq(scoreDisputes.filedByUserId, userId), eq(scoreDisputes.gameResultId, gameResultId)));
     return dispute;
+  }
+
+  // Cheap "any prior dispute for this game?" probe used to gate Court Captain
+  // notification fan-out on the FIRST flag for the game (per spec). LIMIT 1
+  // keeps it a single index hit on (game_result_id) regardless of dispute
+  // count.
+  async hasAnyDisputeForGame(gameResultId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ id: scoreDisputes.id })
+      .from(scoreDisputes)
+      .where(eq(scoreDisputes.gameResultId, gameResultId))
+      .limit(1);
+    return !!row;
   }
 
   async getAllDisputesWithDetails(): Promise<ScoreDisputeWithDetails[]> {
