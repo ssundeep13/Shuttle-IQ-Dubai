@@ -36,7 +36,7 @@ import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and } from "drizzle-orm";
-import { players, matchSuggestions, gameResults } from "@shared/schema";
+import { players, matchSuggestions, matchSuggestionPlayers } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
 import {
   generateBracketedLineups,
@@ -3785,53 +3785,51 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.status(400).json({ error: "winningTeam does not match the higher score. Double-check the result with the Court Captain." });
         }
 
-        // 2. Resolve caller's linked player FIRST so we can authorize before
-        //    revealing anything about the suggestion. Marketplace users without
-        //    a linked player can't possibly be on a court roster.
+        // 2. Resolve caller's linked player FIRST. Marketplace users without
+        //    a linked player can't possibly be on a court roster, so we can
+        //    reject them before any suggestion lookup.
         const me = await storage.getMarketplaceUser(req.user!.userId);
         if (!me || !me.linkedPlayerId) {
           return res.status(403).json({ error: "Your account isn't linked to a player profile. Ask the Court Captain to link you before submitting scores." });
         }
 
-        // 3. Load the suggestion AND authorize membership in a single response.
-        //    We deliberately collapse "suggestion does not exist" and "you are
-        //    not a participant" into the SAME 403 + message to avoid an
-        //    enumeration oracle: an authenticated marketplace user must not
-        //    be able to probe which match-suggestion UUIDs exist by observing
-        //    a 404-vs-403 differential.
+        // 3. Load the suggestion. Genuine missing => 404 (per API contract).
         const suggestion = await storage.getMatchSuggestion(suggestionId);
-        const isPlayer = !!suggestion && suggestion.players.some(p => p.playerId === me.linkedPlayerId);
-        if (!suggestion || !isPlayer) {
-          return res.status(403).json({
-            error: "You can only submit scores for matches you played in. Please confirm the match details with the Court Captain.",
-          });
+        if (!suggestion) {
+          return res.status(404).json({ error: "Match not found. Please confirm with the Court Captain." });
         }
 
-        // 4. Idempotent-retry short-circuit: if a game_results row already
-        // exists for this suggestion, the submission has already been recorded
-        // (possibly by another player on this court, or by us on a prior retry).
-        // Return success with alreadySubmitted=true regardless of the
-        // suggestion's current status — this covers both the network-blip
-        // retry case and the racing-teammate case without surfacing a
-        // confusing "no longer active" error to the player.
-        const [existingResult] = await db
-          .select({ id: gameResults.id })
-          .from(gameResults)
-          .where(eq(gameResults.matchSuggestionId, suggestionId))
+        // 4. Authorization via the indexed match_suggestion_players PK
+        //    (suggestion_id, player_id) — a direct lookup rather than scanning
+        //    suggestion.players in JS, so it stays O(1) regardless of roster
+        //    size and exercises the join-table primary key index.
+        const [membership] = await db
+          .select({ team: matchSuggestionPlayers.team })
+          .from(matchSuggestionPlayers)
+          .where(
+            and(
+              eq(matchSuggestionPlayers.suggestionId, suggestionId),
+              eq(matchSuggestionPlayers.playerId, me.linkedPlayerId),
+            ),
+          )
           .limit(1);
-        if (existingResult) {
-          return res.json({
-            success: true,
-            gameResultId: existingResult.id,
-            alreadySubmitted: true,
-          });
+        if (!membership) {
+          return res.status(403).json({ error: "You weren't on this court. Only the four players in the match can submit the score for the Court Captain." });
         }
 
-        // 5. Status gate: only approved / playing suggestions are submittable.
-        // This catches truly stale submissions (e.g. suggestion was rejected
-        // or cancelled before play). The 'completed' case has already been
-        // handled above as an idempotent retry.
-        if (suggestion.status !== 'approved' && suggestion.status !== 'playing') {
+        // 5. Status gate. 'approved' and 'playing' are the live submittable
+        //    states. 'completed' is allowed through as well — that path
+        //    relies on completeGameTransaction's UNIQUE-constraint
+        //    short-circuit (game_results.matchSuggestionId is UNIQUE) to
+        //    return the canonical gameResultId with alreadySubmitted=true,
+        //    so a teammate's network retry doesn't confuse the player with
+        //    a "no longer active" error. Only truly dead states ('cancelled',
+        //    'rejected', etc.) are rejected here.
+        if (
+          suggestion.status !== 'approved' &&
+          suggestion.status !== 'playing' &&
+          suggestion.status !== 'completed'
+        ) {
           return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
         }
 
@@ -3970,14 +3968,11 @@ export function registerMarketplaceRoutes(app: Express) {
           for (const playerId of playerIds) {
             updatePlayerRestState(session.id, playerId, true);
           }
-          const team1Players = team1Ids
-            .map(id => txResult.participants.find(p => p.playerId === id))
-            .filter((p): p is NonNullable<typeof p> => !!p)
-            .map(p => ({ id: p.playerId } as any));
-          const team2Players = team2Ids
-            .map(id => txResult.participants.find(p => p.playerId === id))
-            .filter((p): p is NonNullable<typeof p> => !!p)
-            .map(p => ({ id: p.playerId } as any));
+          // updatePartnerHistory only reads .id off each participant, so a
+          // narrow Pick<Player, "id"> shape is sufficient (and keeps the
+          // call free of unsafe casts).
+          const team1Players = team1Ids.map(id => ({ id }));
+          const team2Players = team2Ids.map(id => ({ id }));
           updatePartnerHistory(session.id, team1Players, team2Players);
 
           const currentQueue = await storage.getQueue(session.id);

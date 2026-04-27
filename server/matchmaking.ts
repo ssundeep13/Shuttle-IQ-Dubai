@@ -313,8 +313,8 @@ function getSessionPartnerHistory(sessionId: string): Map<string, number> {
  */
 export function updatePartnerHistory(
   sessionId: string,
-  team1: Player[],
-  team2: Player[]
+  team1: Pick<Player, "id">[],
+  team2: Pick<Player, "id">[]
 ): void {
   const history = getSessionPartnerHistory(sessionId);
   if (team1.length >= 2) {
