@@ -97,7 +97,7 @@ export default function Play() {
 
   return (
     <PageShell>
-      <WaitingScreen onDone={() => setLocation('/marketplace/dashboard')} />
+      <WaitingScreen onDone={() => setLocation('/marketplace')} />
     </PageShell>
   );
 }
@@ -157,11 +157,11 @@ function CheckInScreen({
       setErrorMessage(null);
       onCheckedIn();
     },
-    onError: (err: any) => {
-      const msg =
-        err?.error ||
-        "Couldn't check you in — please ask the Court Captain for help.";
-      setErrorMessage(msg);
+    onError: (err: unknown) => {
+      const fallback = "Couldn't check you in — please ask the Court Captain for help.";
+      const maybeApi = err as { error?: string } | null | undefined;
+      const fromMessage = err instanceof Error ? err.message : undefined;
+      setErrorMessage(maybeApi?.error || fromMessage || fallback);
     },
   });
 

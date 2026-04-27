@@ -3286,33 +3286,68 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.json({ suggestion: null });
         }
 
-        // Inline: find the player's most recent active suggestion (pending,
-        // approved, or playing). Mirrors getPendingMatchSuggestionForPlayer
-        // but with the broader status set.
-        const [parent] = await db
-          .select({
-            id: matchSuggestions.id,
-            courtId: matchSuggestions.courtId,
-            pendingUntil: matchSuggestions.pendingUntil,
-            status: matchSuggestions.status,
-          })
-          .from(matchSuggestionPlayers)
-          .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
-          .where(and(
-            eq(matchSuggestionPlayers.playerId, linkedPlayerId),
-            inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
-          ))
-          .orderBy(desc(matchSuggestions.suggestedAt))
-          .limit(1);
+        // Compose on top of the existing storage helper, which surfaces the
+        // player's pending|approved suggestion (the contract P5 also depends
+        // on). This page additionally needs to detect the 'playing' status
+        // so it can route the player into the live game screen, so when the
+        // helper returns nothing we fall back to a small targeted query for
+        // a 'playing' suggestion the player belongs to. The helper itself
+        // is intentionally not modified.
+        const helperResult = await storage.getPendingMatchSuggestionForPlayer(linkedPlayerId);
+
+        let parent: {
+          id: string;
+          courtId: string;
+          pendingUntil: Date;
+          status: string;
+        } | null = null;
+        let playerRows: Array<{ playerId: string; team: number }> = [];
+
+        if (helperResult) {
+          parent = {
+            id: helperResult.id,
+            courtId: helperResult.courtId,
+            pendingUntil: helperResult.pendingUntil,
+            status: helperResult.status,
+          };
+          playerRows = helperResult.players.map(p => ({
+            playerId: p.playerId,
+            team: p.team,
+          }));
+        } else {
+          // Fallback: helper does not surface 'playing' status, so do a
+          // narrow targeted lookup for that one case only.
+          const [playingParent] = await db
+            .select({
+              id: matchSuggestions.id,
+              courtId: matchSuggestions.courtId,
+              pendingUntil: matchSuggestions.pendingUntil,
+              status: matchSuggestions.status,
+            })
+            .from(matchSuggestionPlayers)
+            .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+            .where(and(
+              eq(matchSuggestionPlayers.playerId, linkedPlayerId),
+              eq(matchSuggestions.status, 'playing'),
+            ))
+            .orderBy(desc(matchSuggestions.suggestedAt))
+            .limit(1);
+
+          if (playingParent) {
+            parent = playingParent;
+            playerRows = await db
+              .select({
+                playerId: matchSuggestionPlayers.playerId,
+                team: matchSuggestionPlayers.team,
+              })
+              .from(matchSuggestionPlayers)
+              .where(eq(matchSuggestionPlayers.suggestionId, playingParent.id));
+          }
+        }
 
         if (!parent) {
           return res.json({ suggestion: null });
         }
-
-        const playerRows = await db
-          .select()
-          .from(matchSuggestionPlayers)
-          .where(eq(matchSuggestionPlayers.suggestionId, parent.id));
 
         // Batched joins: court name + the 4 player display names.
         const [court] = await db
