@@ -1344,9 +1344,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (court?.status === 'occupied') {
         return res.status(409).json({ error: "That court is already occupied — finish the current game first." });
       }
-      if (await storage.hasActiveApprovedSuggestionForCourt(suggestion.sessionId, suggestion.courtId)) {
-        return res.status(409).json({ error: "Another lineup is already approved for that court — start or dismiss it first." });
-      }
 
       const adminId = req.user?.userId ?? 'admin';
       const updated = await storage.updateMatchSuggestionStatus(suggestionId, 'approved', adminId);

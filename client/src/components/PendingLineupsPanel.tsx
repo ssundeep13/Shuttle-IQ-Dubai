@@ -149,13 +149,7 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
     },
   });
 
-  // The list endpoint returns both 'pending' and 'approved' for transparency,
-  // but the panel itself is purely an *action surface* — once a suggestion is
-  // approved (by Approve-now or by the auto-sweep) there's nothing left for
-  // the captain to do, so the card disappears immediately. Filtering here
-  // (rather than on the server) keeps the API contract per spec while
-  // matching the spec's UX requirement that "the card disappears" after
-  // Approve-now.
+  // The panel only surfaces suggestions still awaiting captain action.
   const actionable = suggestions.filter(s => s.status === 'pending');
 
   if (actionable.length === 0) return null;

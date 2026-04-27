@@ -466,7 +466,6 @@ export interface IStorage {
   // Returns the suggestion AND its 4 player rows.
   getPendingMatchSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
-  hasActiveApprovedSuggestionForCourt(sessionId: string, courtId: string): Promise<boolean>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
 
   // Transactional game completion — wraps player updates + game_results +
@@ -2277,10 +2276,6 @@ export class DatabaseStorage implements IStorage {
     return dispute;
   }
 
-  // Cheap "any prior dispute for this game?" probe used to gate Court Captain
-  // notification fan-out on the FIRST flag for the game (per spec). LIMIT 1
-  // keeps it a single index hit on (game_result_id) regardless of dispute
-  // count.
   async hasAnyDisputeForGame(gameResultId: string): Promise<boolean> {
     const [row] = await db
       .select({ id: scoreDisputes.id })
@@ -2350,9 +2345,6 @@ export class DatabaseStorage implements IStorage {
     courtName: string;
     players: Array<MatchSuggestionPlayer & { name: string }>;
   }>> {
-    // Two-step fetch: parent rows (with court name) then a single grouped
-    // child fetch with player names. Keeps the parent query a simple index
-    // scan and the child query bounded by the small set of pending IDs.
     const parents = await db
       .select({
         id: matchSuggestions.id,
@@ -2369,9 +2361,6 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(courts, eq(matchSuggestions.courtId, courts.id))
       .where(and(
         eq(matchSuggestions.sessionId, sessionId),
-        // Both 'pending' (awaiting captain approval) and 'approved' (captain
-        // or sweep approved, players notified, but game hasn't started yet)
-        // belong on the panel so captains can dismiss the leftover state.
         inArray(matchSuggestions.status, ['pending', 'approved']),
       ))
       .orderBy(asc(matchSuggestions.pendingUntil));
@@ -3534,19 +3523,6 @@ export class DatabaseStorage implements IStorage {
         eq(matchSuggestions.status, 'pending'),
         lt(matchSuggestions.pendingUntil, now),
       ));
-  }
-
-  async hasActiveApprovedSuggestionForCourt(sessionId: string, courtId: string): Promise<boolean> {
-    const rows = await db
-      .select({ id: matchSuggestions.id })
-      .from(matchSuggestions)
-      .where(and(
-        eq(matchSuggestions.sessionId, sessionId),
-        eq(matchSuggestions.courtId, courtId),
-        eq(matchSuggestions.status, 'approved'),
-      ))
-      .limit(1);
-    return rows.length > 0;
   }
 
   async updateMatchSuggestionStatus(

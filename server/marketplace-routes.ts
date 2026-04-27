@@ -3574,24 +3574,17 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(403).json({ error: "Only players who were on court for this game can flag the score. Ask your Court Captain if you need a correction." });
       }
 
-      // Idempotency: return existing dispute if the user already flagged.
-      // Response shape stays consistent across both the new + repeat path.
       const existing = await storage.getDisputeByUserAndGame(userId, gameResultId);
       if (existing) {
         return res.status(200).json({ success: true, disputeId: existing.id, alreadyFlagged: true });
       }
 
-      // Captain notification fan-out is gated on the FIRST flag for the game,
-      // not the first flag from this user. We snapshot "any prior dispute"
-      // BEFORE writing this dispute so the fan-out gate doesn't see our own
-      // row. A second participant flagging the same game gets the row but no
-      // additional captain notification.
+      // Fan out captain notifications only on the first flag for the game.
+      // Snapshot before insert so our own row doesn't satisfy the gate.
       const isFirstFlagForGame = !(await storage.hasAnyDisputeForGame(gameResultId));
 
       const dispute = await storage.createScoreDispute({ gameResultId, filedByUserId: userId, note });
 
-      // Only fan out on the first flag. Failures must not roll back the flag
-      // itself, so each notification is wrapped in its own try/catch.
       if (isFirstFlagForGame) {
         try {
           const admins = await storage.listMarketplaceAdmins();
