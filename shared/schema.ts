@@ -567,7 +567,6 @@ export const expenses = pgTable("expenses", {
   amountAed: integer("amount_aed").notNull(),
   description: text("description").notNull(),
   vendor: text("vendor"),
-  paidBy: text("paid_by"),
   date: timestamp("date").notNull(),
   notes: text("notes"),
   paidBy: text("paid_by"),
