@@ -1,0 +1,75 @@
+P7 confirmed complete. Moving to P8.
+P8 — Score Entry Screen
+What & Why
+The screen a player sees immediately after their game ends. Any of the 4 players can submit the score. It must be fast, simple, and forgiving — players are in a sports hall with sweaty hands on a phone. One form, two score inputs, one submit button.
+Done looks like
+The route /marketplace/play/score renders the score entry screen for an authenticated player whose most recent suggestion has status completed or who has just been navigated here from the playing screen.
+Screen content:
+
+Eyebrow: teal "GAME OVER"
+Heading: navy "What was the score?"
+The 4 players shown in two teams exactly as the playing screen — so the player has context for which team is which
+Two large number inputs — one per team. Labels: "Your team" and "Opponents". Large tap-friendly inputs, numeric keyboard on mobile (inputMode="numeric")
+A "Who won?" selector — two large tap buttons showing team compositions. Selecting one highlights it in teal. Must be consistent with the scores entered (if team 1 score is higher, team 1 must be selected as winner — validate this before submission)
+Single large "Submit score" button
+On submit: calls POST /api/marketplace/games/:suggestionId/submit-score (existing P3 endpoint)
+On success: if alreadySubmitted: true — show "Score already recorded" message and navigate to session summary after 2 seconds
+On success: if alreadySubmitted: false — show brief "Score submitted!" confirmation then navigate to /marketplace/play/done (P9 session end screen — not built yet, wouter falls through to NotFound, acceptable)
+On error: show error message with "Court Captain" wording, keep form intact so player can retry
+
+Getting the suggestionId:
+
+The score screen needs the suggestionId to call the submit endpoint
+Use GET /api/marketplace/players/me/current-suggestion but extend it to also return suggestions with status completed — currently it only returns pending or approved or playing
+Add completed to the status filter in storage.getPendingMatchSuggestionForPlayer — rename the storage method to getCurrentSuggestionForPlayer to reflect its broader scope. Update the one call site in the endpoint
+This is the only backend change needed for P8
+
+Flag button:
+
+Below the submit button, a small secondary "Flag this score" button
+Only visible after a score has been successfully submitted (show after alreadySubmitted response)
+On tap: calls POST /api/marketplace/games/:gameResultId/flag (existing P4 endpoint)
+Shows "Flagged for review" text after successful flag — button disappears
+This closes the P3 Phase 3 follow-up for player flag UI — it belongs here in context
+
+Critical constraints
+
+The suggestionId must come from the API — do not pass it via URL params or localStorage
+Validate that scores are non-negative integers before enabling the submit button
+Validate that the winning team selection is consistent with the scores — if scores are equal, show "Scores cannot be tied — badminton always has a winner" and block submission
+The submit button must be disabled while the request is in flight — prevent double-tap
+inputMode="numeric" on score inputs for mobile numeric keyboard
+Mobile-first, large tap targets throughout
+All copy plain English, no emoji, "Court Captain" for error states
+ShuttleIQ brand colors, existing shadcn/Tailwind patterns
+
+Steps
+
+Extend getPendingMatchSuggestionForPlayer in server/storage.ts to include completed status — rename to getCurrentSuggestionForPlayer. Update the one call site in the endpoint
+Register /marketplace/play/score route in client/src/App.tsx behind MarketplaceAuthRoute
+Build ScoreEntry.tsx in client/src/pages/marketplace/
+Build the score inputs and winner selector with validation
+Wire the submit mutation to the existing P3 endpoint
+Add the flag button shown post-submission
+Handle all response states including alreadySubmitted
+
+Test when complete
+
+Player navigates to /marketplace/play/score with a completed suggestion — sees correct teams and score form
+Entering mismatched winner selection blocks submission with clear message
+Entering tied scores blocks submission
+Valid submission returns alreadySubmitted: false → "Score submitted!" → navigates to /marketplace/play/done
+Second player submits same game → alreadySubmitted: true → "Score already recorded" → navigates after 2 seconds
+Flag button appears after submission — tapping flags the game and shows "Flagged for review"
+Unauthenticated user → redirected to login
+Player with no completed suggestion → redirected to /marketplace/play
+
+Report back:
+
+All 8 test scenarios as pass or fail
+Visual description of the score entry screen
+Confirm the storage method rename and the one call site update
+Confirm flag button behaviour
+Anything deferred
+
+Do not start P9 until this report is received.
