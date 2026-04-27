@@ -2513,7 +2513,6 @@ export class DatabaseStorage implements IStorage {
         paidBy: expenses.paidBy,
         date: expenses.date,
         notes: expenses.notes,
-        paidBy: expenses.paidBy,
         createdAt: expenses.createdAt,
         updatedAt: expenses.updatedAt,
         categoryName: expenseCategories.name,
