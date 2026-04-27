@@ -361,7 +361,7 @@ export interface IStorage {
 
   // Score dispute operations
   createScoreDispute(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<ScoreDispute>;
-  createScoreDisputeAtomic(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<{ dispute: ScoreDispute; isFirstForGame: boolean }>;
+  createScoreDisputeAtomic(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<{ dispute: ScoreDispute; isFirstForGame: boolean; alreadyFlagged: boolean }>;
   getScoreDispute(id: string): Promise<ScoreDispute | undefined>;
   getDisputeByUserAndGame(userId: string, gameResultId: string): Promise<ScoreDispute | undefined>;
   hasAnyDisputeForGame(gameResultId: string): Promise<boolean>;
@@ -2280,25 +2280,43 @@ export class DatabaseStorage implements IStorage {
     return dispute;
   }
 
-  // Atomic insert + first-flag detection. We lock the parent game_results
-  // row so two concurrent first-flag requests on the same game serialize:
-  // the second sees the first's dispute committed and reports isFirst=false.
-  // This is what gates the captain notification fan-out.
-  async createScoreDisputeAtomic(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<{ dispute: ScoreDispute; isFirstForGame: boolean }> {
+  // Atomic insert + first-flag detection. SELECT FOR UPDATE on the parent
+  // game_results row serializes concurrent flag attempts on the same game:
+  //  - Two concurrent first-flag requests by different players: the second
+  //    sees the first's dispute committed and reports isFirstForGame=false,
+  //    so admin fan-out happens exactly once.
+  //  - Two concurrent flag requests by the same player: the second sees its
+  //    own existing dispute and returns it with alreadyFlagged=true, with
+  //    no second insert and no fan-out.
+  async createScoreDisputeAtomic(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<{ dispute: ScoreDispute; isFirstForGame: boolean; alreadyFlagged: boolean }> {
     return await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT 1 FROM ${gameResults} WHERE ${gameResults.id} = ${data.gameResultId} FOR UPDATE`);
+
+      const [existingForUser] = await tx
+        .select()
+        .from(scoreDisputes)
+        .where(and(
+          eq(scoreDisputes.gameResultId, data.gameResultId),
+          eq(scoreDisputes.filedByUserId, data.filedByUserId),
+        ))
+        .limit(1);
+      if (existingForUser) {
+        return { dispute: existingForUser, isFirstForGame: false, alreadyFlagged: true };
+      }
+
       const [existingForGame] = await tx
         .select({ id: scoreDisputes.id })
         .from(scoreDisputes)
         .where(eq(scoreDisputes.gameResultId, data.gameResultId))
         .limit(1);
       const isFirstForGame = !existingForGame;
+
       const id = randomUUID();
       const [dispute] = await tx
         .insert(scoreDisputes)
         .values({ id, gameResultId: data.gameResultId, filedByUserId: data.filedByUserId, note: data.note ?? null, status: 'open' })
         .returning();
-      return { dispute, isFirstForGame };
+      return { dispute, isFirstForGame, alreadyFlagged: false };
     });
   }
 

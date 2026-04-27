@@ -3574,15 +3574,21 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(403).json({ error: "Only players who were on court for this game can flag the score. Ask your Court Captain if you need a correction." });
       }
 
+      // Fast path for the common repeat-flag case (no transaction needed).
       const existing = await storage.getDisputeByUserAndGame(userId, gameResultId);
       if (existing) {
         return res.status(200).json({ success: true, disputeId: existing.id, alreadyFlagged: true });
       }
 
-      // Atomic insert + first-flag detection. Two concurrent first flags on
-      // the same game serialize on a SELECT FOR UPDATE of game_results, so
-      // exactly one transaction sees isFirstForGame=true and fans out.
-      const { dispute, isFirstForGame } = await storage.createScoreDisputeAtomic({ gameResultId, filedByUserId: userId, note });
+      // Atomic insert + first-flag detection. The SELECT FOR UPDATE inside
+      // createScoreDisputeAtomic also collapses the same-user concurrent
+      // race: the loser sees its own dispute and gets alreadyFlagged=true
+      // with no second insert and no admin fan-out.
+      const { dispute, isFirstForGame, alreadyFlagged } = await storage.createScoreDisputeAtomic({ gameResultId, filedByUserId: userId, note });
+
+      if (alreadyFlagged) {
+        return res.status(200).json({ success: true, disputeId: dispute.id, alreadyFlagged: true });
+      }
 
       if (isFirstForGame) {
         try {
