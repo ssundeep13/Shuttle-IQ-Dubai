@@ -54,8 +54,25 @@ export default function ScoreEntry() {
   usePageTitle('Score');
   const [, setLocation] = useLocation();
 
+  // The score-entry screen opts in to the 'completed' fallback via
+  // ?for=score-entry. Other consumers (waiting screen, playing screen)
+  // intentionally do not pass this and therefore never receive a stale
+  // completed suggestion.
   const suggestionQuery = useQuery<CurrentSuggestionResponse>({
-    queryKey: ['/api/marketplace/players/me/current-suggestion'],
+    queryKey: ['/api/marketplace/players/me/current-suggestion', { for: 'score-entry' }],
+    queryFn: async () => {
+      const res = await fetch(
+        '/api/marketplace/players/me/current-suggestion?for=score-entry',
+        {
+          credentials: 'include',
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('mp_accessToken') ?? ''}`,
+          },
+        },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
     refetchInterval: false,
     staleTime: 0,
   });

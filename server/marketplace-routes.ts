@@ -36,7 +36,7 @@ import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and, inArray, desc } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers, courts } from "@shared/schema";
+import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
 import {
   generateBracketedLineups,
@@ -3272,11 +3272,11 @@ export function registerMarketplaceRoutes(app: Express) {
   // it once on mount.
   //
   // Priority is explicit: pending|approved (next game) first, then playing
-  // (live game), then completed (just-finished, score-entry pickup). This
-  // ordering matters — a player who just finished game A and was re-queued
-  // into pending suggestion B should see B (so they keep moving forward),
-  // and a player with a stale completed game who is now in a live playing
-  // game must see the playing row, not the completed one.
+  // (live game). The score-entry screen opts in to a third tier
+  // (just-finished, scoped to currently-active sessions only) by passing
+  // ?for=score-entry — this is gated so the waiting/playing screens never
+  // see a 'completed' row and rendering never accidentally regresses to
+  // showing a stale finished match as "your next game".
   app.get(
     "/api/marketplace/players/me/current-suggestion",
     requireAuth,
@@ -3290,12 +3290,19 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.json({ suggestion: null });
         }
 
+        // Opt-in surface for the P8 score-entry screen. Other consumers
+        // (waiting screen, playing screen) MUST NOT pass this, so they
+        // never receive a 'completed' status — that would cause them to
+        // render a stale finished match as "your next game".
+        const includeCompleted = req.query.for === 'score-entry';
+
         // Composition with explicit priority — see the route header above.
         // The storage helper handles pending|approved (the most common
         // case). When that returns nothing, fall through to a 'playing'
-        // lookup, then to a 'completed' lookup. Each fallback is a narrow
-        // single-status query so the ordering can never collapse them
-        // into a stale-vs-live mistake.
+        // lookup, then (only when explicitly requested) to a 'completed'
+        // lookup further bounded to active sessions. Each fallback is a
+        // narrow single-status query so the ordering can never collapse
+        // them into a stale-vs-live mistake.
         const helperResult = await storage.getCurrentSuggestionForPlayer(linkedPlayerId);
 
         let parent: {
@@ -3345,12 +3352,16 @@ export function registerMarketplaceRoutes(app: Express) {
               })
               .from(matchSuggestionPlayers)
               .where(eq(matchSuggestionPlayers.suggestionId, playingParent.id));
-          } else {
-            // Fallback 2: most-recent 'completed' suggestion. Surfaces the
-            // just-finished game to the P8 score-entry screen. Only
-            // reached when there is no active pending|approved|playing
-            // suggestion for this player, so it cannot mask any of the
-            // earlier-stage screens.
+          } else if (includeCompleted) {
+            // Fallback 2: most-recent 'completed' suggestion bounded to
+            // currently-active sessions. Surfaces the just-finished game
+            // to the P8 score-entry screen. Only reached when:
+            //   - the caller opted in via ?for=score-entry
+            //   - there is no pending|approved|playing suggestion for
+            //     this player
+            //   - the parent session is still 'active'
+            // Any of those three guards alone is enough to keep historical
+            // completed rows from masking the waiting/playing screens.
             const [completedParent] = await db
               .select({
                 id: matchSuggestions.id,
@@ -3360,9 +3371,11 @@ export function registerMarketplaceRoutes(app: Express) {
               })
               .from(matchSuggestionPlayers)
               .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+              .innerJoin(sessions, eq(matchSuggestions.sessionId, sessions.id))
               .where(and(
                 eq(matchSuggestionPlayers.playerId, linkedPlayerId),
                 eq(matchSuggestions.status, 'completed'),
+                eq(sessions.status, 'active'),
               ))
               .orderBy(desc(matchSuggestions.suggestedAt))
               .limit(1);
