@@ -1,0 +1,64 @@
+P2 confirmed complete. Moving to P3.
+P3 — Marketplace Score Submission Endpoint
+What & Why
+When a game ends on court, any one of the 4 players assigned to that court can submit the score. The submission must be instant from the player's perspective — the API responds immediately and all downstream work (skill score updates, matchmaking trigger) happens in the background. The idempotency key from matchSuggestionId prevents double-scoring if two players tap submit simultaneously.
+Done looks like
+
+POST /api/marketplace/games/:suggestionId/submit-score exists behind marketplace auth
+Any of the 4 players listed in match_suggestion_players for that suggestion can call it
+A player not in that suggestion gets 403
+The suggestion must be in approved or playing status — any other status returns 400
+Inside a single db.transaction:
+
+Calls storage.completeGameTransaction with the 4 player IDs, scores, winning team, and matchSuggestionId as the idempotency key
+Updates match_suggestions.status to completed
+If a game_results row already exists for this matchSuggestionId (duplicate submission), returns the existing result silently with { success: true, alreadySubmitted: true } — no error, no double-scoring
+
+
+After transaction commits, fires AI matchmaking in the background for the now-available court:
+
+Calls the existing matchmaking endpoint with the session and court IDs
+This is fire-and-forget — does not block the API response
+If the AI call fails or times out, log the error and fall back to the standard algorithm
+Either way, create a new match_suggestions row with pendingUntil = now + 90 seconds
+
+
+Returns { success: true, gameResultId: string, alreadySubmitted: boolean }
+
+Critical constraints
+
+The endpoint must respond in under 500ms — matchmaking fires after the response, never before
+Player authorization check: query match_suggestion_players to confirm the authenticated user's linkedPlayerId is one of the 4 players — 403 if not
+completeGameTransaction already handles the idempotency check via the unique constraint on game_results.match_suggestion_id — do not add a second check
+Sandbox sessions: completeGameTransaction already skips skill score updates for sandbox — no additional handling needed
+The background matchmaking call must use the existing AI matchmaking logic already in the codebase — do not build new matchmaking logic
+If no match_suggestions row exists for the given suggestionId, return 404
+Use "Court Captain" in any user-facing error messages, never "admin" or "host"
+
+Steps
+
+Add the route to server/marketplace-routes.ts behind requireMarketplaceAuth
+Validate the suggestion exists, is in approved or playing status, and the calling user's linkedPlayerId is one of the 4 players
+Call storage.completeGameTransaction inside a transaction, passing matchSuggestionId
+Update suggestion status to completed inside the same transaction
+After transaction commits, fire matchmaking in the background as fire-and-forget
+Return the response immediately
+
+Test when complete
+
+Submit a score as one of the 4 players — confirm game_results row created, skill scores updated, suggestion status = completed
+Submit again as a different player on the same court — confirm alreadySubmitted: true, no duplicate game_results row, no double skill score update
+Submit as a player not on that court — confirm 403
+Submit against a suggestion in pending status — confirm 400
+Confirm the background matchmaking fires without blocking the response
+Confirm a new match_suggestions row is created after submission
+
+Report back:
+
+Exact route path and middleware
+Confirm idempotency test result — no double scoring on second submission
+Confirm background matchmaking fires and new suggestion row created
+Response time for the primary submission call
+Anything deferred
+
+Do not start P4 until this report is received.
