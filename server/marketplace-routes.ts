@@ -287,6 +287,85 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // POST /api/marketplace/auth/complete-profile
+  // For an authenticated marketplace user that has no linked player yet
+  // (Google sign-up landing without going through the assessment), accept the
+  // gender + 3-question assessment payload and atomically create the linked
+  // player. Reuses computeSkillFromAssessment + the same SIQ-collision retry
+  // logic as the email/password signup path.
+  app.post(
+    "/api/marketplace/auth/complete-profile",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        const schema = z.object({
+          gender: z.enum(['Male', 'Female'], {
+            required_error: 'Gender is required',
+            invalid_type_error: 'Gender must be Male or Female',
+          }),
+          assessmentAnswers: z
+            .array(z.number().int().min(1).max(4))
+            .length(3, 'Please answer all three skill questions'),
+        });
+        const { gender, assessmentAnswers } = schema.parse(req.body);
+
+        const userId = req.user!.userId;
+        const user = await storage.getMarketplaceUser(userId);
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        if (user.linkedPlayerId) {
+          return res.status(409).json({ error: "Profile already complete" });
+        }
+
+        const { skillScore, level } = computeSkillFromAssessment(
+          assessmentAnswers as [number, number, number],
+        );
+
+        try {
+          const { user: linkedUser, player } = await storage.createPlayerForExistingMarketplaceUser({
+            userId,
+            playerInsert: {
+              name: user.name,
+              email: user.email,
+              phone: user.phone || null,
+              gender,
+              level,
+              skillScore,
+            },
+          });
+
+          res.json({
+            user: {
+              id: linkedUser.id,
+              email: linkedUser.email,
+              name: linkedUser.name,
+              phone: linkedUser.phone,
+              linkedPlayerId: linkedUser.linkedPlayerId,
+              photoUrl: linkedUser.photoUrl,
+            },
+            player: { id: player.id, level: player.level, skillScore: player.skillScore },
+          });
+        } catch (err: any) {
+          if (err?.message === 'PROFILE_ALREADY_COMPLETE') {
+            return res.status(409).json({ error: "Profile already complete" });
+          }
+          if (err?.message === 'USER_NOT_FOUND') {
+            return res.status(404).json({ error: "User not found" });
+          }
+          throw err;
+        }
+      } catch (error: unknown) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: error.errors[0].message });
+        }
+        console.error('[complete-profile] error:', error);
+        res.status(500).json({ error: "Failed to complete profile" });
+      }
+    },
+  );
+
   // ============================================================
   // EMAIL VERIFICATION
   // ============================================================

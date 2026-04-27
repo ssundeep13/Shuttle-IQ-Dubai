@@ -86,7 +86,7 @@ import {
   type InsertMatchSuggestion,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
+import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -218,6 +218,17 @@ export interface IStorage {
   // Atomic signup: create marketplace user + linked player record in one tx
   signupMarketplaceUserWithPlayer(args: {
     userInsert: InsertMarketplaceUser;
+    playerInsert: Omit<InsertPlayer, 'shuttleIqId' | 'referralCode'>;
+  }): Promise<{ user: MarketplaceUser; player: Player }>;
+
+  // Atomic profile-completion: for an EXISTING marketplace user (typically a
+  // Google sign-up landing without a player record), create a linked player
+  // and patch the user's linkedPlayerId — same SIQ-collision retry semantics
+  // as signupMarketplaceUserWithPlayer.
+  // Throws Error('USER_NOT_FOUND') or Error('PROFILE_ALREADY_COMPLETE') for
+  // the obvious bad-state cases so callers can map them to HTTP responses.
+  createPlayerForExistingMarketplaceUser(args: {
+    userId: string;
     playerInsert: Omit<InsertPlayer, 'shuttleIqId' | 'referralCode'>;
   }): Promise<{ user: MarketplaceUser; player: Player }>;
 
@@ -677,52 +688,23 @@ export class DatabaseStorage implements IStorage {
     return addSkidToPlayer(player);
   }
 
-  async signupMarketplaceUserWithPlayer(args: {
-    userInsert: InsertMarketplaceUser;
-    playerInsert: Omit<InsertPlayer, 'shuttleIqId' | 'referralCode'>;
-  }): Promise<{ user: MarketplaceUser; player: Player }> {
-    // Two concurrent signups landing in the same millisecond can both pick
-    // the same next SIQ-XXXXX id (it's computed by reading the current MAX
-    // outside the tx). On the rare unique-constraint collision we retry
-    // up to 3 times before propagating the error.
+  // Wraps an operation that allocates a fresh SIQ id + referral code in the
+  // unique-constraint retry loop. Two concurrent allocations landing in the
+  // same millisecond can both pick the same next SIQ-XXXXX id (it's computed
+  // by reading the current MAX outside the tx). On the rare collision we
+  // retry up to 3 times before propagating the error.
+  private async _withSiqRetry<T>(
+    playerName: string,
+    fn: (shuttleIqId: string, referralCode: string) => Promise<T>,
+  ): Promise<T> {
     const MAX_ATTEMPTS = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const shuttleIqId = await generateShuttleIqId();
-      const referralCode = generateReferralCode(args.playerInsert.name, shuttleIqId);
+      const referralCode = generateReferralCode(playerName, shuttleIqId);
       try {
-        return await db.transaction(async (tx) => {
-          const userId = randomUUID();
-          const [createdUser] = await tx
-            .insert(marketplaceUsers)
-            .values({ ...args.userInsert, id: userId, linkedPlayerId: null })
-            .returning();
-
-          const playerId = randomUUID();
-          const [createdPlayer] = await tx
-            .insert(players)
-            .values({
-              ...args.playerInsert,
-              id: playerId,
-              shuttleIqId,
-              referralCode,
-              status: args.playerInsert.status || 'waiting',
-              gamesPlayed: args.playerInsert.gamesPlayed || 0,
-              wins: args.playerInsert.wins || 0,
-              skillScoreBaseline: args.playerInsert.skillScore ?? 50,
-            })
-            .returning();
-
-          const [linkedUser] = await tx
-            .update(marketplaceUsers)
-            .set({ linkedPlayerId: playerId })
-            .where(eq(marketplaceUsers.id, createdUser.id))
-            .returning();
-
-          return { user: linkedUser, player: addSkidToPlayer(createdPlayer) };
-        });
+        return await fn(shuttleIqId, referralCode);
       } catch (err: any) {
-        // Retry only on shuttle_iq_id / referral_code unique-constraint races.
         const code = err?.code ?? err?.cause?.code;
         const msg = String(err?.message ?? '');
         const isSiqRace =
@@ -732,7 +714,111 @@ export class DatabaseStorage implements IStorage {
         lastErr = err;
       }
     }
-    throw lastErr ?? new Error('Signup failed after retries');
+    throw lastErr ?? new Error('Player allocation failed after retries');
+  }
+
+  // Shared helper: insert a single player row inside the given transaction,
+  // applying the same defaults used by both signup paths. Returning the raw
+  // (non-skid-decorated) player so callers can compose further; decorate at
+  // the call site with addSkidToPlayer.
+  private async _insertPlayerInTx(
+    tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+    playerInsert: Omit<InsertPlayer, 'shuttleIqId' | 'referralCode'>,
+    shuttleIqId: string,
+    referralCode: string,
+  ): Promise<Player> {
+    const playerId = randomUUID();
+    const [createdPlayer] = await tx
+      .insert(players)
+      .values({
+        ...playerInsert,
+        id: playerId,
+        shuttleIqId,
+        referralCode,
+        status: playerInsert.status || 'waiting',
+        gamesPlayed: playerInsert.gamesPlayed || 0,
+        wins: playerInsert.wins || 0,
+        skillScoreBaseline: playerInsert.skillScore ?? 50,
+      })
+      .returning();
+    return createdPlayer;
+  }
+
+  async signupMarketplaceUserWithPlayer(args: {
+    userInsert: InsertMarketplaceUser;
+    playerInsert: Omit<InsertPlayer, 'shuttleIqId' | 'referralCode'>;
+  }): Promise<{ user: MarketplaceUser; player: Player }> {
+    return this._withSiqRetry(args.playerInsert.name, (shuttleIqId, referralCode) =>
+      db.transaction(async (tx) => {
+        const userId = randomUUID();
+        const [createdUser] = await tx
+          .insert(marketplaceUsers)
+          .values({ ...args.userInsert, id: userId, linkedPlayerId: null })
+          .returning();
+
+        const createdPlayer = await this._insertPlayerInTx(
+          tx,
+          args.playerInsert,
+          shuttleIqId,
+          referralCode,
+        );
+
+        const [linkedUser] = await tx
+          .update(marketplaceUsers)
+          .set({ linkedPlayerId: createdPlayer.id })
+          .where(eq(marketplaceUsers.id, createdUser.id))
+          .returning();
+
+        return { user: linkedUser, player: addSkidToPlayer(createdPlayer) };
+      }),
+    );
+  }
+
+  async createPlayerForExistingMarketplaceUser(args: {
+    userId: string;
+    playerInsert: Omit<InsertPlayer, 'shuttleIqId' | 'referralCode'>;
+  }): Promise<{ user: MarketplaceUser; player: Player }> {
+    return this._withSiqRetry(args.playerInsert.name, (shuttleIqId, referralCode) =>
+      db.transaction(async (tx) => {
+        // Race-safe: insert player first (rolled back automatically on any
+        // throw below), then claim the user via a conditional UPDATE that
+        // only matches when linked_player_id is still null. Two concurrent
+        // complete-profile requests for the same user will serialize on the
+        // row lock; the loser sees 0 affected rows and we throw to roll
+        // back its just-inserted (orphan) player.
+        const createdPlayer = await this._insertPlayerInTx(
+          tx,
+          args.playerInsert,
+          shuttleIqId,
+          referralCode,
+        );
+
+        const updated = await tx
+          .update(marketplaceUsers)
+          .set({ linkedPlayerId: createdPlayer.id })
+          .where(
+            and(
+              eq(marketplaceUsers.id, args.userId),
+              isNull(marketplaceUsers.linkedPlayerId),
+            ),
+          )
+          .returning();
+
+        if (updated.length === 0) {
+          // Disambiguate USER_NOT_FOUND vs PROFILE_ALREADY_COMPLETE for the
+          // route layer's status mapping. Either branch throws to abort the
+          // tx (and roll back the orphan player insert above).
+          const [existing] = await tx
+            .select()
+            .from(marketplaceUsers)
+            .where(eq(marketplaceUsers.id, args.userId));
+          if (!existing) throw new Error('USER_NOT_FOUND');
+          throw new Error('PROFILE_ALREADY_COMPLETE');
+        }
+
+        return { user: updated[0], player: addSkidToPlayer(createdPlayer) };
+      }),
+    );
   }
 
   async checkInBookingTransaction(args: {

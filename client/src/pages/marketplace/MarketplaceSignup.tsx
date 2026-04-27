@@ -5,56 +5,25 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff, CheckCircle, Loader2, Gift, ChevronLeft } from 'lucide-react';
 import { SiGoogle } from 'react-icons/si';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import {
+  SkillAssessmentStepper,
+  type AssessmentAnswers,
+  type Gender,
+} from '@/components/marketplace/SkillAssessmentStepper';
 
-type Gender = 'Male' | 'Female';
-type AssessmentAnswer = 1 | 2 | 3 | 4;
-type Step = 'form' | 'q1' | 'q2' | 'q3' | 'referral';
+// Three flow phases:
+//   form      → basic info (name/email/phone/password)
+//   assessment → 4-step gender + 3-question stepper (handled by shared component)
+//   referral  → final referral-code prompt before submitting
+type Phase = 'form' | 'assessment' | 'referral';
 
-interface AssessmentQuestion {
-  key: 'q1' | 'q2' | 'q3';
-  title: string;
-  options: { value: AssessmentAnswer; label: string }[];
-}
-
-const ASSESSMENT_QUESTIONS: AssessmentQuestion[] = [
-  {
-    key: 'q1',
-    title: 'How long have you been playing badminton?',
-    options: [
-      { value: 1, label: 'Just starting out (less than 6 months)' },
-      { value: 2, label: 'Casually for 6 months to 2 years' },
-      { value: 3, label: 'Regularly for 2-5 years' },
-      { value: 4, label: '5+ years, competitive experience' },
-    ],
-  },
-  {
-    key: 'q2',
-    title: 'How often do you play right now?',
-    options: [
-      { value: 1, label: 'Rarely — a few times a year' },
-      { value: 2, label: 'Once or twice a month' },
-      { value: 3, label: 'Once a week' },
-      { value: 4, label: 'Multiple times a week' },
-    ],
-  },
-  {
-    key: 'q3',
-    title: 'How would you describe your shot control?',
-    options: [
-      { value: 1, label: "I'm still learning the basics" },
-      { value: 2, label: 'I can rally consistently on easy shots' },
-      { value: 3, label: 'I can control clears, drops, and smashes' },
-      { value: 4, label: 'I play tactically with deception and placement' },
-    ],
-  },
-];
-
-const STEP_ORDER: Step[] = ['form', 'q1', 'q2', 'q3', 'referral'];
+// Used purely for the "Step X of 5" hint shown across the whole flow.
+//   1: form, 2-5: gender + q1/q2/q3, (referral handled separately as step 5)
+const TOTAL_STEPS = 5;
 
 export default function MarketplaceSignup() {
   usePageTitle('Sign Up');
@@ -66,16 +35,14 @@ export default function MarketplaceSignup() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [gender, setGender] = useState<Gender | ''>('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const [step, setStep] = useState<Step>('form');
-  const [answers, setAnswers] = useState<{
-    q1: AssessmentAnswer | null;
-    q2: AssessmentAnswer | null;
-    q3: AssessmentAnswer | null;
-  }>({ q1: null, q2: null, q3: null });
+  const [phase, setPhase] = useState<Phase>('form');
+  const [collected, setCollected] = useState<{
+    gender: Gender;
+    assessmentAnswers: AssessmentAnswers;
+  } | null>(null);
 
   const [referralCode, setReferralCode] = useState('');
   const [referralValidating, setReferralValidating] = useState(false);
@@ -117,29 +84,27 @@ export default function MarketplaceSignup() {
     }
   }, []);
 
-  const stepIndex = STEP_ORDER.indexOf(step);
-  const goBack = () => {
-    if (stepIndex > 0) setStep(STEP_ORDER[stepIndex - 1]);
-  };
-
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gender) {
-      toast({ title: 'Please select your gender', variant: 'destructive' });
-      return;
-    }
-    setStep('q1');
+    setPhase('assessment');
   };
 
-  const handleAnswerSelect = (questionKey: 'q1' | 'q2' | 'q3', value: AssessmentAnswer) => {
-    setAnswers((prev) => ({ ...prev, [questionKey]: value }));
-    // Auto-advance to keep flow snappy.
-    const idx = STEP_ORDER.indexOf(questionKey);
-    setStep(STEP_ORDER[idx + 1]);
+  // Called by the shared stepper once gender + 3 answers are collected.
+  // We *don't* submit the signup here — the user still needs to pass through
+  // the referral-code step.
+  const handleAssessmentComplete = ({
+    gender,
+    assessmentAnswers,
+  }: {
+    gender: Gender;
+    assessmentAnswers: AssessmentAnswers;
+  }) => {
+    setCollected({ gender, assessmentAnswers });
+    setPhase('referral');
   };
 
   const handleFinishSignup = async (code?: string) => {
-    if (!gender || answers.q1 === null || answers.q2 === null || answers.q3 === null) {
+    if (!collected) {
       toast({ title: 'Please complete all steps', variant: 'destructive' });
       return;
     }
@@ -156,8 +121,8 @@ export default function MarketplaceSignup() {
         password,
         name,
         phone,
-        gender,
-        assessmentAnswers: [answers.q1, answers.q2, answers.q3],
+        gender: collected.gender,
+        assessmentAnswers: collected.assessmentAnswers,
         referralCode: code,
         promo: promo || undefined,
         remember,
@@ -172,57 +137,24 @@ export default function MarketplaceSignup() {
     }
   };
 
-  // ----- Skill assessment step -----
-  if (step === 'q1' || step === 'q2' || step === 'q3') {
-    const q = ASSESSMENT_QUESTIONS.find((x) => x.key === step)!;
-    const selected = answers[q.key];
+  // ----- Skill assessment phase (gender + 3 questions) -----
+  if (phase === 'assessment') {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <div className="flex items-center justify-between gap-2">
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={goBack}
-                data-testid="button-step-back"
-                aria-label="Back"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="text-xs text-muted-foreground" data-testid="text-step-progress">
-                Step {stepIndex + 1} of {STEP_ORDER.length}
-              </span>
-              <span className="w-9" />
-            </div>
-            <CardTitle className="mt-2 text-lg" data-testid={`text-question-title-${q.key}`}>
-              {q.title}
-            </CardTitle>
-            <CardDescription>Pick the option that best describes you.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {q.options.map((opt) => {
-              const isSelected = selected === opt.value;
-              return (
-                <Button
-                  key={opt.value}
-                  variant={isSelected ? 'default' : 'outline'}
-                  className="w-full justify-start text-left whitespace-normal h-auto py-3"
-                  onClick={() => handleAnswerSelect(q.key, opt.value)}
-                  data-testid={`button-answer-${q.key}-${opt.value}`}
-                >
-                  <span className="text-sm">{opt.label}</span>
-                </Button>
-              );
-            })}
-          </CardContent>
-        </Card>
+        <SkillAssessmentStepper
+          title="Tell us about your game"
+          description="A few quick questions so we can match you with the right players."
+          totalSteps={TOTAL_STEPS}
+          stepOffset={1}
+          onBackFromFirstStep={() => setPhase('form')}
+          onSubmit={handleAssessmentComplete}
+        />
       </div>
     );
   }
 
   // ----- Referral step -----
-  if (step === 'referral') {
+  if (phase === 'referral') {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
         <Card className="w-full max-w-md">
@@ -231,7 +163,7 @@ export default function MarketplaceSignup() {
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={goBack}
+                onClick={() => setPhase('assessment')}
                 disabled={loading}
                 data-testid="button-step-back"
                 aria-label="Back"
@@ -239,7 +171,7 @@ export default function MarketplaceSignup() {
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <span className="text-xs text-muted-foreground" data-testid="text-step-progress">
-                Step {stepIndex + 1} of {STEP_ORDER.length}
+                Step {TOTAL_STEPS} of {TOTAL_STEPS}
               </span>
               <span className="w-9" />
             </div>
@@ -320,7 +252,7 @@ export default function MarketplaceSignup() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <span className="text-xs text-muted-foreground mb-1" data-testid="text-step-progress">
-            Step {stepIndex + 1} of {STEP_ORDER.length}
+            Step 1 of {TOTAL_STEPS}
           </span>
           <CardTitle data-testid="text-signup-title">Create Account</CardTitle>
           <CardDescription>Join the ShuttleIQ community</CardDescription>
@@ -389,24 +321,6 @@ export default function MarketplaceSignup() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="gender">Gender</Label>
-              <Select
-                value={gender}
-                onValueChange={(v) => setGender(v as Gender)}
-              >
-                <SelectTrigger id="gender" data-testid="select-gender">
-                  <SelectValue placeholder="Select gender" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Male" data-testid="option-gender-male">Male</SelectItem>
-                  <SelectItem value="Female" data-testid="option-gender-female">Female</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Used to balance teams in mixed-doubles matchmaking.
-              </p>
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <div className="relative">
                 <Input
@@ -436,7 +350,7 @@ export default function MarketplaceSignup() {
             <Button
               type="submit"
               className="w-full"
-              disabled={loading || !gender}
+              disabled={loading}
               data-testid="button-submit-signup"
             >
               Continue

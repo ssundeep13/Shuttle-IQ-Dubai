@@ -27,7 +27,8 @@ export default function GoogleAuthCallback() {
     }
 
     const returnPath = params.get('returnPath');
-    const destination = returnPath && returnPath.startsWith('/marketplace/') ? returnPath : '/marketplace/dashboard';
+    const intendedDestination =
+      returnPath && returnPath.startsWith('/marketplace/') ? returnPath : '/marketplace/dashboard';
 
     let remember = true;
     try {
@@ -37,9 +38,21 @@ export default function GoogleAuthCallback() {
     }
 
     loginWithTokens(accessToken, refreshToken, remember)
-      .then(() => {
+      .then((mpUser) => {
+        // Brand-new Google sign-ups land here with no linked player. Send
+        // them through the gender + skill self-assessment first; existing
+        // Google users (linkedPlayerId set) skip straight to their intended
+        // destination.
+        if (mpUser && mpUser.linkedPlayerId === null) {
+          const completeUrl =
+            intendedDestination !== '/marketplace/complete-profile'
+              ? `/marketplace/complete-profile?from=${encodeURIComponent(intendedDestination)}`
+              : '/marketplace/complete-profile';
+          setLocation(completeUrl);
+          return;
+        }
         toast({ title: 'Signed in with Google!' });
-        setLocation(destination);
+        setLocation(intendedDestination);
       })
       .catch(() => {
         toast({ title: 'Sign-in failed', description: 'Please try again.', variant: 'destructive' });

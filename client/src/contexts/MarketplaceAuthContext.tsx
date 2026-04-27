@@ -30,7 +30,15 @@ interface MarketplaceAuthContextType {
     promo?: string;
     remember?: boolean;
   }) => Promise<void>;
-  loginWithTokens: (accessToken: string, refreshToken: string, remember?: boolean) => Promise<void>;
+  loginWithTokens: (
+    accessToken: string,
+    refreshToken: string,
+    remember?: boolean,
+  ) => Promise<MarketplaceUser | null>;
+  completeProfile: (input: {
+    gender: 'Male' | 'Female';
+    assessmentAnswers: [number, number, number];
+  }) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
 }
@@ -231,7 +239,11 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     }
   };
 
-  const loginWithTokens = async (accessToken: string, refreshToken: string, remember: boolean = true) => {
+  const loginWithTokens = async (
+    accessToken: string,
+    refreshToken: string,
+    remember: boolean = true,
+  ): Promise<MarketplaceUser | null> => {
     setAccessToken(accessToken);
     setRefreshToken(refreshToken);
     writeTokens(accessToken, refreshToken, remember);
@@ -240,17 +252,45 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     // query cache. This ensures isAuthenticated is true before the caller
     // navigates, preventing the protected-route race condition where user=null
     // causes an unwanted redirect back to /marketplace/login.
+    // Also returned so callers (e.g. GoogleAuthCallback) can branch on
+    // linkedPlayerId without waiting for the next render.
     try {
       const response = await fetch('/api/marketplace/auth/me', {
         headers: { 'Authorization': `Bearer ${accessToken}` },
       });
       if (response.ok) {
-        const userData = await response.json();
+        const userData = (await response.json()) as MarketplaceUser;
         queryClient.setQueryData(['/api/marketplace/auth/me'], userData);
+        return userData;
       }
     } catch {
       // Non-fatal — the query will self-heal on the next render cycle
     }
+    return null;
+  };
+
+  const completeProfile = async (input: {
+    gender: 'Male' | 'Female';
+    assessmentAnswers: [number, number, number];
+  }) => {
+    if (!accessToken) {
+      throw new Error('Not signed in');
+    }
+    const response = await fetch('/api/marketplace/auth/complete-profile', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to complete profile');
+    }
+    // Refetch so user.linkedPlayerId is updated and protected routes unblock.
+    await queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+    await queryClient.refetchQueries({ queryKey: ['/api/marketplace/auth/me'] });
   };
 
   const logout = async () => {
@@ -284,6 +324,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
         login,
         signup,
         loginWithTokens,
+        completeProfile,
         logout,
         error,
       }}
