@@ -1,0 +1,56 @@
+P1 Continuation — Storage Methods + Transactional Game Completion
+The schema is in place. Now complete the remaining P1 steps. Do not start P2 until all steps below are confirmed working.
+Step 1 — Add storage methods for match suggestions
+In server/storage.ts, add the following methods to both the IStorage interface and the DatabaseStorage implementation:
+
+createSuggestion(data: { id: string, sessionId: string, courtId: string, pendingUntil: Date, players: { playerId: string, team: number }[] }) — inserts the parent match_suggestions row and all 4 match_suggestion_players rows inside a single db.transaction. The courtId on each player row must equal the parent courtId. If any insert fails the whole transaction rolls back.
+getSuggestionById(id: string) — returns the match_suggestions row plus its 4 player rows.
+getPendingSuggestionForCourt(courtId: string) — returns the most recent match_suggestions row for a given court where status is pending or approved, plus its player rows.
+getPendingSuggestionForPlayer(playerId: string) — queries match_suggestion_players directly (single-table read, no join to parent) to find any pending or approved suggestion the player is assigned to. Returns the suggestion row and all 4 player rows.
+listExpiredPendingSuggestions() — returns all match_suggestions rows where status is pending and pendingUntil is in the past. Used by the auto-approve sweep job.
+updateSuggestionStatus(id: string, status: string, approvedBy?: string) — updates the status and optionally the approvedBy field on a match_suggestions row.
+
+Step 2 — Add completeGameTransaction storage method
+Add completeGameTransaction(params) to both IStorage and DatabaseStorage. This method must:
+
+Accept: courtId, sessionId, playerIds (array of 4), winningTeam, team1Score, team2Score, matchSuggestionId? (optional)
+Inside a single db.transaction:
+
+Re-read current skillScore from the players table for all 4 players (do not use any in-memory values passed in)
+Calculate new skill scores using the existing calculateSkillAdjustment function from shared/utils/skillUtils.ts
+Update all 4 players rows with new skill scores, increment gamesPlayed, increment wins for winners
+Insert one game_results row
+Insert four game_participants rows with skillScoreBefore and skillScoreAfter
+If matchSuggestionId is supplied and a game_results row with that matchSuggestionId already exists, return the existing row without throwing (idempotent)
+If the session is a sandbox session (isSandbox === true), skip the skill score updates but still insert game_results and game_participants
+
+
+Return the game_results row
+
+Step 3 — Refactor the admin end-game route
+In server/routes.ts, find POST /api/courts/:courtId/end-game. Replace the inline player-update and insert block with a call to storage.completeGameTransaction. Keep all post-completion bookkeeping that currently runs after the inserts (rest-state updates, partner history, queue rebuild, court reset, persistRestStatesToDb) exactly as they are — those stay outside the transaction.
+Step 4 — Verify
+Test the admin end-game flow on a sandbox session in the running app. Confirm:
+
+Scores save correctly
+Skill scores update correctly (or are skipped on sandbox)
+Queue rebuilds
+Court resets to available
+No errors in the server logs
+
+Critical constraints
+
+All new storage methods must be added to the IStorage interface first, then implemented in DatabaseStorage
+completeGameTransaction must re-read skill scores inside the transaction, not use passed-in values
+Sandbox sessions must skip skill score updates
+No changes to skill score math, K-factor, tier buffer, or return boost logic
+The admin end-game route behaviour must be identical to before from Shannon's perspective
+
+Report back when complete:
+
+Confirm all 6 storage methods are added
+Paste the signature of completeGameTransaction
+Confirm the sandbox session test result
+Note anything deferred
+
+Do not start P2 until this report is received.
