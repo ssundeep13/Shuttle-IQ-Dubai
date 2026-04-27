@@ -1,0 +1,102 @@
+P3 confirmed complete. Moving to P4+P5 combined.
+P4+P5 — Score Flag Endpoint + Auto-Approve Sweep + Court Captain Panel
+What & Why
+Three connected pieces that complete the backend gameplay loop:
+P4 — Any of the 4 players can flag a submitted score as wrong. This writes to the existing score_disputes table and alerts the Court Captain. No new infrastructure needed — the table and Shannon's resolution view already exist.
+P5a — A scheduler sweep runs every 15 seconds and auto-approves any match_suggestions row whose pendingUntil has passed. When a suggestion auto-approves, all 4 assigned players receive a marketplace_notifications row telling them their court and teammates.
+P5b — The Court Captain panel on the admin session page gains a new section showing pending suggestions with a live countdown and an override button to approve early or dismiss.
+Done looks like
+P4 — Flag endpoint:
+
+POST /api/marketplace/games/:gameResultId/flag exists behind marketplace auth
+Any marketplace user whose linkedPlayerId appears in the game_participants for that gameResultId can flag it
+Anyone else gets 403
+Body accepts optional note: string
+Writes one row to score_disputes with status: 'open', gameResultId, filedByUserId from the authenticated user
+If a dispute already exists from this user for this game, returns 200 with alreadyFlagged: true — idempotent, no duplicate row
+Returns { success: true, disputeId: string, alreadyFlagged: boolean }
+Writes one marketplace_notifications row to every admin user alerting them a dispute was filed — use the existing notification pattern
+All user-facing copy uses "Court Captain", never "admin" or "host"
+
+P5a — Auto-approve sweep:
+
+Add a new job to the existing scheduler in server/scheduler.ts that runs every 15 seconds
+The job calls storage.listExpiredPendingSuggestions() which already exists
+For each expired suggestion:
+
+Updates status to approved, approvedBy to "auto"
+Writes one marketplace_notifications row to each of the 4 assigned players with title "Your court is ready" and message "Court [X] — [Partner] vs [Opponent1] + [Opponent2]. Head to your court now."
+Logs [auto-approve] suggestion ${id} approved for court ${courtId}
+
+
+If the suggestion's court is already occupied (another game started), skip it and log
+If any step fails for one suggestion, log the error and continue to the next — never crash the scheduler
+The sweep must not run if no active sessions exist — check first and exit early
+
+P5b — Court Captain panel:
+
+Add a new "Pending Lineups" section to the admin session page, above the court cards
+Shows only when at least one match_suggestions row exists with status pending or approved for the current session
+Each pending suggestion card shows:
+
+Court name
+Team 1 vs Team 2 player names
+Live countdown to auto-approve (updates every second)
+"Approve now" button — immediately approves and notifies the 4 players
+"Dismiss" button — sets status to a new value dismissed, no notifications sent
+
+
+When no pending suggestions exist, the section is hidden entirely — do not show an empty state
+Polling interval for this section: 10 seconds using TanStack Query
+Follows existing shadcn/Tailwind patterns and ShuttleIQ brand colors (navy #003E8C, teal #006B5F, cream #F5EFE0)
+
+Critical constraints
+
+P4 flag endpoint writes to the EXISTING score_disputes table — do not create a parallel dispute system
+The scheduler sweep interval must be 15 seconds — not 30, not 60
+The sweep must be added to the EXISTING startScheduler() function in server/scheduler.ts — do not create a new scheduler
+dismissed status on match_suggestions — check if this needs to be added to the schema or if it fits within existing status values. If schema change needed, run npm run db:push and report the output
+Notifications to players use the existing marketplace_notifications table — do not build a push notification system
+The Court Captain panel must not break Shannon's existing court management UI — it is additive only
+Use "Court Captain" in all user-facing strings
+
+Steps
+
+Add POST /api/marketplace/games/:gameResultId/flag to server/marketplace-routes.ts
+Add the auto-approve sweep job to server/scheduler.ts
+Add a new API endpoint GET /api/sessions/:sessionId/pending-suggestions for the frontend to poll
+Add the Pending Lineups panel to the admin session page frontend
+Add "Approve now" and "Dismiss" button handlers
+If dismissed requires a schema change, make it and run db:push
+
+Test when complete
+P4:
+
+Flag a game as one of the 4 participants → 200, dispute row created, notification written to admin
+Flag same game again → 200, alreadyFlagged: true, no duplicate dispute row
+Flag as a non-participant → 403
+Flag a non-existent gameResultId → 404
+
+P5a:
+
+Create a suggestion with pendingUntil = 10 seconds from now, wait 25 seconds, confirm status = approved, approvedBy = "auto", 4 notifications written
+Confirm the sweep logs correctly
+Confirm the sweep exits early when no active sessions exist
+
+P5b:
+
+Pending suggestion appears on the admin session page with correct player names and countdown
+"Approve now" button immediately approves and removes the card
+"Dismiss" button removes the card without sending notifications
+Section is hidden when no pending suggestions exist
+
+Report back:
+
+Confirm all P4 test scenarios passed
+Confirm auto-approve timing — how many seconds between pendingUntil passing and status flipping to approved
+Confirm 4 notifications are written per auto-approve
+Confirm the Court Captain panel renders and the countdown works
+Whether dismissed required a schema change and db:push output if so
+Anything deferred
+
+Do not start P6 until this report is received.
