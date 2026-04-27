@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
@@ -140,6 +140,25 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [flagError, setFlagError] = useState<string | null>(null);
 
+  // Holds the post-submit auto-redirect timer so the "Flag this score"
+  // tap can cancel it. Cleared on unmount to avoid late navigation.
+  const redirectTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current !== null) {
+        window.clearTimeout(redirectTimerRef.current);
+        redirectTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const cancelAutoRedirect = () => {
+    if (redirectTimerRef.current !== null) {
+      window.clearTimeout(redirectTimerRef.current);
+      redirectTimerRef.current = null;
+    }
+  };
+
   const yourScoreValid = isNonNegativeInteger(yourScoreRaw);
   const oppScoreValid = isNonNegativeInteger(oppScoreRaw);
   const bothScoresValid = yourScoreValid && oppScoreValid;
@@ -168,10 +187,22 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
       setSubmittedGameResultId(data.gameResultId);
       setSubmittedAlreadyRecorded(data.alreadySubmitted);
       setSubmitError(null);
-      // Intentionally NO auto-redirect. The player should be able to
-      // tap "Flag this score" at their own pace — auto-navigation
-      // would race that affordance away. Navigation happens only when
-      // the player taps the explicit "Done" button below.
+      // Auto-navigate after the confirmation has had a moment to land.
+      //   - First submitter (alreadySubmitted=false) → 1.5s → P9 done
+      //     screen at /marketplace/play/done. P9 hasn't shipped yet, so
+      //     wouter falls through to NotFound — accepted per the plan.
+      //   - Late submitter (alreadySubmitted=true) → 2s → session hub
+      //     at /marketplace/play (today's "session summary" surface).
+      // The handle is stored in a ref so tapping "Flag this score"
+      // can cancel the timer — flagging is the rare-but-important
+      // path and must not get raced away by the redirect.
+      const destination = data.alreadySubmitted
+        ? '/marketplace/play'
+        : '/marketplace/play/done';
+      const delayMs = data.alreadySubmitted ? 2000 : 1500;
+      redirectTimerRef.current = window.setTimeout(() => {
+        setLocation(destination);
+      }, delayMs);
     },
     onError: (err) => {
       setSubmitError(
@@ -394,7 +425,10 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
                     variant="outline"
                     className="w-full"
                     disabled={flagMutation.isPending}
-                    onClick={() => flagMutation.mutate()}
+                    onClick={() => {
+                      cancelAutoRedirect();
+                      flagMutation.mutate();
+                    }}
                     data-testid="button-flag-score"
                   >
                     {flagMutation.isPending ? 'Flagging…' : 'Flag this score'}
@@ -411,27 +445,23 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
               )}
 
               {/*
-                Explicit "Done" button. Replaces the previous auto-redirect
-                so the player can take their time reading the confirmation
-                or tapping "Flag this score" before leaving the screen.
-                  - alreadySubmitted=true → late submitter, send straight
-                    back to the session hub (waiting room / next game).
-                  - alreadySubmitted=false → first submitter, route to the
-                    post-game confirmation screen at /marketplace/play/done
-                    (P9; planned follow-up — wouter currently falls through
-                    to NotFound and that is acceptable per the plan).
+                Explicit "Done" button — fallback escape hatch. The auto-
+                redirect handles the common case; this lets a player who
+                cancelled it (by tapping "Flag this score") still leave
+                the screen on their own terms.
               */}
               <Button
                 size="lg"
                 className="w-full"
                 style={{ backgroundColor: NAVY, color: 'white' }}
-                onClick={() =>
+                onClick={() => {
+                  cancelAutoRedirect();
                   setLocation(
                     submittedAlreadyRecorded
                       ? '/marketplace/play'
                       : '/marketplace/play/done',
-                  )
-                }
+                  );
+                }}
                 data-testid="button-done"
               >
                 Done
