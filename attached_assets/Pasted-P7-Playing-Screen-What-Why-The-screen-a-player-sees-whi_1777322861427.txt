@@ -1,0 +1,65 @@
+P7 — Playing Screen
+What & Why
+The screen a player sees while their game is in progress. They've been told to go to their court — this screen confirms they're in the right place and shows live game context. It is read-only. No player actions happen here except the automatic transition to score entry when the game ends.
+Done looks like
+The route /marketplace/play/playing renders the playing screen for an authenticated player whose current suggestion status is playing.
+Screen content:
+
+Eyebrow: teal "IN PROGRESS"
+Heading: navy "Game on."
+Court card showing:
+
+Court name large and prominent
+"Your team" with partner name (teal accent)
+"vs" divider
+"Opponents" with both opponent names (navy accent)
+A live game timer — counts up from 00:00, starts when the component mounts. Format: MM:SS. Runs client-side only, no backend sync needed
+
+
+Small muted caption: "Submit your score when the game ends."
+No action buttons on this screen — the only action is the automatic transition to score entry
+
+Auto-transitions:
+
+Polls GET /api/marketplace/players/me/current-suggestion every 5 seconds (same endpoint as P6)
+When suggestion status flips to completed → navigate to /marketplace/play/score (P8 route — not built yet, wouter falls through to NotFound, acceptable for this phase)
+When suggestion status becomes null (suggestion disappeared without completing) → navigate back to /marketplace/play waiting screen
+When suggestion status is pending or approved (player somehow lands here early) → redirect back to /marketplace/play
+
+Critical constraints
+
+The game timer is purely cosmetic — it counts up from zero when the component mounts. It does not sync with courts.startedAt in the backend. Do not add a backend call for the timer
+Polling must use TanStack Query refetchInterval: 5000 — not a hand-rolled setInterval
+The timer must use a separate setInterval inside a useEffect with proper cleanup on unmount — do not mix the timer with the polling
+If the player navigates to this route but their suggestion is not in playing status, redirect them to /marketplace/play immediately
+Mobile-first layout, large readable text for a sports hall environment
+All copy plain English, no emoji, "Court Captain" wording for any error states
+Follow existing shadcn/Tailwind patterns and ShuttleIQ brand colors
+
+Steps
+
+Register /marketplace/play/playing route in client/src/App.tsx behind MarketplaceAuthRoute
+Create PlayingScreen.tsx in client/src/pages/marketplace/
+Reuse the GET /api/marketplace/players/me/current-suggestion endpoint — no new backend work needed
+Build the court card with team display using the same player/team logic as P6's NextGameCard
+Build the count-up timer with proper useEffect cleanup
+Wire the auto-transitions for all 4 status cases
+
+Test when complete
+
+Player with playing suggestion lands on /marketplace/play/playing and sees correct court name, partner, opponents
+Timer starts at 00:00 and counts up correctly
+Timer stops cleanly when navigating away — no memory leak
+When suggestion flips to completed → navigates to /marketplace/play/score
+When suggestion becomes null → navigates back to /marketplace/play
+When suggestion is pending or approved → redirects to /marketplace/play
+Unauthenticated user → redirected to login
+
+Report back:
+
+All 7 test scenarios listed as pass or fail
+Visual description of the playing screen
+Confirm timer cleanup is implemented correctly
+Anything deferred
+
+Do not start P8 until this report is received.
