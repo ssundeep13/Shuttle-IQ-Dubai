@@ -35,8 +35,8 @@ import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
-import { sql, eq, and } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers } from "@shared/schema";
+import { sql, eq, and, inArray, desc } from "drizzle-orm";
+import { players, matchSuggestions, matchSuggestionPlayers, courts } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
 import {
   generateBracketedLineups,
@@ -3242,6 +3242,115 @@ export function registerMarketplaceRoutes(app: Express) {
       } catch (error) {
         console.error('[Self check-in] error:', error);
         res.status(500).json({ error: "Failed to check in." });
+      }
+    },
+  );
+
+  // Returns the currently-active admin session id, if any. The frontend uses
+  // this to identify which of the player's bookings is "today's" by matching
+  // bookableSession.linkedSessionId === activeSessionId.
+  // (Note: path intentionally does not live under /sessions to avoid the
+  // existing /api/marketplace/sessions/:id catch-all registered earlier.)
+  app.get(
+    "/api/marketplace/active-session",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (_req: AuthRequest, res) => {
+      try {
+        const session = await storage.getActiveSession();
+        res.json({ activeSessionId: session?.id ?? null });
+      } catch (error) {
+        console.error('[Active session lookup] error:', error);
+        res.status(500).json({ error: "Failed to load active session." });
+      }
+    },
+  );
+
+  // Returns the player's current pending|approved|playing match suggestion,
+  // pre-joined with court name and the 4 players' display names + team. The
+  // /marketplace/play waiting screen polls this every 5s. We slightly broaden
+  // the storage helper's status filter (which is pending|approved only) by
+  // doing the lookup inline here so the frontend can detect the transition
+  // to 'playing' and route to the playing screen (P7). The existing
+  // getPendingMatchSuggestionForPlayer helper is left untouched.
+  app.get(
+    "/api/marketplace/players/me/current-suggestion",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        const userId = req.user!.userId;
+        const user = await storage.getMarketplaceUser(userId);
+        const linkedPlayerId = user?.linkedPlayerId ?? null;
+        if (!linkedPlayerId) {
+          return res.json({ suggestion: null });
+        }
+
+        // Inline: find the player's most recent active suggestion (pending,
+        // approved, or playing). Mirrors getPendingMatchSuggestionForPlayer
+        // but with the broader status set.
+        const [parent] = await db
+          .select({
+            id: matchSuggestions.id,
+            courtId: matchSuggestions.courtId,
+            pendingUntil: matchSuggestions.pendingUntil,
+            status: matchSuggestions.status,
+          })
+          .from(matchSuggestionPlayers)
+          .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+          .where(and(
+            eq(matchSuggestionPlayers.playerId, linkedPlayerId),
+            inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+          ))
+          .orderBy(desc(matchSuggestions.suggestedAt))
+          .limit(1);
+
+        if (!parent) {
+          return res.json({ suggestion: null });
+        }
+
+        const playerRows = await db
+          .select()
+          .from(matchSuggestionPlayers)
+          .where(eq(matchSuggestionPlayers.suggestionId, parent.id));
+
+        // Batched joins: court name + the 4 player display names.
+        const [court] = await db
+          .select({ id: courts.id, name: courts.name })
+          .from(courts)
+          .where(eq(courts.id, parent.courtId))
+          .limit(1);
+
+        const playerIds = playerRows.map(p => p.playerId);
+        const playerRecords = playerIds.length
+          ? await storage.getPlayersByIds(playerIds)
+          : [];
+        const nameById = new Map(playerRecords.map(p => [p.id, p.name]));
+
+        // Identify which team the requesting player is on so the frontend can
+        // render "Your team" vs "Opponents" from the player's perspective.
+        const selfRow = playerRows.find(p => p.playerId === linkedPlayerId);
+        const selfTeam: 1 | 2 | null =
+          selfRow?.team === 1 ? 1 : selfRow?.team === 2 ? 2 : null;
+
+        res.json({
+          suggestion: {
+            id: parent.id,
+            status: parent.status,
+            courtId: parent.courtId,
+            courtName: court?.name ?? '',
+            pendingUntil: parent.pendingUntil,
+            selfTeam,
+            players: playerRows.map(p => ({
+              playerId: p.playerId,
+              playerName: nameById.get(p.playerId) ?? 'Player',
+              team: p.team,
+            })),
+          },
+        });
+      } catch (error) {
+        console.error('[Current suggestion] error:', error);
+        res.status(500).json({ error: "Failed to load current suggestion." });
       }
     },
   );
