@@ -1,0 +1,66 @@
+P4+P5 confirmed complete. Moving to P6.
+P6 — Check-in Screen + Waiting Screen
+What & Why
+The first two states a player sees when they open the marketplace on session day. These two states live on the same page/route and transition automatically based on the player's current status.
+Done looks like
+A new route /play exists in the marketplace frontend. A logged-in player navigating here on a session day sees one of two states:
+State 1 — Check-in screen (shown when player has a confirmed booking but has not yet checked in):
+
+Shows the session details: venue name, date, start time
+Single large "Check in" button
+On tap: calls POST /api/marketplace/sessions/:bookableSessionId/checkin
+Shows a loading state while the request is in flight
+On success: transitions immediately to the waiting screen
+On error: shows a clear message using "Court Captain" wording
+
+State 2 — Waiting screen (shown after check-in, while waiting for a court assignment):
+
+Heading: "You're checked in"
+If a pending or approved match_suggestion exists for this player: shows the upcoming game details — court name, partner name, opponent names, team assignment
+If no suggestion exists yet: shows "Finding your next game..." with a subtle loading indicator
+A small "I'm done for today" button at the bottom — tapping this navigates back to the marketplace home page
+Polls GET /api/marketplace/players/me/current-suggestion every 5 seconds
+When the suggestion status flips to approved, the card updates to show "Head to Court [X] now" with the court name highlighted
+When the suggestion status flips to playing (Court Captain starts the game), transitions automatically to the playing screen (P7)
+
+New API endpoint needed:
+GET /api/marketplace/players/me/current-suggestion — returns the current pending or approved suggestion for the authenticated player, including court name, all 4 player names with team assignments, and suggestion status. Returns { suggestion: null } if no active suggestion exists. This is a single-table read using getPendingMatchSuggestionForPlayer which already exists in storage.
+Critical constraints
+
+The /play route must be protected — redirect to login if not authenticated
+If the player has no confirmed booking for any active session today, show a clear message: "No session today. Check the schedule." with a link back to marketplace home
+The 5-second polling must only run when the player is on this screen — stop polling when they navigate away (TanStack Query handles this automatically with refetchInterval)
+Do not show a spinner for every poll — only show loading state on the initial load
+"I'm done for today" must not call any API — it is purely a navigation action
+All copy uses plain English, no jargon, no emoji in UI elements
+Follow existing shadcn/Tailwind patterns and ShuttleIQ brand colors (navy #003E8C, teal #006B5F, cream #F5EFE0)
+Mobile-first layout — this screen will be used on phones in a sports hall
+
+Steps
+
+Add GET /api/marketplace/players/me/current-suggestion to server/marketplace-routes.ts
+Create /play route in the frontend router
+Build the check-in screen state
+Build the waiting screen state with polling
+Wire the automatic transition from waiting → playing when suggestion status = playing
+
+Test when complete
+
+Player with confirmed booking sees check-in screen on /play
+Tapping check-in transitions to waiting screen
+Waiting screen shows "Finding your next game..." when no suggestion exists
+When a suggestion is created for this player, the waiting screen updates within 5 seconds showing court and player names
+When suggestion status flips to approved, "Head to Court X now" appears
+"I'm done for today" navigates back to marketplace home
+Unauthenticated user is redirected to login
+Player with no booking today sees the "No session today" message
+
+Report back:
+
+Confirm the /play route exists and is protected
+Confirm polling stops when navigating away
+Screenshot or description of both screen states
+Confirm the transition to playing screen is wired (even if P7 is not built yet — just confirm the logic exists)
+Anything deferred
+
+Do not start P7 until this report is received.
