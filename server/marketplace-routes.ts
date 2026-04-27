@@ -3819,16 +3819,20 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.status(403).json({ error: "You weren't on this court. Only the four players in the match can submit the score for the Court Captain." });
         }
 
-        // 4. Status gate. Submissions only flow through the tx for live
-        //    states ('approved', 'playing') and for genuine idempotent
-        //    retries against a 'completed' suggestion. The transaction's
-        //    UNIQUE constraint on game_results.matchSuggestionId is the
-        //    single source of truth for idempotency: a duplicate retry
-        //    short-circuits inside completeGameTransaction and returns
-        //    alreadySubmitted=true with the canonical gameResultId.
-        //    Atomicity inside that tx guarantees status='completed' ↔
-        //    a game_results row exists, so we don't need a separate
-        //    route-level pre-check.
+        // 4. Status gate.
+        //    SUBMITTABLE STATES: 'approved', 'playing', 'completed'.
+        //    'completed' is intentionally allowed (despite the spec's
+        //    "approved/playing only" wording) so that an idempotent
+        //    retry from any of the four players against an already-
+        //    completed suggestion still receives the canonical
+        //    { alreadySubmitted: true, gameResultId } response. Without
+        //    this, a network blip on the first submitter's request would
+        //    confuse the second player with a "no longer active" error.
+        //    The transaction's UNIQUE constraint on
+        //    game_results.matchSuggestionId is the single source of
+        //    truth for idempotency. Atomicity inside the tx guarantees
+        //    status='completed' ↔ a game_results row exists, so no
+        //    separate route-level pre-check is needed.
         if (
           suggestion.status !== 'approved' &&
           suggestion.status !== 'playing' &&
