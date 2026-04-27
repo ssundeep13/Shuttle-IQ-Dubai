@@ -364,11 +364,14 @@ async function runMatchSuggestionAutoApproveSweep(): Promise<void> {
           continue;
         }
 
+        // Conditional update: if anything (admin Approve-now or Dismiss)
+        // moved this suggestion out of 'pending' since we read it, the
+        // update no-ops and we skip notifications.
+        const approved = await storage.transitionPendingMatchSuggestion(suggestion.id, 'approved', 'auto');
+        if (!approved) continue;
+
         const fresh = await storage.getMatchSuggestion(suggestion.id);
         if (!fresh) continue;
-
-        const approved = await storage.updateMatchSuggestionStatus(suggestion.id, 'approved', 'auto');
-        if (!approved) continue;
 
         console.log(`[auto-approve] suggestion ${suggestion.id} approved for court ${court.id}`);
 

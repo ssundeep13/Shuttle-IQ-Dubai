@@ -467,6 +467,7 @@ export interface IStorage {
   getPendingMatchSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
+  transitionPendingMatchSuggestion(id: string, nextStatus: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
 
   // Transactional game completion — wraps player updates + game_results +
   // game_participants (and optional match_suggestion completion) in a single
@@ -3538,6 +3539,30 @@ export class DatabaseStorage implements IStorage {
       .update(matchSuggestions)
       .set(updates)
       .where(eq(matchSuggestions.id, id))
+      .returning();
+    return row;
+  }
+
+  // Atomic compare-and-set used by every code path that transitions a
+  // match suggestion out of 'pending' (sweep, captain approve, captain
+  // dismiss). Returns undefined when the row is no longer pending, so the
+  // caller can skip duplicate notifications.
+  async transitionPendingMatchSuggestion(
+    id: string,
+    nextStatus: string,
+    approvedBy?: string | null,
+  ): Promise<MatchSuggestion | undefined> {
+    const updates: Partial<MatchSuggestion> = { status: nextStatus };
+    if (approvedBy !== undefined) {
+      updates.approvedBy = approvedBy;
+    }
+    const [row] = await db
+      .update(matchSuggestions)
+      .set(updates)
+      .where(and(
+        eq(matchSuggestions.id, id),
+        eq(matchSuggestions.status, 'pending'),
+      ))
       .returning();
     return row;
   }

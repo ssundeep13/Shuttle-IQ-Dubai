@@ -1346,7 +1346,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const adminId = req.user?.userId ?? 'admin';
-      const updated = await storage.updateMatchSuggestionStatus(suggestionId, 'approved', adminId);
+      const updated = await storage.transitionPendingMatchSuggestion(suggestionId, 'approved', adminId);
+      if (!updated) {
+        // Lost the race with the sweep or another admin call. Refetch the
+        // current state and return it idempotently so the captain UI sees
+        // a clean resolution.
+        const current = await storage.getMatchSuggestion(suggestionId);
+        return res.json(current);
+      }
       console.log(`[Court Captain] suggestion ${suggestionId} approved by ${adminId}`);
 
       // Notify the 4 players (best-effort, mirrors the sweep)
@@ -1400,7 +1407,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: `Suggestion is already ${suggestion.status} and cannot be dismissed.` });
       }
       const adminId = req.user?.userId ?? 'admin';
-      const updated = await storage.updateMatchSuggestionStatus(suggestionId, 'dismissed', adminId);
+      const updated = await storage.transitionPendingMatchSuggestion(suggestionId, 'dismissed', adminId);
+      if (!updated) {
+        const current = await storage.getMatchSuggestion(suggestionId);
+        return res.json(current);
+      }
       console.log(`[Court Captain] suggestion ${suggestionId} dismissed by ${adminId}`);
       res.json(updated);
     } catch (error) {
