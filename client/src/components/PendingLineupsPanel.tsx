@@ -149,7 +149,11 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
     },
   });
 
-  // The panel only surfaces suggestions still awaiting captain action.
+  // The endpoint returns both pending and approved suggestions so other
+  // surfaces can read the same payload, but per the P5b spec this panel
+  // only renders suggestions still awaiting captain action — once a row
+  // is approved (by the sweep, by Approve-now, or elsewhere) the card
+  // disappears immediately.
   const actionable = suggestions.filter(s => s.status === 'pending');
 
   if (actionable.length === 0) return null;

@@ -1359,18 +1359,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Notify the 4 players (best-effort, mirrors the sweep)
       try {
         if (updated && court) {
-          const playersById = new Map<string, string>();
-          await Promise.all(suggestion.players.map(async (p) => {
-            const pl = await storage.getPlayer(p.playerId);
-            if (pl) playersById.set(pl.id, pl.name);
-          }));
+          // Mirror the sweep: two batched IN-queries instead of 4 + 4
+          // round-trips for the player + marketplace-user lookups.
+          const playerIds = suggestion.players.map(p => p.playerId);
+          const [playerList, mUserList] = await Promise.all([
+            storage.getPlayersByIds(playerIds),
+            storage.getMarketplaceUsersByLinkedPlayerIds(playerIds),
+          ]);
+          const playersById = new Map(playerList.map(pl => [pl.id, pl.name]));
+          const mUserByPlayerId = new Map(
+            mUserList
+              .filter(u => u.linkedPlayerId)
+              .map(u => [u.linkedPlayerId as string, u]),
+          );
+
           for (const p of suggestion.players) {
             const partnerRow = suggestion.players.find(x => x.team === p.team && x.playerId !== p.playerId);
             const opponents = suggestion.players.filter(x => x.team !== p.team);
             const partnerName = partnerRow ? playersById.get(partnerRow.playerId) ?? 'your partner' : 'your partner';
             const opponentNames = opponents.map(x => playersById.get(x.playerId)).filter(Boolean) as string[];
             const opponentLabel = opponentNames.length === 2 ? `${opponentNames[0]} + ${opponentNames[1]}` : opponentNames.join(' + ') || 'opponents';
-            const mUser = await storage.getMarketplaceUserByLinkedPlayerId(p.playerId);
+            const mUser = mUserByPlayerId.get(p.playerId);
             if (!mUser) continue;
             await storage.createMarketplaceNotification({
               userId: mUser.id,
