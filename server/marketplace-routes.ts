@@ -36,7 +36,7 @@ import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers } from "@shared/schema";
+import { players, matchSuggestions, matchSuggestionPlayers, gameResults } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
 import {
   generateBracketedLineups,
@@ -99,6 +99,10 @@ async function runP3BackgroundMatchmaking(
   try {
     const queue = await storage.getQueue(sessionId);
     if (queue.length < 4) {
+      console.log(
+        `[P3 background matchmaking] skipped: only ${queue.length} player(s) in queue ` +
+        `for session=${sessionId} court=${courtId} (need 4 to form a match).`,
+      );
       return;
     }
     const allPlayers = await storage.getAllPlayers();
@@ -110,6 +114,10 @@ async function runP3BackgroundMatchmaking(
     const { brackets } = generateBracketedLineups(sessionId, queue, allPlayers, 1);
     const top = brackets[0];
     if (!top || !top.combination) {
+      console.log(
+        `[P3 background matchmaking] skipped: bracket generator returned no viable lineup ` +
+        `for session=${sessionId} court=${courtId} (queue size=${queue.length}).`,
+      );
       return;
     }
     const combo = top.combination;
@@ -117,7 +125,13 @@ async function runP3BackgroundMatchmaking(
       ...combo.team1.map(p => ({ playerId: p.id, team: 1 as const })),
       ...combo.team2.map(p => ({ playerId: p.id, team: 2 as const })),
     ];
-    if (lineup.length !== 4) return;
+    if (lineup.length !== 4) {
+      console.log(
+        `[P3 background matchmaking] skipped: lineup had ${lineup.length} players ` +
+        `(expected 4) for session=${sessionId} court=${courtId}.`,
+      );
+      return;
+    }
 
     await storage.createMatchSuggestion({
       sessionId,
@@ -3818,19 +3832,29 @@ export function registerMarketplaceRoutes(app: Express) {
         }
 
         // 5. Status gate. 'approved' and 'playing' are the live submittable
-        //    states. 'completed' is allowed through as well — that path
-        //    relies on completeGameTransaction's UNIQUE-constraint
-        //    short-circuit (game_results.matchSuggestionId is UNIQUE) to
-        //    return the canonical gameResultId with alreadySubmitted=true,
-        //    so a teammate's network retry doesn't confuse the player with
-        //    a "no longer active" error. Only truly dead states ('cancelled',
-        //    'rejected', etc.) are rejected here.
-        if (
-          suggestion.status !== 'approved' &&
-          suggestion.status !== 'playing' &&
-          suggestion.status !== 'completed'
-        ) {
-          return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
+        //    states. 'completed' is allowed only when a game_results row
+        //    actually exists for this suggestion — that means it's a true
+        //    idempotent retry (same player or a teammate after a network
+        //    blip), and we want completeGameTransaction's UNIQUE-constraint
+        //    short-circuit to return the canonical gameResultId with
+        //    alreadySubmitted=true. A 'completed' suggestion WITHOUT a
+        //    matching game_results row is a corrupt / stale state and must
+        //    not be allowed to score fresh — surface it as a 400.
+        if (suggestion.status !== 'approved' && suggestion.status !== 'playing') {
+          if (suggestion.status === 'completed') {
+            const [existingResult] = await db
+              .select({ id: gameResults.id })
+              .from(gameResults)
+              .where(eq(gameResults.matchSuggestionId, suggestionId))
+              .limit(1);
+            if (!existingResult) {
+              return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
+            }
+            // Genuine idempotent retry: fall through into the tx, which will
+            // detect the existing row and return alreadySubmitted=true.
+          } else {
+            return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
+          }
         }
 
         // 6. Resolve session + court (court row needed for status reset)
@@ -3964,6 +3988,7 @@ export function registerMarketplaceRoutes(app: Express) {
         //     court reset) are operational state — if any single step throws
         //     we still want the player to receive their success confirmation,
         //     and we log loudly so an admin can reconcile via the dashboard.
+        let sideEffectsOk = true;
         try {
           for (const playerId of playerIds) {
             updatePlayerRestState(session.id, playerId, true);
@@ -4006,6 +4031,7 @@ export function registerMarketplaceRoutes(app: Express) {
           // return 500, and trick the player into retrying — but the retry
           // would hit the idempotency short-circuit and never re-attempt
           // the side effects, leaving the court permanently stuck.
+          sideEffectsOk = false;
           console.error(
             `[POST submit-score] CRITICAL: side-effect step failed AFTER game_results was saved. ` +
             `gameResultId=${txResult.gameId} sessionId=${session.id} courtId=${court.id} ` +
@@ -4026,11 +4052,23 @@ export function registerMarketplaceRoutes(app: Express) {
 
         // 13. Fire-and-forget background matchmaking — must not block the
         //     response, must never throw out of the request lifecycle.
-        setImmediate(() => {
-          runP3BackgroundMatchmaking(session.id, court.id).catch(err => {
-            console.error('[P3 background matchmaking] unhandled:', err);
+        //     Skipped when side effects failed: the court/queue are in an
+        //     inconsistent state and queueing a fresh suggestion against
+        //     them would just compound the inconsistency. The CRITICAL log
+        //     above is the signal for an admin to reconcile and (manually)
+        //     trigger the next match.
+        if (sideEffectsOk) {
+          setImmediate(() => {
+            runP3BackgroundMatchmaking(session.id, court.id).catch(err => {
+              console.error('[P3 background matchmaking] unhandled:', err);
+            });
           });
-        });
+        } else {
+          console.warn(
+            `[POST submit-score] background matchmaking skipped because post-tx ` +
+            `side effects failed for sessionId=${session.id} courtId=${court.id}.`,
+          );
+        }
       } catch (err) {
         console.error('[POST /api/marketplace/games/:suggestionId/submit-score] error:', err);
         if (!res.headersSent) {
