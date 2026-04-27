@@ -168,26 +168,10 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
       setSubmittedGameResultId(data.gameResultId);
       setSubmittedAlreadyRecorded(data.alreadySubmitted);
       setSubmitError(null);
-      // Navigation is intentionally delayed so the player sees the
-      // confirmation text.
-      //   - First submitter (alreadySubmitted=false) is sent to the post-
-      //     game confirmation screen at /marketplace/play/done. P9 hasn't
-      //     shipped yet, so wouter falls through to NotFound — acceptable
-      //     per the plan.
-      //   - Late submitter (alreadySubmitted=true) doesn't need that
-      //     screen because they weren't the one who recorded the score;
-      //     send them straight back to the session hub at
-      //     /marketplace/play, which is today's "session summary" surface
-      //     (waiting room / next game).
-      if (data.alreadySubmitted) {
-        window.setTimeout(() => {
-          setLocation('/marketplace/play');
-        }, 2000);
-      } else {
-        window.setTimeout(() => {
-          setLocation('/marketplace/play/done');
-        }, 1500);
-      }
+      // Intentionally NO auto-redirect. The player should be able to
+      // tap "Flag this score" at their own pace — auto-navigation
+      // would race that affordance away. Navigation happens only when
+      // the player taps the explicit "Done" button below.
     },
     onError: (err) => {
       setSubmitError(
@@ -408,7 +392,6 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
                 <>
                   <Button
                     variant="outline"
-                    size="sm"
                     className="w-full"
                     disabled={flagMutation.isPending}
                     onClick={() => flagMutation.mutate()}
@@ -426,6 +409,33 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
                   ) : null}
                 </>
               )}
+
+              {/*
+                Explicit "Done" button. Replaces the previous auto-redirect
+                so the player can take their time reading the confirmation
+                or tapping "Flag this score" before leaving the screen.
+                  - alreadySubmitted=true → late submitter, send straight
+                    back to the session hub (waiting room / next game).
+                  - alreadySubmitted=false → first submitter, route to the
+                    post-game confirmation screen at /marketplace/play/done
+                    (P9; planned follow-up — wouter currently falls through
+                    to NotFound and that is acceptable per the plan).
+              */}
+              <Button
+                size="lg"
+                className="w-full"
+                style={{ backgroundColor: NAVY, color: 'white' }}
+                onClick={() =>
+                  setLocation(
+                    submittedAlreadyRecorded
+                      ? '/marketplace/play'
+                      : '/marketplace/play/done',
+                  )
+                }
+                data-testid="button-done"
+              >
+                Done
+              </Button>
             </div>
           )}
         </CardContent>
