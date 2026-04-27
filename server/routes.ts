@@ -1416,7 +1416,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: `Suggestion is already ${suggestion.status} and cannot be dismissed.` });
       }
       const adminId = req.user?.userId ?? 'admin';
-      const updated = await storage.transitionPendingMatchSuggestion(suggestionId, 'dismissed', adminId);
+      // Pass null for approvedBy on dismiss — the field's name reflects
+      // approval semantics; dismissal audit lives in the server log.
+      const updated = await storage.transitionPendingMatchSuggestion(suggestionId, 'dismissed', null);
       if (!updated) {
         const current = await storage.getMatchSuggestion(suggestionId);
         return res.json(current);
