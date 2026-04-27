@@ -3607,7 +3607,7 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       }
 
-      res.status(201).json({ success: true, disputeId: dispute.id, alreadyFlagged: false });
+      res.status(200).json({ success: true, disputeId: dispute.id, alreadyFlagged: false });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid request body", details: err.errors });
