@@ -36,7 +36,7 @@ import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers, gameResults } from "@shared/schema";
+import { players, matchSuggestions, matchSuggestionPlayers } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
 import {
   generateBracketedLineups,
@@ -3819,40 +3819,25 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.status(403).json({ error: "You weren't on this court. Only the four players in the match can submit the score for the Court Captain." });
         }
 
-        // 4. EARLY IDEMPOTENCY SHORT-CIRCUIT:
-        //    If the suggestion is already 'completed' AND a game_results row
-        //    exists for it, this is a duplicate submission from one of the
-        //    four authorized players. We return the canonical gameResultId
-        //    with alreadySubmitted=true regardless of what scores the player
-        //    typed in their retry — the canonical truth is already in the
-        //    DB, so there's no point rejecting their malformed body.
-        //    A 'completed' suggestion with NO game_results row is corrupt
-        //    state (status mutated outside the tx) and must NOT be allowed
-        //    to score fresh — surface 400.
-        if (suggestion.status === 'completed') {
-          const [existingResult] = await db
-            .select({ id: gameResults.id })
-            .from(gameResults)
-            .where(eq(gameResults.matchSuggestionId, suggestionId))
-            .limit(1);
-          if (existingResult) {
-            return res.status(200).json({
-              success: true,
-              gameResultId: existingResult.id,
-              alreadySubmitted: true,
-            });
-          }
+        // 4. Status gate. Submissions only flow through the tx for live
+        //    states ('approved', 'playing') and for genuine idempotent
+        //    retries against a 'completed' suggestion. The transaction's
+        //    UNIQUE constraint on game_results.matchSuggestionId is the
+        //    single source of truth for idempotency: a duplicate retry
+        //    short-circuits inside completeGameTransaction and returns
+        //    alreadySubmitted=true with the canonical gameResultId.
+        //    Atomicity inside that tx guarantees status='completed' ↔
+        //    a game_results row exists, so we don't need a separate
+        //    route-level pre-check.
+        if (
+          suggestion.status !== 'approved' &&
+          suggestion.status !== 'playing' &&
+          suggestion.status !== 'completed'
+        ) {
           return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
         }
 
-        // 5. Status gate for everything that ISN'T completed: only
-        //    'approved' and 'playing' suggestions can be scored.
-        if (suggestion.status !== 'approved' && suggestion.status !== 'playing') {
-          return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
-        }
-
-        // 6. Validate body. We only enforce score-shape rules for the FIRST
-        //    submission — duplicate retries already short-circuited above.
+        // 5. Validate body shape.
         const parsed = submitScoreBodySchema.safeParse(req.body);
         if (!parsed.success) {
           return res.status(400).json({ error: "Invalid score payload. team1Score and team2Score must be non-negative integers and winningTeam must be 1 or 2." });
