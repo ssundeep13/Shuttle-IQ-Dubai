@@ -214,6 +214,19 @@ export interface IStorage {
   updatePlayer(id: string, updates: Partial<Player>): Promise<Player | undefined>;
   deletePlayer(id: string): Promise<boolean>;
   getPlayerStats(playerId: string): Promise<PlayerStats | null>;
+
+  // Atomic signup: create marketplace user + linked player record in one tx
+  signupMarketplaceUserWithPlayer(args: {
+    userInsert: InsertMarketplaceUser;
+    playerInsert: Omit<InsertPlayer, 'shuttleIqId' | 'referralCode'>;
+  }): Promise<{ user: MarketplaceUser; player: Player }>;
+
+  // Atomic self-check-in: mark booking attended + idempotently append to queue
+  checkInBookingTransaction(args: {
+    bookingId: string;
+    linkedSessionId: string;
+    playerId: string | null;
+  }): Promise<{ booking: Booking; queuePosition: number | null; alreadyAttended: boolean }>;
   
   // Court operations (session-specific)
   getCourt(id: string): Promise<Court | undefined>;
@@ -662,6 +675,155 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return addSkidToPlayer(player);
+  }
+
+  async signupMarketplaceUserWithPlayer(args: {
+    userInsert: InsertMarketplaceUser;
+    playerInsert: Omit<InsertPlayer, 'shuttleIqId' | 'referralCode'>;
+  }): Promise<{ user: MarketplaceUser; player: Player }> {
+    // Two concurrent signups landing in the same millisecond can both pick
+    // the same next SIQ-XXXXX id (it's computed by reading the current MAX
+    // outside the tx). On the rare unique-constraint collision we retry
+    // up to 3 times before propagating the error.
+    const MAX_ATTEMPTS = 3;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const shuttleIqId = await generateShuttleIqId();
+      const referralCode = generateReferralCode(args.playerInsert.name, shuttleIqId);
+      try {
+        return await db.transaction(async (tx) => {
+          const userId = randomUUID();
+          const [createdUser] = await tx
+            .insert(marketplaceUsers)
+            .values({ ...args.userInsert, id: userId, linkedPlayerId: null })
+            .returning();
+
+          const playerId = randomUUID();
+          const [createdPlayer] = await tx
+            .insert(players)
+            .values({
+              ...args.playerInsert,
+              id: playerId,
+              shuttleIqId,
+              referralCode,
+              status: args.playerInsert.status || 'waiting',
+              gamesPlayed: args.playerInsert.gamesPlayed || 0,
+              wins: args.playerInsert.wins || 0,
+              skillScoreBaseline: args.playerInsert.skillScore ?? 50,
+            })
+            .returning();
+
+          const [linkedUser] = await tx
+            .update(marketplaceUsers)
+            .set({ linkedPlayerId: playerId })
+            .where(eq(marketplaceUsers.id, createdUser.id))
+            .returning();
+
+          return { user: linkedUser, player: addSkidToPlayer(createdPlayer) };
+        });
+      } catch (err: any) {
+        // Retry only on shuttle_iq_id / referral_code unique-constraint races.
+        const code = err?.code ?? err?.cause?.code;
+        const msg = String(err?.message ?? '');
+        const isSiqRace =
+          code === '23505' &&
+          (msg.includes('shuttle_iq_id') || msg.includes('referral_code'));
+        if (!isSiqRace || attempt === MAX_ATTEMPTS - 1) throw err;
+        lastErr = err;
+      }
+    }
+    throw lastErr ?? new Error('Signup failed after retries');
+  }
+
+  async checkInBookingTransaction(args: {
+    bookingId: string;
+    linkedSessionId: string;
+    playerId: string | null;
+  }): Promise<{ booking: Booking; queuePosition: number | null; alreadyAttended: boolean }> {
+    return await db.transaction(async (tx) => {
+      // Serialize all queue mutations for this internal session so two
+      // concurrent self-check-ins (or a self check-in racing the admin
+      // path) can't both compute the same MAX(position)+1. We use a
+      // transaction-scoped advisory lock keyed on the session id; it is
+      // released automatically at COMMIT/ROLLBACK and doesn't touch any
+      // table rows that other unrelated queries care about.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${args.linkedSessionId}, 0))`,
+      );
+
+      // Lock the booking row too — protects against two concurrent
+      // check-ins on the same booking flipping it twice.
+      const [current] = await tx
+        .select()
+        .from(bookings)
+        .where(eq(bookings.id, args.bookingId))
+        .for('update');
+
+      if (!current) {
+        throw new Error('BOOKING_NOT_FOUND');
+      }
+
+      // Re-validate booking eligibility inside the tx. Only confirmed or
+      // already-attended bookings may proceed; anything else (pending
+      // payment, waitlisted, cancelled) is rejected. The endpoint also
+      // checks this before entering the tx, but the lock-then-recheck
+      // pattern protects against a status change between the two reads.
+      if (current.status !== 'confirmed' && current.status !== 'attended') {
+        throw new Error('BOOKING_NOT_ELIGIBLE');
+      }
+
+      const alreadyAttended = current.status === 'attended';
+      let booking: Booking;
+
+      if (alreadyAttended) {
+        booking = current;
+      } else {
+        const [updated] = await tx
+          .update(bookings)
+          .set({ status: 'attended', attendedAt: new Date() })
+          .where(eq(bookings.id, args.bookingId))
+          .returning();
+        booking = updated;
+      }
+
+      // No linked player → skip queue entirely. Caller will surface a
+      // "ask the Court Captain to add you to the queue" message.
+      if (!args.playerId) {
+        return { booking, queuePosition: null, alreadyAttended };
+      }
+
+      // Idempotent queue insert. Read first, then conditionally insert.
+      const existingEntry = await tx
+        .select()
+        .from(queueEntries)
+        .where(and(
+          eq(queueEntries.sessionId, args.linkedSessionId),
+          eq(queueEntries.playerId, args.playerId),
+        ))
+        .limit(1);
+
+      if (existingEntry.length > 0) {
+        return { booking, queuePosition: existingEntry[0].position, alreadyAttended };
+      }
+
+      // Compute next position by scanning the queue inside the tx; the
+      // advisory lock above guarantees no other check-in is racing us.
+      const maxRow = await tx
+        .select({ maxPos: sql<number | null>`MAX(${queueEntries.position})` })
+        .from(queueEntries)
+        .where(eq(queueEntries.sessionId, args.linkedSessionId));
+      const maxPos = maxRow[0]?.maxPos;
+      const nextPosition = (typeof maxPos === 'number' && maxPos >= 0) ? maxPos + 1 : 0;
+
+      await tx.insert(queueEntries).values({
+        id: randomUUID(),
+        sessionId: args.linkedSessionId,
+        playerId: args.playerId,
+        position: nextPosition,
+      });
+
+      return { booking, queuePosition: nextPosition, alreadyAttended };
+    });
   }
 
   async updatePlayer(id: string, updates: Partial<Player>): Promise<Player | undefined> {

@@ -19,7 +19,17 @@ interface MarketplaceAuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string, remember?: boolean) => Promise<void>;
-  signup: (email: string, password: string, name: string, phone?: string, referralCode?: string, promo?: string, remember?: boolean) => Promise<void>;
+  signup: (input: {
+    email: string;
+    password: string;
+    name: string;
+    phone: string;
+    gender: 'Male' | 'Female';
+    assessmentAnswers: [number, number, number];
+    referralCode?: string;
+    promo?: string;
+    remember?: boolean;
+  }) => Promise<void>;
   loginWithTokens: (accessToken: string, refreshToken: string, remember?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
@@ -177,20 +187,30 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     }
   };
 
-  const signup = async (
-    email: string,
-    password: string,
-    name: string,
-    phone?: string,
-    referralCode?: string,
-    promo?: string,
-    remember: boolean = true,
-  ) => {
+  const signup = async (input: {
+    email: string;
+    password: string;
+    name: string;
+    phone: string;
+    gender: 'Male' | 'Female';
+    assessmentAnswers: [number, number, number];
+    referralCode?: string;
+    promo?: string;
+    remember?: boolean;
+  }) => {
+    const remember = input.remember ?? true;
     setError(null);
     try {
-      const payload: Record<string, string | undefined> = { email, password, name, phone };
-      if (referralCode) payload.referralCode = referralCode;
-      if (promo) payload.promo = promo;
+      const payload: Record<string, unknown> = {
+        email: input.email,
+        password: input.password,
+        name: input.name,
+        phone: input.phone,
+        gender: input.gender,
+        assessmentAnswers: input.assessmentAnswers,
+      };
+      if (input.referralCode) payload.referralCode = input.referralCode;
+      if (input.promo) payload.promo = input.promo;
       const response = await fetch('/api/marketplace/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

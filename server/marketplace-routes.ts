@@ -98,6 +98,21 @@ async function deductWalletForBooking(
   return { walletApplied, remainingFils: bookingAmountFils - walletApplied };
 }
 
+// Compute starting skill score + level from the 3-question signup
+// self-assessment. Each answer is 1-4 (sum range 3-12). Capped so new
+// players cannot self-rank above upper_intermediate; Advanced and
+// Professional are reserved for in-app earned promotions.
+export function computeSkillFromAssessment(answers: [number, number, number]): {
+  skillScore: number;
+  level: 'Novice' | 'Beginner' | 'lower_intermediate' | 'upper_intermediate';
+} {
+  const sum = answers[0] + answers[1] + answers[2];
+  if (sum <= 4) return { skillScore: 35, level: 'Novice' };
+  if (sum <= 7) return { skillScore: 55, level: 'Beginner' };
+  if (sum <= 10) return { skillScore: 75, level: 'lower_intermediate' };
+  return { skillScore: 95, level: 'upper_intermediate' };
+}
+
 export function registerMarketplaceRoutes(app: Express) {
   // One-time idempotent backfill: any marketplace user with a googleId is
   // considered email-verified (Google has already verified their address).
@@ -162,13 +177,24 @@ export function registerMarketplaceRoutes(app: Express) {
         password: z.string().min(6),
         name: z.string().min(1),
         phone: z.string().min(1, "Phone number is required"),
+        gender: z.enum(['Male', 'Female'], {
+          required_error: 'Gender is required',
+          invalid_type_error: 'Gender must be Male or Female',
+        }),
+        assessmentAnswers: z
+          .array(z.number().int().min(1).max(4))
+          .length(3, 'Please answer all three skill questions'),
         referralCode: z.string().optional(),
         promo: z.string().optional(),
       });
-      const { email, password, name, phone, referralCode, promo } = schema.parse(req.body);
+      const { email, password, name, phone, gender, assessmentAnswers, referralCode, promo } = schema.parse(req.body);
       // Jersey promo gives the new signup AED 15 wallet credit. It is
       // ignored if a referral code is also used so credits don't stack.
       const promoCredit = referralCode ? 0 : creditForPromo(promo);
+
+      // Compute starting skill server-side. Hard cap at 95 — Advanced /
+      // Professional are earned through gameplay only.
+      const { skillScore, level } = computeSkillFromAssessment(assessmentAnswers as [number, number, number]);
 
       const existing = await storage.getMarketplaceUserByEmail(email);
       if (existing) {
@@ -178,17 +204,29 @@ export function registerMarketplaceRoutes(app: Express) {
       const passwordHash = await hashPassword(password);
       const verificationToken = randomUUID().replace(/-/g, '');
       const verificationExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-      const user = await storage.createMarketplaceUser({
-        email,
-        passwordHash,
-        name,
-        phone: phone || null,
-        linkedPlayerId: null,
-        role: "player",
-        pendingSignupCreditFils: promoCredit,
-        emailVerified: false,
-        emailVerificationToken: verificationToken,
-        emailVerificationTokenExpiry: verificationExpiry,
+
+      // Create marketplace user + linked internal player record atomically.
+      const { user } = await storage.signupMarketplaceUserWithPlayer({
+        userInsert: {
+          email,
+          passwordHash,
+          name,
+          phone: phone || null,
+          linkedPlayerId: null,
+          role: "player",
+          pendingSignupCreditFils: promoCredit,
+          emailVerified: false,
+          emailVerificationToken: verificationToken,
+          emailVerificationTokenExpiry: verificationExpiry,
+        },
+        playerInsert: {
+          name,
+          email,
+          phone: phone || null,
+          gender,
+          level,
+          skillScore,
+        },
       });
 
       const payload = { userId: user.id, email: user.email, role: "marketplace_player" };
@@ -2921,6 +2959,105 @@ export function registerMarketplaceRoutes(app: Express) {
       res.status(500).json({ error: "Failed to mark attendance" });
     }
   });
+
+  // Self-serve check-in by the booked player. Marks the booking attended
+  // and idempotently appends the player to that session's queue. The whole
+  // flip happens in a single tx; the referral-completion hook fires only
+  // after the tx commits.
+  app.post(
+    "/api/marketplace/sessions/:bookableSessionId/checkin",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        const { bookableSessionId } = req.params;
+        const userId = req.user!.userId;
+
+        const bookableSession = await storage.getBookableSession(bookableSessionId);
+        if (!bookableSession) {
+          return res.status(404).json({ error: "Session not found." });
+        }
+
+        const booking = await storage.getUserBookingForSession(userId, bookableSessionId);
+        // 404 covers both "no booking" and "booking exists but not in a
+        // checkin-eligible state" (waitlisted, pending payment, cancelled).
+        // The spec wording is "no confirmed booking → 404".
+        if (!booking || (booking.status !== 'confirmed' && booking.status !== 'attended')) {
+          return res.status(404).json({
+            error: "We couldn't find a confirmed booking of yours for this session.",
+          });
+        }
+
+        if (!bookableSession.linkedSessionId) {
+          return res.status(400).json({
+            error:
+              "Session is not yet active. Please ask the Court Captain to open the session.",
+          });
+        }
+
+        const user = await storage.getMarketplaceUser(userId);
+        const linkedPlayerId = user?.linkedPlayerId ?? null;
+
+        let result;
+        try {
+          result = await storage.checkInBookingTransaction({
+            bookingId: booking.id,
+            linkedSessionId: bookableSession.linkedSessionId,
+            playerId: linkedPlayerId,
+          });
+        } catch (err: any) {
+          if (err?.message === 'BOOKING_NOT_FOUND' || err?.message === 'BOOKING_NOT_ELIGIBLE') {
+            return res.status(404).json({
+              error: "We couldn't find a confirmed booking of yours for this session.",
+            });
+          }
+          throw err;
+        }
+
+        // Fire-and-forget referral completion hook — only on the first
+        // attended booking, mirrors the admin check-in path.
+        if (!result.alreadyAttended) {
+          (async () => {
+            try {
+              if (!user?.linkedPlayerId) return;
+              const allBookings = await storage.getUserBookings(userId);
+              const attendedCount = allBookings.filter(b => b.attendedAt && !b.isGuestBooking).length;
+              if (attendedCount > 1) return;
+
+              let referral = await storage.getReferralByRefereePlayerId(user.linkedPlayerId);
+              if (!referral) {
+                referral = await storage.getReferralByRefereeUserId(userId);
+              }
+              if (!referral || referral.status !== 'pending') return;
+
+              const completed = await completeReferral(referral.id);
+              if (completed.success) {
+                console.log(`[Referral] Completed referral ${referral.id}: ${user.name} (self check-in)`);
+              }
+            } catch (err) {
+              console.error('[Referral] self check-in completion hook error:', err);
+            }
+          })();
+        }
+
+        const message = linkedPlayerId
+          ? "You're checked in."
+          : "Checked in — please ask the Court Captain to add you to the queue.";
+
+        res.json({
+          success: true,
+          sessionId: bookableSessionId,
+          queuePosition: result.queuePosition,
+          alreadyAttended: result.alreadyAttended,
+          message,
+          booking: result.booking,
+        });
+      } catch (error) {
+        console.error('[Self check-in] error:', error);
+        res.status(500).json({ error: "Failed to check in." });
+      }
+    },
+  );
 
   // Admin: toggle cash paid status
   app.patch("/api/marketplace/bookings/:id/cash-paid", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
