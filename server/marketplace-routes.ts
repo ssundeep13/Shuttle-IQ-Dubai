@@ -3579,13 +3579,12 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(200).json({ success: true, disputeId: existing.id, alreadyFlagged: true });
       }
 
-      // Fan out captain notifications only on the first flag for the game.
-      // Snapshot before insert so our own row doesn't satisfy the gate.
-      const isFirstFlagForGame = !(await storage.hasAnyDisputeForGame(gameResultId));
+      // Atomic insert + first-flag detection. Two concurrent first flags on
+      // the same game serialize on a SELECT FOR UPDATE of game_results, so
+      // exactly one transaction sees isFirstForGame=true and fans out.
+      const { dispute, isFirstForGame } = await storage.createScoreDisputeAtomic({ gameResultId, filedByUserId: userId, note });
 
-      const dispute = await storage.createScoreDispute({ gameResultId, filedByUserId: userId, note });
-
-      if (isFirstFlagForGame) {
+      if (isFirstForGame) {
         try {
           const admins = await storage.listMarketplaceAdmins();
           const playerName = user.name;

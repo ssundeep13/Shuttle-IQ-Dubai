@@ -272,6 +272,8 @@ export interface IStorage {
   getMarketplaceUserByVerificationToken(token: string): Promise<MarketplaceUser | undefined>;
   backfillEmailVerifiedForGoogleUsers(): Promise<number>;
   getMarketplaceUserByLinkedPlayerId(playerId: string): Promise<MarketplaceUser | undefined>;
+  getMarketplaceUsersByLinkedPlayerIds(playerIds: string[]): Promise<MarketplaceUser[]>;
+  getPlayersByIds(ids: string[]): Promise<Player[]>;
   // Player-link OTP (proof of player-profile ownership)
   createPlayerLinkOtp(input: { marketplaceUserId: string; playerId: string; channel: string; destination: string; codeHash: string; expiresAt: Date }): Promise<PlayerLinkOtp>;
   getLatestActivePlayerLinkOtp(marketplaceUserId: string, playerId: string): Promise<PlayerLinkOtp | undefined>;
@@ -359,6 +361,7 @@ export interface IStorage {
 
   // Score dispute operations
   createScoreDispute(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<ScoreDispute>;
+  createScoreDisputeAtomic(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<{ dispute: ScoreDispute; isFirstForGame: boolean }>;
   getScoreDispute(id: string): Promise<ScoreDispute | undefined>;
   getDisputeByUserAndGame(userId: string, gameResultId: string): Promise<ScoreDispute | undefined>;
   hasAnyDisputeForGame(gameResultId: string): Promise<boolean>;
@@ -633,6 +636,19 @@ export class DatabaseStorage implements IStorage {
   async getPlayer(id: string): Promise<Player | undefined> {
     const [player] = await db.select().from(players).where(eq(players.id, id));
     return player ? addSkidToPlayer(player) : undefined;
+  }
+
+  // Batched lookups used by the auto-approve sweep to avoid N+1 round-trips
+  // when notifying the 4 players assigned to an approved court.
+  async getPlayersByIds(ids: string[]): Promise<Player[]> {
+    if (ids.length === 0) return [];
+    const rows = await db.select().from(players).where(inArray(players.id, ids));
+    return rows.map(addSkidToPlayer);
+  }
+
+  async getMarketplaceUsersByLinkedPlayerIds(playerIds: string[]): Promise<MarketplaceUser[]> {
+    if (playerIds.length === 0) return [];
+    return await db.select().from(marketplaceUsers).where(inArray(marketplaceUsers.linkedPlayerId, playerIds));
   }
 
   async getPlayerByExternalId(externalId: string): Promise<Player | undefined> {
@@ -2262,6 +2278,28 @@ export class DatabaseStorage implements IStorage {
       .values({ id, gameResultId: data.gameResultId, filedByUserId: data.filedByUserId, note: data.note ?? null, status: 'open' })
       .returning();
     return dispute;
+  }
+
+  // Atomic insert + first-flag detection. We lock the parent game_results
+  // row so two concurrent first-flag requests on the same game serialize:
+  // the second sees the first's dispute committed and reports isFirst=false.
+  // This is what gates the captain notification fan-out.
+  async createScoreDisputeAtomic(data: { gameResultId: string; filedByUserId: string; note?: string }): Promise<{ dispute: ScoreDispute; isFirstForGame: boolean }> {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT 1 FROM ${gameResults} WHERE ${gameResults.id} = ${data.gameResultId} FOR UPDATE`);
+      const [existingForGame] = await tx
+        .select({ id: scoreDisputes.id })
+        .from(scoreDisputes)
+        .where(eq(scoreDisputes.gameResultId, data.gameResultId))
+        .limit(1);
+      const isFirstForGame = !existingForGame;
+      const id = randomUUID();
+      const [dispute] = await tx
+        .insert(scoreDisputes)
+        .values({ id, gameResultId: data.gameResultId, filedByUserId: data.filedByUserId, note: data.note ?? null, status: 'open' })
+        .returning();
+      return { dispute, isFirstForGame };
+    });
   }
 
   async getScoreDispute(id: string): Promise<ScoreDispute | undefined> {

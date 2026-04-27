@@ -376,11 +376,19 @@ async function runMatchSuggestionAutoApproveSweep(): Promise<void> {
         console.log(`[auto-approve] suggestion ${suggestion.id} approved for court ${court.id}`);
 
         const playerRows = fresh.players;
-        const playersById = new Map<string, string>();
-        await Promise.all(playerRows.map(async (p) => {
-          const player = await storage.getPlayer(p.playerId);
-          if (player) playersById.set(player.id, player.name);
-        }));
+        const playerIds = playerRows.map(p => p.playerId);
+
+        // Two batched lookups instead of 4 + 4 round-trips.
+        const [playerList, marketplaceUserList] = await Promise.all([
+          storage.getPlayersByIds(playerIds),
+          storage.getMarketplaceUsersByLinkedPlayerIds(playerIds),
+        ]);
+        const playersById = new Map(playerList.map(pl => [pl.id, pl.name]));
+        const marketplaceUserByPlayerId = new Map(
+          marketplaceUserList
+            .filter(u => u.linkedPlayerId)
+            .map(u => [u.linkedPlayerId as string, u]),
+        );
 
         let notifiedCount = 0;
         for (const p of playerRows) {
@@ -391,7 +399,7 @@ async function runMatchSuggestionAutoApproveSweep(): Promise<void> {
             const opponentNames = opponents.map(x => playersById.get(x.playerId)).filter(Boolean) as string[];
             const opponentLabel = opponentNames.length === 2 ? `${opponentNames[0]} + ${opponentNames[1]}` : opponentNames.join(' + ') || 'opponents';
 
-            const marketplaceUser = await storage.getMarketplaceUserByLinkedPlayerId(p.playerId);
+            const marketplaceUser = marketplaceUserByPlayerId.get(p.playerId);
             if (!marketplaceUser) continue;
 
             await storage.createMarketplaceNotification({
