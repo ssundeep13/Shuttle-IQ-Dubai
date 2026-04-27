@@ -1,9 +1,23 @@
 import { Resend } from 'resend';
 import type { BookableSession } from '../shared/schema';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const FROM_ADDRESS = 'ShuttleIQ <noreply@shuttleiq.org>';
+
+// Lazy Resend client. Constructing `new Resend(process.env.RESEND_API_KEY)`
+// at module load crashed the server when the env var was unset (e.g. in
+// dev / sandboxed test environments). Defer construction until an email
+// actually needs to be sent so missing keys only fail on send, not on import.
+let resendClient: Resend | null = null;
+function getResendClient(): Resend {
+  if (!resendClient) {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      throw new Error('RESEND_API_KEY is not set — cannot send email');
+    }
+    resendClient = new Resend(apiKey);
+  }
+  return resendClient;
+}
 
 function emailWrapper(body: string): string {
   return `<!DOCTYPE html>
@@ -70,7 +84,7 @@ function sessionBlock(session: BookableSession): string {
 }
 
 async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  const { error } = await resend.emails.send({ from: FROM_ADDRESS, to, subject, html });
+  const { error } = await getResendClient().emails.send({ from: FROM_ADDRESS, to, subject, html });
   if (error) throw new Error(`Resend error: ${JSON.stringify(error)}`);
 }
 

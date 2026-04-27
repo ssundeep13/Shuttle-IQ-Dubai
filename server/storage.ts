@@ -408,15 +408,20 @@ export interface IStorage {
     players: Array<{ playerId: string; team: number }>;
   }): Promise<MatchSuggestion>;
   getMatchSuggestion(id: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
-  getPendingMatchSuggestionForCourt(courtId: string): Promise<MatchSuggestion | undefined>;
-  // Singular: a player should be in at most one pending suggestion at a time
-  // (enforced by the createMatchSuggestion path). The 4-row lineup on
-  // match_suggestion_players is preserved across the suggestion's lifetime
-  // (pending → approved → playing → completed) so historical lookups stay
-  // intact; the duplicated courtId on match_suggestion_players is for
-  // hot-path court-side queries that don't need parent state. To check
-  // pending status we still join the parent.
-  getPendingMatchSuggestionForPlayer(playerId: string): Promise<MatchSuggestion | undefined>;
+  // Returns the most recent pending-or-approved suggestion for a court,
+  // INCLUDING its 4 player rows. ('pending' = awaiting approval; 'approved'
+  // = approved but not yet started; both states are "active" from the
+  // court's perspective.)
+  getPendingMatchSuggestionForCourt(courtId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
+  // Singular: a player should be in at most one pending-or-approved
+  // suggestion at a time (enforced by the createMatchSuggestion path). The
+  // 4-row lineup on match_suggestion_players is preserved across the
+  // suggestion's lifetime (pending → approved → playing → completed) so
+  // historical lookups stay intact; the duplicated courtId on
+  // match_suggestion_players is for hot-path court-side queries that don't
+  // need parent state. To check active status we still join the parent.
+  // Returns the suggestion AND its 4 player rows.
+  getPendingMatchSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
 
@@ -3114,21 +3119,34 @@ export class DatabaseStorage implements IStorage {
     return { ...row, players: playerRows };
   }
 
-  async getPendingMatchSuggestionForCourt(courtId: string): Promise<MatchSuggestion | undefined> {
+  async getPendingMatchSuggestionForCourt(courtId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
+    // 'pending' = awaiting approval; 'approved' = approved but not yet
+    // started. Both are "active" from the court's perspective.
     const [row] = await db
       .select()
       .from(matchSuggestions)
-      .where(and(eq(matchSuggestions.courtId, courtId), eq(matchSuggestions.status, 'pending')))
+      .where(and(
+        eq(matchSuggestions.courtId, courtId),
+        inArray(matchSuggestions.status, ['pending', 'approved']),
+      ))
       .orderBy(desc(matchSuggestions.suggestedAt))
       .limit(1);
-    return row;
+    if (!row) return undefined;
+    const playerRows = await db
+      .select()
+      .from(matchSuggestionPlayers)
+      .where(eq(matchSuggestionPlayers.suggestionId, row.id));
+    return { ...row, players: playerRows };
   }
 
-  async getPendingMatchSuggestionForPlayer(playerId: string): Promise<MatchSuggestion | undefined> {
-    // Singular: a player should be in at most one pending suggestion at a
-    // time (enforced by createMatchSuggestion). Child rows are preserved for
-    // the suggestion's lifetime, so we filter pending state via a parent
-    // status check rather than relying on child-row presence.
+  async getPendingMatchSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
+    // Singular: a player should be in at most one pending-or-approved
+    // suggestion at a time (enforced by createMatchSuggestion). Child rows
+    // are preserved for the suggestion's lifetime, so we filter active
+    // state via a parent status check rather than relying on child-row
+    // presence. Step 1 finds the suggestion id via a single index lookup
+    // on match_suggestion_players (PK on suggestion_id+player_id) joined
+    // to the parent for status filtering; step 2 loads all 4 child rows.
     const [row] = await db
       .select({
         id: matchSuggestions.id,
@@ -3144,11 +3162,16 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
       .where(and(
         eq(matchSuggestionPlayers.playerId, playerId),
-        eq(matchSuggestions.status, 'pending'),
+        inArray(matchSuggestions.status, ['pending', 'approved']),
       ))
       .orderBy(desc(matchSuggestions.suggestedAt))
       .limit(1);
-    return row;
+    if (!row) return undefined;
+    const playerRows = await db
+      .select()
+      .from(matchSuggestionPlayers)
+      .where(eq(matchSuggestionPlayers.suggestionId, row.id));
+    return { ...row, players: playerRows };
   }
 
   async listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]> {
@@ -3329,7 +3352,9 @@ export class DatabaseStorage implements IStorage {
       // same tx so the suggestion can never be re-submitted. The 4-row
       // lineup on match_suggestion_players is intentionally preserved across
       // the suggestion lifecycle for historical/marketplace reads;
-      // getPendingMatchSuggestionForPlayer filters by parent.status='pending'.
+      // getPendingMatchSuggestionForPlayer filters by parent.status IN
+      // ('pending','approved'), so flipping to 'completed' here is what
+      // takes the lineup out of the active set.
       if (args.matchSuggestionId) {
         await tx
           .update(matchSuggestions)
