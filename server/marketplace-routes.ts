@@ -107,8 +107,10 @@ async function runP3BackgroundMatchmaking(
     }
     const allPlayers = await storage.getAllPlayers();
     const history = await storage.getSessionGameParticipants(sessionId);
-    const allPlayerIds = allPlayers.map(p => p.id);
-    buildRestStatesFromHistory(sessionId, history, allPlayerIds);
+    // Pass `queue` as the third arg to match the /api/matchmaking/optimal-teams
+    // convention exactly — keeps the rest-state hydration scope identical to
+    // the live endpoint the frontend admin tools also call.
+    buildRestStatesFromHistory(sessionId, history, queue);
     buildPartnerHistoryFromHistory(sessionId, history);
 
     const { brackets } = generateBracketedLineups(sessionId, queue, allPlayers, 1);
@@ -3785,21 +3787,7 @@ export function registerMarketplaceRoutes(app: Express) {
     async (req: AuthRequest, res) => {
       const suggestionId = req.params.suggestionId;
       try {
-        // 1. Validate body
-        const parsed = submitScoreBodySchema.safeParse(req.body);
-        if (!parsed.success) {
-          return res.status(400).json({ error: "Invalid score payload. team1Score and team2Score must be non-negative integers and winningTeam must be 1 or 2." });
-        }
-        const { team1Score, team2Score, winningTeam } = parsed.data;
-        if (team1Score === team2Score) {
-          return res.status(400).json({ error: "Scores cannot be tied — please record the deciding rally with the Court Captain before submitting." });
-        }
-        const expectedWinner = team1Score > team2Score ? 1 : 2;
-        if (winningTeam !== expectedWinner) {
-          return res.status(400).json({ error: "winningTeam does not match the higher score. Double-check the result with the Court Captain." });
-        }
-
-        // 2. Resolve caller's linked player FIRST. Marketplace users without
+        // 1. Resolve caller's linked player FIRST. Marketplace users without
         //    a linked player can't possibly be on a court roster, so we can
         //    reject them before any suggestion lookup.
         const me = await storage.getMarketplaceUser(req.user!.userId);
@@ -3807,13 +3795,13 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.status(403).json({ error: "Your account isn't linked to a player profile. Ask the Court Captain to link you before submitting scores." });
         }
 
-        // 3. Load the suggestion. Genuine missing => 404 (per API contract).
+        // 2. Load the suggestion. Genuine missing => 404 (per API contract).
         const suggestion = await storage.getMatchSuggestion(suggestionId);
         if (!suggestion) {
           return res.status(404).json({ error: "Match not found. Please confirm with the Court Captain." });
         }
 
-        // 4. Authorization via the indexed match_suggestion_players PK
+        // 3. Authorization via the indexed match_suggestion_players PK
         //    (suggestion_id, player_id) — a direct lookup rather than scanning
         //    suggestion.players in JS, so it stays O(1) regardless of roster
         //    size and exercises the join-table primary key index.
@@ -3831,30 +3819,51 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.status(403).json({ error: "You weren't on this court. Only the four players in the match can submit the score for the Court Captain." });
         }
 
-        // 5. Status gate. 'approved' and 'playing' are the live submittable
-        //    states. 'completed' is allowed only when a game_results row
-        //    actually exists for this suggestion — that means it's a true
-        //    idempotent retry (same player or a teammate after a network
-        //    blip), and we want completeGameTransaction's UNIQUE-constraint
-        //    short-circuit to return the canonical gameResultId with
-        //    alreadySubmitted=true. A 'completed' suggestion WITHOUT a
-        //    matching game_results row is a corrupt / stale state and must
-        //    not be allowed to score fresh — surface it as a 400.
-        if (suggestion.status !== 'approved' && suggestion.status !== 'playing') {
-          if (suggestion.status === 'completed') {
-            const [existingResult] = await db
-              .select({ id: gameResults.id })
-              .from(gameResults)
-              .where(eq(gameResults.matchSuggestionId, suggestionId))
-              .limit(1);
-            if (!existingResult) {
-              return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
-            }
-            // Genuine idempotent retry: fall through into the tx, which will
-            // detect the existing row and return alreadySubmitted=true.
-          } else {
-            return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
+        // 4. EARLY IDEMPOTENCY SHORT-CIRCUIT:
+        //    If the suggestion is already 'completed' AND a game_results row
+        //    exists for it, this is a duplicate submission from one of the
+        //    four authorized players. We return the canonical gameResultId
+        //    with alreadySubmitted=true regardless of what scores the player
+        //    typed in their retry — the canonical truth is already in the
+        //    DB, so there's no point rejecting their malformed body.
+        //    A 'completed' suggestion with NO game_results row is corrupt
+        //    state (status mutated outside the tx) and must NOT be allowed
+        //    to score fresh — surface 400.
+        if (suggestion.status === 'completed') {
+          const [existingResult] = await db
+            .select({ id: gameResults.id })
+            .from(gameResults)
+            .where(eq(gameResults.matchSuggestionId, suggestionId))
+            .limit(1);
+          if (existingResult) {
+            return res.status(200).json({
+              success: true,
+              gameResultId: existingResult.id,
+              alreadySubmitted: true,
+            });
           }
+          return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
+        }
+
+        // 5. Status gate for everything that ISN'T completed: only
+        //    'approved' and 'playing' suggestions can be scored.
+        if (suggestion.status !== 'approved' && suggestion.status !== 'playing') {
+          return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
+        }
+
+        // 6. Validate body. We only enforce score-shape rules for the FIRST
+        //    submission — duplicate retries already short-circuited above.
+        const parsed = submitScoreBodySchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ error: "Invalid score payload. team1Score and team2Score must be non-negative integers and winningTeam must be 1 or 2." });
+        }
+        const { team1Score, team2Score, winningTeam } = parsed.data;
+        if (team1Score === team2Score) {
+          return res.status(400).json({ error: "Scores cannot be tied — please record the deciding rally with the Court Captain before submitting." });
+        }
+        const expectedWinner = team1Score > team2Score ? 1 : 2;
+        if (winningTeam !== expectedWinner) {
+          return res.status(400).json({ error: "winningTeam does not match the higher score. Double-check the result with the Court Captain." });
         }
 
         // 6. Resolve session + court (court row needed for status reset)
