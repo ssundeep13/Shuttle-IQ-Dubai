@@ -152,12 +152,25 @@ function ScoreEntryContent({ suggestion }: { suggestion: CurrentSuggestion }) {
       setSubmittedAlreadyRecorded(data.alreadySubmitted);
       setSubmitError(null);
       // Navigation is intentionally delayed so the player sees the
-      // confirmation text. P9 (the /done screen) is not yet built — wouter
-      // falls through to NotFound, acceptable per the plan.
-      const delayMs = data.alreadySubmitted ? 2000 : 1500;
-      window.setTimeout(() => {
-        setLocation('/marketplace/play/done');
-      }, delayMs);
+      // confirmation text.
+      //   - First submitter (alreadySubmitted=false) is sent to the post-
+      //     game confirmation screen at /marketplace/play/done. P9 hasn't
+      //     shipped yet, so wouter falls through to NotFound — acceptable
+      //     per the plan.
+      //   - Late submitter (alreadySubmitted=true) doesn't need that
+      //     screen because they weren't the one who recorded the score;
+      //     send them straight back to the session hub at
+      //     /marketplace/play, which is today's "session summary" surface
+      //     (waiting room / next game).
+      if (data.alreadySubmitted) {
+        window.setTimeout(() => {
+          setLocation('/marketplace/play');
+        }, 2000);
+      } else {
+        window.setTimeout(() => {
+          setLocation('/marketplace/play/done');
+        }, 1500);
+      }
     },
     onError: (err) => {
       setSubmitError(
