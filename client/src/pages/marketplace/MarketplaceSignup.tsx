@@ -13,6 +13,7 @@ import {
   SkillAssessmentStepper,
   type AssessmentAnswers,
   type Gender,
+  type InternalStep as AssessmentStep,
 } from '@/components/marketplace/SkillAssessmentStepper';
 
 // Three flow phases:
@@ -42,6 +43,14 @@ export default function MarketplaceSignup() {
   const [collected, setCollected] = useState<{
     gender: Gender;
     assessmentAnswers: AssessmentAnswers;
+  } | null>(null);
+  // When the user goes back from referral → assessment we want the stepper
+  // to resume on q3 with the previously selected gender + answers, not reset
+  // to the gender step. We pass these as initial props on remount.
+  const [assessmentResume, setAssessmentResume] = useState<{
+    initialStep: AssessmentStep;
+    initialGender: Gender;
+    initialAnswers: AssessmentAnswers;
   } | null>(null);
 
   const [referralCode, setReferralCode] = useState('');
@@ -148,6 +157,9 @@ export default function MarketplaceSignup() {
           stepOffset={1}
           onBackFromFirstStep={() => setPhase('form')}
           onSubmit={handleAssessmentComplete}
+          initialStep={assessmentResume?.initialStep}
+          initialGender={assessmentResume?.initialGender}
+          initialAnswers={assessmentResume?.initialAnswers}
         />
       </div>
     );
@@ -163,7 +175,18 @@ export default function MarketplaceSignup() {
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={() => setPhase('assessment')}
+                onClick={() => {
+                  // Resume the stepper on q3 with the previously selected
+                  // gender + answers so Back doesn't wipe the user's input.
+                  if (collected) {
+                    setAssessmentResume({
+                      initialStep: 'q3',
+                      initialGender: collected.gender,
+                      initialAnswers: collected.assessmentAnswers,
+                    });
+                  }
+                  setPhase('assessment');
+                }}
                 disabled={loading}
                 data-testid="button-step-back"
                 aria-label="Back"

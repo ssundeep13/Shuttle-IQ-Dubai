@@ -48,7 +48,7 @@ const ASSESSMENT_QUESTIONS: AssessmentQuestion[] = [
   },
 ];
 
-type InternalStep = 'gender' | 'q1' | 'q2' | 'q3';
+export type InternalStep = 'gender' | 'q1' | 'q2' | 'q3';
 const STEP_ORDER: InternalStep[] = ['gender', 'q1', 'q2', 'q3'];
 
 export interface SkillAssessmentStepperProps {
@@ -71,6 +71,14 @@ export interface SkillAssessmentStepperProps {
   onSubmit: (payload: { gender: Gender; assessmentAnswers: AssessmentAnswers }) => void | Promise<void>;
   /** Disables the final submit button + selection while the parent is in flight. */
   isSubmitting?: boolean;
+  /** Optional initial step to mount on. Used when the user navigates back
+   *  into the stepper from a downstream phase (e.g. referral) and we want
+   *  to resume on q3 instead of resetting to gender. */
+  initialStep?: InternalStep;
+  /** Optional initial gender to pre-select. */
+  initialGender?: Gender;
+  /** Optional initial answers to pre-fill the three skill questions with. */
+  initialAnswers?: AssessmentAnswers;
 }
 
 /**
@@ -90,14 +98,21 @@ export function SkillAssessmentStepper({
   onBackFromFirstStep,
   onSubmit,
   isSubmitting = false,
+  initialStep,
+  initialGender,
+  initialAnswers,
 }: SkillAssessmentStepperProps) {
-  const [step, setStep] = useState<InternalStep>('gender');
-  const [gender, setGender] = useState<Gender | ''>('');
+  const [step, setStep] = useState<InternalStep>(initialStep ?? 'gender');
+  const [gender, setGender] = useState<Gender | ''>(initialGender ?? '');
   const [answers, setAnswers] = useState<{
     q1: AssessmentAnswer | null;
     q2: AssessmentAnswer | null;
     q3: AssessmentAnswer | null;
-  }>({ q1: null, q2: null, q3: null });
+  }>({
+    q1: initialAnswers?.[0] ?? null,
+    q2: initialAnswers?.[1] ?? null,
+    q3: initialAnswers?.[2] ?? null,
+  });
 
   const stepIndex = STEP_ORDER.indexOf(step);
   const displayTotal = totalSteps ?? STEP_ORDER.length;
