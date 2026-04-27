@@ -3545,6 +3545,70 @@ export function registerMarketplaceRoutes(app: Express) {
   // SCORE DISPUTES
   // ============================================================
 
+  // Flag a score for admin review (marketplace player). Idempotent: a repeat
+  // flag from the same user for the same game returns the existing dispute
+  // with a 200 instead of creating a duplicate. Distinct from the older
+  // /dispute endpoint, which 409s on duplicates.
+  app.post("/api/marketplace/games/:gameResultId/flag", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const { gameResultId } = req.params;
+      const userId = req.user!.userId;
+      const { reason } = z.object({ reason: z.string().max(500).optional() }).parse(req.body);
+
+      // Game must exist
+      const game = await storage.getGameResult(gameResultId);
+      if (!game) {
+        return res.status(404).json({ error: "Game not found" });
+      }
+
+      // Flagger must be a participant. We resolve the marketplace user's
+      // linked player and check that against the game's participant rows.
+      const user = await storage.getMarketplaceUser(userId);
+      if (!user?.linkedPlayerId) {
+        return res.status(403).json({ error: "Only players who participated in this game can flag the score." });
+      }
+      const participants = await storage.getGameParticipants(gameResultId);
+      const isParticipant = participants.some(p => p.playerId === user.linkedPlayerId);
+      if (!isParticipant) {
+        return res.status(403).json({ error: "Only players who participated in this game can flag the score." });
+      }
+
+      // Idempotency: return existing dispute if the user already flagged.
+      const existing = await storage.getDisputeByUserAndGame(userId, gameResultId);
+      if (existing) {
+        return res.status(200).json({ ...existing, alreadyFlagged: true });
+      }
+
+      const dispute = await storage.createScoreDispute({ gameResultId, filedByUserId: userId, note: reason });
+
+      // Fan out an in-app notification to every marketplace admin. Failures
+      // here must not roll back the flag itself, so each notification is
+      // wrapped in its own try/catch.
+      try {
+        const admins = await storage.listMarketplaceAdmins();
+        const playerName = user.name;
+        await Promise.all(admins.map(admin =>
+          storage.createMarketplaceNotification({
+            userId: admin.id,
+            type: 'score_flag',
+            title: 'Score flagged for review',
+            message: `${playerName} flagged the score of game ${gameResultId.slice(0, 8)} for admin review.`,
+          }).catch(err => console.error('[Score flag] notify admin failed:', err))
+        ));
+      } catch (notifyErr) {
+        console.error('[Score flag] admin notification batch failed:', notifyErr);
+      }
+
+      res.status(201).json(dispute);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid request body", details: err.errors });
+      }
+      console.error('[Score flag] error:', err);
+      res.status(500).json({ error: "Failed to flag score" });
+    }
+  });
+
   // File a dispute (marketplace player)
   app.post("/api/marketplace/game-results/:gameResultId/dispute", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {

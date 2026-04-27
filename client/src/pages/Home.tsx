@@ -17,6 +17,7 @@ import { SessionSetupWizard } from "@/components/SessionSetupWizard";
 import { SessionLeaderboard } from "@/components/SessionLeaderboard";
 import { SuggestedLineups } from "@/components/SuggestedLineups";
 import { BracketedLineups } from "@/components/BracketedLineups";
+import { PendingLineupsPanel } from "@/components/PendingLineupsPanel";
 import { useActiveSession } from "@/hooks/use-active-session";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -903,6 +904,8 @@ export default function Home() {
         <div className="space-y-6">
           {activeTab === 'courts' && (
             <>
+              {session?.id && <PendingLineupsPanel sessionId={session.id} />}
+
               {/* Matchmaking mode toggle */}
               {queue.length >= 4 && (
                 <div className="flex items-center gap-2" data-testid="matchmaking-mode-toggle">

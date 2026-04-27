@@ -8,6 +8,7 @@ import {
   type Session,
   type InsertSession,
   type GameParticipant,
+  type GameResult,
   type PlayerStats,
   type MarketplaceUser,
   type InsertMarketplaceUser,
@@ -364,6 +365,23 @@ export interface IStorage {
   getDisputesByUser(userId: string): Promise<ScoreDispute[]>;
   updateScoreDispute(id: string, updates: Partial<ScoreDispute>): Promise<ScoreDispute | undefined>;
 
+  // Game result + participant lookups (used by score-flag endpoint to verify
+  // the flagger actually played in the game).
+  getGameResult(id: string): Promise<GameResult | undefined>;
+  getGameParticipants(gameId: string): Promise<GameParticipant[]>;
+
+  // Marketplace admin recipients for system notifications (e.g. score flags).
+  // Returns marketplace_users with role 'admin' or 'super_admin'. Used to
+  // fan-out a single in-app notification per admin.
+  listMarketplaceAdmins(): Promise<MarketplaceUser[]>;
+
+  // Court Captain panel: pending suggestions for a session, eagerly joined
+  // with court name + lineup so the panel renders in one query.
+  listSessionPendingSuggestionsWithDetails(sessionId: string): Promise<Array<MatchSuggestion & {
+    courtName: string;
+    players: Array<MatchSuggestionPlayer & { name: string }>;
+  }>>;
+
   // Player personality tag operations
   getAllTags(): Promise<Tag[]>;
   getTrendingTags(limit?: number): Promise<TrendingTag[]>;
@@ -447,6 +465,7 @@ export interface IStorage {
   // Returns the suggestion AND its 4 player rows.
   getPendingMatchSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
+  hasActiveApprovedSuggestionForCourt(sessionId: string, courtId: string): Promise<boolean>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
 
   // Transactional game completion — wraps player updates + game_results +
@@ -2297,6 +2316,73 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async getGameResult(id: string): Promise<GameResult | undefined> {
+    const [row] = await db.select().from(gameResults).where(eq(gameResults.id, id)).limit(1);
+    return row;
+  }
+
+  async getGameParticipants(gameId: string): Promise<GameParticipant[]> {
+    return db.select().from(gameParticipants).where(eq(gameParticipants.gameId, gameId));
+  }
+
+  async listMarketplaceAdmins(): Promise<MarketplaceUser[]> {
+    return db
+      .select()
+      .from(marketplaceUsers)
+      .where(inArray(marketplaceUsers.role, ['admin', 'super_admin']));
+  }
+
+  async listSessionPendingSuggestionsWithDetails(sessionId: string): Promise<Array<MatchSuggestion & {
+    courtName: string;
+    players: Array<MatchSuggestionPlayer & { name: string }>;
+  }>> {
+    // Two-step fetch: parent rows (with court name) then a single grouped
+    // child fetch with player names. Keeps the parent query a simple index
+    // scan and the child query bounded by the small set of pending IDs.
+    const parents = await db
+      .select({
+        id: matchSuggestions.id,
+        sessionId: matchSuggestions.sessionId,
+        courtId: matchSuggestions.courtId,
+        suggestedAt: matchSuggestions.suggestedAt,
+        pendingUntil: matchSuggestions.pendingUntil,
+        status: matchSuggestions.status,
+        approvedBy: matchSuggestions.approvedBy,
+        createdAt: matchSuggestions.createdAt,
+        courtName: courts.name,
+      })
+      .from(matchSuggestions)
+      .innerJoin(courts, eq(matchSuggestions.courtId, courts.id))
+      .where(and(
+        eq(matchSuggestions.sessionId, sessionId),
+        eq(matchSuggestions.status, 'pending'),
+      ))
+      .orderBy(asc(matchSuggestions.pendingUntil));
+
+    if (parents.length === 0) return [];
+
+    const ids = parents.map(p => p.id);
+    const childRows = await db
+      .select({
+        suggestionId: matchSuggestionPlayers.suggestionId,
+        courtId: matchSuggestionPlayers.courtId,
+        playerId: matchSuggestionPlayers.playerId,
+        team: matchSuggestionPlayers.team,
+        name: players.name,
+      })
+      .from(matchSuggestionPlayers)
+      .innerJoin(players, eq(matchSuggestionPlayers.playerId, players.id))
+      .where(inArray(matchSuggestionPlayers.suggestionId, ids));
+
+    const byParent = new Map<string, Array<MatchSuggestionPlayer & { name: string }>>();
+    for (const row of childRows) {
+      const list = byParent.get(row.suggestionId) ?? [];
+      list.push(row);
+      byParent.set(row.suggestionId, list);
+    }
+    return parents.map(p => ({ ...p, players: byParent.get(p.id) ?? [] }));
+  }
+
   // ── Player Personality Tags ────────────────────────────────────────────────
 
   async getAllTags(): Promise<Tag[]> {
@@ -3431,6 +3517,19 @@ export class DatabaseStorage implements IStorage {
         eq(matchSuggestions.status, 'pending'),
         lt(matchSuggestions.pendingUntil, now),
       ));
+  }
+
+  async hasActiveApprovedSuggestionForCourt(sessionId: string, courtId: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: matchSuggestions.id })
+      .from(matchSuggestions)
+      .where(and(
+        eq(matchSuggestions.sessionId, sessionId),
+        eq(matchSuggestions.courtId, courtId),
+        eq(matchSuggestions.status, 'approved'),
+      ))
+      .limit(1);
+    return rows.length > 0;
   }
 
   async updateMatchSuggestionStatus(

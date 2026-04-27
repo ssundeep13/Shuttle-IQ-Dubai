@@ -1309,6 +1309,109 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Court Captain: pending match suggestions ──────────────────────────────
+  // List pending suggestions for a session, with court name and lineup names
+  // pre-joined. Polled every ~10s by the admin Home page.
+  app.get("/api/sessions/:sessionId/pending-suggestions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await storage.getSession(sessionId);
+      if (!session) return res.status(404).json({ error: "Session not found" });
+      const suggestions = await storage.listSessionPendingSuggestionsWithDetails(sessionId);
+      res.json(suggestions);
+    } catch (error) {
+      console.error('Pending suggestions list error:', error);
+      res.status(500).json({ error: "Failed to fetch pending suggestions" });
+    }
+  });
+
+  // Approve-now: same effect as the auto-approve sweep but admin-triggered.
+  // Idempotent — already-approved suggestions return 200 with the existing row.
+  app.post("/api/sessions/:sessionId/suggestions/:suggestionId/approve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId, suggestionId } = req.params;
+      const suggestion = await storage.getMatchSuggestion(suggestionId);
+      if (!suggestion || suggestion.sessionId !== sessionId) {
+        return res.status(404).json({ error: "Suggestion not found" });
+      }
+      if (suggestion.status === 'approved') {
+        return res.json(suggestion);
+      }
+      if (suggestion.status !== 'pending') {
+        return res.status(409).json({ error: `Suggestion is already ${suggestion.status} and cannot be approved.` });
+      }
+      const court = await storage.getCourt(suggestion.courtId);
+      if (court?.status === 'occupied') {
+        return res.status(409).json({ error: "That court is already occupied — finish the current game first." });
+      }
+      if (await storage.hasActiveApprovedSuggestionForCourt(suggestion.sessionId, suggestion.courtId)) {
+        return res.status(409).json({ error: "Another lineup is already approved for that court — start or dismiss it first." });
+      }
+
+      const adminId = req.user?.userId ?? 'admin';
+      const updated = await storage.updateMatchSuggestionStatus(suggestionId, 'approved', adminId);
+      console.log(`[Court Captain] suggestion ${suggestionId} approved by ${adminId}`);
+
+      // Notify the 4 players (best-effort, mirrors the sweep)
+      try {
+        if (updated && court) {
+          const playersById = new Map<string, string>();
+          await Promise.all(suggestion.players.map(async (p) => {
+            const pl = await storage.getPlayer(p.playerId);
+            if (pl) playersById.set(pl.id, pl.name);
+          }));
+          for (const p of suggestion.players) {
+            const partnerRow = suggestion.players.find(x => x.team === p.team && x.playerId !== p.playerId);
+            const opponents = suggestion.players.filter(x => x.team !== p.team);
+            const partnerName = partnerRow ? playersById.get(partnerRow.playerId) ?? 'your partner' : 'your partner';
+            const opponentNames = opponents.map(x => playersById.get(x.playerId)).filter(Boolean) as string[];
+            const opponentLabel = opponentNames.length === 2 ? `${opponentNames[0]} + ${opponentNames[1]}` : opponentNames.join(' + ') || 'opponents';
+            const mUser = await storage.getMarketplaceUserByLinkedPlayerId(p.playerId);
+            if (!mUser) continue;
+            await storage.createMarketplaceNotification({
+              userId: mUser.id,
+              type: 'court_ready',
+              title: 'Your court is ready',
+              message: `Court ${court.name} — ${partnerName} vs ${opponentLabel}. Head to your court now.`,
+            }).catch(err => console.error('[Court Captain] notify player failed:', err));
+          }
+        }
+      } catch (notifyErr) {
+        console.error('[Court Captain] notify batch failed:', notifyErr);
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error('Approve suggestion error:', error);
+      res.status(500).json({ error: "Failed to approve suggestion" });
+    }
+  });
+
+  // Dismiss: Court Captain rejects a pending suggestion before auto-approve.
+  // Idempotent — already-dismissed returns 200.
+  app.post("/api/sessions/:sessionId/suggestions/:suggestionId/dismiss", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId, suggestionId } = req.params;
+      const suggestion = await storage.getMatchSuggestion(suggestionId);
+      if (!suggestion || suggestion.sessionId !== sessionId) {
+        return res.status(404).json({ error: "Suggestion not found" });
+      }
+      if (suggestion.status === 'dismissed') {
+        return res.json(suggestion);
+      }
+      if (suggestion.status !== 'pending') {
+        return res.status(409).json({ error: `Suggestion is already ${suggestion.status} and cannot be dismissed.` });
+      }
+      const adminId = req.user?.userId ?? 'admin';
+      const updated = await storage.updateMatchSuggestionStatus(suggestionId, 'dismissed', adminId);
+      console.log(`[Court Captain] suggestion ${suggestionId} dismissed by ${adminId}`);
+      res.json(updated);
+    } catch (error) {
+      console.error('Dismiss suggestion error:', error);
+      res.status(500).json({ error: "Failed to dismiss suggestion" });
+    }
+  });
+
   app.get("/api/sessions/:sessionId/queue/sitting-out", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.params;

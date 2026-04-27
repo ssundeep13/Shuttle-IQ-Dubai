@@ -8,6 +8,7 @@ const REMINDER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const PAYMENT_WINDOW_MS = 4 * 60 * 60 * 1000; // 4-hour payment window for waitlist promotions
 const RESUME_TOKEN_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const AUTO_APPROVE_SWEEP_INTERVAL_MS = 15 * 1000; // 15 seconds — pending match suggestions auto-approve once their pendingUntil window passes
 
 const MIN_SKILL_SCORE = 10;
 const INACTIVITY_THRESHOLD_DAYS = 14;
@@ -338,6 +339,119 @@ async function runExpiredPaymentJob(): Promise<void> {
   }
 }
 
+// ── Match suggestion auto-approve sweep ──────────────────────────────────────
+// Every 15s, find pending suggestions whose pendingUntil has passed, flip them
+// to 'approved' (with approvedBy='auto'), and notify the 4 players that their
+// court is ready. We early-exit when there are no candidates so the steady-
+// state cost is one indexed select. Per-suggestion failures are isolated so
+// one bad row can't poison the batch.
+async function runMatchSuggestionAutoApproveSweep(): Promise<void> {
+  try {
+    const now = new Date();
+    const expired = await storage.listPastPendingMatchSuggestions(now);
+    if (expired.length === 0) {
+      // Steady-state log — kept terse so the rolling buffer stays useful.
+      // console.log('[auto-approve] no expired suggestions'); // (silent on idle)
+      return;
+    }
+
+    // Dedup by court: if two pending suggestions for the same court both
+    // expired in the same tick, only auto-approve the oldest. The other will
+    // be left as 'pending' and visible in the Court Captain panel for the
+    // admin to dismiss explicitly. This avoids a same-tick race that would
+    // otherwise approve two lineups for one court.
+    const oldestPerCourt = new Map<string, typeof expired[number]>();
+    for (const s of expired) {
+      const prior = oldestPerCourt.get(s.courtId);
+      if (!prior || new Date(s.pendingUntil).getTime() < new Date(prior.pendingUntil).getTime()) {
+        oldestPerCourt.set(s.courtId, s);
+      }
+    }
+    const toProcess = Array.from(oldestPerCourt.values());
+
+    for (const suggestion of toProcess) {
+      try {
+        // Skip if the court has since been occupied (e.g. an admin manually
+        // started a different game on it). Leaves the suggestion as 'pending'
+        // for the next admin action; a follow-up dismiss path can clean these.
+        const court = await storage.getCourt(suggestion.courtId);
+        if (!court) {
+          console.warn(`[auto-approve] suggestion ${suggestion.id} skipped — court ${suggestion.courtId} not found`);
+          continue;
+        }
+        if (court.status === 'occupied') {
+          console.log(`[auto-approve] suggestion ${suggestion.id} skipped — court ${court.name} is occupied`);
+          continue;
+        }
+
+        // Belt-and-suspenders cross-tick guard: if a previous tick already
+        // approved a different suggestion for this same court (and that game
+        // hasn't started yet so the court still reads 'available'), don't
+        // auto-approve a second lineup. The captain can dismiss the leftover.
+        if (await storage.hasActiveApprovedSuggestionForCourt(suggestion.sessionId, suggestion.courtId)) {
+          console.log(`[auto-approve] suggestion ${suggestion.id} skipped — court ${court.name} already has an approved lineup`);
+          continue;
+        }
+
+        // Re-check status to avoid racing with an admin Approve-now/Dismiss
+        // that lands between the listPast… read and our update.
+        const fresh = await storage.getMatchSuggestion(suggestion.id);
+        if (!fresh || fresh.status !== 'pending') {
+          continue;
+        }
+
+        const approved = await storage.updateMatchSuggestionStatus(suggestion.id, 'approved', 'auto');
+        if (!approved) continue;
+
+        console.log(`[auto-approve] suggestion ${suggestion.id} approved for court ${court.name}`);
+
+        // Build per-player notifications. Each player on the suggestion is a
+        // global Player; we only notify those linked to a marketplace user.
+        // Message format includes partner + opponents so players can find
+        // each other on court without opening the app.
+        const playerRows = fresh.players;
+        const playersById = new Map<string, { id: string; name: string }>();
+        await Promise.all(playerRows.map(async (p) => {
+          const player = await storage.getPlayer(p.playerId);
+          if (player) playersById.set(player.id, { id: player.id, name: player.name });
+        }));
+
+        let notifiedCount = 0;
+        for (const p of playerRows) {
+          try {
+            const me = playersById.get(p.playerId);
+            if (!me) continue;
+            const partnerRow = playerRows.find(x => x.team === p.team && x.playerId !== p.playerId);
+            const opponents = playerRows.filter(x => x.team !== p.team);
+            const partnerName = partnerRow ? playersById.get(partnerRow.playerId)?.name ?? 'your partner' : 'your partner';
+            const opponentNames = opponents.map(x => playersById.get(x.playerId)?.name).filter(Boolean) as string[];
+            const opponentLabel = opponentNames.length === 2 ? `${opponentNames[0]} + ${opponentNames[1]}` : opponentNames.join(' + ') || 'opponents';
+
+            const marketplaceUser = await storage.getMarketplaceUserByLinkedPlayerId(me.id);
+            if (!marketplaceUser) continue; // unlinked player → no in-app notification possible
+
+            await storage.createMarketplaceNotification({
+              userId: marketplaceUser.id,
+              type: 'court_ready',
+              title: 'Your court is ready',
+              message: `Court ${court.name} — ${partnerName} vs ${opponentLabel}. Head to your court now.`,
+            });
+            notifiedCount++;
+          } catch (notifyErr) {
+            console.error(`[auto-approve] notify failed for player ${p.playerId}:`, notifyErr);
+          }
+        }
+
+        console.log(`[auto-approve] suggestion ${suggestion.id} sent ${notifiedCount}/${playerRows.length} notifications`);
+      } catch (innerErr) {
+        console.error(`[auto-approve] suggestion ${suggestion.id} failed:`, innerErr);
+      }
+    }
+  } catch (err) {
+    console.error('[auto-approve] sweep error:', err);
+  }
+}
+
 async function runResumeTokenCleanupJob(): Promise<void> {
   try {
     const removed = await storage.deleteExpiredPaymentResumeTokens();
@@ -366,4 +480,8 @@ export function startScheduler(): void {
   console.log('[Scheduler] Payment resume token cleanup scheduler started (runs every 1 h)');
   setInterval(runResumeTokenCleanupJob, RESUME_TOKEN_CLEANUP_INTERVAL_MS);
   runResumeTokenCleanupJob();
+
+  console.log('[Scheduler] Match suggestion auto-approve sweep started (runs every 15 s)');
+  setInterval(runMatchSuggestionAutoApproveSweep, AUTO_APPROVE_SWEEP_INTERVAL_MS);
+  runMatchSuggestionAutoApproveSweep();
 }

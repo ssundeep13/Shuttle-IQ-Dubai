@@ -210,7 +210,7 @@ export const matchSuggestions = pgTable("match_suggestions", {
   courtId: varchar("court_id").notNull(), // FK -> courts.id
   suggestedAt: timestamp("suggested_at").notNull().defaultNow(),
   pendingUntil: timestamp("pending_until").notNull(), // suggestedAt + 90s; sweep job auto-approves past this
-  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'playing' | 'completed'
+  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'playing' | 'completed' | 'dismissed' (dismissed = Court Captain rejected the suggestion before it auto-approved)
   approvedBy: text("approved_by"), // marketplace_users.id of approver, or the literal "auto" when the timer fires
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -461,7 +461,7 @@ export interface ScoreDisputeWithDetails extends ScoreDispute {
 export const marketplaceNotifications = pgTable("marketplace_notifications", {
   id: varchar("id").primaryKey(),
   userId: varchar("user_id").notNull(),
-  type: text("type").notNull(), // 'waitlist_promoted' | 'late_fee_applied' | 'booking_confirmed'
+  type: text("type").notNull(), // 'waitlist_promoted' | 'late_fee_applied' | 'booking_confirmed' | 'court_ready' | 'score_flag'
   title: text("title").notNull(),
   message: text("message").notNull(),
   read: boolean("read").notNull().default(false),
