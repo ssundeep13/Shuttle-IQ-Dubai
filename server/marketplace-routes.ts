@@ -3266,13 +3266,17 @@ export function registerMarketplaceRoutes(app: Express) {
     },
   );
 
-  // Returns the player's current pending|approved|playing match suggestion,
-  // pre-joined with court name and the 4 players' display names + team. The
-  // /marketplace/play waiting screen polls this every 5s. We slightly broaden
-  // the storage helper's status filter (which is pending|approved only) by
-  // doing the lookup inline here so the frontend can detect the transition
-  // to 'playing' and route to the playing screen (P7). The existing
-  // getPendingMatchSuggestionForPlayer helper is left untouched.
+  // Returns the player's current match suggestion, pre-joined with court
+  // name and the 4 players' display names + team. The /marketplace/play
+  // waiting screen polls this every 5s; PlayingScreen and ScoreEntry read
+  // it once on mount.
+  //
+  // Priority is explicit: pending|approved (next game) first, then playing
+  // (live game), then completed (just-finished, score-entry pickup). This
+  // ordering matters — a player who just finished game A and was re-queued
+  // into pending suggestion B should see B (so they keep moving forward),
+  // and a player with a stale completed game who is now in a live playing
+  // game must see the playing row, not the completed one.
   app.get(
     "/api/marketplace/players/me/current-suggestion",
     requireAuth,
@@ -3286,14 +3290,13 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.json({ suggestion: null });
         }
 
-        // Compose on top of the existing storage helper, which surfaces the
-        // player's pending|approved suggestion (the contract P5 also depends
-        // on). This page additionally needs to detect the 'playing' status
-        // so it can route the player into the live game screen, so when the
-        // helper returns nothing we fall back to a small targeted query for
-        // a 'playing' suggestion the player belongs to. The helper itself
-        // is intentionally not modified.
-        const helperResult = await storage.getPendingMatchSuggestionForPlayer(linkedPlayerId);
+        // Composition with explicit priority — see the route header above.
+        // The storage helper handles pending|approved (the most common
+        // case). When that returns nothing, fall through to a 'playing'
+        // lookup, then to a 'completed' lookup. Each fallback is a narrow
+        // single-status query so the ordering can never collapse them
+        // into a stale-vs-live mistake.
+        const helperResult = await storage.getCurrentSuggestionForPlayer(linkedPlayerId);
 
         let parent: {
           id: string;
@@ -3315,8 +3318,8 @@ export function registerMarketplaceRoutes(app: Express) {
             team: p.team,
           }));
         } else {
-          // Fallback: helper does not surface 'playing' status, so do a
-          // narrow targeted lookup for that one case only.
+          // Fallback 1: live 'playing' suggestion the player belongs to.
+          // Drives the P5 → P7 transition.
           const [playingParent] = await db
             .select({
               id: matchSuggestions.id,
@@ -3342,6 +3345,38 @@ export function registerMarketplaceRoutes(app: Express) {
               })
               .from(matchSuggestionPlayers)
               .where(eq(matchSuggestionPlayers.suggestionId, playingParent.id));
+          } else {
+            // Fallback 2: most-recent 'completed' suggestion. Surfaces the
+            // just-finished game to the P8 score-entry screen. Only
+            // reached when there is no active pending|approved|playing
+            // suggestion for this player, so it cannot mask any of the
+            // earlier-stage screens.
+            const [completedParent] = await db
+              .select({
+                id: matchSuggestions.id,
+                courtId: matchSuggestions.courtId,
+                pendingUntil: matchSuggestions.pendingUntil,
+                status: matchSuggestions.status,
+              })
+              .from(matchSuggestionPlayers)
+              .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+              .where(and(
+                eq(matchSuggestionPlayers.playerId, linkedPlayerId),
+                eq(matchSuggestions.status, 'completed'),
+              ))
+              .orderBy(desc(matchSuggestions.suggestedAt))
+              .limit(1);
+
+            if (completedParent) {
+              parent = completedParent;
+              playerRows = await db
+                .select({
+                  playerId: matchSuggestionPlayers.playerId,
+                  team: matchSuggestionPlayers.team,
+                })
+                .from(matchSuggestionPlayers)
+                .where(eq(matchSuggestionPlayers.suggestionId, completedParent.id));
+            }
           }
         }
 

@@ -467,7 +467,7 @@ export interface IStorage {
   // match_suggestion_players is for hot-path court-side queries that don't
   // need parent state. To check active status we still join the parent.
   // Returns the suggestion AND its 4 player rows.
-  getPendingMatchSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
+  getCurrentSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
   transitionPendingMatchSuggestion(id: string, nextStatus: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
@@ -3537,7 +3537,7 @@ export class DatabaseStorage implements IStorage {
     return { ...row, players: playerRows };
   }
 
-  async getPendingMatchSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
+  async getCurrentSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
     // Singular: a player should be in at most one pending-or-approved
     // suggestion at a time (enforced by createMatchSuggestion). Child rows
     // are preserved for the suggestion's lifetime, so we filter active
@@ -3545,6 +3545,13 @@ export class DatabaseStorage implements IStorage {
     // presence. Step 1 finds the suggestion id via a single index lookup
     // on match_suggestion_players (PK on suggestion_id+player_id) joined
     // to the parent for status filtering; step 2 loads all 4 child rows.
+    //
+    // Status filter is intentionally 'pending' | 'approved' only. The
+    // 'playing' and 'completed' status paths are handled in the
+    // /current-suggestion route via separate targeted lookups so we can
+    // express explicit priority (pending/approved > playing > completed)
+    // without mixing them into a single ORDER BY that could surface a
+    // stale completed row over a live playing one.
     const [row] = await db
       .select({
         id: matchSuggestions.id,
@@ -3777,9 +3784,11 @@ export class DatabaseStorage implements IStorage {
       // same tx so the suggestion can never be re-submitted. The 4-row
       // lineup on match_suggestion_players is intentionally preserved across
       // the suggestion lifecycle for historical/marketplace reads;
-      // getPendingMatchSuggestionForPlayer filters by parent.status IN
-      // ('pending','approved'), so flipping to 'completed' here is what
-      // takes the lineup out of the active set.
+      // getCurrentSuggestionForPlayer filters by parent.status IN
+      // ('pending','approved'), so flipping to 'completed' here takes the
+      // lineup out of the active set. The P8 score-entry screen resolves
+      // this same row via a separate completed-fallback lookup in the
+      // /current-suggestion route.
       if (args.matchSuggestionId) {
         await tx
           .update(matchSuggestions)
