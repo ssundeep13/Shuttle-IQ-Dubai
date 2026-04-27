@@ -36,8 +36,99 @@ import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and } from "drizzle-orm";
-import { players } from "@shared/schema";
+import { players, matchSuggestions, gameResults } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
+import {
+  generateBracketedLineups,
+  buildRestStatesFromHistory,
+  buildPartnerHistoryFromHistory,
+  updatePlayerRestState,
+  updatePartnerHistory,
+  persistRestStatesToDb,
+} from "./matchmaking";
+
+// ─── Tier buffer helper (mirror of server/routes.ts:61 — keep in sync) ───────
+// After each game, a player's confirmed level (stored in DB) only changes after
+// 3 consecutive games where their skill score lands in the new tier.
+// Until then, tierCandidate + tierCandidateGames track the trend.
+function applyMarketplaceTierBuffer(
+  player: { level: string; tierCandidate: string | null; tierCandidateGames: number },
+  newScore: number,
+  getSkillTierFn: (score: number) => string,
+): { level: string; tierCandidate: string | null; tierCandidateGames: number } {
+  const scoreTier = getSkillTierFn(newScore);
+  const currentTier = player.level;
+
+  if (scoreTier === currentTier) {
+    return { level: currentTier, tierCandidate: null, tierCandidateGames: 0 };
+  }
+
+  const existingCandidate = player.tierCandidate;
+  const existingCount = player.tierCandidateGames ?? 0;
+
+  let newCandidate: string;
+  let newCount: number;
+  if (scoreTier === existingCandidate) {
+    newCount = existingCount + 1;
+    newCandidate = existingCandidate;
+  } else {
+    newCandidate = scoreTier;
+    newCount = 1;
+  }
+
+  if (newCount >= 3) {
+    return { level: scoreTier, tierCandidate: null, tierCandidateGames: 0 };
+  }
+  return { level: currentTier, tierCandidate: newCandidate, tierCandidateGames: newCount };
+}
+
+// Body schema for marketplace score submission
+const submitScoreBodySchema = z.object({
+  team1Score: z.number().int().min(0),
+  team2Score: z.number().int().min(0),
+  winningTeam: z.union([z.literal(1), z.literal(2)]),
+});
+
+// Run AI matchmaking for the just-vacated court and persist a fresh
+// match_suggestions row with pendingUntil = now + 90s. Fire-and-forget:
+// any failure is logged but never propagated.
+async function runP3BackgroundMatchmaking(
+  sessionId: string,
+  courtId: string,
+): Promise<void> {
+  try {
+    const queue = await storage.getQueue(sessionId);
+    if (queue.length < 4) {
+      return;
+    }
+    const allPlayers = await storage.getAllPlayers();
+    const history = await storage.getSessionGameParticipants(sessionId);
+    const allPlayerIds = allPlayers.map(p => p.id);
+    buildRestStatesFromHistory(sessionId, history, allPlayerIds);
+    buildPartnerHistoryFromHistory(sessionId, history);
+
+    const { brackets } = generateBracketedLineups(sessionId, queue, allPlayers, 1);
+    const top = brackets[0];
+    if (!top || !top.combination) {
+      return;
+    }
+    const combo = top.combination;
+    const lineup = [
+      ...combo.team1.map(p => ({ playerId: p.id, team: 1 as const })),
+      ...combo.team2.map(p => ({ playerId: p.id, team: 2 as const })),
+    ];
+    if (lineup.length !== 4) return;
+
+    await storage.createMatchSuggestion({
+      sessionId,
+      courtId,
+      pendingUntil: new Date(Date.now() + 90_000),
+      players: lineup,
+    });
+  } catch (err) {
+    console.error('[P3 background matchmaking] failed:', err);
+  }
+}
 
 // Mint a single-use payment-resume token and return the URL fragment to append
 // to a Ziina success_url. Stored as SHA-256 hash, 30-min TTL. Returns an empty
@@ -3667,4 +3758,290 @@ export function registerMarketplaceRoutes(app: Express) {
       res.status(500).json({ error: err.message || "Failed to register Ziina webhook" });
     }
   });
+
+  // ─── P3: Marketplace player submits the score for a played match ─────────
+  // POST /api/marketplace/games/:suggestionId/submit-score
+  // Body: { team1Score: int, team2Score: int, winningTeam: 1 | 2 }
+  // Idempotent on matchSuggestionId via game_results UNIQUE constraint.
+  // Responds <500ms; fires background AI matchmaking after the response.
+  app.post(
+    "/api/marketplace/games/:suggestionId/submit-score",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      const suggestionId = req.params.suggestionId;
+      try {
+        // 1. Validate body
+        const parsed = submitScoreBodySchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ error: "Invalid score payload. team1Score and team2Score must be non-negative integers and winningTeam must be 1 or 2." });
+        }
+        const { team1Score, team2Score, winningTeam } = parsed.data;
+        if (team1Score === team2Score) {
+          return res.status(400).json({ error: "Scores cannot be tied — please record the deciding rally with the Court Captain before submitting." });
+        }
+        const expectedWinner = team1Score > team2Score ? 1 : 2;
+        if (winningTeam !== expectedWinner) {
+          return res.status(400).json({ error: "winningTeam does not match the higher score. Double-check the result with the Court Captain." });
+        }
+
+        // 2. Resolve caller's linked player FIRST so we can authorize before
+        //    revealing anything about the suggestion. Marketplace users without
+        //    a linked player can't possibly be on a court roster.
+        const me = await storage.getMarketplaceUser(req.user!.userId);
+        if (!me || !me.linkedPlayerId) {
+          return res.status(403).json({ error: "Your account isn't linked to a player profile. Ask the Court Captain to link you before submitting scores." });
+        }
+
+        // 3. Load the suggestion AND authorize membership in a single response.
+        //    We deliberately collapse "suggestion does not exist" and "you are
+        //    not a participant" into the SAME 403 + message to avoid an
+        //    enumeration oracle: an authenticated marketplace user must not
+        //    be able to probe which match-suggestion UUIDs exist by observing
+        //    a 404-vs-403 differential.
+        const suggestion = await storage.getMatchSuggestion(suggestionId);
+        const isPlayer = !!suggestion && suggestion.players.some(p => p.playerId === me.linkedPlayerId);
+        if (!suggestion || !isPlayer) {
+          return res.status(403).json({
+            error: "You can only submit scores for matches you played in. Please confirm the match details with the Court Captain.",
+          });
+        }
+
+        // 4. Idempotent-retry short-circuit: if a game_results row already
+        // exists for this suggestion, the submission has already been recorded
+        // (possibly by another player on this court, or by us on a prior retry).
+        // Return success with alreadySubmitted=true regardless of the
+        // suggestion's current status — this covers both the network-blip
+        // retry case and the racing-teammate case without surfacing a
+        // confusing "no longer active" error to the player.
+        const [existingResult] = await db
+          .select({ id: gameResults.id })
+          .from(gameResults)
+          .where(eq(gameResults.matchSuggestionId, suggestionId))
+          .limit(1);
+        if (existingResult) {
+          return res.json({
+            success: true,
+            gameResultId: existingResult.id,
+            alreadySubmitted: true,
+          });
+        }
+
+        // 5. Status gate: only approved / playing suggestions are submittable.
+        // This catches truly stale submissions (e.g. suggestion was rejected
+        // or cancelled before play). The 'completed' case has already been
+        // handled above as an idempotent retry.
+        if (suggestion.status !== 'approved' && suggestion.status !== 'playing') {
+          return res.status(400).json({ error: "This match is no longer active. Please ask the Court Captain for the next lineup." });
+        }
+
+        // 6. Resolve session + court (court row needed for status reset)
+        const session = await storage.getSession(suggestion.sessionId);
+        if (!session) {
+          return res.status(400).json({ error: "Session not found. Please contact the Court Captain." });
+        }
+        const court = await storage.getCourt(suggestion.courtId);
+        if (!court) {
+          return res.status(404).json({ error: "Court not found. Please contact the Court Captain." });
+        }
+        const isSandboxSession = session.isSandbox;
+
+        // 7. Build team rosters from suggestion.players (single source of truth)
+        const team1Ids = suggestion.players.filter(p => p.team === 1).map(p => p.playerId);
+        const team2Ids = suggestion.players.filter(p => p.team === 2).map(p => p.playerId);
+        if (team1Ids.length !== 2 || team2Ids.length !== 2) {
+          return res.status(400).json({ error: "Match lineup is invalid. Please contact the Court Captain." });
+        }
+        const winnerIds = winningTeam === 1 ? team1Ids : team2Ids;
+        const loserIds = winningTeam === 1 ? team2Ids : team1Ids;
+        const winnerIdSet = new Set(winnerIds);
+        const teamByPlayerId = new Map<string, number>();
+        team1Ids.forEach(id => teamByPlayerId.set(id, 1));
+        team2Ids.forEach(id => teamByPlayerId.set(id, 2));
+        const playerIds = [...team1Ids, ...team2Ids];
+
+        // 8. Skill calc helpers (mirrors admin end-game)
+        const { calculateSkillAdjustment, calculateTeamAverage, getSkillTier } =
+          await import('@shared/utils/skillUtils');
+        const pointDifferential = Math.abs(team1Score - team2Score);
+        const now = new Date();
+        const RETURN_BOOST_THRESHOLD_DAYS = 14;
+        const RETURN_BOOST_GAMES = 2;
+
+        // 9. Run the transactional game-completion. completeGameTransaction
+        //    handles: idempotency via UNIQUE on game_results.matchSuggestionId,
+        //    fresh-read of all 4 players inside the tx, player-stat updates,
+        //    game_results + game_participants insert, and marking the
+        //    match_suggestions row 'completed' — all in one db.transaction.
+        const txResult = await storage.completeGameTransaction({
+          sessionId: session.id,
+          courtId: court.id,
+          team1Score,
+          team2Score,
+          winningTeam,
+          matchSuggestionId: suggestionId,
+          isSandboxSession,
+          playerIds,
+          computePerPlayer: (freshPlayers) => {
+            const freshTeam1 = freshPlayers.filter(p => teamByPlayerId.get(p.id) === 1);
+            const freshTeam2 = freshPlayers.filter(p => teamByPlayerId.get(p.id) === 2);
+            const team1AvgSkill = calculateTeamAverage(freshTeam1.map(p => p.skillScore || 50));
+            const team2AvgSkill = calculateTeamAverage(freshTeam2.map(p => p.skillScore || 50));
+
+            return freshPlayers.map(player => {
+              const team = teamByPlayerId.get(player.id);
+              if (team !== 1 && team !== 2) {
+                throw new Error(`Player ${player.id} missing team assignment`);
+              }
+              const isWinner = winnerIdSet.has(player.id);
+              const isTeam1 = team === 1;
+              const opponentAvgSkill = isTeam1 ? team2AvgSkill : team1AvgSkill;
+
+              const partnerScore = freshPlayers.find(
+                p => teamByPlayerId.get(p.id) === team && p.id !== player.id,
+              )?.skillScore ?? null;
+
+              const lastPlayed = player.lastPlayedAt;
+              const daysInactive = lastPlayed
+                ? (now.getTime() - new Date(lastPlayed).getTime()) / (24 * 60 * 60 * 1000)
+                : 0;
+              const isReturning = lastPlayed !== null && daysInactive >= RETURN_BOOST_THRESHOLD_DAYS;
+              const currentReturnGames = isReturning ? RETURN_BOOST_GAMES : (player.returnGamesRemaining ?? 0);
+              const newReturnGamesRemaining = Math.max(0, currentReturnGames - 1);
+
+              const skillBefore = player.skillScore || 50;
+              const skillAfter = calculateSkillAdjustment(
+                skillBefore,
+                opponentAvgSkill,
+                isWinner,
+                pointDifferential,
+                player.gamesPlayed || 0,
+                partnerScore,
+                currentReturnGames,
+              );
+
+              const tierResult = applyMarketplaceTierBuffer(
+                { level: player.level, tierCandidate: player.tierCandidate ?? null, tierCandidateGames: player.tierCandidateGames ?? 0 },
+                skillAfter,
+                getSkillTier,
+              );
+
+              const playerUpdates = isSandboxSession
+                ? { status: 'waiting' as const }
+                : {
+                    gamesPlayed: player.gamesPlayed + 1,
+                    wins: isWinner ? player.wins + 1 : player.wins,
+                    skillScore: skillAfter,
+                    level: tierResult.level,
+                    tierCandidate: tierResult.tierCandidate,
+                    tierCandidateGames: tierResult.tierCandidateGames,
+                    status: 'waiting' as const,
+                    lastPlayedAt: now,
+                    skillScoreBaseline: skillAfter,
+                    returnGamesRemaining: newReturnGamesRemaining,
+                  };
+
+              return { playerId: player.id, team, skillBefore, skillAfter, playerUpdates };
+            });
+          },
+        });
+
+        // 10. Race-loser duplicate: two submissions arrived simultaneously,
+        //     both passed the step-4 pre-check, but only one wins the
+        //     game_results UNIQUE constraint inside completeGameTransaction.
+        //     Return success without touching court / queue / rest states —
+        //     those were already updated by the winning submission's caller.
+        if (txResult.alreadySubmitted) {
+          return res.json({
+            success: true,
+            gameResultId: txResult.gameId,
+            alreadySubmitted: true,
+          });
+        }
+
+        // 11. First-time success: mirror admin end-game side effects.
+        //     The transaction has already persisted the game_results row and
+        //     marked the suggestion 'completed', so the SCORE itself is safe.
+        //     The remaining steps (rest states, partner history, queue rotation,
+        //     court reset) are operational state — if any single step throws
+        //     we still want the player to receive their success confirmation,
+        //     and we log loudly so an admin can reconcile via the dashboard.
+        try {
+          for (const playerId of playerIds) {
+            updatePlayerRestState(session.id, playerId, true);
+          }
+          const team1Players = team1Ids
+            .map(id => txResult.participants.find(p => p.playerId === id))
+            .filter((p): p is NonNullable<typeof p> => !!p)
+            .map(p => ({ id: p.playerId } as any));
+          const team2Players = team2Ids
+            .map(id => txResult.participants.find(p => p.playerId === id))
+            .filter((p): p is NonNullable<typeof p> => !!p)
+            .map(p => ({ id: p.playerId } as any));
+          updatePartnerHistory(session.id, team1Players, team2Players);
+
+          const currentQueue = await storage.getQueue(session.id);
+          const playedSet = new Set(playerIds);
+          for (const playerId of currentQueue) {
+            if (!playedSet.has(playerId)) {
+              updatePlayerRestState(session.id, playerId, false);
+            }
+          }
+          // Re-queue: losers first, then winners (matches admin convention)
+          const newQueue = [
+            ...currentQueue.filter(id => !playedSet.has(id)),
+            ...loserIds,
+            ...winnerIds,
+          ];
+          await storage.setQueue(session.id, newQueue);
+
+          await storage.updateCourt(court.id, {
+            status: 'available',
+            timeRemaining: 0,
+            winningTeam: null,
+            startedAt: null,
+          });
+          await storage.setCourtPlayers(court.id, []);
+
+          await persistRestStatesToDb(session.id);
+        } catch (sideEffectErr) {
+          // The score is already saved in the DB; surface the failure
+          // prominently so an admin can manually reset court/queue state.
+          // Without this, a crash here would bubble to the outer catch,
+          // return 500, and trick the player into retrying — but the retry
+          // would hit the idempotency short-circuit and never re-attempt
+          // the side effects, leaving the court permanently stuck.
+          console.error(
+            `[POST submit-score] CRITICAL: side-effect step failed AFTER game_results was saved. ` +
+            `gameResultId=${txResult.gameId} sessionId=${session.id} courtId=${court.id} ` +
+            `suggestionId=${suggestionId}. Admin must reset court / queue state manually.`,
+            sideEffectErr,
+          );
+        }
+
+        // 12. Respond immediately so the player sees the confirmation.
+        //     The score IS recorded — even if some operational state above
+        //     failed, the canonical game_results row exists and the player
+        //     should not be told to retry.
+        res.json({
+          success: true,
+          gameResultId: txResult.gameId,
+          alreadySubmitted: false,
+        });
+
+        // 13. Fire-and-forget background matchmaking — must not block the
+        //     response, must never throw out of the request lifecycle.
+        setImmediate(() => {
+          runP3BackgroundMatchmaking(session.id, court.id).catch(err => {
+            console.error('[P3 background matchmaking] unhandled:', err);
+          });
+        });
+      } catch (err) {
+        console.error('[POST /api/marketplace/games/:suggestionId/submit-score] error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Failed to submit score. Please try again or contact the Court Captain." });
+        }
+      }
+    },
+  );
 }

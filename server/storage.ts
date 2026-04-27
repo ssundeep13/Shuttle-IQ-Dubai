@@ -471,6 +471,7 @@ export interface IStorage {
   }): Promise<{
     gameId: string;
     participants: Array<{ playerId: string; team: number; skillBefore: number; skillAfter: number }>;
+    alreadySubmitted: boolean;
   }>;
 }
 
@@ -3469,6 +3470,7 @@ export class DatabaseStorage implements IStorage {
   }): Promise<{
     gameId: string;
     participants: Array<{ playerId: string; team: number; skillBefore: number; skillAfter: number }>;
+    alreadySubmitted: boolean;
   }> {
     if (args.playerIds.length !== 4) {
       throw new Error(`completeGameTransaction expects exactly 4 players, got ${args.playerIds.length}`);
@@ -3500,6 +3502,7 @@ export class DatabaseStorage implements IStorage {
               skillBefore: p.skillScoreBefore,
               skillAfter: p.skillScoreAfter,
             })),
+            alreadySubmitted: true,
           };
         }
       }
@@ -3575,6 +3578,7 @@ export class DatabaseStorage implements IStorage {
             skillBefore: p.skillScoreBefore,
             skillAfter: p.skillScoreAfter,
           })),
+          alreadySubmitted: true,
         };
       }
 
@@ -3618,6 +3622,7 @@ export class DatabaseStorage implements IStorage {
           skillBefore: c.skillBefore,
           skillAfter: c.skillAfter,
         })),
+        alreadySubmitted: false,
       };
     });
   }
