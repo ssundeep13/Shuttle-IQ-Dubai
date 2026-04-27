@@ -347,6 +347,15 @@ async function runExpiredPaymentJob(): Promise<void> {
 // one bad row can't poison the batch.
 async function runMatchSuggestionAutoApproveSweep(): Promise<void> {
   try {
+    // Required short-circuit: if no session is currently live, skip the whole
+    // sweep. Matches the spec ("Exits early if storage.getActiveSession()
+    // returns nothing — and logs that exit").
+    const activeSession = await storage.getActiveSession();
+    if (!activeSession) {
+      console.log('[auto-approve] no active session — skipping sweep');
+      return;
+    }
+
     const now = new Date();
     const expired = await storage.listPastPendingMatchSuggestions(now);
     if (expired.length === 0) {
@@ -403,7 +412,7 @@ async function runMatchSuggestionAutoApproveSweep(): Promise<void> {
         const approved = await storage.updateMatchSuggestionStatus(suggestion.id, 'approved', 'auto');
         if (!approved) continue;
 
-        console.log(`[auto-approve] suggestion ${suggestion.id} approved for court ${court.name}`);
+        console.log(`[auto-approve] suggestion ${suggestion.id} approved for court ${court.id}`);
 
         // Build per-player notifications. Each player on the suggestion is a
         // global Player; we only notify those linked to a marketplace user.

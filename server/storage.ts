@@ -2355,7 +2355,10 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(courts, eq(matchSuggestions.courtId, courts.id))
       .where(and(
         eq(matchSuggestions.sessionId, sessionId),
-        eq(matchSuggestions.status, 'pending'),
+        // Both 'pending' (awaiting captain approval) and 'approved' (captain
+        // or sweep approved, players notified, but game hasn't started yet)
+        // belong on the panel so captains can dismiss the leftover state.
+        inArray(matchSuggestions.status, ['pending', 'approved']),
       ))
       .orderBy(asc(matchSuggestions.pendingUntil));
 

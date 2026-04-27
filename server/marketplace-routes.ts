@@ -3553,37 +3553,39 @@ export function registerMarketplaceRoutes(app: Express) {
     try {
       const { gameResultId } = req.params;
       const userId = req.user!.userId;
-      const { reason } = z.object({ reason: z.string().max(500).optional() }).parse(req.body);
+      const { note } = z.object({ note: z.string().max(500).optional() }).parse(req.body);
 
-      // Game must exist
+      // Game must exist. Player-facing copy uses "Court Captain" wording so
+      // the marketplace UI stays consistent with the rest of the product.
       const game = await storage.getGameResult(gameResultId);
       if (!game) {
-        return res.status(404).json({ error: "Game not found" });
+        return res.status(404).json({ error: "We can't find that game — it may have been removed. Reach out to your Court Captain if you think this is a mistake." });
       }
 
       // Flagger must be a participant. We resolve the marketplace user's
       // linked player and check that against the game's participant rows.
       const user = await storage.getMarketplaceUser(userId);
       if (!user?.linkedPlayerId) {
-        return res.status(403).json({ error: "Only players who participated in this game can flag the score." });
+        return res.status(403).json({ error: "Only players who were on court for this game can flag the score. Ask your Court Captain if you need a correction." });
       }
       const participants = await storage.getGameParticipants(gameResultId);
       const isParticipant = participants.some(p => p.playerId === user.linkedPlayerId);
       if (!isParticipant) {
-        return res.status(403).json({ error: "Only players who participated in this game can flag the score." });
+        return res.status(403).json({ error: "Only players who were on court for this game can flag the score. Ask your Court Captain if you need a correction." });
       }
 
       // Idempotency: return existing dispute if the user already flagged.
+      // Response shape stays consistent across both the new + repeat path.
       const existing = await storage.getDisputeByUserAndGame(userId, gameResultId);
       if (existing) {
-        return res.status(200).json({ ...existing, alreadyFlagged: true });
+        return res.status(200).json({ success: true, disputeId: existing.id, alreadyFlagged: true });
       }
 
-      const dispute = await storage.createScoreDispute({ gameResultId, filedByUserId: userId, note: reason });
+      const dispute = await storage.createScoreDispute({ gameResultId, filedByUserId: userId, note });
 
-      // Fan out an in-app notification to every marketplace admin. Failures
-      // here must not roll back the flag itself, so each notification is
-      // wrapped in its own try/catch.
+      // Fan out an in-app notification to every Court Captain (marketplace
+      // admin/super_admin). Failures must not roll back the flag itself, so
+      // each notification is wrapped in its own try/catch.
       try {
         const admins = await storage.listMarketplaceAdmins();
         const playerName = user.name;
@@ -3592,14 +3594,14 @@ export function registerMarketplaceRoutes(app: Express) {
             userId: admin.id,
             type: 'score_flag',
             title: 'Score flagged for review',
-            message: `${playerName} flagged the score of game ${gameResultId.slice(0, 8)} for admin review.`,
+            message: `${playerName} flagged the score of game ${gameResultId.slice(0, 8)} for Court Captain review.`,
           }).catch(err => console.error('[Score flag] notify admin failed:', err))
         ));
       } catch (notifyErr) {
         console.error('[Score flag] admin notification batch failed:', notifyErr);
       }
 
-      res.status(201).json(dispute);
+      res.status(201).json({ success: true, disputeId: dispute.id, alreadyFlagged: false });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid request body", details: err.errors });
