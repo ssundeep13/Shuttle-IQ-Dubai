@@ -1,0 +1,61 @@
+P1 is complete. Everything checks out.
+What was confirmed working:
+
+All 6 match suggestion storage methods exist and correct
+completeGameTransaction working with in-transaction skill score reads
+Sandbox skip behaviour verified — skill scores, gamesPlayed, wins all unchanged
+game_results and game_participants inserting correctly
+Queue rebuilds correctly, court resets correctly
+No errors in server logs
+TypeScript clean on patched files
+
+Pre-existing errors noted but out of scope — TagPlayersDialog, marketplace Dashboard, auth/utils, matchmaking, storage lines 1739/2682. These are in the original codebase and not our problem to fix right now.
+
+P1 is done. You are ready for P2.
+Send this to Replit:
+
+P1 is confirmed complete. Moving to P2.
+P2 — Player Check-in Endpoint
+What & Why
+When a player arrives at the venue and opens the app, they need to check in. This does two things atomically: marks their booking as attended and adds them to the session queue at the end. Shannon's admin panel will see them appear in the queue automatically without manual entry.
+Done looks like
+
+POST /api/marketplace/sessions/:bookableSessionId/checkin exists and requires marketplace auth
+The endpoint finds the player's confirmed booking for that session
+Inside a single db.transaction:
+
+Sets bookings.status to attended and bookings.attendedAt to now
+Checks if a queue_entries row already exists for this player in the linked sessions record (via bookableSessions.linkedSessionId)
+If no queue entry exists, inserts one at position = (current max position + 1)
+If a queue entry already exists, skips the insert — idempotent, no error
+
+
+Returns: { success: true, queuePosition: number, sessionId: string, message: string }
+If no confirmed booking exists for this user and session, returns 404
+If the bookable session has no linkedSessionId, returns 400 with a clear message
+If the booking is already attended, still returns 200 with the existing queue position — idempotent
+
+Critical constraints
+
+Marketplace auth middleware must be applied — only the booking owner can check themselves in
+The queue position must be calculated inside the transaction to prevent race conditions when multiple players check in simultaneously
+linkedSessionId on bookable_sessions is the bridge between the marketplace booking and the internal session queue — this must be used to find the correct sessions record
+Do not touch Shannon's admin queue management — this is additive only
+The existing referral credit trigger that fires on attendance confirmation must still fire — check where it currently lives and call it after the transaction commits
+
+Steps
+
+Find the existing attendance confirmation handler and identify where referral credit logic fires today
+Add the new route to the marketplace routes section of server/routes.ts
+Implement the transaction as specified
+Call the referral credit trigger after the transaction commits
+Test with a sandbox session: create a bookable session linked to a sandbox internal session, confirm a booking, call the checkin endpoint, verify bookings.status = attended, a queue_entries row exists at the correct position, and a second call returns 200 with the same position
+
+Report back when complete:
+
+The exact route path and middleware applied
+Confirm the referral credit trigger location and that it still fires
+Sandbox test result including before/after queue_entries count
+Anything deferred
+
+Do not start P3 until this report is received.
