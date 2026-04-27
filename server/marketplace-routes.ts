@@ -32,6 +32,7 @@ import {
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage } from "./ziinaClient";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
+import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and } from "drizzle-orm";
