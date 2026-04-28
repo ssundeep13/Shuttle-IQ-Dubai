@@ -72,18 +72,22 @@ BEGIN
   END IF;
 END $$;
 
--- Insert one confirmed/cash booking per test account into the next upcoming
--- bookable session. The partial unique index `unique_active_booking_per_session`
+-- Pick the target session ONCE inside the transaction and pin it to a temp
+-- table so that both the INSERT and the post-COMMIT verification SELECT
+-- read the exact same row (eliminates timing drift if a new upcoming
+-- session were created concurrently).
+CREATE TEMP TABLE _seed_target_session ON COMMIT PRESERVE ROWS AS
+SELECT id, price_aed
+  FROM bookable_sessions
+ WHERE status = 'upcoming'
+   AND date >= date_trunc('day', NOW())
+ ORDER BY date ASC
+ LIMIT 1;
+
+-- Insert one confirmed/cash booking per test account into the pinned
+-- session. The partial unique index `unique_active_booking_per_session`
 -- (on (user_id, session_id) WHERE status != 'cancelled') makes this idempotent.
-WITH target_session AS (
-  SELECT id, price_aed
-    FROM bookable_sessions
-   WHERE status = 'upcoming'
-     AND date >= date_trunc('day', NOW())
-   ORDER BY date ASC
-   LIMIT 1
-),
-test_users AS (
+WITH test_users AS (
   SELECT id AS user_id, email
     FROM marketplace_users
    WHERE email IN (
@@ -108,7 +112,7 @@ SELECT
   FALSE,
   0
 FROM test_users tu
-CROSS JOIN target_session ts
+CROSS JOIN _seed_target_session ts
 ON CONFLICT (user_id, session_id) WHERE status != 'cancelled' DO NOTHING;
 
 COMMIT;
@@ -116,7 +120,9 @@ COMMIT;
 -- ============================================================================
 -- VERIFICATION (read-only).
 -- Expected: 6 rows. Each row should show booking_status = 'confirmed' and
--- session_title pointing at the upcoming session you just targeted.
+-- session_title pointing at the EXACT session that was just targeted by the
+-- INSERT (pinned in _seed_target_session, which survives COMMIT because it
+-- was created with ON COMMIT PRESERVE ROWS and is dropped at session end).
 -- ============================================================================
 SELECT mu.email,
        mu.name,
@@ -133,11 +139,7 @@ SELECT mu.email,
   LEFT JOIN bookings b
          ON b.user_id = mu.id
         AND b.status != 'cancelled'
-        AND b.session_id = (
-              SELECT id FROM bookable_sessions
-               WHERE status = 'upcoming' AND date >= date_trunc('day', NOW())
-               ORDER BY date ASC LIMIT 1
-            )
+        AND b.session_id = (SELECT id FROM _seed_target_session)
   LEFT JOIN bookable_sessions bs ON bs.id = b.session_id
  WHERE mu.email IN (
          'maletest3@demo.siq','maletest4@demo.siq',
@@ -145,3 +147,6 @@ SELECT mu.email,
          'femaletest3@demo.siq','femaletest4@demo.siq'
        )
  ORDER BY mu.email;
+
+-- Cleanup: drop the pinned session reference now that verification is done.
+DROP TABLE IF EXISTS _seed_target_session;

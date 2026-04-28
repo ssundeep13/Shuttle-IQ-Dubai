@@ -42,13 +42,18 @@ const TEST_ACCOUNT_EMAILS = [
 
 async function pickBookableSessionId(explicitId: string | undefined): Promise<string> {
   if (explicitId) {
-    const existing = await db
-      .select({ id: bookableSessions.id })
+    const [existing] = await db
+      .select({ id: bookableSessions.id, status: bookableSessions.status })
       .from(bookableSessions)
       .where(eq(bookableSessions.id, explicitId))
       .limit(1);
-    if (!existing.length) {
+    if (!existing) {
       throw new Error(`No bookable session with id ${explicitId}`);
+    }
+    if (existing.status !== "upcoming") {
+      console.warn(
+        `[seed-bookings] WARNING: bookable session ${explicitId} has status='${existing.status}', not 'upcoming'. Proceeding anyway because an explicit id was passed; abort with Ctrl-C if this is unintended.`,
+      );
     }
     return explicitId;
   }
