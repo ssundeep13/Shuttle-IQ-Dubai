@@ -39,25 +39,15 @@ const ALL_EIGHT_EMAILS = [
   ...SPECS.map((s) => s.email),
 ];
 
-async function ensureVerified(email: string): Promise<void> {
-  // Idempotent terminal-state enforcement: even when an email already exists
-  // we (re-)apply email_verified=true and clear any pending verification
-  // token. Cheap, safe, and repairs partial earlier runs.
-  await db
-    .update(marketplaceUsers)
-    .set({
-      emailVerified: true,
-      emailVerificationToken: null,
-      emailVerificationTokenExpiry: null,
-    })
-    .where(eq(marketplaceUsers.email, email));
-}
-
 async function seedOne(spec: Spec, passwordHash: string): Promise<{ status: "created" | "skipped"; reason?: string }> {
   const existing = await storage.getMarketplaceUserByEmail(spec.email);
   if (existing) {
-    await ensureVerified(spec.email);
-    return { status: "skipped", reason: "already exists (verified state re-applied)" };
+    // Pure no-op: never mutate a pre-existing row. If a prior run created
+    // the user/player but crashed before the verification UPDATE below,
+    // the operator should run the standalone repair UPDATE in
+    // scripts/seed-test-marketplace-accounts-prod.sql or delete the row
+    // and re-run this script.
+    return { status: "skipped", reason: "already exists" };
   }
 
   await storage.signupMarketplaceUserWithPlayer({
@@ -160,8 +150,9 @@ async function main() {
       } else {
         console.log(`skipped — ${result.reason}`);
       }
-    } catch (err: any) {
-      console.log(`FAILED: ${err?.message ?? err}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`FAILED: ${msg}`);
       throw err;
     }
   }
