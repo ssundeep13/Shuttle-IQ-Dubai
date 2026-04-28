@@ -55,6 +55,8 @@ Preferred communication style: Simple, everyday language.
 - **Drizzle Kit**: Database migration and schema management.
 - **connect-pg-simple**: PostgreSQL session store.
 
+**Source of truth: the production database.** This fork is a test bed with no real end-users, so the deployed (production) database is treated as the canonical store of all data — bookings, marketplace users, sessions, check-ins, etc. Replit auto-provisions a separate workspace database for `npm run dev`, but that one is considered dormant: it may exist with stale schema or stale rows, and nothing depends on its contents. When verifying behavior, debugging live state, or checking what a real test player sees, always run read queries against the production database (`environment: "production"`), not the workspace DB. If real end-users ever start using this app, re-introduce dev/prod isolation by treating the workspace DB as authoritative for development again and routing reads accordingly.
+
 #### Development Tools
 - **TypeScript**: For type-safe development.
 - **Vite**: Frontend build tool.
