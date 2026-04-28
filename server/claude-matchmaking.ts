@@ -173,3 +173,177 @@ export async function requestClaudeMatchmaking(
   }
   return parsed;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// PLAYER-FLOW MATCHMAKING (separate prompt — DO NOT cross-pollute with the
+// admin Auto Assign prompt above).
+//
+// Used by:
+//   1. The very first match of a session (single-court request).
+//   2. The "queued next-round" pass when 2+ occupied courts need a queued
+//      lineup at the same time (multi-court request, batched into ONE
+//      Anthropic call to keep the post-score latency in budget).
+//
+// Differences from the admin prompt:
+//   - Carries each player's recentPartners / recentOpponents (last 3 of
+//     each, newest first) so the AI can prefer fresh pairings/matchups.
+//   - Carries each player's gender so the AI can prefer mixed-gender splits
+//     when balance allows.
+//   - Court requests can pin specific players via "must include" (used by
+//     Case 2 of the queued orchestrator: at least one waiting player must
+//     appear in the next lineup, the rest are filled from the active four
+//     currently on that court).
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface PlayerFlowPlayerProfile {
+  name: string;
+  score: number;
+  tier: string;
+  gender: string;
+  gamesThisSession: number;
+  gamesWaited: number;
+  /** Names of partners from this session, newest first, max 3. */
+  recentPartners: string[];
+  /** Names of opponents from this session, newest first, max 3. */
+  recentOpponents: string[];
+}
+
+export interface PlayerFlowCourtRequest {
+  /** Display number used in the prompt and echoed back in the response. */
+  courtNumber: number;
+  /** Names eligible for this court's lineup (must include all "must include"). */
+  availablePlayerNames: string[];
+  /** Names that MUST appear in this court's 4-player lineup (0..3). */
+  mustIncludeNames: string[];
+}
+
+export interface PlayerFlowMatchmakingResponse {
+  suggestions: Array<{
+    courtNumber: number;
+    team1: { name: string }[];
+    team2: { name: string }[];
+    reasoning?: string;
+  }>;
+}
+
+export function buildPlayerFlowMatchmakingPrompt(
+  players: PlayerFlowPlayerProfile[],
+  courtRequests: PlayerFlowCourtRequest[],
+): string {
+  const playerLines = players
+    .slice()
+    .sort((a, b) => b.score - a.score)
+    .map(p => {
+      const partners = p.recentPartners.length > 0 ? p.recentPartners.join(', ') : '(none)';
+      const opponents = p.recentOpponents.length > 0 ? p.recentOpponents.join(', ') : '(none)';
+      return (
+        `${p.name} | score:${p.score} | tier:${p.tier} | gender:${p.gender} | ` +
+        `gamesThisSession:${p.gamesThisSession} | gamesWaited:${p.gamesWaited} | ` +
+        `recentPartners:[${partners}] | recentOpponents:[${opponents}]`
+      );
+    })
+    .join('\n');
+
+  const courtLines = courtRequests
+    .map(req => {
+      const mustInclude = req.mustIncludeNames.length > 0
+        ? req.mustIncludeNames.join(', ')
+        : '(none)';
+      return (
+        `- Court ${req.courtNumber}\n` +
+        `    available: ${req.availablePlayerNames.join(', ')}\n` +
+        `    must include: ${mustInclude}`
+      );
+    })
+    .join('\n');
+
+  return `You are the matchmaking engine for ShuttleIQ Dubai.
+Build the next 2v2 badminton lineup for each court in COURT REQUESTS.
+
+PRINCIPLES (sorted most to least important — never sacrifice a higher principle for a lower one):
+1. SKILL BALANCE — minimise the gap between Team 1's average score and Team 2's average score. Aim for a gap of 0. A gap above 10 is only acceptable when no smaller-gap split exists for the eligible players.
+2. FRESH PARTNERS — avoid pairing a player with anyone in their "recentPartners" list. The newer the partner, the worse the repeat. Repeating is allowed only when every alternative has a worse skill gap.
+3. FRESH OPPONENTS — when choosing the two opposing pairs, avoid putting a player against someone in their "recentOpponents" list. Same tiebreak rule as principle 2.
+4. MIXED GENDER — when the principles above leave more than one acceptable split, prefer the split that puts one male and one female on each team. Never force this if it would harm balance or repeat partners.
+5. WAIT FAIRNESS — when everything above is tied, prefer a lineup that includes the eligible player(s) with the highest "gamesWaited".
+6. TIER — never put two players whose tiers are two steps apart on the same team unless no same-tier or one-step alternative exists. The tier order from low to high is: Novice < Beginner < lower_intermediate < upper_intermediate < Advanced < Professional.
+
+PLAYERS (sorted by score, descending):
+${playerLines}
+
+COURT REQUESTS:
+${courtLines}
+
+OUTPUT RULES:
+- Return exactly one suggestion per court request, in the same order.
+- Each suggestion's team1 + team2 contains exactly 4 distinct players (2 per team).
+- Pick names ONLY from that court's "available" list. Every name in that court's "must include" list MUST appear on team1 or team2.
+- A player may only appear in ONE court's lineup across the whole response.
+- Use the exact names from the input (case-sensitive).
+
+Return ONLY this JSON, no markdown, no commentary:
+{
+  "suggestions": [
+    {
+      "courtNumber": 1,
+      "team1": [{"name": ""}, {"name": ""}],
+      "team2": [{"name": ""}, {"name": ""}],
+      "reasoning": "one short sentence on why this split is best"
+    }
+  ]
+}`;
+}
+
+export async function requestPlayerFlowMatchmaking(
+  players: PlayerFlowPlayerProfile[],
+  courtRequests: PlayerFlowCourtRequest[],
+  options?: { timeoutMs?: number },
+): Promise<PlayerFlowMatchmakingResponse> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY not set');
+  }
+  if (courtRequests.length === 0) {
+    throw new Error('requestPlayerFlowMatchmaking: at least one court request required');
+  }
+
+  const timeoutMs = options?.timeoutMs ?? 5000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: buildPlayerFlowMatchmakingPrompt(players, courtRequests),
+        }],
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Anthropic API error: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { content: { text: string }[] };
+  const rawText = data.content[0].text.replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(rawText) as PlayerFlowMatchmakingResponse;
+
+  if (!Array.isArray(parsed.suggestions) || parsed.suggestions.length === 0) {
+    throw new Error('AI response missing suggestions array');
+  }
+  return parsed;
+}

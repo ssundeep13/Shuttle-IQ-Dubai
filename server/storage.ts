@@ -447,10 +447,19 @@ export interface IStorage {
   backfillReferralCodes(): Promise<number>;
 
   // Match suggestion operations (Phase 1 of player-facing gameplay flow)
+  // `status` defaults to 'pending'. Pass 'queued' for "next round" lineups
+  // built for an occupied court — those rows have pendingUntil = null and
+  // are flipped to 'pending' (with a fresh 90s window) when the current
+  // game on that court ends.
+  // `includesActivePlayers` is meaningful only for 'queued' rows (Case 2 of
+  // the queued orchestrator); it tells the game-end transition to verify
+  // availability of the 4 named players before flipping the row.
   createMatchSuggestion(input: {
     sessionId: string;
     courtId: string;
-    pendingUntil: Date;
+    pendingUntil: Date | null;
+    status?: 'pending' | 'queued';
+    includesActivePlayers?: boolean;
     players: Array<{ playerId: string; team: number }>;
   }): Promise<MatchSuggestion>;
   getMatchSuggestion(id: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
@@ -488,6 +497,10 @@ export interface IStorage {
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
   transitionPendingMatchSuggestion(id: string, nextStatus: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
+  // Queued-suggestion lifecycle helpers — see implementations for details.
+  getQueuedSuggestionForCourt(courtId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
+  flipQueuedSuggestionToPending(suggestionId: string, pendingUntil: Date): Promise<MatchSuggestion | undefined>;
+  dismissQueuedSuggestion(suggestionId: string): Promise<MatchSuggestion | undefined>;
   // Player-driven start-game transition. Atomic compare-and-set from
   // 'approved' → 'playing'. Returns:
   //   - { result: 'started', suggestion }      — caller won the race; must apply side effects
@@ -2448,9 +2461,14 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(courts, eq(matchSuggestions.courtId, courts.id))
       .where(and(
         eq(matchSuggestions.sessionId, sessionId),
-        inArray(matchSuggestions.status, ['pending', 'approved']),
+        inArray(matchSuggestions.status, ['pending', 'approved', 'queued']),
       ))
-      .orderBy(asc(matchSuggestions.pendingUntil));
+      // pendingUntil ASC NULLS LAST → pending/approved (which always have a
+      // real timestamp) sort first; queued rows (pendingUntil = null) trail.
+      // The Court Captain panel filters its rendered set down to actionable
+      // statuses anyway, but other consumers of this list get a stable
+      // chronological order.
+      .orderBy(sql`${matchSuggestions.pendingUntil} ASC NULLS LAST`);
 
     if (parents.length === 0) return [];
 
@@ -3495,7 +3513,9 @@ export class DatabaseStorage implements IStorage {
   async createMatchSuggestion(input: {
     sessionId: string;
     courtId: string;
-    pendingUntil: Date;
+    pendingUntil: Date | null;
+    status?: 'pending' | 'queued';
+    includesActivePlayers?: boolean;
     players: Array<{ playerId: string; team: number }>;
   }): Promise<MatchSuggestion> {
     if (input.players.length !== 4) {
@@ -3510,6 +3530,13 @@ export class DatabaseStorage implements IStorage {
     if (team1Count !== 2 || team2Count !== 2) {
       throw new Error(`createMatchSuggestion expects 2v2 split, got ${team1Count}v${team2Count}`);
     }
+    const status = input.status ?? 'pending';
+    if (status === 'pending' && input.pendingUntil === null) {
+      throw new Error(`createMatchSuggestion: pendingUntil is required for status='pending'`);
+    }
+    if (status === 'queued' && input.pendingUntil !== null) {
+      throw new Error(`createMatchSuggestion: pendingUntil must be null for status='queued'`);
+    }
 
     const id = randomUUID();
     return await db.transaction(async (tx) => {
@@ -3520,7 +3547,8 @@ export class DatabaseStorage implements IStorage {
           sessionId: input.sessionId,
           courtId: input.courtId,
           pendingUntil: input.pendingUntil,
-          status: 'pending',
+          status,
+          includesActivePlayers: input.includesActivePlayers ?? false,
         })
         .returning();
       // courtId on the child rows is duplicated from the parent suggestion
@@ -3683,20 +3711,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCurrentSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
-    // Singular: a player should be in at most one pending-or-approved
-    // suggestion at a time (enforced by createMatchSuggestion). Child rows
-    // are preserved for the suggestion's lifetime, so we filter active
-    // state via a parent status check rather than relying on child-row
-    // presence. Step 1 finds the suggestion id via a single index lookup
-    // on match_suggestion_players (PK on suggestion_id+player_id) joined
-    // to the parent for status filtering; step 2 loads all 4 child rows.
+    // Singular: a player should be in at most one suggestion in any of
+    // these statuses at a time (enforced by createMatchSuggestion plus
+    // the queued orchestrator's de-dup pass). Child rows are preserved
+    // for the suggestion's lifetime, so we filter active state via a
+    // parent status check rather than relying on child-row presence.
     //
-    // Status filter is intentionally 'pending' | 'approved' only. The
-    // 'playing' and 'completed' status paths are handled in the
-    // /current-suggestion route via separate targeted lookups so we can
-    // express explicit priority (pending/approved > playing > completed)
-    // without mixing them into a single ORDER BY that could surface a
-    // stale completed row over a live playing one.
+    // Priority order (highest first): playing > approved > pending > queued.
+    // Implemented with a CASE expression in ORDER BY so the route layer
+    // doesn't have to chain four separate queries. A waiting player who
+    // appears in their own court's queued lineup AND is also the named
+    // member of another court's queued lineup will still see only one
+    // row (the most recent). A player who is currently playing will
+    // never see a queued row for any other court — playing wins.
     const [row] = await db
       .select({
         id: matchSuggestions.id,
@@ -3706,15 +3733,25 @@ export class DatabaseStorage implements IStorage {
         pendingUntil: matchSuggestions.pendingUntil,
         status: matchSuggestions.status,
         approvedBy: matchSuggestions.approvedBy,
+        includesActivePlayers: matchSuggestions.includesActivePlayers,
         createdAt: matchSuggestions.createdAt,
       })
       .from(matchSuggestionPlayers)
       .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
       .where(and(
         eq(matchSuggestionPlayers.playerId, playerId),
-        inArray(matchSuggestions.status, ['pending', 'approved']),
+        inArray(matchSuggestions.status, ['playing', 'approved', 'pending', 'queued']),
       ))
-      .orderBy(desc(matchSuggestions.suggestedAt))
+      .orderBy(
+        sql`CASE ${matchSuggestions.status}
+              WHEN 'playing'  THEN 1
+              WHEN 'approved' THEN 2
+              WHEN 'pending'  THEN 3
+              WHEN 'queued'   THEN 4
+              ELSE 5
+            END ASC`,
+        desc(matchSuggestions.suggestedAt),
+      )
       .limit(1);
     if (!row) return undefined;
     const playerRows = await db
@@ -3725,11 +3762,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]> {
+    // Belt-and-braces: status='pending' rows ALWAYS have pendingUntil set
+    // (createMatchSuggestion enforces this), but the column is nullable to
+    // support 'queued' rows. The explicit IS NOT NULL guard makes the
+    // sweep robust against any future status that might also share this
+    // table without a deadline column.
     return await db
       .select()
       .from(matchSuggestions)
       .where(and(
         eq(matchSuggestions.status, 'pending'),
+        sql`${matchSuggestions.pendingUntil} IS NOT NULL`,
         lt(matchSuggestions.pendingUntil, now),
       ));
   }
@@ -3747,6 +3790,66 @@ export class DatabaseStorage implements IStorage {
       .update(matchSuggestions)
       .set(updates)
       .where(eq(matchSuggestions.id, id))
+      .returning();
+    return row;
+  }
+
+  // ─── Queued suggestion lifecycle helpers ─────────────────────────────────
+  // Returns the most recent 'queued' suggestion for a court (with players),
+  // if any. Used by the game-end transition to decide whether the next
+  // round's lineup can be flipped to 'pending' immediately or needs to be
+  // re-validated.
+  async getQueuedSuggestionForCourt(courtId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
+    const [row] = await db
+      .select()
+      .from(matchSuggestions)
+      .where(and(
+        eq(matchSuggestions.courtId, courtId),
+        eq(matchSuggestions.status, 'queued'),
+      ))
+      .orderBy(desc(matchSuggestions.suggestedAt))
+      .limit(1);
+    if (!row) return undefined;
+    const playerRows = await db
+      .select()
+      .from(matchSuggestionPlayers)
+      .where(eq(matchSuggestionPlayers.suggestionId, row.id));
+    return { ...row, players: playerRows };
+  }
+
+  // Atomic CAS for queued → pending. Sets a fresh pendingUntil so the
+  // 90s auto-approve window starts NOW, not when the queued row was
+  // originally created. Returns undefined if the row is no longer queued
+  // (e.g. dismissed by an admin reassign).
+  async flipQueuedSuggestionToPending(
+    suggestionId: string,
+    pendingUntil: Date,
+  ): Promise<MatchSuggestion | undefined> {
+    const [row] = await db
+      .update(matchSuggestions)
+      .set({ status: 'pending', pendingUntil })
+      .where(and(
+        eq(matchSuggestions.id, suggestionId),
+        eq(matchSuggestions.status, 'queued'),
+      ))
+      .returning();
+    return row;
+  }
+
+  // Atomic CAS for queued → dismissed. Used when game-end verification
+  // finds that one of the named active players is no longer eligible
+  // (left the session, got reassigned by admin, etc.). The 10-min
+  // dismissal-window pendingUntil mirrors the admin replace path so the
+  // dismissed-fallback in /current-suggestion can find it briefly.
+  async dismissQueuedSuggestion(suggestionId: string): Promise<MatchSuggestion | undefined> {
+    const dismissalWindowEnd = new Date(Date.now() + 10 * 60 * 1000);
+    const [row] = await db
+      .update(matchSuggestions)
+      .set({ status: 'dismissed', pendingUntil: dismissalWindowEnd })
+      .where(and(
+        eq(matchSuggestions.id, suggestionId),
+        eq(matchSuggestions.status, 'queued'),
+      ))
       .returning();
     return row;
   }

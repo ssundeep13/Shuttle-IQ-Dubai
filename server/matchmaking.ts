@@ -361,6 +361,72 @@ export function buildPartnerHistoryFromHistory(
 }
 
 /**
+ * For each player who has played in this session, compute their most-recent
+ * partner ids and most-recent opponent ids (newest first, deduplicated, max
+ * `limit` each). Pure function — no in-memory state. Used by the player-
+ * flow Claude prompt so the AI can avoid repeating partners and opponents.
+ *
+ * `gameParticipants` is expected sorted newest-first (which is the natural
+ * order returned by storage.getSessionGameParticipants), but we re-group by
+ * gameId and walk those groups in chronological order to produce a stable
+ * "most recent first" output regardless of input ordering.
+ */
+export function computeRecentPartnersAndOpponents(
+  gameParticipants: (GameParticipant & { createdAt: Date })[],
+  limit: number = 3,
+): Map<string, { partners: string[]; opponents: string[] }> {
+  const result = new Map<string, { partners: string[]; opponents: string[] }>();
+
+  // Group rows by gameId, preserving each game's createdAt for ordering.
+  const gameGroups = new Map<string, { createdAt: Date; rows: typeof gameParticipants }>();
+  for (const p of gameParticipants) {
+    const existing = gameGroups.get(p.gameId);
+    if (existing) {
+      existing.rows.push(p);
+    } else {
+      gameGroups.set(p.gameId, { createdAt: p.createdAt, rows: [p] });
+    }
+  }
+
+  // Order games newest-first so we walk recent matches before older ones,
+  // and the "most recent" entry per player ends up at the front of each list.
+  const orderedGames = Array.from(gameGroups.values())
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  const ensure = (id: string) => {
+    let bucket = result.get(id);
+    if (!bucket) {
+      bucket = { partners: [], opponents: [] };
+      result.set(id, bucket);
+    }
+    return bucket;
+  };
+
+  const pushUnique = (list: string[], id: string) => {
+    if (list.length >= limit) return;
+    if (list.includes(id)) return;
+    list.push(id);
+  };
+
+  for (const g of orderedGames) {
+    const team1 = g.rows.filter(r => r.team === 1).map(r => r.playerId);
+    const team2 = g.rows.filter(r => r.team === 2).map(r => r.playerId);
+    for (const me of team1) {
+      const bucket = ensure(me);
+      for (const partner of team1) if (partner !== me) pushUnique(bucket.partners, partner);
+      for (const opp of team2) pushUnique(bucket.opponents, opp);
+    }
+    for (const me of team2) {
+      const bucket = ensure(me);
+      for (const partner of team2) if (partner !== me) pushUnique(bucket.partners, partner);
+      for (const opp of team1) pushUnique(bucket.opponents, opp);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Calculate split penalty for a proposed pairing.
  * +15 per repeated pair, capped at 30 per pair, max 60 total.
  */

@@ -209,9 +209,18 @@ export const matchSuggestions = pgTable("match_suggestions", {
   sessionId: varchar("session_id").notNull(), // FK -> sessions.id
   courtId: varchar("court_id").notNull(), // FK -> courts.id
   suggestedAt: timestamp("suggested_at").notNull().defaultNow(),
-  pendingUntil: timestamp("pending_until").notNull(), // suggestedAt + 90s; sweep job auto-approves past this
-  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'playing' | 'completed' | 'dismissed' (dismissed = Court Captain rejected the suggestion before it auto-approved)
+  // suggestedAt + 90s; sweep job auto-approves past this. NULL for 'queued' rows
+  // (queued rows are flipped to 'pending' by the game-end transition, which sets
+  // pendingUntil = now + 90s at that moment — so they MUST never be picked up
+  // by the auto-approve sweep before then).
+  pendingUntil: timestamp("pending_until"),
+  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'playing' | 'completed' | 'dismissed' | 'queued' (queued = "next round" lineup pre-built for an occupied court; flipped to 'pending' on game end)
   approvedBy: text("approved_by"), // marketplace_users.id of approver, or the literal "auto" when the timer fires
+  // True when a queued lineup includes any of the 4 players currently on the court
+  // (Case 2 of the queued-suggestion orchestrator). Used by the game-end transition
+  // to decide whether to flip queued→pending directly or verify availability first.
+  // Always false for non-queued rows (default).
+  includesActivePlayers: boolean("includes_active_players").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
