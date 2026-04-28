@@ -361,13 +361,25 @@ function NextGameCard({ suggestion }: { suggestion: CurrentSuggestion }) {
         queryKey: ['/api/marketplace/players/me/current-suggestion'],
       });
     },
-    onError: (err: any) => {
-      // 4xx → match no longer available (admin cancel, race against
-      // dismissal, etc.). Toast a friendly message and invalidate so the
-      // polling reroutes the player back to the finding-game state.
+    onError: (err: unknown) => {
+      // apiRequest throws a plain object of shape { error, status, code? }
+      // (see throwIfResNotOk in client/src/lib/queryClient.ts), NOT an
+      // Error instance. Narrow safely via `in` checks before reading.
+      // 404 (suggestion gone / not yours) and 409 (already started or
+      // dismissed) both mean "this match is no longer available" — toast
+      // the friendly message and let the polled current-suggestion query
+      // reroute the player back to the finding-game state. Any other
+      // failure (network, 500, 401) re-enables the button and surfaces
+      // the generic retry message.
+      const isMatchGone =
+        typeof err === 'object' &&
+        err !== null &&
+        'status' in err &&
+        ((err as { status: number }).status === 404 ||
+          (err as { status: number }).status === 409);
       toast({
         title: "Couldn't start the game",
-        description: err?.message?.includes('no longer')
+        description: isMatchGone
           ? "This match is no longer available. Looking for your next game…"
           : "Please try again or ask the Court Captain.",
         variant: 'destructive',
