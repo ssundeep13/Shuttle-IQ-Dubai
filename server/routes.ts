@@ -98,7 +98,7 @@ function applyTierBuffer(
 }
 
 import { completeReferral } from "./referrals";
-import { buildClaudeMatchmakingPrompt, requestClaudeMatchmaking } from "./claude-matchmaking";
+import { requestClaudeMatchmaking } from "./claude-matchmaking";
 export { completeReferral };
 
 export async function registerRoutes(app: Express): Promise<Server> {
