@@ -440,7 +440,7 @@ function NextGameCard({ suggestion }: { suggestion: CurrentSuggestion }) {
                 Starting…
               </>
             ) : (
-              'Start game'
+              "We're at the court – start game"
             )}
           </Button>
         )}
