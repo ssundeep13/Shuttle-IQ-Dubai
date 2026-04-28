@@ -1,0 +1,54 @@
+Auto-matchmaking on check-in — 6 player threshold
+What & Why
+When players check in they currently see "Finding your next game..." indefinitely until the Court Captain manually triggers matchmaking. We want matchmaking to fire automatically when enough players have checked in.
+The rule:
+After every successful check-in, run tryAutoMatchmaking(sessionId) via setImmediate — fire and forget, never blocks the check-in response.
+tryAutoMatchmaking logic:
+
+1. Get the linked internal session
+2. Count games played this session (game_results rows for this sessionId)
+3. Set threshold:
+   - If gamesPlayed === 0 → threshold = 6
+   - If gamesPlayed > 0 → threshold = 4
+4. Get waiting players — in queue, players.status = 'waiting', 
+   not currently in any pending/approved/playing suggestion
+5. Get available courts — courts.status = 'available' for this session
+6. If waiting players < threshold OR no available courts → log and exit
+
+7. LOOP — for each available court:
+   a. Run generateBracketedLineups with waiting players
+   b. If valid 4-player lineup produced:
+      → storage.createMatchSuggestion with pendingUntil = now + 90s
+      → remove those 4 players from the waiting pool
+      → log [auto-matchmaking] suggestion created for court X
+   c. If fewer than 4 players returned → break loop
+   d. Check remaining waiting players against threshold (use 4 for subsequent courts)
+   e. If waiting players < 4 OR no more available courts → exit loop
+Also fire tryAutoMatchmaking after every successful score submission — replace the existing inline background matchmaking block in the P3 score endpoint with a call to this same function.
+Critical constraints:
+
+Always fire and forget via setImmediate
+Never assign a player already in a pending, approved, or playing suggestion
+Never create more suggestions than available courts
+The threshold of 6 applies only to the very first game of the session
+All subsequent games (including second court in same loop run) use threshold of 4
+Court Captain Auto Assign remains as manual override — do not remove it
+Use existing generateBracketedLineups from server/matchmaking.ts
+
+Test when complete:
+
+5 players check in → no suggestion created
+6th player checks in → suggestion created automatically, best balanced 4 assigned, remaining 2 see waiting screen
+7th and 8th player check in → no new suggestion (only 1 court, already has pending suggestion)
+First game starts and ends → score submitted → if 4+ waiting players exist → next suggestion fires automatically with threshold of 4
+With 2 courts and 8 players → 6th check-in triggers Court 1 suggestion, 8th check-in triggers Court 2 suggestion
+Court Captain Auto Assign still works as manual override
+
+Report back:
+
+All 6 test scenarios as pass or fail
+Time from 6th player check-in to suggestion appearing on waiting screens
+What lineup the algorithm selected and why
+Anything deferred
+
+Do not build anything else until this report is received.
