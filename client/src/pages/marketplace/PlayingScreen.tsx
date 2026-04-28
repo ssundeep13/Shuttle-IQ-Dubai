@@ -69,12 +69,22 @@ export default function PlayingScreen() {
       return;
     }
 
-    // status is null or any other non-active value (completed/dismissed).
+    if (status === 'dismissed') {
+      // Admin cancelled the game (Court Captain pressed Cancel Game).
+      // The /current-suggestion endpoint surfaces 'dismissed' rows for a
+      // 10-minute window so we can detect this transition. Route the
+      // player back to the waiting screen — score entry is reserved for
+      // games that actually completed with a winner.
+      setLocation('/marketplace/play');
+      return;
+    }
+
+    // status is null or 'completed'.
     if (sawPlayingRef.current) {
       // The game we were watching just finished — proceed to score entry (P8).
       setLocation('/marketplace/play/score');
     } else {
-      // Stale/cancelled: there's no game in progress for this player.
+      // Stale/never-started: there's no game in progress for this player.
       setLocation('/marketplace/play');
     }
   }, [suggestion?.status, suggestionQuery.isPending, setLocation]);

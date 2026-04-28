@@ -35,7 +35,7 @@ import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
-import { sql, eq, and, inArray, desc, asc } from "drizzle-orm";
+import { sql, eq, and, inArray, desc, asc, gt } from "drizzle-orm";
 import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
 import {
@@ -3375,15 +3375,15 @@ export function registerMarketplaceRoutes(app: Express) {
               .from(matchSuggestionPlayers)
               .where(eq(matchSuggestionPlayers.suggestionId, playingParent.id));
           } else if (includeCompleted) {
-            // Fallback 2: most-recent 'completed' suggestion bounded to
-            // currently-active sessions. Surfaces the just-finished game
-            // to the P8 score-entry screen. Only reached when:
-            //   - the caller opted in via ?for=score-entry
-            //   - there is no pending|approved|playing suggestion for
-            //     this player
-            //   - the parent session is still 'active'
-            // Any of those three guards alone is enough to keep historical
-            // completed rows from masking the waiting/playing screens.
+            // Fallback 2 (score-entry only): most-recent 'completed'
+            // suggestion bounded to currently-active sessions. Surfaces
+            // the just-finished game to the P8 score-entry screen.
+            //
+            // The score-entry path INTENTIONALLY skips the recently-
+            // dismissed fallback below — score entry only cares about
+            // completed games, and a dismissed row from a separate
+            // cancelled assignment must not block the player from
+            // entering scores for a game they actually just finished.
             const [completedParent] = await db
               .select({
                 id: matchSuggestions.id,
@@ -3411,6 +3411,49 @@ export function registerMarketplaceRoutes(app: Express) {
                 })
                 .from(matchSuggestionPlayers)
                 .where(eq(matchSuggestionPlayers.suggestionId, completedParent.id));
+            }
+          } else {
+            // Fallback 1b (waiting/playing screens only): a recently-
+            // dismissed suggestion this player belonged to. Surfaced so
+            // PlayingScreen can detect an admin cancel-game (which
+            // dismisses the live 'playing' row) and route the player
+            // back to the waiting screen instead of falling through to
+            // the score-entry screen.
+            //
+            // We use pendingUntil > now() as the recency check rather
+            // than suggestedAt > (now - 10min). The admin write paths
+            // (cancel-game, replaceActiveSuggestionForAdminAssignment)
+            // bump pendingUntil to (now + 10min) when they dismiss, so
+            // this filter correctly handles long-running games that
+            // were assigned more than 10 minutes ago. Sweep-dismissed
+            // pending rows have pendingUntil in the past and are
+            // therefore excluded.
+            const [dismissedParent] = await db
+              .select({
+                id: matchSuggestions.id,
+                courtId: matchSuggestions.courtId,
+                pendingUntil: matchSuggestions.pendingUntil,
+                status: matchSuggestions.status,
+              })
+              .from(matchSuggestionPlayers)
+              .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+              .where(and(
+                eq(matchSuggestionPlayers.playerId, linkedPlayerId),
+                eq(matchSuggestions.status, 'dismissed'),
+                gt(matchSuggestions.pendingUntil, new Date()),
+              ))
+              .orderBy(desc(matchSuggestions.suggestedAt))
+              .limit(1);
+
+            if (dismissedParent) {
+              parent = dismissedParent;
+              playerRows = await db
+                .select({
+                  playerId: matchSuggestionPlayers.playerId,
+                  team: matchSuggestionPlayers.team,
+                })
+                .from(matchSuggestionPlayers)
+                .where(eq(matchSuggestionPlayers.suggestionId, dismissedParent.id));
             }
           }
         }

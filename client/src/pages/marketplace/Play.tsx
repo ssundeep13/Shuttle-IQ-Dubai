@@ -22,7 +22,11 @@ interface CurrentSuggestionPlayer {
 
 interface CurrentSuggestion {
   id: string;
-  status: 'pending' | 'approved' | 'playing';
+  // 'dismissed' is surfaced briefly by the backend (10-min window) when
+  // the admin cancels a game, so PlayingScreen can detect the cancel and
+  // route back to the waiting screen. The waiting screen itself treats
+  // 'dismissed' as "no live suggestion" — see the render branch below.
+  status: 'pending' | 'approved' | 'playing' | 'dismissed';
   courtId: string;
   courtName: string;
   pendingUntil: string;
@@ -275,7 +279,10 @@ function WaitingScreen({ onDone }: { onDone: () => void }) {
         </h1>
       </div>
 
-      {!suggestion ? (
+      {!suggestion || suggestion.status === 'dismissed' ? (
+        // 'dismissed' is surfaced briefly so PlayingScreen can detect an
+        // admin cancel-game; for the waiting screen it just means "no
+        // live game", same as a null suggestion.
         <FindingNextGameCard />
       ) : (
         <NextGameCard suggestion={suggestion} />

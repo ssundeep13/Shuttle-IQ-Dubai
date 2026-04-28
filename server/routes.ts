@@ -4,7 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { storage } from "./storage";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals, matchSuggestions } from "@shared/schema";
 import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
 import { z } from "zod";
 import { randomUUID } from "crypto";
@@ -1968,6 +1968,34 @@ Return ONLY valid JSON, no markdown, no other text:
     const assignedIds = teamAssignments.map(a => a.playerId);
     const newQueue = currentQueue.filter(id => !assignedIds.includes(id));
 
+    // Mirror the assignment into match_suggestions so the player-facing
+    // /current-suggestion endpoint (which reads only this table) reflects
+    // the admin's action. This is the bridge that keeps the admin's Court
+    // Management screen and the player phones in sync. Any pre-existing
+    // active suggestion for this court OR involving any of these players
+    // is dismissed in the same transaction so the player view never sees
+    // two live rows for the same person.
+    //
+    // pendingUntil is unused for 'playing' rows (the auto-approve sweep
+    // only touches 'pending'), but the column is NOT NULL — set it to a
+    // benign near-future value.
+    const SUGGESTION_PENDING_UNTIL_MS = 60 * 1000;
+    try {
+      await storage.replaceActiveSuggestionForAdminAssignment({
+        sessionId,
+        courtId,
+        pendingUntil: new Date(Date.now() + SUGGESTION_PENDING_UNTIL_MS),
+        approvedBy: 'admin',
+        players: teamAssignments,
+      });
+    } catch (err) {
+      // Don't fail the admin's assign action over a player-app sync write.
+      // The legacy state (courts/court_players/players) is already correct
+      // — the player phones will just keep showing "Finding next game…"
+      // until the next assign succeeds.
+      console.error('[assignCourtCore] Failed to mirror assignment into match_suggestions:', err);
+    }
+
     const updatedCourt = await storage.getCourt(courtId);
     return { updatedCourt, newQueue };
   }
@@ -2098,6 +2126,33 @@ Return ONLY valid JSON, no markdown, no other text:
       });
       await storage.setCourtPlayers(court.id, []);
 
+      // Mirror the cancel into match_suggestions so the player phones
+      // can react. PlayingScreen polls /current-suggestion every 5s; when
+      // it sees status='dismissed' it routes the player back to the
+      // waiting screen (NOT the score-entry screen, which is reserved
+      // for completed games). Failure here is non-fatal — the legacy
+      // court state is already reset.
+      try {
+        const activeSuggestion = await storage.getActiveMatchSuggestionForCourt(court.id);
+        if (activeSuggestion) {
+          // Bump pendingUntil to (now + 10 min) when dismissing so the
+          // /current-suggestion endpoint's recently-dismissed fallback
+          // can detect this transition via a single column filter,
+          // independent of how long the original game had been running.
+          // The sweep only operates on status='pending' rows so this
+          // re-purposing is safe.
+          await db
+            .update(matchSuggestions)
+            .set({
+              status: 'dismissed',
+              pendingUntil: new Date(Date.now() + 10 * 60 * 1000),
+            })
+            .where(eq(matchSuggestions.id, activeSuggestion.id));
+        }
+      } catch (err) {
+        console.error(`[CANCEL-GAME] Failed to dismiss match suggestion for court ${court.id}:`, err);
+      }
+
       console.log(`[CANCEL-GAME] Game canceled successfully. Players returned to queue.`);
       res.json({ message: 'Game canceled successfully' });
     } catch (error) {
@@ -2186,6 +2241,21 @@ Return ONLY valid JSON, no markdown, no other text:
       const winnerIdSet = new Set(winners.map(w => w.id));
       const playerIds = players.map(p => p.id);
 
+      // Look up the live match suggestion for this court (created by
+      // assignCourtCore on assign). Passing its id into the transaction
+      // both (a) marks the suggestion 'completed' atomically with the
+      // game_results insert, and (b) provides idempotency via the unique
+      // constraint on game_results.matchSuggestionId. If no live row
+      // exists (e.g. legacy game started before this sync was added),
+      // we proceed with null and the transaction still records the game.
+      let activeSuggestionIdForGame: string | null = null;
+      try {
+        const activeSuggestion = await storage.getActiveMatchSuggestionForCourt(court.id);
+        activeSuggestionIdForGame = activeSuggestion?.id ?? null;
+      } catch (err) {
+        console.error(`[END-GAME] Failed to look up active suggestion for court ${court.id}:`, err);
+      }
+
       // Wrap player updates + game_results + game_participants in a single
       // transaction. The callback runs INSIDE the tx with freshly-read player
       // rows so concurrent end-game calls (defense in depth: court state
@@ -2196,7 +2266,7 @@ Return ONLY valid JSON, no markdown, no other text:
         team1Score,
         team2Score,
         winningTeam,
-        matchSuggestionId: null, // admin end-game does not yet link to a suggestion
+        matchSuggestionId: activeSuggestionIdForGame,
         isSandboxSession,
         playerIds,
         computePerPlayer: (freshPlayers) => {
@@ -2271,6 +2341,22 @@ Return ONLY valid JSON, no markdown, no other text:
           });
         },
       });
+
+      // Concurrency guard: if a duplicate end-game request raced past the
+      // court-status check above, only one of them inserted the
+      // game_results row (enforced by the unique index on
+      // matchSuggestionId inside completeGameTransaction). The losing
+      // request gets alreadySubmitted=true with the canonical
+      // participants from the winner. We must NOT re-apply the post-tx
+      // side effects (rest states, queue append, court reset) for the
+      // loser — those would double-count and corrupt session state.
+      // Returning the existing court state matches what the winning
+      // request would have returned after its full post-tx pass.
+      if (txResult.alreadySubmitted) {
+        console.log(`[END-GAME] Duplicate end-game for court ${court.id} ignored (game ${txResult.gameId} already recorded).`);
+        const currentCourt = await storage.getCourt(court.id);
+        return res.json({ ...currentCourt, players: [] });
+      }
 
       const participantData = txResult.participants;
 

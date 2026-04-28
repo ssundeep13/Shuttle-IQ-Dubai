@@ -459,6 +459,23 @@ export interface IStorage {
   // = approved but not yet started; both states are "active" from the
   // court's perspective.)
   getPendingMatchSuggestionForCourt(courtId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
+  // Like getPendingMatchSuggestionForCourt, but ALSO includes 'playing'
+  // status. Used by the admin court endpoints (cancel-game, end-game) to
+  // locate the live suggestion that needs to be transitioned out of the
+  // active set when an admin acts on the court directly.
+  getActiveMatchSuggestionForCourt(courtId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
+  // Admin-driven assignment: dismisses any existing pending|approved|
+  // playing suggestion for this court OR involving any of these players,
+  // then inserts a new 'playing' suggestion + 4 child rows. All in one
+  // transaction so the player-facing /current-suggestion view never
+  // observes a half-applied state. Returns the new suggestion row.
+  replaceActiveSuggestionForAdminAssignment(input: {
+    sessionId: string;
+    courtId: string;
+    pendingUntil: Date;
+    approvedBy: string;
+    players: Array<{ playerId: string; team: number }>;
+  }): Promise<MatchSuggestion>;
   // Singular: a player should be in at most one pending-or-approved
   // suggestion at a time (enforced by the createMatchSuggestion path). The
   // 4-row lineup on match_suggestion_players is preserved across the
@@ -3535,6 +3552,121 @@ export class DatabaseStorage implements IStorage {
       .from(matchSuggestionPlayers)
       .where(eq(matchSuggestionPlayers.suggestionId, row.id));
     return { ...row, players: playerRows };
+  }
+
+  async getActiveMatchSuggestionForCourt(courtId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
+    // Same shape as getPendingMatchSuggestionForCourt but ALSO includes
+    // 'playing'. Admin cancel-game / end-game need to find the live row
+    // for the court regardless of where it sits in the lifecycle.
+    const [row] = await db
+      .select()
+      .from(matchSuggestions)
+      .where(and(
+        eq(matchSuggestions.courtId, courtId),
+        inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+      ))
+      .orderBy(desc(matchSuggestions.suggestedAt))
+      .limit(1);
+    if (!row) return undefined;
+    const playerRows = await db
+      .select()
+      .from(matchSuggestionPlayers)
+      .where(eq(matchSuggestionPlayers.suggestionId, row.id));
+    return { ...row, players: playerRows };
+  }
+
+  async replaceActiveSuggestionForAdminAssignment(input: {
+    sessionId: string;
+    courtId: string;
+    pendingUntil: Date;
+    approvedBy: string;
+    players: Array<{ playerId: string; team: number }>;
+  }): Promise<MatchSuggestion> {
+    if (input.players.length !== 4) {
+      throw new Error(`replaceActiveSuggestionForAdminAssignment expects exactly 4 players, got ${input.players.length}`);
+    }
+    const playerIds = input.players.map(p => p.playerId);
+    const uniqueIds = new Set(playerIds);
+    if (uniqueIds.size !== 4) {
+      throw new Error(`replaceActiveSuggestionForAdminAssignment player IDs must be unique`);
+    }
+    const team1Count = input.players.filter(p => p.team === 1).length;
+    const team2Count = input.players.filter(p => p.team === 2).length;
+    if (team1Count !== 2 || team2Count !== 2) {
+      throw new Error(`replaceActiveSuggestionForAdminAssignment expects 2v2 split, got ${team1Count}v${team2Count}`);
+    }
+
+    const newId = randomUUID();
+    return await db.transaction(async (tx) => {
+      // Step 1: collect IDs of any active suggestions tied to this court
+      // OR involving any of these players. Two narrow queries are cheaper
+      // (and easier to reason about) than a single OR'd join.
+      const byCourt = await tx
+        .select({ id: matchSuggestions.id })
+        .from(matchSuggestions)
+        .where(and(
+          eq(matchSuggestions.courtId, input.courtId),
+          inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+        ));
+      const byPlayer = await tx
+        .select({ id: matchSuggestions.id })
+        .from(matchSuggestionPlayers)
+        .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+        .where(and(
+          inArray(matchSuggestionPlayers.playerId, playerIds),
+          inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+        ));
+      const conflictIds = Array.from(new Set([
+        ...byCourt.map(r => r.id),
+        ...byPlayer.map(r => r.id),
+      ]));
+
+      // Step 2: dismiss conflicting suggestions so the player-facing view
+      // can never observe two simultaneously-active rows for the same
+      // court or player. We also bump pendingUntil to (now + 10 min) on
+      // these rows so the /current-suggestion endpoint's recently-
+      // dismissed fallback can detect them via a single column filter.
+      // This re-purposes pendingUntil for dismissed rows (the sweep only
+      // touches status='pending' rows so there's no semantic conflict)
+      // and avoids a schema migration to add a dedicated dismissedAt
+      // column. The 10-min window is generous enough for any reasonable
+      // player polling cadence, including phones that briefly background.
+      if (conflictIds.length > 0) {
+        const dismissalWindowEnd = new Date(Date.now() + 10 * 60 * 1000);
+        await tx
+          .update(matchSuggestions)
+          .set({ status: 'dismissed', pendingUntil: dismissalWindowEnd })
+          .where(inArray(matchSuggestions.id, conflictIds));
+      }
+
+      // Step 3: insert the new 'playing' suggestion. We skip the 'pending'
+      // → 'approved' → 'playing' lifecycle because the admin acted
+      // directly on the court — there is nothing to approve.
+      const [row] = await tx
+        .insert(matchSuggestions)
+        .values({
+          id: newId,
+          sessionId: input.sessionId,
+          courtId: input.courtId,
+          pendingUntil: input.pendingUntil,
+          status: 'playing',
+          approvedBy: input.approvedBy,
+        })
+        .returning();
+
+      // Step 4: insert the 4 child rows. courtId is duplicated from the
+      // parent for single-table hot-path lookups — see schema comment.
+      await tx.insert(matchSuggestionPlayers).values(
+        input.players.map(p => ({
+          suggestionId: newId,
+          courtId: input.courtId,
+          playerId: p.playerId,
+          team: p.team,
+        }))
+      );
+
+      return row;
+    });
   }
 
   async getCurrentSuggestionForPlayer(playerId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined> {
