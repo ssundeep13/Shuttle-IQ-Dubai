@@ -48,6 +48,22 @@ const PENDING_WINDOW_MS = 90_000;
 const FIRST_MATCH_THRESHOLD = 6;
 const SUBSEQUENT_MATCH_THRESHOLD = 4;
 
+// drizzle's neon driver returns either `{ rows: [...] }` (current versions)
+// or a bare array (older paths). This helper normalises both into a
+// single-row generic so call sites stay strongly typed.
+function firstRow<T>(result: unknown): T | undefined {
+  if (result && typeof result === 'object') {
+    const withRows = result as { rows?: unknown };
+    if (Array.isArray(withRows.rows) && withRows.rows.length > 0) {
+      return withRows.rows[0] as T;
+    }
+    if (Array.isArray(result) && result.length > 0) {
+      return result[0] as T;
+    }
+  }
+  return undefined;
+}
+
 // Stable advisory-lock keyed off the session UUID. Two near-simultaneous
 // check-ins or a check-in racing a score submit collapse to a single
 // matchmaking pass — the loser logs and exits.
@@ -63,12 +79,10 @@ async function withSessionLock<T>(
   fn: () => Promise<T>,
 ): Promise<T | undefined> {
   return await db.transaction(async (tx) => {
-    const acquired = await tx.execute<{ locked: boolean }>(
+    const result = await tx.execute<{ locked: boolean }>(
       sql`SELECT pg_try_advisory_xact_lock(hashtext(${sessionId})) AS locked`,
     );
-    // drizzle's neon driver returns { rows: [...] } in some versions and a
-    // bare array in others — handle both.
-    const row = (acquired as any).rows?.[0] ?? (acquired as any)[0];
+    const row = firstRow<{ locked: boolean }>(result);
     if (!row?.locked) {
       console.log(`[auto-matchmaking] session=${sessionId} skipped — another worker holds the lock`);
       return undefined;
@@ -139,12 +153,22 @@ async function tryClaudeFirstMatch(
   allPlayers: Awaited<ReturnType<typeof storage.getAllPlayers>>,
 ): Promise<Lineup | null> {
   if (!process.env.ANTHROPIC_API_KEY) {
+    console.log(
+      `[auto-matchmaking] fell back to standard algorithm session=${sessionId} ` +
+      `elapsedMs=0 reason="ANTHROPIC_API_KEY not set"`,
+    );
     return null;
   }
 
   const poolIdSet = new Set(poolPlayerIds);
   const poolPlayers = allPlayers.filter(p => poolIdSet.has(p.id));
-  if (poolPlayers.length < 4) return null;
+  if (poolPlayers.length < 4) {
+    console.log(
+      `[auto-matchmaking] fell back to standard algorithm session=${sessionId} ` +
+      `elapsedMs=0 reason="pool size ${poolPlayers.length} < 4 after resolving ids"`,
+    );
+    return null;
+  }
 
   const restStates = poolPlayers.map(p => getPlayerRestState(sessionId, p.id));
   const totalGames = restStates.reduce((sum, rs) => sum + (rs.gamesThisSession || 0), 0);
