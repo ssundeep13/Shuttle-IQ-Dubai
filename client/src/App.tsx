@@ -50,6 +50,7 @@ import Welcome from "@/pages/marketplace/Welcome";
 import Play from "@/pages/marketplace/Play";
 import PlayingScreen from "@/pages/marketplace/PlayingScreen";
 import ScoreEntry from "@/pages/marketplace/ScoreEntry";
+import SessionDone from "@/pages/marketplace/SessionDone";
 import InstagramCarousel from "@/pages/InstagramCarousel";
 import InstagramFeaturesCarousel from "@/pages/InstagramFeaturesCarousel";
 import ScreenshotHarness from "@/pages/ScreenshotHarness";
@@ -211,6 +212,9 @@ function Router() {
         </Route>
         <Route path="/marketplace/play/score">
           <MarketplaceAuthRoute component={ScoreEntry} />
+        </Route>
+        <Route path="/marketplace/play/done">
+          <MarketplaceAuthRoute component={SessionDone} />
         </Route>
         <Route path="/marketplace/rankings">
           <MarketplaceRoute component={Rankings} />

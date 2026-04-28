@@ -35,8 +35,8 @@ import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { completeReferral } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
-import { sql, eq, and, inArray, desc } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions } from "@shared/schema";
+import { sql, eq, and, inArray, desc, asc } from "drizzle-orm";
+import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults } from "@shared/schema";
 import { applyPendingSignupCredit, creditForPromo } from "./promos";
 import {
   generateBracketedLineups,
@@ -219,6 +219,28 @@ export function computeSkillFromAssessment(answers: [number, number, number]): {
   if (sum <= 7) return { skillScore: 55, level: 'Beginner' };
   if (sum <= 10) return { skillScore: 75, level: 'lower_intermediate' };
   return { skillScore: 95, level: 'upper_intermediate' };
+}
+
+// Brand-guidelines display name for a tier. The DB stores a mix of
+// capitalised tiers ('Novice', 'Beginner', 'Advanced', 'Professional') and
+// snake_case mid-tiers ('lower_intermediate', 'upper_intermediate'); we
+// normalise on lower-case before mapping. Player-facing copy must NEVER
+// surface the raw snake_case values.
+function tierDisplayName(level: string): string {
+  const normalized = (level ?? '').toLowerCase();
+  switch (normalized) {
+    case 'novice': return 'Novice';
+    case 'beginner': return 'Beginner';
+    case 'lower_intermediate': return 'Intermediate';
+    case 'upper_intermediate': return 'Competitive';
+    case 'advanced': return 'Advanced';
+    case 'professional': return 'Professional';
+    default:
+      // Defensive: never leak raw DB values (snake_case or otherwise) to
+      // player-facing copy. Log so we can spot rogue values in the data.
+      console.warn(`[tierDisplayName] unknown level value: ${JSON.stringify(level)}`);
+      return '—';
+  }
 }
 
 export function registerMarketplaceRoutes(app: Express) {
@@ -3434,6 +3456,141 @@ export function registerMarketplaceRoutes(app: Express) {
       } catch (error) {
         console.error('[Current suggestion] error:', error);
         res.status(500).json({ error: "Failed to load current suggestion." });
+      }
+    },
+  );
+
+  // P9 — Session End Screen.
+  // Returns the player's stats for the most recent session they actually
+  // attended. "Attended" is gated on bookings.status === 'attended', joined
+  // through bookable_sessions to find the corresponding internal session id.
+  // From there we count game_participants rows for this player in that
+  // session's games (gamesPlayed / wins) and use the EARLIEST
+  // skill_score_before in that session as the per-session baseline so the
+  // delta reflects what changed during the session, not lifetime drift.
+  //
+  // Three terminal shapes:
+  //   { noSession: true }                 — never attended a session, or the
+  //                                         attended booking is for a
+  //                                         bookable_session with no
+  //                                         linked internal session.
+  //   { ...stats, gamesPlayed: 0, ... }   — checked in but never assigned to
+  //                                         a court (skillScoreDelta is 0
+  //                                         and the frontend renders the
+  //                                         graceful "didn't play" state).
+  //   { ...stats }                        — full summary.
+  app.get(
+    "/api/marketplace/players/me/session-summary",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        const userId = req.user!.userId;
+        const user = await storage.getMarketplaceUser(userId);
+        const linkedPlayerId = user?.linkedPlayerId ?? null;
+        if (!linkedPlayerId) {
+          return res.json({ noSession: true });
+        }
+
+        // Most recent attended booking, joined through bookable_sessions to
+        // resolve to the internal session id we use for game lookups.
+        // attendedAt is set by the /attend admin action — we order by it so
+        // ties between bookings created earlier in the day are broken by
+        // the actual check-in moment.
+        const [attendedBooking] = await db
+          .select({
+            internalSessionId: bookableSessions.linkedSessionId,
+            attendedAt: bookings.attendedAt,
+          })
+          .from(bookings)
+          .innerJoin(bookableSessions, eq(bookings.sessionId, bookableSessions.id))
+          .where(and(
+            eq(bookings.userId, userId),
+            eq(bookings.status, 'attended'),
+            sql`${bookableSessions.linkedSessionId} IS NOT NULL`,
+            sql`${bookings.attendedAt} IS NOT NULL`,
+          ))
+          .orderBy(desc(bookings.attendedAt))
+          .limit(1);
+
+        if (!attendedBooking || !attendedBooking.internalSessionId) {
+          return res.json({ noSession: true });
+        }
+
+        const internalSessionId = attendedBooking.internalSessionId;
+
+        const player = await storage.getPlayer(linkedPlayerId);
+        if (!player) {
+          return res.json({ noSession: true });
+        }
+
+        // Per-game rows for this player in this session, ordered by game
+        // creation so [0] is the earliest skill_score_before (session
+        // baseline). team is the player's team in that game; winningTeam
+        // comes from game_results.
+        const gpRows = await db
+          .select({
+            team: gameParticipants.team,
+            winningTeam: gameResults.winningTeam,
+            skillScoreBefore: gameParticipants.skillScoreBefore,
+          })
+          .from(gameParticipants)
+          .innerJoin(gameResults, eq(gameParticipants.gameId, gameResults.id))
+          .where(and(
+            eq(gameParticipants.playerId, linkedPlayerId),
+            eq(gameResults.sessionId, internalSessionId),
+          ))
+          .orderBy(asc(gameResults.createdAt));
+
+        const gamesPlayed = gpRows.length;
+        const wins = gpRows.filter(r => r.team === r.winningTeam).length;
+        const winRate = gamesPlayed > 0
+          ? Math.round((wins / gamesPlayed) * 100)
+          : 0;
+
+        // Session anchor for the delta — the player's skill score at the
+        // moment their first game of this session began. Falls back to 0
+        // when the player checked in but never played (UI handles that as
+        // a separate state via gamesPlayed === 0).
+        const skillScoreDelta = gpRows.length > 0
+          ? player.skillScore - gpRows[0].skillScoreBefore
+          : 0;
+
+        // Rank — must match the Profile screen exactly, otherwise the
+        // player will see different ranks back-to-back when they tap
+        // "See full profile". The Profile screen uses storage.getPlayerStats
+        // which sorts all players by skill_score desc and takes
+        // `findIndex(...) + 1` (ordinal ranking, ties resolved by the
+        // sort's stable order on the player rows). We deliberately mirror
+        // that algorithm here rather than using a strictly-higher-count
+        // SQL trick, so the two surfaces can never disagree.
+        const allSortedBySkill = await db
+          .select({ id: players.id })
+          .from(players)
+          .orderBy(desc(players.skillScore));
+        const totalPlayers = allSortedBySkill.length;
+        const idx = allSortedBySkill.findIndex(p => p.id === linkedPlayerId);
+        const rankBySkillScore = idx >= 0 ? idx + 1 : totalPlayers;
+
+        // Tier display name. The DB stores a mix of capitalised
+        // ('Novice', 'Beginner', 'Advanced', 'Professional') and snake_case
+        // ('lower_intermediate', 'upper_intermediate') — normalise both.
+        const tierName = tierDisplayName(player.level);
+
+        return res.json({
+          playerName: player.name,
+          gamesPlayed,
+          wins,
+          winRate,
+          skillScoreDelta,
+          currentSkillScore: player.skillScore,
+          tierName,
+          rankBySkillScore,
+          totalPlayers,
+        });
+      } catch (error) {
+        console.error('[Session summary] error:', error);
+        res.status(500).json({ error: "Could not load your session summary. Please ask the Court Captain for help." });
       }
     },
   );

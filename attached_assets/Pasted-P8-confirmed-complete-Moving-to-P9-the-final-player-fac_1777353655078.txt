@@ -1,0 +1,87 @@
+P8 confirmed complete. Moving to P9 — the final player-facing screen.
+P9 — Session End Screen
+What & Why
+The last thing a player sees after their final game of the session. It wraps up their day with a personal summary — how they played, how their skill score moved, and where they stand in the rankings. It should feel like a reward for playing, not just a blank end state.
+Done looks like
+The route /marketplace/play/done renders the session end screen.
+Screen content:
+
+Eyebrow: teal "SESSION COMPLETE"
+Heading: navy "Great session, [first name]."
+Personal stats card showing:
+
+Games played this session
+Wins this session
+Win rate this session (percentage)
+Skill score change: show the delta with a + or - prefix and color (teal for gain, muted red for loss, grey for no change). Example: "+4 points"
+Current skill score and tier name
+Current ranking position (rank by skill score among all players)
+
+
+A "See full profile" button linking to the player's marketplace profile page
+A "Book next session" button linking to /marketplace/book
+No polling on this screen — it is a static end state
+
+New API endpoint needed:
+GET /api/marketplace/players/me/session-summary — returns the player's stats for the most recently completed session they attended. Specifically:
+
+Find the player's most recent bookings row with status = attended
+From that booking, get the linkedSessionId → the internal sessions record
+Count game_participants rows for this player in that session's games → gamesPlayed
+Count wins → wins
+Calculate win rate
+Get skill score delta: current players.skillScore minus skillScoreBaseline (the score recorded at the start of the session — use the earliest game_participants.skillScoreBefore for this player in this session)
+Get current skill score, level/tier name, and rank by skill score among all players
+Returns { playerName, gamesPlayed, wins, winRate, skillScoreDelta, currentSkillScore, tierName, rankBySkillScore, totalPlayers }
+If no attended session found, return { noSession: true }
+
+Critical constraints
+
+No polling — this is a static screen, load once
+If noSession: true is returned, show a friendly message: "Nothing to show yet — play a session first." with a "Book a session" button
+If the player played 0 games in the session (checked in but never assigned to a court), show a graceful state: "You checked in but didn't play any games. See you next time!"
+Skill score delta of 0 shows as "No change" in grey, not "+0"
+Tier name must use display names from brand guidelines: Novice, Beginner, Intermediate, Competitive — never raw DB values like lower_intermediate
+First name only in the heading — split on space, take first word
+Mobile-first, large readable text
+All copy plain English, no emoji, "Court Captain" for any error states
+ShuttleIQ brand colors, existing shadcn/Tailwind patterns
+
+Tier display name mapping:
+
+novice → "Novice"
+beginner → "Beginner"
+lower_intermediate → "Intermediate"
+upper_intermediate → "Competitive"
+advanced → "Advanced"
+professional → "Professional"
+
+Steps
+
+Add GET /api/marketplace/players/me/session-summary to server/marketplace-routes.ts
+Register /marketplace/play/done route in client/src/App.tsx behind MarketplaceAuthRoute
+Build SessionDone.tsx in client/src/pages/marketplace/
+Build the stats card with skill score delta display
+Handle all edge cases: no session, 0 games played
+Wire the two action buttons
+
+Test when complete
+
+Player who played games sees correct stats — games played, wins, win rate, skill score delta, tier name, ranking
+Skill score gain shows in teal with + prefix
+Skill score loss shows in muted red with - prefix
+Zero delta shows "No change" in grey
+Tier name shows display name not DB value (e.g. "Intermediate" not "lower_intermediate")
+Player with no attended session sees "Nothing to show yet" message
+Player who checked in but played 0 games sees the graceful 0-games message
+"See full profile" and "Book next session" buttons navigate correctly
+Unauthenticated user → redirected to login
+
+Report back:
+
+All 9 test scenarios as pass or fail
+Visual description of the session end screen
+Confirm tier name mapping is applied correctly
+Anything deferred
+
+This is the final player-facing screen. Once P9 is confirmed complete, the full gameplay flow is done and we move to Phase 3 hardening and PWA setup.
