@@ -35,7 +35,6 @@ function firstNameOf(fullName: string | undefined): string {
 }
 
 export default function SessionDone() {
-  usePageTitle('Session complete');
   const [, setLocation] = useLocation();
 
   // Recorded once at mount. We use it below to ignore any cached query data
@@ -92,6 +91,16 @@ export default function SessionDone() {
   // data, the value above is correct.
   const sessionStillRunning =
     !!activeSessionQuery.data && activeSessionQuery.data.activeSessionId !== null;
+
+  // Page title tracks the framing so the browser tab matches what the
+  // player sees. Once both queries settle this stops flipping.
+  usePageTitle(
+    initialLoading
+      ? 'Session complete'
+      : sessionStillRunning
+        ? 'Game complete'
+        : 'Session complete',
+  );
 
   return (
     <div
