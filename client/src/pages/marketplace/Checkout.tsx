@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet } from 'lucide-react';
-import { queryClient } from '@/lib/queryClient';
+import { queryClient, getMarketplaceAccessToken } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
 interface Guest {
@@ -218,7 +218,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
     setProcessing(true);
     setError(null);
 
-    const token = localStorage.getItem('mp_accessToken');
+    const token = getMarketplaceAccessToken();
     if (!token) {
       setError('Not authenticated. Please log in again.');
       setProcessing(false);
@@ -447,7 +447,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
     setLoading(true);
     setError(null);
 
-    const token = localStorage.getItem('mp_accessToken');
+    const token = getMarketplaceAccessToken();
     if (!token) {
       setLoading(false);
       setError('Session not found or not authenticated');

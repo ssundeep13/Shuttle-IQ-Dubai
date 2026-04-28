@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, getMarketplaceAccessToken } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -106,7 +106,7 @@ function GuestRow({
     queryKey: ['/api/marketplace/search-guests', debouncedQuery],
     queryFn: async () => {
       if (debouncedQuery.length < 2) return [];
-      const token = localStorage.getItem('mp_accessToken');
+      const token = getMarketplaceAccessToken();
       const res = await fetch(`/api/marketplace/search-guests?q=${encodeURIComponent(debouncedQuery)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -436,7 +436,7 @@ function InlineBookingPanel({
     setProcessing(true);
     setError(null);
 
-    const token = localStorage.getItem('mp_accessToken');
+    const token = getMarketplaceAccessToken();
     if (!token) {
       setError('Not authenticated. Please log in again.');
       setProcessing(false);

@@ -13,6 +13,20 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// Read the marketplace access token from localStorage first, then fall back to
+// sessionStorage. The marketplace auth context stores the token in either
+// store depending on the user's "remember me" preference (localStorage when
+// remembered, sessionStorage otherwise) — this helper mirrors the auth
+// context's own readToken() so every marketplace fetcher in the app finds
+// the token regardless of which store it ended up in.
+export function getMarketplaceAccessToken(): string | null {
+  try {
+    return localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
+  } catch {
+    return null;
+  }
+}
+
 function getAuthToken(url: string): string | null {
   const isAdminPage = window.location.pathname.startsWith('/admin');
   if (isAdminPage) {
@@ -25,7 +39,7 @@ function getAuthToken(url: string): string | null {
     (url.includes('/api/marketplace/bookings/') && url.endsWith('/attend'));
   
   if (isMarketplace && !isAdminMarketplace) {
-    return localStorage.getItem('mp_accessToken');
+    return getMarketplaceAccessToken();
   }
   return localStorage.getItem('accessToken');
 }

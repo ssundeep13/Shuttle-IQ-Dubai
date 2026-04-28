@@ -5,6 +5,7 @@ import { XCircle } from 'lucide-react';
 import { Link } from 'wouter';
 import { InstallAppBar } from '@/components/InstallAppBar';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { getMarketplaceAccessToken } from '@/lib/queryClient';
 
 export default function CheckoutCancel() {
   usePageTitle('Checkout Cancelled');
@@ -12,7 +13,7 @@ export default function CheckoutCancel() {
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get('booking_id');
     if (bookingId) {
-      const token = localStorage.getItem('mp_accessToken');
+      const token = getMarketplaceAccessToken();
       if (token) {
         fetch(`/api/marketplace/bookings/${bookingId}/cancel`, {
           method: 'POST',

@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, getMarketplaceAccessToken } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
 interface CurrentSuggestionPlayer {
@@ -66,7 +66,7 @@ export default function ScoreEntry() {
         {
           credentials: 'include',
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('mp_accessToken') ?? ''}`,
+            Authorization: `Bearer ${getMarketplaceAccessToken() ?? ''}`,
           },
         },
       );
