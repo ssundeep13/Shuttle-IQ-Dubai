@@ -311,6 +311,21 @@ export default function Dashboard() {
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
 
+  // Today's active session — surfaces the day-of "Check in / Go to play"
+  // banner at the top of the Dashboard. Picks the earliest booking whose
+  // session date falls on today AND is either confirmed or already attended.
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+  const todayBooking = (bookings || [])
+    .filter(b => {
+      const sessionDate = new Date(b.session.date);
+      const isToday = sessionDate >= todayStart && sessionDate <= todayEnd;
+      const isEligible = b.status === 'confirmed' || b.attendedAt !== null;
+      return isToday && isEligible;
+    })
+    .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime())[0];
+  const todayCheckedIn = !!todayBooking?.attendedAt;
+
   const nextAvailableSession = availableSessions
     .filter(s => s.status === 'upcoming' && new Date(s.date) >= todayStart)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0] ?? null;
@@ -326,6 +341,62 @@ export default function Dashboard() {
     <>
     <div className="max-w-5xl mx-auto px-4 py-8">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
+        {todayBooking && (
+          <motion.div variants={fadeInUp} className="mb-6">
+            <div
+              className="rounded-xl px-5 py-5 sm:px-6 sm:py-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+              style={{ backgroundColor: '#003E8C', color: '#F5EFE0' }}
+              data-testid="card-today-session-banner"
+            >
+              <div className="flex-1 min-w-0">
+                <div
+                  className="text-[11px] font-semibold uppercase tracking-wider mb-1"
+                  style={{ color: '#F5EFE0', opacity: 0.7 }}
+                  data-testid="text-today-session-eyebrow"
+                >
+                  {todayCheckedIn ? "You're checked in" : "Today's session"}
+                </div>
+                <h2
+                  className="text-xl sm:text-2xl font-bold leading-tight truncate"
+                  data-testid="text-today-session-title"
+                >
+                  {todayBooking.session.title}
+                </h2>
+                <div
+                  className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
+                  style={{ color: '#F5EFE0', opacity: 0.85 }}
+                >
+                  <span
+                    className="flex items-center gap-1.5"
+                    data-testid="text-today-session-venue"
+                  >
+                    <MapPin className="h-4 w-4 shrink-0" />
+                    {todayBooking.session.venueName}
+                  </span>
+                  <span
+                    className="flex items-center gap-1.5"
+                    data-testid="text-today-session-time"
+                  >
+                    <Clock className="h-4 w-4 shrink-0" />
+                    {todayBooking.session.startTime}
+                    {todayBooking.session.endTime ? ` – ${todayBooking.session.endTime}` : ''}
+                  </span>
+                </div>
+              </div>
+              <Link href="/marketplace/play" className="shrink-0">
+                <Button
+                  size="lg"
+                  className="w-full sm:w-auto gap-2 font-semibold"
+                  style={{ backgroundColor: '#F5EFE0', color: '#003E8C' }}
+                  data-testid={todayCheckedIn ? 'button-go-to-play' : 'button-check-in-now'}
+                >
+                  {todayCheckedIn ? 'Go to play screen' : 'Check in now'}
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+          </motion.div>
+        )}
         <motion.div variants={fadeInUp} className="mb-8">
           <div className="flex items-center gap-4">
             <Link href="/marketplace/profile" data-testid="link-profile-avatar" className="shrink-0 cursor-pointer md:pointer-events-none md:cursor-default">

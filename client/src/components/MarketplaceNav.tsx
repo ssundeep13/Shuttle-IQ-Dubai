@@ -17,7 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History, FileText } from 'lucide-react';
+import { User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History, FileText, Play } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MarketplaceNotification } from '@shared/schema';
 
@@ -30,6 +30,7 @@ const navLinks = [
 
 const authNavLinks = [
   { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/marketplace/play', label: 'Play', icon: Play },
   { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
   { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
   { href: '/marketplace/blog', label: 'Blog', icon: FileText },
