@@ -98,19 +98,56 @@ async function login(email) {
   return token;
 }
 
-// NOTE: We deliberately do NOT assert on `[auto-matchmaking] used Claude AI`
-// or `… fell back to standard algorithm` log markers from inside this test.
-// Those markers go to the workflow's stdout, but the on-disk log files under
-// /tmp/logs are platform-managed snapshots that are NOT live-tailed during a
-// test run, so any file-based detection here would race and produce false
-// negatives. The behaviour those markers describe (Claude vs fallback path,
-// firing only on the very first match) is exercised end-to-end by the
-// suggestion/lineup/court assertions below — if the wrong code path fired,
-// the suggestion shape, count, or timing would also be wrong. Operators can
-// confirm the path post-hoc by inspecting the workflow log directly.
-function snapshotServerLog() { return null; }
-function readMatchmakingPathSince(_snapshot) {
-  return { claudeCount: 0, fallbackCount: 0, observed: false };
+// The auto-matchmaking module writes one JSON line per meaningful event to a
+// structured side-channel file (default: /tmp/shuttleiq-am-events.jsonl).
+// We use that file — not the workflow stdout log, which is a platform-
+// managed snapshot — to verify which code path executed for each scenario
+// and to capture wall-clock timings for the Claude call.
+const EVENT_LOG_PATH = process.env.AUTO_MATCHMAKING_EVENT_LOG ?? '/tmp/shuttleiq-am-events.jsonl';
+
+function snapshotEventLog() {
+  if (!existsSync(EVENT_LOG_PATH)) return { path: EVENT_LOG_PATH, offset: 0 };
+  return { path: EVENT_LOG_PATH, offset: statSync(EVENT_LOG_PATH).size };
+}
+
+// Read every JSON event appended to the event log since `snapshot` was
+// taken. Returns a flat array of `{ type, ... }` records, filtered to the
+// supplied sessionId (events from other concurrent sessions are ignored).
+function readEventsSince(snapshot, sessionId) {
+  if (!existsSync(snapshot.path)) return [];
+  const buf = readFileSync(snapshot.path);
+  const tail = buf.slice(snapshot.offset).toString('utf8');
+  const out = [];
+  for (const line of tail.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const ev = JSON.parse(line);
+      if (!sessionId || ev.sessionId === sessionId) out.push(ev);
+    } catch {
+      // skip malformed line
+    }
+  }
+  return out;
+}
+
+// Convenience: count Claude vs fallback decisions in a slice of events.
+function summarisePath(events) {
+  let claudeCount = 0;
+  let fallbackCount = 0;
+  let claudeElapsedMs = null;
+  let fallbackElapsedMs = null;
+  let fallbackReason = null;
+  for (const ev of events) {
+    if (ev.type === 'claude_used') {
+      claudeCount++;
+      claudeElapsedMs = ev.elapsedMs;
+    } else if (ev.type === 'fallback') {
+      fallbackCount++;
+      fallbackElapsedMs = ev.elapsedMs;
+      fallbackReason = ev.reason;
+    }
+  }
+  return { claudeCount, fallbackCount, claudeElapsedMs, fallbackElapsedMs, fallbackReason };
 }
 
 // Wait for at least N pending/approved suggestions to exist for the given
@@ -326,6 +363,7 @@ async function main() {
 
   // Scenario 2: 6th check-in → 1 suggestion on Court 1, time + path
   console.log('\n──── Scenario 2: 6th check-in → 1 suggestion (Claude path) ────');
+  const s2EventSnapshot = snapshotEventLog();
   const t0 = Date.now();
   await checkIn(TEST_USERS[5].token, single.bookableSessionId);
   let s2Rows;
@@ -343,7 +381,22 @@ async function main() {
     const lineupDesc = await describeLineup(db, s2Rows[0]);
     console.log(`    ${lineupDesc}`);
     report.scenarios.push({ name: 'S2: 6th check-in → 1 suggestion', pass: true, lineup: lineupDesc });
-    console.log(`    (Claude vs fallback path is verified by inspecting the workflow log directly — see file note above readMatchmakingPathSince.)`);
+    // Brief wait so the appendFileSync from inside setImmediate has completed.
+    await new Promise(r => setTimeout(r, 150));
+    const s2Events = readEventsSince(s2EventSnapshot, single.sessionId);
+    const s2Path = summarisePath(s2Events);
+    const totalMarkers = s2Path.claudeCount + s2Path.fallbackCount;
+    if (totalMarkers !== 1) {
+      fail(`expected exactly 1 first-match decision (claude OR fallback), got claude=${s2Path.claudeCount} fallback=${s2Path.fallbackCount}`);
+    } else if (s2Path.claudeCount === 1) {
+      ok(`Claude AI path was used (elapsedMs=${s2Path.claudeElapsedMs})`);
+      report.timings.claudeWallClockMs = s2Path.claudeElapsedMs;
+    } else {
+      ok(`Standard-algorithm fallback was used (elapsedMs=${s2Path.fallbackElapsedMs}, reason="${s2Path.fallbackReason}")`);
+      report.timings.fallbackWallClockMs = s2Path.fallbackElapsedMs;
+      report.timings.fallbackReason = s2Path.fallbackReason;
+    }
+    report.timings.firstMatchPath = s2Path.claudeCount === 1 ? 'claude' : 'fallback';
   } else {
     fail(`expected 1 suggestion at 6th check-in, got ${s2Rows.length}`);
   }
@@ -386,6 +439,7 @@ async function main() {
   if (!playerOnLineup) {
     fail('no logged-in test user is on the live suggestion');
   } else {
+    const s4EventSnapshot = snapshotEventLog();
     const startR = await http('POST', `/api/marketplace/games/${liveSuggestion.id}/start-game`, { token: playerOnLineup.token });
     if (startR.status !== 200) {
       fail(`start-game failed: ${startR.status}`, startR.body);
@@ -414,7 +468,14 @@ async function main() {
       const lineupDesc = await describeLineup(db, s4Rows[0]);
       console.log(`    ${lineupDesc}`);
       report.scenarios.push({ name: 'S4: score-submit → 2nd suggestion', pass: true, lineup: lineupDesc });
-      console.log(`    (Follow-up matches use the standard algorithm directly — verify in workflow log if needed.)`);
+      await new Promise(r => setTimeout(r, 150));
+      const s4Events = readEventsSince(s4EventSnapshot, single.sessionId);
+      const s4Path = summarisePath(s4Events);
+      if (s4Path.claudeCount === 0 && s4Path.fallbackCount === 0) {
+        ok(`no Claude/fallback decision after score-submit (follow-up went straight to standard algorithm)`);
+      } else {
+        fail(`expected zero first-match decisions after score-submit, got claude=${s4Path.claudeCount} fallback=${s4Path.fallbackCount}`);
+      }
     } else {
       fail('no 2nd suggestion produced');
       report.scenarios.push({ name: 'S4: score-submit → 2nd suggestion', pass: false });
@@ -444,6 +505,7 @@ async function main() {
   else fail(`expected 0 before 6th check-in, got ${d0.length}`);
 
   console.log('\n──── 6th check-in (2 courts available) → exactly 1 suggestion ────');
+  const s5aEventSnapshot = snapshotEventLog();
   await checkIn(TEST_USERS[5].token, dual.bookableSessionId);
   let d6;
   try {
@@ -463,13 +525,24 @@ async function main() {
     const lineupDesc = await describeLineup(db, d6[0]);
     console.log(`    ${lineupDesc}`);
     report.scenarios.push({ name: 'S5a: 2-court 6th check-in → 1 suggestion', pass: true, lineup: lineupDesc });
-    console.log(`    (First match of this new session uses the Claude path with fallback — verify in workflow log if needed.)`);
+    await new Promise(r => setTimeout(r, 150));
+    const s5aEvents = readEventsSince(s5aEventSnapshot, dual.sessionId);
+    const s5aPath = summarisePath(s5aEvents);
+    const total5a = s5aPath.claudeCount + s5aPath.fallbackCount;
+    if (total5a !== 1) {
+      fail(`expected exactly 1 first-match decision in 2-court session, got claude=${s5aPath.claudeCount} fallback=${s5aPath.fallbackCount}`);
+    } else if (s5aPath.claudeCount === 1) {
+      ok(`first match used Claude AI (elapsedMs=${s5aPath.claudeElapsedMs})`);
+    } else {
+      ok(`first match used fallback (elapsedMs=${s5aPath.fallbackElapsedMs}, reason="${s5aPath.fallbackReason}")`);
+    }
   } else {
     fail(`expected 1 suggestion at 6th, got ${d6After.length}`, d6After);
     report.scenarios.push({ name: 'S5a: 2-court 6th check-in → 1 suggestion', pass: false, got: d6After.length });
   }
 
   console.log('\n──── 7th + 8th check-ins → 2nd suggestion appears (standard algorithm) ────');
+  const s5bEventSnapshot = snapshotEventLog();
   await checkIn(TEST_USERS[6].token, dual.bookableSessionId);
   await checkIn(TEST_USERS[7].token, dual.bookableSessionId);
   let d8;
@@ -493,7 +566,14 @@ async function main() {
       console.log(`    ${lineup1}`);
       console.log(`    ${lineup2}`);
       report.scenarios.push({ name: 'S5b: 2-court 8th check-in → 2 suggestions on different courts', pass: true });
-      console.log(`    (Subsequent matches use the standard algorithm directly — verify in workflow log if needed.)`);
+      await new Promise(r => setTimeout(r, 150));
+      const s5bEvents = readEventsSince(s5bEventSnapshot, dual.sessionId);
+      const s5bPath = summarisePath(s5bEvents);
+      if (s5bPath.claudeCount === 0 && s5bPath.fallbackCount === 0) {
+        ok(`zero new Claude/fallback decisions (subsequent matches went straight to standard algorithm)`);
+      } else {
+        fail(`expected 0 first-match decisions after 7th+8th check-ins, got claude=${s5bPath.claudeCount} fallback=${s5bPath.fallbackCount}`);
+      }
     } else {
       fail(`both suggestions on same court`, d8After);
       report.scenarios.push({ name: 'S5b: 2-court 8th check-in → 2 suggestions on different courts', pass: false });

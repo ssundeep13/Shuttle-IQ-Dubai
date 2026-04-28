@@ -26,6 +26,7 @@
 import { db } from './db';
 import { sql, and, eq, inArray } from 'drizzle-orm';
 import { storage } from './storage';
+import { appendFileSync } from 'node:fs';
 import {
   generateBracketedLineups,
   buildRestStatesFromHistory,
@@ -47,6 +48,29 @@ import {
 const PENDING_WINDOW_MS = 90_000;
 const FIRST_MATCH_THRESHOLD = 6;
 const SUBSEQUENT_MATCH_THRESHOLD = 4;
+
+// Structured event side-channel. The on-disk workflow log is a
+// platform-managed snapshot (not live-tailed), so the E2E test cannot rely
+// on it for path/timing verification. Instead, every meaningful matchmaking
+// event is also appended as a single JSON line to this file. The file is
+// best-effort: any append failure is swallowed so production traffic is
+// never blocked by a debug write.
+const EVENT_LOG_PATH = process.env.AUTO_MATCHMAKING_EVENT_LOG ?? '/tmp/shuttleiq-am-events.jsonl';
+
+type AutoMatchmakingEvent =
+  | { type: 'claude_used'; sessionId: string; elapsedMs: number; ts: number }
+  | { type: 'fallback'; sessionId: string; elapsedMs: number; reason: string; ts: number }
+  | { type: 'suggestion_created'; sessionId: string; courtId: string; iteration: number; firstMatch: boolean; ts: number }
+  | { type: 'skipped'; sessionId: string; reason: string; ts: number }
+  | { type: 'done'; sessionId: string; created: number; firstMatch: boolean; ts: number };
+
+function emitEvent(ev: AutoMatchmakingEvent): void {
+  try {
+    appendFileSync(EVENT_LOG_PATH, JSON.stringify(ev) + '\n');
+  } catch {
+    // Side channel only — never break production on a debug write failure.
+  }
+}
 
 // drizzle's neon driver returns either `{ rows: [...] }` (current versions)
 // or a bare array (older paths). This helper normalises both into a
@@ -153,20 +177,18 @@ async function tryClaudeFirstMatch(
   allPlayers: Awaited<ReturnType<typeof storage.getAllPlayers>>,
 ): Promise<Lineup | null> {
   if (!process.env.ANTHROPIC_API_KEY) {
-    console.log(
-      `[auto-matchmaking] fell back to standard algorithm session=${sessionId} ` +
-      `elapsedMs=0 reason="ANTHROPIC_API_KEY not set"`,
-    );
+    const reason = 'ANTHROPIC_API_KEY not set';
+    console.log(`[auto-matchmaking] fell back to standard algorithm session=${sessionId} elapsedMs=0 reason="${reason}"`);
+    emitEvent({ type: 'fallback', sessionId, elapsedMs: 0, reason, ts: Date.now() });
     return null;
   }
 
   const poolIdSet = new Set(poolPlayerIds);
   const poolPlayers = allPlayers.filter(p => poolIdSet.has(p.id));
   if (poolPlayers.length < 4) {
-    console.log(
-      `[auto-matchmaking] fell back to standard algorithm session=${sessionId} ` +
-      `elapsedMs=0 reason="pool size ${poolPlayers.length} < 4 after resolving ids"`,
-    );
+    const reason = `pool size ${poolPlayers.length} < 4 after resolving ids`;
+    console.log(`[auto-matchmaking] fell back to standard algorithm session=${sessionId} elapsedMs=0 reason="${reason}"`);
+    emitEvent({ type: 'fallback', sessionId, elapsedMs: 0, reason, ts: Date.now() });
     return null;
   }
 
@@ -224,6 +246,7 @@ async function tryClaudeFirstMatch(
       `[auto-matchmaking] used Claude AI session=${sessionId} elapsedMs=${elapsedMs} ` +
       `lineup=[${team1Ids.join(',')}]vs[${team2Ids.join(',')}] reasoning="${first.reasoning ?? ''}"`,
     );
+    emitEvent({ type: 'claude_used', sessionId, elapsedMs, ts: Date.now() });
     return { team1Ids, team2Ids };
   } catch (err) {
     const elapsedMs = Date.now() - startedAt;
@@ -232,6 +255,7 @@ async function tryClaudeFirstMatch(
       `[auto-matchmaking] fell back to standard algorithm session=${sessionId} ` +
       `elapsedMs=${elapsedMs} reason="${reason}"`,
     );
+    emitEvent({ type: 'fallback', sessionId, elapsedMs, reason, ts: Date.now() });
     return null;
   }
 }
@@ -283,10 +307,9 @@ export async function tryAutoMatchmaking(sessionId: string): Promise<void> {
       let pool = queue.filter(id => !sittingOut.has(id) && !onInFlight.has(id));
 
       if (pool.length < threshold) {
-        console.log(
-          `[auto-matchmaking] session=${sessionId} skipped — ` +
-          `pool=${pool.length} < threshold=${threshold} (firstMatch=${firstMatch})`,
-        );
+        const reason = `pool=${pool.length} < threshold=${threshold} (firstMatch=${firstMatch})`;
+        console.log(`[auto-matchmaking] session=${sessionId} skipped — ${reason}`);
+        emitEvent({ type: 'skipped', sessionId, reason, ts: Date.now() });
         return;
       }
 
@@ -297,7 +320,9 @@ export async function tryAutoMatchmaking(sessionId: string): Promise<void> {
       );
 
       if (availableCourts.length === 0) {
-        console.log(`[auto-matchmaking] session=${sessionId} skipped — no available courts`);
+        const reason = 'no available courts';
+        console.log(`[auto-matchmaking] session=${sessionId} skipped — ${reason}`);
+        emitEvent({ type: 'skipped', sessionId, reason, ts: Date.now() });
         return;
       }
 
@@ -342,6 +367,14 @@ export async function tryAutoMatchmaking(sessionId: string): Promise<void> {
             `[auto-matchmaking] session=${sessionId} court=${court.id} ` +
             `iteration=${iterationIndex} suggestion created`,
           );
+          emitEvent({
+            type: 'suggestion_created',
+            sessionId,
+            courtId: court.id,
+            iteration: iterationIndex,
+            firstMatch,
+            ts: Date.now(),
+          });
         } catch (createErr) {
           console.error(
             `[auto-matchmaking] session=${sessionId} court=${court.id} ` +
@@ -361,6 +394,7 @@ export async function tryAutoMatchmaking(sessionId: string): Promise<void> {
         `[auto-matchmaking] session=${sessionId} done — ` +
         `created=${suggestionsCreated} firstMatch=${firstMatch}`,
       );
+      emitEvent({ type: 'done', sessionId, created: suggestionsCreated, firstMatch, ts: Date.now() });
     });
   } catch (err) {
     console.error(`[auto-matchmaking] session=${sessionId} unhandled:`, err);
