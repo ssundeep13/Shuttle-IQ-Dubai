@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { Card, CardContent } from '@/components/ui/card';
@@ -22,6 +23,10 @@ interface SessionSummaryResponse {
   totalPlayers?: number;
 }
 
+interface ActiveSessionResponse {
+  activeSessionId: string | null;
+}
+
 function firstNameOf(fullName: string | undefined): string {
   if (!fullName) return 'player';
   const trimmed = fullName.trim();
@@ -33,21 +38,67 @@ export default function SessionDone() {
   usePageTitle('Session complete');
   const [, setLocation] = useLocation();
 
-  // Static end state — no polling, no auto-refetch. The summary reflects a
-  // session that has already finished, so re-fetching would only churn.
+  // Recorded once at mount. We use it below to ignore any cached query data
+  // that was fetched before the player landed on this screen — e.g. an old
+  // active-session value primed by Play.tsx (same query key) or a stale
+  // session-summary from a previous visit. Without this guard the page can
+  // briefly render with the wrong CTA, then flip when the fresh fetch lands.
+  const mountedAtRef = useRef(Date.now());
+
+  // Both queries below use staleTime: 0 + refetchOnMount: 'always' so each
+  // visit to this screen pulls fresh data, even when the cache is primed
+  // from another page.
   const summaryQuery = useQuery<SessionSummaryResponse>({
     queryKey: ['/api/marketplace/players/me/session-summary'],
     refetchInterval: false,
     refetchOnWindowFocus: false,
-    staleTime: Infinity,
+    refetchOnMount: 'always',
+    staleTime: 0,
   });
+
+  // Tells us whether the admin session is still running. Polled lightly so
+  // that if the admin ends the session while the player is sitting on this
+  // screen, the primary CTA flips from "Play my next game" to "Book next
+  // session" without a manual reload. Same query key as Play.tsx — sharing
+  // the cache is fine because the response shape and freshness rules match.
+  const activeSessionQuery = useQuery<ActiveSessionResponse>({
+    queryKey: ['/api/marketplace/active-session'],
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
+    staleTime: 0,
+  });
+
+  // Show the skeleton until BOTH queries have *settled* after mount —
+  // either with fresh data OR with a fresh error. `isPending` alone is not
+  // enough: when the cache is primed (Play.tsx already ran the same
+  // query), it resolves to false on first render even though a refetch is
+  // still in flight, which would let stale data drive the CTA for a frame.
+  // We must also treat fresh errors as "settled" so the error/fallback
+  // branches stay reachable when a refetch fails on mount.
+  const mountedAt = mountedAtRef.current;
+  const summarySettled =
+    summaryQuery.dataUpdatedAt >= mountedAt ||
+    summaryQuery.errorUpdatedAt >= mountedAt;
+  const activeSettled =
+    activeSessionQuery.dataUpdatedAt >= mountedAt ||
+    activeSessionQuery.errorUpdatedAt >= mountedAt;
+  const initialLoading = !summarySettled || !activeSettled;
+
+  // If the active-session query failed entirely (no data at all), fall back
+  // to the "session ended" framing — safer default (worst case the player
+  // taps "Book next session" and lands on the booking page, which still
+  // works fine mid-session). If the query succeeded with cached-but-fresh
+  // data, the value above is correct.
+  const sessionStillRunning =
+    !!activeSessionQuery.data && activeSessionQuery.data.activeSessionId !== null;
 
   return (
     <div
       className="mx-auto w-full max-w-md px-4 py-6 sm:py-10"
       data-testid="page-session-done"
     >
-      {summaryQuery.isPending ? (
+      {initialLoading ? (
         <LoadingState />
       ) : summaryQuery.isError ? (
         <ErrorState onBook={() => setLocation('/marketplace/book')} />
@@ -56,8 +107,10 @@ export default function SessionDone() {
       ) : (
         <SummaryContent
           data={summaryQuery.data!}
+          sessionStillRunning={sessionStillRunning}
           onProfile={() => setLocation('/marketplace/profile')}
           onBook={() => setLocation('/marketplace/book')}
+          onPlayNext={() => setLocation('/marketplace/play')}
         />
       )}
     </div>
@@ -130,15 +183,31 @@ function NoSessionState({ onBook }: { onBook: () => void }) {
 
 function SummaryContent({
   data,
+  sessionStillRunning,
   onProfile,
   onBook,
+  onPlayNext,
 }: {
   data: SessionSummaryResponse;
+  sessionStillRunning: boolean;
   onProfile: () => void;
   onBook: () => void;
+  onPlayNext: () => void;
 }) {
   const playedAnyGames = (data.gamesPlayed ?? 0) > 0;
   const firstName = firstNameOf(data.playerName);
+
+  // Two framings of the same numbers:
+  //   - Mid-session (admin session still running): "GAME COMPLETE / Nice game"
+  //     with a primary CTA back to the waiting hub so the player can be
+  //     matched into their next game.
+  //   - End-of-session (admin session has ended OR active-session lookup
+  //     failed): "SESSION COMPLETE / Great session" with the original
+  //     "Book next session" CTA.
+  const eyebrow = sessionStillRunning ? 'Game Complete' : 'Session Complete';
+  const heading = sessionStillRunning
+    ? `Nice game, ${firstName}.`
+    : `Great session, ${firstName}.`;
 
   return (
     <div className="space-y-6">
@@ -148,14 +217,14 @@ function SummaryContent({
           style={{ color: TEAL }}
           data-testid="text-eyebrow"
         >
-          Session Complete
+          {eyebrow}
         </p>
         <h1
           className="text-2xl sm:text-3xl font-bold leading-tight"
           style={{ color: NAVY }}
           data-testid="text-heading"
         >
-          Great session, {firstName}.
+          {heading}
         </h1>
       </div>
 
@@ -174,14 +243,25 @@ function SummaryContent({
         >
           See full profile
         </Button>
-        <Button
-          className="w-full text-white"
-          style={{ backgroundColor: NAVY }}
-          onClick={onBook}
-          data-testid="button-book-next"
-        >
-          Book next session
-        </Button>
+        {sessionStillRunning ? (
+          <Button
+            className="w-full text-white"
+            style={{ backgroundColor: NAVY }}
+            onClick={onPlayNext}
+            data-testid="button-play-next-game"
+          >
+            Play my next game
+          </Button>
+        ) : (
+          <Button
+            className="w-full text-white"
+            style={{ backgroundColor: NAVY }}
+            onClick={onBook}
+            data-testid="button-book-next"
+          >
+            Book next session
+          </Button>
+        )}
       </div>
     </div>
   );
