@@ -488,6 +488,19 @@ export interface IStorage {
   listPastPendingMatchSuggestions(now: Date): Promise<MatchSuggestion[]>;
   updateMatchSuggestionStatus(id: string, status: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
   transitionPendingMatchSuggestion(id: string, nextStatus: string, approvedBy?: string | null): Promise<MatchSuggestion | undefined>;
+  // Player-driven start-game transition. Atomic compare-and-set from
+  // 'approved' → 'playing'. Returns:
+  //   - { result: 'started', suggestion }      — caller won the race; must apply side effects
+  //   - { result: 'already-started', suggestion } — another caller already flipped it; idempotent success, no side effects
+  //   - { result: 'not-startable', suggestion } — row exists but is in a non-startable state (dismissed/completed/pending)
+  //   - { result: 'not-found' }                 — no such row
+  // Concurrent callers are mutually exclusive: at most one observes 'started'.
+  startApprovedSuggestion(suggestionId: string): Promise<
+    | { result: 'started'; suggestion: MatchSuggestion }
+    | { result: 'already-started'; suggestion: MatchSuggestion }
+    | { result: 'not-startable'; suggestion: MatchSuggestion }
+    | { result: 'not-found' }
+  >;
 
   // Transactional game completion — wraps player updates + game_results +
   // game_participants (and optional match_suggestion completion) in a single
@@ -3760,6 +3773,126 @@ export class DatabaseStorage implements IStorage {
       ))
       .returning();
     return row;
+  }
+
+  // Player-driven start-game CAS. The UPDATE … WHERE status='approved' is
+  // atomic: when N players tap Start within the same poll window, exactly
+  // one UPDATE returns a row and the rest see a no-op. The follow-up read
+  // (only reached when our UPDATE returned nothing) tells us which case
+  // we're in: 'playing' = the race winner already flipped it, anything
+  // else = the row is no longer in a startable state and the caller
+  // should surface a 4xx. We use a transaction so the UPDATE and the
+  // disambiguating read see the same snapshot — without that, the row
+  // could legitimately transition (e.g. admin cancelled) between the
+  // two statements and produce a misleading 'not-startable' for what
+  // was actually an 'already-started' race loss.
+  async startApprovedSuggestion(suggestionId: string): Promise<
+    | { result: 'started'; suggestion: MatchSuggestion }
+    | { result: 'already-started'; suggestion: MatchSuggestion }
+    | { result: 'not-startable'; suggestion: MatchSuggestion }
+    | { result: 'not-found' }
+  > {
+    // The CAS approved → playing AND every downstream side effect (court
+    // status, court_players roster, per-player status, queue removal) all
+    // run inside a SINGLE transaction. Either the player visibly starts
+    // the game and every dependent table reflects it, or nothing changed.
+    // This matches the integrity contract of the admin assignCourtCore
+    // flow without any of the partial-write windows that arise when the
+    // route stitches storage calls together post-CAS.
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(matchSuggestions)
+        .set({ status: 'playing' })
+        .where(and(
+          eq(matchSuggestions.id, suggestionId),
+          eq(matchSuggestions.status, 'approved'),
+        ))
+        .returning();
+
+      if (!updated) {
+        // No row updated → the suggestion is either gone or no longer
+        // 'approved'. Re-read inside the same tx for a consistent answer.
+        const [current] = await tx
+          .select()
+          .from(matchSuggestions)
+          .where(eq(matchSuggestions.id, suggestionId))
+          .limit(1);
+
+        if (!current) {
+          return { result: 'not-found' as const };
+        }
+        if (current.status === 'playing') {
+          return { result: 'already-started' as const, suggestion: current };
+        }
+        return { result: 'not-startable' as const, suggestion: current };
+      }
+
+      // Race winner: read the lineup and apply every side effect using
+      // the same `tx` so a failure anywhere below rolls back the CAS.
+      const lineup = await tx
+        .select({
+          playerId: matchSuggestionPlayers.playerId,
+          team: matchSuggestionPlayers.team,
+        })
+        .from(matchSuggestionPlayers)
+        .where(eq(matchSuggestionPlayers.suggestionId, suggestionId));
+
+      // Court → occupied, fresh 15-minute timer, started_at = now.
+      // Mirrors assignCourtCore exactly so the admin Court Management
+      // screen and any other downstream consumer of `courts` see the
+      // same canonical state regardless of who started the game.
+      await tx
+        .update(courts)
+        .set({
+          status: 'occupied',
+          timeRemaining: 15,
+          winningTeam: null,
+          startedAt: new Date(),
+        })
+        .where(eq(courts.id, updated.courtId));
+
+      // court_players: clear and rewrite from the suggestion lineup.
+      // Delete-then-insert is the same shape `setCourtPlayersWithTeams`
+      // uses for admin assigns; doing it inside the tx ensures we never
+      // observe a half-rewritten roster.
+      await tx
+        .delete(courtPlayersTable)
+        .where(eq(courtPlayersTable.courtId, updated.courtId));
+      if (lineup.length > 0) {
+        await tx.insert(courtPlayersTable).values(
+          lineup.map(p => ({
+            courtId: updated.courtId,
+            playerId: p.playerId,
+            team: p.team,
+          })),
+        );
+      }
+
+      // Per-player status → 'playing'. Single bulk UPDATE keyed by the
+      // 4 player ids; cheaper than a loop and still atomic with the
+      // outer tx.
+      const playerIds = lineup.map(p => p.playerId);
+      if (playerIds.length > 0) {
+        await tx
+          .update(players)
+          .set({ status: 'playing' })
+          .where(inArray(players.id, playerIds));
+
+        // Remove these 4 from the session queue. assignCourtCore does
+        // the equivalent via `setQueue(filtered)` after the helper
+        // returns; doing it here in-tx keeps the start path symmetric
+        // and prevents the matchmaker from re-suggesting players that
+        // are already on a court.
+        await tx
+          .delete(queueEntries)
+          .where(and(
+            eq(queueEntries.sessionId, updated.sessionId),
+            inArray(queueEntries.playerId, playerIds),
+          ));
+      }
+
+      return { result: 'started' as const, suggestion: updated };
+    });
   }
 
   // ─── Transactional game completion ───────────────────────────────────────

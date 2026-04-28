@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { MapPin, Clock, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useToast } from '@/hooks/use-toast';
 import type { BookingWithDetails } from '@shared/schema';
 
 interface ActiveSessionResponse {
@@ -334,6 +335,49 @@ function NextGameCard({ suggestion }: { suggestion: CurrentSuggestion }) {
   const opponents = suggestion.players.filter((p) => p.team === oppTeamNum);
   const isApproved = suggestion.status === 'approved';
 
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  // Start-game mutation lives next to the button it drives. On success we
+  // invalidate the polled suggestion query so the existing useEffect in
+  // WaitingScreen (which navigates to /playing when status === 'playing')
+  // fires on the next refetch instead of waiting up to 5 s for the natural
+  // poll. We do NOT setLocation here directly so that the same redirect
+  // path is exercised whether this player started the game themselves or
+  // a teammate did — keeps state transitions in one place.
+  const startGameMutation = useMutation({
+    mutationFn: async () => {
+      // apiRequest already parses the JSON body and throws on non-2xx,
+      // so we get the typed payload directly. Calling .json() on the
+      // result would throw because it is the parsed object, not a
+      // Response. The win/race-loser distinction is in `alreadyStarted`.
+      return await apiRequest<{ success: boolean; alreadyStarted: boolean }>(
+        'POST',
+        `/api/marketplace/games/${suggestion.id}/start-game`,
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ['/api/marketplace/players/me/current-suggestion'],
+      });
+    },
+    onError: (err: any) => {
+      // 4xx → match no longer available (admin cancel, race against
+      // dismissal, etc.). Toast a friendly message and invalidate so the
+      // polling reroutes the player back to the finding-game state.
+      toast({
+        title: "Couldn't start the game",
+        description: err?.message?.includes('no longer')
+          ? "This match is no longer available. Looking for your next game…"
+          : "Please try again or ask the Court Captain.",
+        variant: 'destructive',
+      });
+      queryClient.invalidateQueries({
+        queryKey: ['/api/marketplace/players/me/current-suggestion'],
+      });
+    },
+  });
+
   return (
     <Card data-testid="card-next-game">
       <CardContent className="py-6 space-y-5">
@@ -369,6 +413,25 @@ function NextGameCard({ suggestion }: { suggestion: CurrentSuggestion }) {
           <div className="text-center text-xs uppercase tracking-wider text-muted-foreground">vs</div>
           <TeamRow label="Opponents" players={opponents} accent={NAVY} testId="team-opponents" />
         </div>
+
+        {isApproved && (
+          <Button
+            size="lg"
+            className="w-full text-base h-14"
+            onClick={() => startGameMutation.mutate()}
+            disabled={startGameMutation.isPending}
+            data-testid="button-start-game"
+          >
+            {startGameMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Starting…
+              </>
+            ) : (
+              'Start game'
+            )}
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

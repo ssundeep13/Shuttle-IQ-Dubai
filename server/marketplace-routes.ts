@@ -4239,6 +4239,79 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // ─── P7: Marketplace player starts the game from their phone ────────────
+  // POST /api/marketplace/games/:suggestionId/start-game
+  // No body. Any of the 4 players on the suggestion can call this. Atomic
+  // CAS in storage.startApprovedSuggestion guarantees that simultaneous
+  // taps from multiple players collapse into exactly one state transition;
+  // the losers receive { alreadyStarted: true } and skip the side effects.
+  app.post(
+    "/api/marketplace/games/:suggestionId/start-game",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      const suggestionId = req.params.suggestionId;
+      try {
+        // 1. Resolve caller's linked player. Marketplace users without a
+        //    linked player can't be on a court roster, so we treat this
+        //    as if the suggestion does not exist for them — same 404 the
+        //    non-member arm uses below, so we never disclose whether a
+        //    given suggestionId is real to a non-participant.
+        const me = await storage.getMarketplaceUser(req.user!.userId);
+        if (!me || !me.linkedPlayerId) {
+          return res.status(404).json({ error: "Match not found. Please ask the Court Captain for the next lineup." });
+        }
+
+        // 2. Authorization via direct PK lookup on match_suggestion_players
+        //    (matches the submit-score pattern — O(1), index-friendly).
+        //    We do NOT first probe the suggestion row by id, so unknown
+        //    suggestionIds and known-but-not-yours suggestionIds collapse
+        //    to the same 404 response — preventing existence enumeration.
+        const [membership] = await db
+          .select({ team: matchSuggestionPlayers.team })
+          .from(matchSuggestionPlayers)
+          .where(
+            and(
+              eq(matchSuggestionPlayers.suggestionId, suggestionId),
+              eq(matchSuggestionPlayers.playerId, me.linkedPlayerId),
+            ),
+          )
+          .limit(1);
+        if (!membership) {
+          return res.status(404).json({ error: "Match not found. Please ask the Court Captain for the next lineup." });
+        }
+
+        // 3. Atomic CAS approved → playing PLUS every downstream side
+        //    effect (court status, court_players, player status, queue
+        //    removal) inside one storage-level transaction. The race
+        //    winner returns 'started'; concurrent taps from the other
+        //    three players return 'already-started' and short-circuit
+        //    here without reapplying any state.
+        const startResult = await storage.startApprovedSuggestion(suggestionId);
+
+        if (startResult.result === 'not-found') {
+          return res.status(404).json({ error: "Match not found. Please ask the Court Captain for the next lineup." });
+        }
+        if (startResult.result === 'already-started') {
+          return res.json({ success: true, alreadyStarted: true });
+        }
+        if (startResult.result === 'not-startable') {
+          return res.status(409).json({
+            error: "This match is no longer available. Looking for your next game…",
+            status: startResult.suggestion.status,
+          });
+        }
+
+        return res.json({ success: true, alreadyStarted: false });
+      } catch (err) {
+        console.error('[POST /api/marketplace/games/:suggestionId/start-game] error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Couldn't start the game. Please try again." });
+        }
+      }
+    },
+  );
+
   // ─── P3: Marketplace player submits the score for a played match ─────────
   // POST /api/marketplace/games/:suggestionId/submit-score
   // Body: { team1Score: int, team2Score: int, winningTeam: 1 | 2 }
