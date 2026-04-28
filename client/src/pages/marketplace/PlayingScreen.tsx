@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -135,6 +136,7 @@ function PlayingContent({
   suggestion: CurrentSuggestion;
   elapsedSeconds: number;
 }) {
+  const [, setLocation] = useLocation();
   // Render from the requesting player's perspective. selfTeam is set by the
   // backend based on the linkedPlayerId; fall back to team 1 defensively so
   // the UI never crashes if the data is somehow incomplete.
@@ -202,11 +204,20 @@ function PlayingContent({
         </CardContent>
       </Card>
 
+      <Button
+        size="lg"
+        className="w-full text-base h-14"
+        onClick={() => setLocation('/marketplace/play/score')}
+        data-testid="button-end-game"
+      >
+        End game and enter score
+      </Button>
+
       <p
         className="text-xs text-center text-muted-foreground"
         data-testid="text-playing-caption"
       >
-        Submit your score when the game ends.
+        Tap when your match is over. Any player on the court can enter the score.
       </p>
     </div>
   );

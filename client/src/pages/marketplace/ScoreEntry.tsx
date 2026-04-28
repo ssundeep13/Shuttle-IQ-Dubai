@@ -79,28 +79,97 @@ export default function ScoreEntry() {
 
   const suggestion = suggestionQuery.data?.suggestion ?? null;
 
-  // Status-driven gating. The score screen only renders for 'playing' or
-  // 'completed' suggestions — anything else means the player landed here
-  // without a game to score, so we send them back to the waiting screen.
-  useEffect(() => {
-    if (suggestionQuery.isPending) return;
+  // Latch the initial decision (form vs. already-submitted view) the FIRST
+  // time the query resolves and never recompute it from later refetches.
+  // This is critical: once Player A submits inside ScoreEntryContent, the
+  // server flips the suggestion to 'completed'. If a background refetch
+  // (e.g. after a mobile network reconnect) lands while ScoreEntryContent
+  // is showing the post-submit confirmation, naively branching on the
+  // live status would yank Player A's confirmation out from under them
+  // and replace it with the late-submitter view. The latch keeps the
+  // top-level branch stable for the lifetime of this screen; concurrent
+  // submissions are still handled inside ScoreEntryContent via the
+  // alreadySubmitted=true response from the submit-score endpoint.
+  const initialBranchRef = useRef<'form' | 'already-submitted' | 'redirect' | null>(null);
+  if (initialBranchRef.current === null && !suggestionQuery.isPending) {
     const status = suggestion?.status ?? null;
-    if (status === 'playing' || status === 'completed') return;
-    setLocation('/marketplace/play');
-  }, [suggestion?.status, suggestionQuery.isPending, setLocation]);
+    if (status === 'playing') {
+      initialBranchRef.current = 'form';
+    } else if (status === 'completed') {
+      initialBranchRef.current = 'already-submitted';
+    } else {
+      initialBranchRef.current = 'redirect';
+    }
+  }
+  const initialBranch = initialBranchRef.current;
+
+  // If the player landed here without a live or recently-completed game,
+  // send them back to the waiting screen.
+  useEffect(() => {
+    if (initialBranch === 'redirect') {
+      setLocation('/marketplace/play');
+    }
+  }, [initialBranch, setLocation]);
 
   return (
     <div
       className="mx-auto w-full max-w-md px-4 py-6 sm:py-10"
       data-testid="page-score-entry"
     >
-      {suggestionQuery.isPending ? (
+      {initialBranch === null ? (
         <InitialSkeleton />
-      ) : suggestion?.status === 'playing' || suggestion?.status === 'completed' ? (
+      ) : initialBranch === 'form' && suggestion ? (
         <ScoreEntryContent suggestion={suggestion} />
+      ) : initialBranch === 'already-submitted' ? (
+        // Late-submitter path: by the time this player landed on the score
+        // screen, another player on the court had already submitted the
+        // score (the suggestion is already completed). Skip the form
+        // entirely — there's nothing for them to record — and show a
+        // brief confirmation before routing them to the same destination
+        // late submitters reach today.
+        <AlreadySubmittedView />
       ) : (
         <InitialSkeleton />
       )}
+    </div>
+  );
+}
+
+function AlreadySubmittedView() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setLocation('/marketplace/play');
+    }, 2000);
+    return () => {
+      window.clearTimeout(id);
+    };
+  }, [setLocation]);
+
+  return (
+    <div className="space-y-6" data-testid="state-already-submitted">
+      <div className="space-y-1">
+        <p className="text-xs uppercase tracking-wider" style={{ color: TEAL }}>
+          Game ended
+        </p>
+        <h1
+          className="text-2xl font-semibold"
+          style={{ color: NAVY }}
+          data-testid="text-already-submitted-heading"
+        >
+          Score already submitted.
+        </h1>
+      </div>
+
+      <Card data-testid="card-already-submitted">
+        <CardContent className="py-8 text-center space-y-2">
+          <p className="text-sm" data-testid="text-already-submitted-body">
+            Another player on your court entered the score. Taking you back to
+            the session…
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
