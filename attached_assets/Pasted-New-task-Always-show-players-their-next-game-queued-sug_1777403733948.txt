@@ -1,0 +1,191 @@
+New task — Always show players their next game (queued suggestions + improved Claude AI)
+What & Why
+Players on the waiting screen currently see "Finding your next game..." when all courts are occupied. They should always see their upcoming game assignment immediately. With 6 players and 1 court, the 2 waiting players should see their next game calculated from the current court players combined with themselves. With 24 players and 4 courts, all 8 waiting players should see their next game simultaneously with Claude AI deciding the optimal rotation across all courts at once.
+
+Schema changes
+Add two things to match_suggestions:
+
+queued as a valid status value — update inline comment only, no migration needed
+includesActivePlayers: boolean column defaulting to false — run npm run db:push and report output
+
+
+Updated tryAutoMatchmaking — queued suggestion creation
+After filling available courts with pending suggestions, loop over occupied courts:
+FOR each occupied court with no queued suggestion:
+
+  CASE 1: waiting players >= 4
+  → run matchmaking using waiting players only
+  → create queued suggestion
+  → status = 'queued', pendingUntil = null, includesActivePlayers = false
+
+  CASE 2: waiting players >= 1 
+  AND (waiting players + players on this court) >= 4
+  → run matchmaking using ALL players:
+    (waiting players + 4 players currently on this court)
+  → create queued suggestion
+  → status = 'queued', pendingUntil = null, includesActivePlayers = true
+
+  CASE 3: waiting players = 0
+  → exit
+
+Claude AI vs standard algorithm
+IF queued suggestions needed for 1 court:
+  → use generateBracketedLineups
+
+IF queued suggestions needed for 2+ courts simultaneously:
+  → use Claude AI (once for all courts)
+  → 5 second timeout, fall back to generateBracketedLineups if fails
+
+Updated Claude prompt — replace the existing prompt in server/claude-matchmaking.ts
+The current Claude prompt is missing gender balancing instructions and partner history. Replace it with this improved version for queued suggestion calls:
+You are the ShuttleIQ matchmaking engine for Dubai.
+Your job is to suggest the best 2v2 lineups for the next round of games.
+
+MANDATORY RULES:
+1. Skill balance is the top priority. Minimise the skill gap between 
+   team averages. Within-team score spread must not exceed 20 points.
+2. Never mix tier bands (novice/beginner/lower_intermediate/
+   upper_intermediate) unless fewer than 4 players exist in a tier.
+   If mixing is unavoidable, label the suggestion "Stretch Match".
+3. Balance gender where possible. Prefer mixed doubles (1M+1F per team)
+   when the player pool allows. Never sacrifice skill balance for gender.
+4. Avoid repeat partnerships. If two players have been partners today,
+   do not pair them again unless no alternative exists.
+5. Fairness — prioritise players who have waited longest 
+   (highest gamesWaited) and played fewest games this session.
+
+PLAYER DATA:
+[name] | score:[n] | tier:[tier] | gender:[M/F] | 
+gamesThisSession:[n] | gamesWaited:[n] | 
+recentPartners:[name1,name2] | recentOpponents:[name1,name2]
+
+COURTS TO FILL:
+[courtId] — currently playing: [player1,player2] vs [player3,player4]
+(include which players are active on each court so you know 
+who is available for which court's next game)
+
+Return ONLY valid JSON, no markdown, no other text:
+{
+  "suggestions": [
+    {
+      "courtId": "...",
+      "team1PlayerIds": ["id1", "id2"],
+      "team2PlayerIds": ["id3", "id4"],
+      "reasoning": "one sentence"
+    }
+  ]
+}
+What to add to each player's data sent to Claude:
+
+recentPartners — names of players they've partnered with today (from buildPartnerHistoryFromHistory, already computed but not currently sent to Claude)
+recentOpponents — names of players they've faced today
+gender — already sent, now add instruction to use it
+
+Keep the existing admin Auto Assign prompt unchanged — only replace the prompt used in the player-driven queued suggestion flow.
+
+When a queued suggestion becomes active
+When a game ends and court becomes available:
+
+Check if queued suggestion exists for that court
+If includesActivePlayers = false → flip to pending, set pendingUntil = now + 90s
+If includesActivePlayers = true:
+
+Verify all 4 players still available
+If all available → flip to pending, set pendingUntil = now + 90s
+If any player left → dismiss, run tryAutoMatchmaking fresh
+
+
+Do NOT run tryAutoMatchmaking for this court — already assigned
+Auto-approve sweep picks up normally
+
+
+Updated getCurrentSuggestionForPlayer
+Return queued suggestions too. Priority: playing > approved > pending > queued
+Only return queued to waiting players — never to players currently on court.
+
+Updated waiting screen — client/src/pages/marketplace/Play.tsx
+Queued state — includesActivePlayers = false:
+
+Heading: "You're up next"
+Subheading: "Court X — after the current game finishes"
+Your team / vs / Opponents layout — same as pending card
+No countdown
+
+Queued state — includesActivePlayers = true:
+
+Heading: "You're up next on Court X"
+Subheading: "After the current game finishes"
+Your team / vs / Opponents layout
+Small muted note: "Lineup may adjust when the current game ends"
+
+Fallback — no suggestion exists:
+
+"Finding your next game..." heading
+Three stat chips from GET /api/marketplace/players/me/today-stats
+Returns { gamesPlayed, wins, skillScore, tierName }
+Display: Games Today / Wins / Current Tier
+Tier display names: Novice / Beginner / Intermediate / Competitive
+
+
+New endpoint
+GET /api/marketplace/players/me/today-stats behind marketplace auth:
+
+Count game_participants rows for player in today's active session
+Count wins
+Return current skillScore and tierName using display names
+If no session: return { gamesPlayed: 0, wins: 0, skillScore, tierName }
+
+
+When a queued player leaves
+If player with queued suggestion taps "I'm done for today":
+
+Set suggestion status to dismissed
+Fire tryAutoMatchmaking for that session
+Other 3 players return to waiting pool
+
+
+Court Captain panel
+Queued suggestions appear in Pending Lineups panel:
+
+Label: "Up next" (no countdown)
+Show court name and 4 player names
+Dismiss button — cancels suggestion, fires tryAutoMatchmaking
+
+
+Critical constraints
+
+Claude called once per tryAutoMatchmaking run — never once per court
+Never assign player already in pending/approved/playing/queued suggestion
+Never create more than one suggestion per court
+queued suggestions never auto-approved by the sweep
+Players on court used in calculation only — not removed from current game
+Never show queued suggestion to players currently playing
+"Lineup may adjust" note only when includesActivePlayers = true
+Keep existing admin Auto Assign prompt unchanged
+Use "Court Captain" in user-facing messages
+Mobile-first, large tap targets
+
+
+Test scenarios — all 10 must pass:
+
+2 courts occupied, 4+ waiting → queued suggestions using waiting players only, those players see "You're up next"
+Court finishes → queued suggestion flips to pending → players see "Head to Court X now" within 5 seconds
+Queued player taps "I'm done" → dismissed → reassignment fires
+Court Captain dismisses queued suggestion → same cancellation
+No suggestion exists → player sees "Finding your next game..." plus today's stats
+Queued suggestions appear in Court Captain panel labelled "Up next"
+6 players, 1 court: A+B vs C+D playing, E+F waiting → E and F immediately see "You're up next on Court 1" with lineup combining current and waiting players
+Current game ends → E F plus 2 from current game transition to "Head to Court 1 now" within 5 seconds
+Suggested player from current game taps "I'm done" after game ends → dismissed → fresh matchmaking
+24 players, 4 courts occupied, 8 waiting → Claude called once, returns 4 queued suggestions, all 8 waiting players see next game within 5 seconds
+
+Report back:
+
+All 10 scenarios as pass or fail
+Confirm includesActivePlayers column added and db:push output
+Confirm Claude now receives recentPartners, recentOpponents, and gender instruction
+Confirm fallback stats display correctly
+Confirm queued suggestions in Court Captain panel
+Anything deferred
+
+Do not build anything else until all 10 scenarios are reported.
