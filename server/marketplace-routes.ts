@@ -46,6 +46,7 @@ import {
   updatePartnerHistory,
   persistRestStatesToDb,
 } from "./matchmaking";
+import { tryAutoMatchmaking } from "./auto-matchmaking";
 
 // ─── Tier buffer helper (mirror of server/routes.ts:61 — keep in sync) ───────
 // After each game, a player's confirmed level (stored in DB) only changes after
@@ -89,62 +90,10 @@ const submitScoreBodySchema = z.object({
   winningTeam: z.union([z.literal(1), z.literal(2)]),
 });
 
-// Run AI matchmaking for the just-vacated court and persist a fresh
-// match_suggestions row with pendingUntil = now + 90s. Fire-and-forget:
-// any failure is logged but never propagated.
-async function runP3BackgroundMatchmaking(
-  sessionId: string,
-  courtId: string,
-): Promise<void> {
-  try {
-    const queue = await storage.getQueue(sessionId);
-    if (queue.length < 4) {
-      console.log(
-        `[P3 background matchmaking] skipped: only ${queue.length} player(s) in queue ` +
-        `for session=${sessionId} court=${courtId} (need 4 to form a match).`,
-      );
-      return;
-    }
-    const allPlayers = await storage.getAllPlayers();
-    const history = await storage.getSessionGameParticipants(sessionId);
-    // Pass `queue` as the third arg to match the /api/matchmaking/optimal-teams
-    // convention exactly — keeps the rest-state hydration scope identical to
-    // the live endpoint the frontend admin tools also call.
-    buildRestStatesFromHistory(sessionId, history, queue);
-    buildPartnerHistoryFromHistory(sessionId, history);
-
-    const { brackets } = generateBracketedLineups(sessionId, queue, allPlayers, 1);
-    const top = brackets[0];
-    if (!top || !top.combination) {
-      console.log(
-        `[P3 background matchmaking] skipped: bracket generator returned no viable lineup ` +
-        `for session=${sessionId} court=${courtId} (queue size=${queue.length}).`,
-      );
-      return;
-    }
-    const combo = top.combination;
-    const lineup = [
-      ...combo.team1.map(p => ({ playerId: p.id, team: 1 as const })),
-      ...combo.team2.map(p => ({ playerId: p.id, team: 2 as const })),
-    ];
-    if (lineup.length !== 4) {
-      console.log(
-        `[P3 background matchmaking] skipped: lineup had ${lineup.length} players ` +
-        `(expected 4) for session=${sessionId} court=${courtId}.`,
-      );
-      return;
-    }
-
-    await storage.createMatchSuggestion({
-      sessionId,
-      courtId,
-      pendingUntil: new Date(Date.now() + 90_000),
-      players: lineup,
-    });
-  } catch (err) {
-    console.error('[P3 background matchmaking] failed:', err);
-  }
-}
+// The single-court runP3BackgroundMatchmaking helper that lived here was
+// replaced by the session-wide orchestrator in ./auto-matchmaking.ts which
+// handles both the player-driven check-in fan-out and the score-submit
+// follow-up for the just-vacated court.
 
 // Mint a single-use payment-resume token and return the URL fragment to append
 // to a Ziina success_url. Stored as SHA-256 hash, 30-min TTL. Returns an empty
@@ -3261,6 +3210,20 @@ export function registerMarketplaceRoutes(app: Express) {
           message,
           booking: result.booking,
         });
+
+        // Fire-and-forget auto-matchmaking. Only meaningful when the user has
+        // a linked player profile (otherwise they're not in the queue and
+        // can't be assigned to a court). All errors are swallowed inside the
+        // orchestrator — the player must never see a check-in failure caused
+        // by the matchmaker.
+        if (linkedPlayerId && bookableSession.linkedSessionId) {
+          const linkedSessionId = bookableSession.linkedSessionId;
+          setImmediate(() => {
+            tryAutoMatchmaking(linkedSessionId).catch(err => {
+              console.error('[auto-matchmaking] post-checkin unhandled:', err);
+            });
+          });
+        }
       } catch (error) {
         console.error('[Self check-in] error:', error);
         res.status(500).json({ error: "Failed to check in." });
@@ -4556,10 +4519,12 @@ export function registerMarketplaceRoutes(app: Express) {
           alreadySubmitted: false,
         });
 
-        // Fire-and-forget matchmaking for the just-vacated court.
+        // Fire-and-forget session-wide matchmaking. The orchestrator decides
+        // which courts get a fresh suggestion (the just-vacated one plus any
+        // others currently free) and never re-suggests an in-flight court.
         setImmediate(() => {
-          runP3BackgroundMatchmaking(session.id, court.id).catch(err => {
-            console.error('[P3 background matchmaking] unhandled:', err);
+          tryAutoMatchmaking(session.id).catch(err => {
+            console.error('[auto-matchmaking] post-score unhandled:', err);
           });
         });
       } catch (err) {
