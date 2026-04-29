@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  --background: 43 51% 92%;
+  --foreground: 213 100% 14%;
+  --border: 213 15% 87%;
+  --card: 0 0% 100%;
+  --card-foreground: 213 100% 14%;
+  --card-border: 220 13% 91%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 213 100% 14%;
+  --popover-border: 220 13% 91%;
+  --primary: 213 100% 27%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 173 100% 21%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 43 30% 90%;
+  --muted-foreground: 219 8% 52%;
+  --accent: 173 100% 21%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 10% 98%;
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
+  --info: 199 95% 62%;
+  --input: 220 13% 78%;
+  --ring: 213 100% 27%;
+  --radius: 0.75rem;
+  --font-sans: Inter, sans-serif;
+}
+
+.bookings-redesign-root,
+.bookings-redesign-root * {
+  font-family: var(--font-sans);
+  letter-spacing: -0.005em;
+}
+
+.bookings-redesign-root h1,
+.bookings-redesign-root h2,
+.bookings-redesign-root h3,
+.bookings-redesign-root h4 {
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
