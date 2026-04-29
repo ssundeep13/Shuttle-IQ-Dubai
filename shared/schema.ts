@@ -670,7 +670,14 @@ export const playerLinkRequests = pgTable("player_link_requests", {
   resolvedAt: timestamp("resolved_at"),
   resolutionNote: text("resolution_note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  // Prevent duplicate pending requests from the same user pointing at the
+  // same player (or "no specific player" → null). Resolved rows are exempt
+  // so historical requests can coexist with new ones.
+  uniqueIndex('unique_pending_link_request_per_user_player')
+    .on(table.marketplaceUserId, table.playerId)
+    .where(sql`${table.status} = 'pending'`),
+]);
 export const insertPlayerLinkRequestSchema = createInsertSchema(playerLinkRequests).omit({
   id: true,
   status: true,

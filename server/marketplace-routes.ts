@@ -3621,6 +3621,21 @@ export function registerMarketplaceRoutes(app: Express) {
       const bookableSession = await storage.getBookableSession(booking.sessionId);
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
 
+      // Self check-in is gated on the bookable session being linked to a queue
+      // session that is currently active. This prevents users from marking
+      // themselves "attended" against a draft / upcoming / ended session.
+      if (!bookableSession.linkedSessionId) {
+        return res.status(400).json({
+          error: "This session has not been opened by an admin yet. Please ask the front desk.",
+        });
+      }
+      const linkedSession = await storage.getSession(bookableSession.linkedSessionId);
+      if (!linkedSession || linkedSession.status !== 'active') {
+        return res.status(400).json({
+          error: "This session is not currently live. Please ask the front desk to start it.",
+        });
+      }
+
       // Check-in window: from 90 minutes before start until 6 hours after end (covers late arrivals).
       const sessionDate = new Date(bookableSession.date);
       const [startH, startM] = bookableSession.startTime.split(':').map(Number);

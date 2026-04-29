@@ -1546,38 +1546,42 @@ export class DatabaseStorage implements IStorage {
       // Linked id is stale (player was deleted). Fall through to create.
     }
 
-    // Try to claim an unclaimed player by exact email or phone match.
+    // Try to claim an unclaimed player on a HIGH-CONFIDENCE match only.
+    // To prevent linking the wrong profile when contact details overlap or are
+    // shared (e.g. family members), we require a UNIQUE match on a single
+    // strong identifier:
+    //   1. exactly one unclaimed player whose phone exactly matches, OR
+    //   2. exactly one unclaimed player whose normalized email matches.
+    // If either probe returns 0 or >1 candidates, we fall through to creating
+    // a fresh player and leave the merge to admin via the link-request flow.
     const normalizedEmail = (user.email || '').trim().toLowerCase();
     const normalizedPhone = (user.phone || '').trim();
-    const candidateConditions: SQL[] = [];
-    if (normalizedEmail) {
-      candidateConditions.push(sql`LOWER(${players.email}) = ${normalizedEmail}`);
-    }
-    if (normalizedPhone) {
-      candidateConditions.push(sql`${players.phone} = ${normalizedPhone}`);
-    }
-    if (candidateConditions.length > 0) {
-      const orConditions = candidateConditions.length === 1
-        ? candidateConditions[0]
-        : sql`(${candidateConditions[0]}) OR (${candidateConditions[1]})`;
 
-      const candidates = await db
+    const tryClaimUnique = async (where: SQL): Promise<Player | null> => {
+      const matches = await db
         .select()
         .from(players)
-        .where(sql`(${orConditions}) AND NOT EXISTS (
+        .where(sql`(${where}) AND NOT EXISTS (
           SELECT 1 FROM ${marketplaceUsers} AS mu WHERE mu.linked_player_id = ${players.id}
         )`)
-        .limit(5);
+        .limit(2);
+      if (matches.length !== 1) return null;
+      const candidate = matches[0];
+      const claimed = await this.linkPlayerIfUnclaimed(userId, candidate.id);
+      if (!claimed) return null;
+      console.log(
+        `[ensurePlayerForMarketplaceUser] Claimed unclaimed player ${candidate.id} (${candidate.shuttleIqId}) for user ${userId} (unique-match)`,
+      );
+      return addSkidToPlayer(candidate);
+    };
 
-      for (const candidate of candidates) {
-        const claimed = await this.linkPlayerIfUnclaimed(userId, candidate.id);
-        if (claimed) {
-          console.log(
-            `[ensurePlayerForMarketplaceUser] Claimed unclaimed player ${candidate.id} (${candidate.shuttleIqId}) for user ${userId}`,
-          );
-          return { player: addSkidToPlayer(candidate), created: false, claimed: true };
-        }
-      }
+    if (normalizedPhone) {
+      const claimed = await tryClaimUnique(sql`${players.phone} = ${normalizedPhone}`);
+      if (claimed) return { player: claimed, created: false, claimed: true };
+    }
+    if (normalizedEmail) {
+      const claimed = await tryClaimUnique(sql`LOWER(${players.email}) = ${normalizedEmail}`);
+      if (claimed) return { player: claimed, created: false, claimed: true };
     }
 
     // No claimable match → create a fresh player row and link it.
