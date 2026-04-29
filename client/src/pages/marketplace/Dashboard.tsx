@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,7 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink, Lightbulb, Gift, Copy, Wallet } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { apiRequest } from '@/lib/queryClient';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink, Lightbulb, Gift, Copy, Wallet, Loader2, CheckCircle, UserPlus } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -190,6 +194,7 @@ export default function Dashboard() {
   usePageTitle('Dashboard');
   const { user } = useMarketplaceAuth();
   const linkedPlayerId = user?.linkedPlayerId;
+  const queryClient = useQueryClient();
   const { canInstall, install } = useInstallPrompt();
   const { toast } = useToast();
   const [showTrendingModal, setShowTrendingModal] = useState(false);
@@ -261,6 +266,73 @@ export default function Dashboard() {
     queryKey: ['/api/referrals/player', linkedPlayerId],
     enabled: !!linkedPlayerId,
     staleTime: 60_000,
+  });
+
+  const { data: referredByData } = useQuery<{ referrerName: string | null }>({
+    queryKey: ['/api/referrals/me/referred-by'],
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+  const referrerName = referredByData?.referrerName ?? null;
+  const hasReferralOnFile = !!referrerName;
+  // Only render the apply-code entry point and the "Referred by" line once the
+  // referred-by query has settled, so users with an existing referrer don't
+  // briefly see the "Apply a code" affordance flash.
+  const referredByLoaded = referredByData !== undefined;
+
+  // Apply-referral-code dialog state (post-signup flow)
+  const [applyCodeOpen, setApplyCodeOpen] = useState(false);
+  const [applyCodeInput, setApplyCodeInput] = useState('');
+  const [applyValidating, setApplyValidating] = useState(false);
+  const [applyValidatedName, setApplyValidatedName] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  const validateApplyCode = useCallback(async (code: string) => {
+    if (!code.trim()) {
+      setApplyValidatedName(null);
+      setApplyError(null);
+      return;
+    }
+    setApplyValidating(true);
+    setApplyError(null);
+    setApplyValidatedName(null);
+    try {
+      const res = await fetch(`/api/referrals/validate/${encodeURIComponent(code.trim())}`);
+      const data = await res.json();
+      if (data.valid) {
+        setApplyValidatedName(data.referrerName);
+      } else {
+        setApplyError('Invalid referral code');
+      }
+    } catch {
+      setApplyError('Could not validate code');
+    } finally {
+      setApplyValidating(false);
+    }
+  }, []);
+
+  const linkReferralMutation = useMutation({
+    mutationFn: async (code: string) => {
+      return apiRequest('POST', '/api/referrals/link', { referralCode: code.trim() });
+    },
+    onSuccess: () => {
+      const name = applyValidatedName;
+      toast({
+        title: 'Referral applied!',
+        description: name
+          ? `You're now referred by ${name}. They'll get AED 15 wallet credit when you attend your next session.`
+          : 'Referral linked successfully.',
+      });
+      setApplyCodeOpen(false);
+      setApplyCodeInput('');
+      setApplyValidatedName(null);
+      setApplyError(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/referrals/me/referred-by'] });
+    },
+    onError: (err: unknown) => {
+      const message = (err as { error?: string })?.error || 'Failed to apply referral code';
+      setApplyError(message);
+    },
   });
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -582,6 +654,48 @@ export default function Dashboard() {
               </motion.div>
             )}
 
+            {/* Standalone apply-referral entry point for users who do not have
+                a linked player profile yet (so they can still credit a friend).
+                The My Referrals card above handles the linked-user case. */}
+            {!linkedPlayerId && referredByLoaded && !hasReferralOnFile && (
+              <motion.div variants={fadeInUp}>
+                <Card data-testid="card-apply-referral-standalone">
+                  <CardContent className="p-4">
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-3 text-left"
+                      onClick={() => setApplyCodeOpen(true)}
+                      data-testid="button-open-apply-referral-standalone"
+                    >
+                      <div className="flex-shrink-0 flex items-center justify-center h-10 w-10 rounded-full bg-secondary/10">
+                        <UserPlus className="h-4 w-4 text-secondary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold leading-tight">Got a referral code?</p>
+                        <p className="text-xs text-muted-foreground">Add a friend's code so they earn AED 15 when you play your next session</p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    </button>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {!linkedPlayerId && referredByLoaded && hasReferralOnFile && (
+              <motion.div variants={fadeInUp}>
+                <Card data-testid="card-referred-by-standalone">
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className="flex-shrink-0 flex items-center justify-center h-10 w-10 rounded-full bg-secondary/10">
+                      <Gift className="h-4 w-4 text-secondary" />
+                    </div>
+                    <p className="text-sm" data-testid="text-referred-by-standalone">
+                      Referred by <span className="font-semibold">{referrerName}</span>
+                    </p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
             {referralData && linkedPlayerId && (
               <motion.div variants={fadeInUp}>
                 <Card data-testid="card-my-referrals">
@@ -611,6 +725,28 @@ export default function Dashboard() {
                         <Copy className="h-4 w-4" />
                       </Button>
                     </div>
+
+                    {referredByLoaded && hasReferralOnFile && (
+                      <p className="text-xs text-muted-foreground" data-testid="text-referred-by">
+                        Referred by <span className="font-medium text-foreground">{referrerName}</span>
+                      </p>
+                    )}
+
+                    {referredByLoaded && !hasReferralOnFile && (
+                      <button
+                        type="button"
+                        className="w-full flex items-center gap-2 p-3 rounded-lg border border-dashed hover-elevate text-left"
+                        onClick={() => setApplyCodeOpen(true)}
+                        data-testid="button-open-apply-referral"
+                      >
+                        <UserPlus className="h-4 w-4 text-secondary shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium leading-tight">Got a referral code?</p>
+                          <p className="text-xs text-muted-foreground">Add a friend's code so they earn AED 15 when you play</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      </button>
+                    )}
 
                     <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
                       <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -899,6 +1035,76 @@ export default function Dashboard() {
       onOpenChange={setShowTrendingModal}
       linkedPlayerId={linkedPlayerId}
     />
+
+    <Dialog
+      open={applyCodeOpen}
+      onOpenChange={(open) => {
+        setApplyCodeOpen(open);
+        if (!open) {
+          setApplyCodeInput('');
+          setApplyValidatedName(null);
+          setApplyError(null);
+        }
+      }}
+    >
+      <DialogContent data-testid="dialog-apply-referral">
+        <DialogHeader>
+          <DialogTitle>Apply a referral code</DialogTitle>
+          <DialogDescription>
+            Enter the code a friend shared with you. They'll get AED 15 wallet credit when you attend your next session.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="apply-referral-code">Referral Code</Label>
+          <Input
+            id="apply-referral-code"
+            placeholder="e.g. SIQ-JOHN00-00123"
+            value={applyCodeInput}
+            onChange={(e) => {
+              setApplyCodeInput(e.target.value);
+              setApplyValidatedName(null);
+              setApplyError(null);
+            }}
+            onBlur={() => validateApplyCode(applyCodeInput)}
+            data-testid="input-apply-referral-code"
+          />
+          {applyValidating && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="text-apply-validating">
+              <Loader2 className="h-3 w-3 animate-spin" /> Validating...
+            </div>
+          )}
+          {applyValidatedName && (
+            <div className="flex items-center gap-1.5 text-xs text-secondary font-medium" data-testid="text-apply-referrer-name">
+              <CheckCircle className="h-3.5 w-3.5" /> Referred by {applyValidatedName}
+            </div>
+          )}
+          {applyError && (
+            <p className="text-xs text-destructive" data-testid="text-apply-referral-error">{applyError}</p>
+          )}
+        </div>
+        <DialogFooter className="flex-row gap-2 sm:justify-end">
+          <Button
+            variant="outline"
+            onClick={() => setApplyCodeOpen(false)}
+            data-testid="button-apply-referral-cancel"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => linkReferralMutation.mutate(applyCodeInput)}
+            disabled={
+              linkReferralMutation.isPending ||
+              applyValidating ||
+              !applyCodeInput.trim() ||
+              !applyValidatedName
+            }
+            data-testid="button-apply-referral-submit"
+          >
+            {linkReferralMutation.isPending ? 'Applying...' : 'Apply Code'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

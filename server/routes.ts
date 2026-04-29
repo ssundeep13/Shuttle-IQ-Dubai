@@ -3547,6 +3547,25 @@ Return ONLY valid JSON, no markdown, no other text:
     }
   });
 
+  // Returns who the currently authenticated marketplace user was referred by
+  // (or { referrerName: null } if no referral is on file). Used by the
+  // dashboard to show a "Referred by X" line and to decide whether to show
+  // the post-signup "Apply referral code" entry point.
+  app.get('/api/referrals/me/referred-by', requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+      const myReferral = await storage.getReferralByRefereeUserId(req.user.userId);
+      if (!myReferral) {
+        return res.json({ referrerName: null });
+      }
+      const referrer = await storage.getPlayer(myReferral.referrerId);
+      res.json({ referrerName: referrer?.name ?? null });
+    } catch (error: unknown) {
+      console.error('Error getting referred-by:', error);
+      res.status(500).json({ error: 'Failed to get referrer' });
+    }
+  });
+
   app.get('/api/referrals/player/:playerId', requireAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
