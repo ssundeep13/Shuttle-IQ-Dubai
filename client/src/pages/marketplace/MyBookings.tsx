@@ -503,7 +503,7 @@ export default function MyBookings() {
                       data-testid={`button-cancel-${booking.id}`}
                     >
                       <XCircle className="h-4 w-4" />
-                      {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel My Spot'}
+                      {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel'}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>

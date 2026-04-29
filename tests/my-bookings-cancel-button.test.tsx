@@ -236,7 +236,9 @@ describe('MyBookings — cancel button visibility', () => {
     });
 
     const cancelBtn = screen.getByTestId(`button-cancel-${UPCOMING_BOOKING_ID}`);
-    expect(cancelBtn).toHaveTextContent(/Cancel My Spot/i);
+    // Booker confirmed-booking label is "Cancel" (preserved from before
+    // the visibility refactor — only placement / size / colour changed).
+    expect(cancelBtn).toHaveTextContent(/Cancel/i);
     // Mobile-first: button is full width on small screens, intrinsic on sm+.
     expect(cancelBtn.className).toMatch(/w-full/);
     expect(cancelBtn.className).toMatch(/sm:w-auto/);
