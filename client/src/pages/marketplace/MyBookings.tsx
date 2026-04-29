@@ -430,46 +430,46 @@ export default function MyBookings() {
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-2 pt-3 border-t flex-wrap">
-              <div className="flex items-center gap-3 flex-wrap">
-                {!isWaitlisted && !isPendingPayment && (
-                  <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
-                    AED {booking.amountAed}
-                  </span>
-                )}
-                {!isWaitlisted && !isPendingPayment && booking.spotsBooked > 1 && (
-                  <Badge variant="outline" className="text-xs gap-1">
-                    <Users className="h-3 w-3" />
-                    {booking.spotsBooked} spots
-                  </Badge>
-                )}
-                {!isWaitlisted && !isPendingPayment && (
-                  <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
-                    {booking.paymentMethod === 'cash' ? (
-                      <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
-                    ) : (
-                      <><CreditCard className="h-3 w-3 mr-1" /> Card</>
-                    )}
-                  </Badge>
-                )}
-                {isWaitlisted && (
-                  <span className="text-xs text-muted-foreground">No payment until confirmed</span>
-                )}
-                {isPendingPayment && (
-                  <span className="text-xs text-muted-foreground">AED {booking.amountAed} — payment required</span>
-                )}
-              </div>
-              {canCancelAsGuest && (
+            <div className="flex items-center gap-3 pt-3 border-t flex-wrap">
+              {!isWaitlisted && !isPendingPayment && (
+                <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
+                  AED {booking.amountAed}
+                </span>
+              )}
+              {!isWaitlisted && !isPendingPayment && booking.spotsBooked > 1 && (
+                <Badge variant="outline" className="text-xs gap-1">
+                  <Users className="h-3 w-3" />
+                  {booking.spotsBooked} spots
+                </Badge>
+              )}
+              {!isWaitlisted && !isPendingPayment && (
+                <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
+                  {booking.paymentMethod === 'cash' ? (
+                    <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
+                  ) : (
+                    <><CreditCard className="h-3 w-3 mr-1" /> Card</>
+                  )}
+                </Badge>
+              )}
+              {isWaitlisted && (
+                <span className="text-xs text-muted-foreground">No payment until confirmed</span>
+              )}
+              {isPendingPayment && (
+                <span className="text-xs text-muted-foreground">AED {booking.amountAed} — payment required</span>
+              )}
+            </div>
+
+            {canCancelAsGuest && (
+              <div className="mt-3 flex sm:justify-end">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="gap-1"
+                      className="w-full sm:w-auto gap-1.5 border-destructive/50 text-destructive"
                       disabled={cancelGuestMutation.isPending}
                       data-testid={`button-cancel-guest-spot-${booking.id}`}
                     >
-                      <XCircle className="h-3.5 w-3.5" />
+                      <XCircle className="h-4 w-4" />
                       Cancel My Spot
                     </Button>
                   </AlertDialogTrigger>
@@ -490,19 +490,20 @@ export default function MyBookings() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
-              )}
-              {canCancel && (
+              </div>
+            )}
+            {canCancel && (
+              <div className="mt-3 flex sm:justify-end">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="gap-1"
+                      className="w-full sm:w-auto gap-1.5 border-destructive/50 text-destructive"
                       disabled={cancelMutation.isPending}
                       data-testid={`button-cancel-${booking.id}`}
                     >
-                      <XCircle className="h-3.5 w-3.5" />
-                      {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel'}
+                      <XCircle className="h-4 w-4" />
+                      {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel My Spot'}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
@@ -542,8 +543,8 @@ export default function MyBookings() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
-              )}
-            </div>
+              </div>
+            )}
           </CardContent>
         </div>
       </Card>
