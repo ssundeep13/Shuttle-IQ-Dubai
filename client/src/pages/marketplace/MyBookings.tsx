@@ -268,6 +268,7 @@ export default function MyBookings() {
   const [addGuestName, setAddGuestName] = useState('');
   const [addGuestEmail, setAddGuestEmail] = useState('');
   const [addGuestPaymentMethod, setAddGuestPaymentMethod] = useState<'cash' | 'ziina'>('cash');
+  const [showAllPast, setShowAllPast] = useState(false);
 
   const addGuestMutation = useMutation({
     mutationFn: async ({ bookingId, guestName, guestEmail, paymentMethod }: {
@@ -325,9 +326,9 @@ export default function MyBookings() {
         <div className="flex">
           <div className={`w-1 shrink-0 ${stripColor}`} />
           <CardContent className="p-5 flex-1">
-            <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
+            <div className="flex items-start justify-between gap-2 mb-3">
               <div className="min-w-0 flex-1">
-                <h3 className="font-semibold truncate" data-testid={`text-booking-title-${booking.id}`}>
+                <h3 className="font-semibold line-clamp-2" data-testid={`text-booking-title-${booking.id}`}>
                   {booking.session.title}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -337,16 +338,16 @@ export default function MyBookings() {
                   }
                 </p>
               </div>
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <Badge variant={status.variant} data-testid={`badge-status-${booking.id}`}>
+                  {status.label}
+                </Badge>
                 {isWaitlisted && booking.waitlistPosition && (
                   <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-600 dark:text-amber-400 gap-1" data-testid={`badge-waitlist-position-${booking.id}`}>
                     <ListOrdered className="h-3 w-3" />
                     #{booking.waitlistPosition}
                   </Badge>
                 )}
-                <Badge variant={status.variant} data-testid={`badge-status-${booking.id}`}>
-                  {status.label}
-                </Badge>
               </div>
             </div>
 
@@ -634,21 +635,40 @@ export default function MyBookings() {
                 </div>
               </motion.div>
             )}
-            {past.length > 0 && (
-              <motion.div variants={fadeInUp}>
-                <div className="flex items-center gap-2 mb-4">
-                  <h2 className="text-lg font-semibold" data-testid="text-past-title">Past & Cancelled</h2>
-                  <Badge variant="outline" className="text-xs">{past.length}</Badge>
-                </div>
-                <div className="space-y-3">
-                  {past.map(b => (
-                    <motion.div key={b.id} variants={fadeInUp}>
-                      <BookingCard booking={b} isPast />
-                    </motion.div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
+            {past.length > 0 && (() => {
+              const PAST_PREVIEW_COUNT = 3;
+              const visiblePast = showAllPast ? past : past.slice(0, PAST_PREVIEW_COUNT);
+              const hasToggle = past.length > PAST_PREVIEW_COUNT;
+              return (
+                <motion.div variants={fadeInUp}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <h2 className="text-lg font-semibold" data-testid="text-past-title">Past & Cancelled</h2>
+                    <Badge variant="outline" className="text-xs">{past.length}</Badge>
+                  </div>
+                  <div id="past-bookings-list" className="space-y-3">
+                    {visiblePast.map(b => (
+                      <motion.div key={b.id} variants={fadeInUp}>
+                        <BookingCard booking={b} isPast />
+                      </motion.div>
+                    ))}
+                  </div>
+                  {hasToggle && (
+                    <div className="mt-3 flex justify-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowAllPast(v => !v)}
+                        aria-expanded={showAllPast}
+                        aria-controls="past-bookings-list"
+                        data-testid="button-toggle-past"
+                      >
+                        {showAllPast ? 'Show fewer' : `Show all ${past.length}`}
+                      </Button>
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })()}
           </div>
         )}
       </motion.div>
