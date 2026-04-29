@@ -302,7 +302,9 @@ export default function MyBookings() {
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
   const pendingPayment = upcoming.filter(b => b.status === 'pending_payment');
   const active = upcoming.filter(b => b.status !== 'waitlisted' && b.status !== 'pending_payment');
-  const past = bookings?.filter(b => b.status === 'cancelled' || sessionEndTime(b) < new Date()) || [];
+  const past = (bookings?.filter(b => b.status === 'cancelled' || sessionEndTime(b) < new Date()) || [])
+    .slice()
+    .sort((a, b) => sessionEndTime(b).getTime() - sessionEndTime(a).getTime());
 
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
