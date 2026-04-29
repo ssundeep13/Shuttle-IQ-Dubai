@@ -191,8 +191,17 @@ export default function Home() {
   });
 
   const addPlayerMutation = useMutation({
-    mutationFn: async ({ name, gender, level }: { name: string; gender: string; level: string }) => {
-      return await apiRequest('POST', '/api/players', { name, gender, level, gamesPlayed: 0, wins: 0, status: 'waiting' });
+    mutationFn: async ({ name, gender, level, email, phone }: { name: string; gender: string; level: string; email?: string | null; phone?: string | null }) => {
+      return await apiRequest('POST', '/api/players', {
+        name,
+        gender,
+        level,
+        email: email ?? null,
+        phone: phone ?? null,
+        gamesPlayed: 0,
+        wins: 0,
+        status: 'waiting',
+      });
     },
     onSuccess: (data: Player) => {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
@@ -494,8 +503,13 @@ export default function Home() {
     removeCourtMutation.mutate(courtId);
   };
 
-  const handleAddPlayer = (name: string, gender: string, level: string) => {
-    addPlayerMutation.mutate({ name, gender, level });
+  const handleAddPlayer = (
+    name: string,
+    gender: string,
+    level: string,
+    contact?: { email?: string | null; phone?: string | null },
+  ) => {
+    addPlayerMutation.mutate({ name, gender, level, email: contact?.email ?? null, phone: contact?.phone ?? null });
   };
 
   const handleTogglePlayerSelection = (courtId: string, playerId: string, team: number) => {

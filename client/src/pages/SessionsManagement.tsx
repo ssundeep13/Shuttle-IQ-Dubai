@@ -34,7 +34,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails, TagSuggestionWithVote } from '@shared/schema';
+import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails, TagSuggestionWithVote, PlayerLinkRequestWithDetails } from '@shared/schema';
 import { UserCheck, FileText } from 'lucide-react';
 import BlogEditor from '@/components/BlogEditor';
 import type { BlogPost } from '@shared/schema';
@@ -1566,6 +1566,272 @@ function MarketplaceUsersTabContent() {
   return <MarketplaceUsersSubTab />;
 }
 
+function LinkRequestsInbox() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [resolving, setResolving] = useState<{
+    id: string;
+    action: 'approve' | 'reject';
+    playerId?: string;
+    playerName?: string;
+    userName: string;
+    needsPlayerPicker?: boolean;
+  } | null>(null);
+  const [resolutionNote, setResolutionNote] = useState('');
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [pickerResults, setPickerResults] = useState<PlayerSearchResult[]>([]);
+
+  const searchPickerPlayers = async (q: string) => {
+    if (q.length < 2) { setPickerResults([]); return; }
+    const token = localStorage.getItem('accessToken');
+    const res = await fetch(`/api/marketplace/admin/search-players?q=${encodeURIComponent(q)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const results: PlayerSearchResult[] = await res.json();
+      setPickerResults(results);
+    }
+  };
+
+  const { data: requests, isLoading } = useQuery<PlayerLinkRequestWithDetails[]>({
+    queryKey: ['/api/admin/link-requests'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/link-requests', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      return res.json();
+    },
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: async (vars: { id: string; action: 'approve' | 'reject'; playerId?: string; resolutionNote?: string }) => {
+      return apiRequest('POST', `/api/admin/link-requests/${vars.id}/resolve`, {
+        action: vars.action,
+        playerId: vars.playerId,
+        resolutionNote: vars.resolutionNote || null,
+      });
+    },
+    onSuccess: (_data, vars) => {
+      toast({
+        title: vars.action === 'approve' ? 'Link request approved' : 'Link request rejected',
+        description: vars.action === 'approve' ? 'Player linked and notified by email.' : 'User notified by email.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/link-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/users'] });
+      setResolving(null);
+      setResolutionNote('');
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Failed to resolve request',
+        description: err?.error || err?.message || 'Try again',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <Card data-testid="card-link-requests-loading">
+        <CardHeader>
+          <CardTitle className="text-base">Link Requests</CardTitle>
+          <CardDescription>Marketplace users asking to be linked to a player profile.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-12" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!requests || requests.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card data-testid="card-link-requests">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+        <div>
+          <CardTitle className="text-base">Link Requests</CardTitle>
+          <CardDescription>Marketplace users asking to be linked to a player profile.</CardDescription>
+        </div>
+        <Badge variant="outline" data-testid="badge-link-request-count">{requests.length} pending</Badge>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {requests.map((r) => (
+          <div
+            key={r.id}
+            className="flex items-start justify-between gap-3 flex-wrap p-3 rounded-md border"
+            data-testid={`row-link-request-${r.id}`}
+          >
+            <div className="flex-1 min-w-0">
+              <div className="font-medium truncate">{r.user.name}</div>
+              <div className="text-xs text-muted-foreground truncate">
+                {r.user.email}{r.user.phone ? ` • ${r.user.phone}` : ''}
+              </div>
+              {r.player ? (
+                <div className="mt-1 text-sm">
+                  Wants to claim:{' '}
+                  <span className="font-medium">{r.player.name}</span>
+                  {r.player.shuttleIqId ? (
+                    <span className="text-muted-foreground"> ({r.player.shuttleIqId})</span>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-muted-foreground italic">No specific player suggested</div>
+              )}
+              {r.note ? (
+                <div className="mt-1 text-xs text-muted-foreground">"{r.note}"</div>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setPickerQuery('');
+                  setPickerResults([]);
+                  setResolving({
+                    id: r.id,
+                    action: 'approve',
+                    playerId: r.player?.id,
+                    playerName: r.player?.name,
+                    userName: r.user.name,
+                    needsPlayerPicker: !r.player,
+                  });
+                }}
+                data-testid={`button-link-request-approve-${r.id}`}
+              >
+                <Check className="h-3 w-3 mr-1" />
+                {r.player ? 'Approve' : 'Approve & pick player'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setResolving({
+                  id: r.id,
+                  action: 'reject',
+                  userName: r.user.name,
+                })}
+                data-testid={`button-link-request-reject-${r.id}`}
+              >
+                <X className="h-3 w-3 mr-1" /> Reject
+              </Button>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+
+      <Dialog
+        open={resolving !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setResolving(null);
+            setResolutionNote('');
+            setPickerQuery('');
+            setPickerResults([]);
+          }
+        }}
+      >
+        <DialogContent data-testid="dialog-resolve-link-request">
+          <DialogHeader>
+            <DialogTitle>
+              {resolving?.action === 'approve' ? 'Approve link request' : 'Reject link request'}
+            </DialogTitle>
+          </DialogHeader>
+          {resolving?.action === 'approve' ? (
+            resolving.playerId ? (
+              <p className="text-sm text-muted-foreground">
+                Link <span className="font-medium text-foreground">{resolving.userName}</span> to player{' '}
+                <span className="font-medium text-foreground">{resolving.playerName}</span>?
+                They will be notified by email.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Pick the player to link <span className="font-medium text-foreground">{resolving.userName}</span> to.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <Input
+                    placeholder="Search by name, ID, or email…"
+                    value={pickerQuery}
+                    onChange={(e) => { setPickerQuery(e.target.value); searchPickerPlayers(e.target.value); }}
+                    data-testid="input-link-request-player-search"
+                  />
+                </div>
+                {pickerResults.length > 0 ? (
+                  <div className="space-y-1 max-h-48 overflow-auto">
+                    {pickerResults.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="w-full text-left p-2 rounded-md hover-elevate flex items-center justify-between gap-2"
+                        onClick={() => setResolving((prev) => prev ? { ...prev, playerId: String(p.id), playerName: p.name } : prev)}
+                        data-testid={`button-link-request-pick-${p.id}`}
+                      >
+                        <span className="text-sm font-medium">{p.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {p.shuttleIqId} • {getTierDisplayName(p.level)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : pickerQuery.length >= 2 ? (
+                  <p className="text-xs text-muted-foreground">No matching players.</p>
+                ) : null}
+                {resolving.playerName ? (
+                  <div className="rounded-md border p-2 text-sm">
+                    Selected: <span className="font-medium">{resolving.playerName}</span>
+                  </div>
+                ) : null}
+              </div>
+            )
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Reject the link request from <span className="font-medium text-foreground">{resolving?.userName}</span>?
+              They will be notified by email.
+            </p>
+          )}
+          <Textarea
+            placeholder="Optional note to include in the email…"
+            value={resolutionNote}
+            onChange={(e) => setResolutionNote(e.target.value)}
+            data-testid="input-link-request-note"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setResolving(null); setResolutionNote(''); setPickerQuery(''); setPickerResults([]); }}
+              data-testid="button-link-request-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!resolving) return;
+                resolveMutation.mutate({
+                  id: resolving.id,
+                  action: resolving.action,
+                  playerId: resolving.playerId,
+                  resolutionNote,
+                });
+              }}
+              disabled={
+                resolveMutation.isPending ||
+                (resolving?.action === 'approve' && !resolving.playerId)
+              }
+              data-testid="button-link-request-confirm"
+            >
+              {resolveMutation.isPending ? 'Working…' : resolving?.action === 'approve' ? 'Approve & Link' : 'Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 function MarketplaceUsersSubTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1679,7 +1945,8 @@ function MarketplaceUsersSubTab() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <LinkRequestsInbox />
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold">Marketplace Users</h2>
         <Badge variant="outline">{users?.length || 0} users</Badge>

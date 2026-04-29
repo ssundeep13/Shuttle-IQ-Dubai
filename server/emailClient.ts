@@ -532,3 +532,100 @@ export async function sendDisputeResolutionEmail(
   await sendEmail(toEmail, `Score Dispute ${statusLabel} — ShuttleIQ`, emailWrapper(body));
   console.log(`[Email] Dispute resolution email sent to ${toEmail} (${status})`);
 }
+
+// ─── Manual player-link requests ───────────────────────────────────────────
+
+// Admin notification recipients. Configurable via env, falls back to the
+// hard-coded super-admin addresses already used by server/auth/storage.ts.
+function getAdminNotificationEmails(): string[] {
+  const fromEnv = (process.env.ADMIN_NOTIFICATION_EMAIL || '').trim();
+  if (fromEnv) {
+    return fromEnv.split(',').map(s => s.trim()).filter(Boolean);
+  }
+  return ['ssundeep13@gmail.com', 'arjun.aj.anand@gmail.com'];
+}
+
+export async function sendLinkRequestSubmittedAdminEmail(input: {
+  requesterName: string;
+  requesterEmail: string;
+  targetPlayerName: string | null;
+  targetPlayerSiq: string | null;
+  reason: string;
+  note?: string | null;
+  adminInboxUrl: string;
+}): Promise<void> {
+  const recipients = getAdminNotificationEmails();
+  if (recipients.length === 0) return;
+  const playerLine = input.targetPlayerName
+    ? `${input.targetPlayerName}${input.targetPlayerSiq ? ` (${input.targetPlayerSiq})` : ''}`
+    : '— no specific player selected —';
+  const noteHtml = input.note
+    ? `<p style="margin:0 0 18px;font-size:14px;color:#4a5568;line-height:1.6;"><strong>Note from user:</strong><br>${input.note.replace(/[<>]/g, '')}</p>`
+    : '';
+  const body = `
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">New player-link request</h1>
+    <p style="margin:0 0 18px;font-size:15px;color:#4a5568;line-height:1.6;">A marketplace user is asking an admin to link their player profile because they couldn't verify ownership automatically.</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f7f9fb;border-radius:6px;margin-bottom:20px;">
+      <tr><td style="padding:14px 18px;">
+        <p style="margin:0 0 4px;font-size:13px;color:#718096;">Requester</p>
+        <p style="margin:0 0 10px;font-size:15px;color:#0a2540;font-weight:600;">${input.requesterName} &lt;${input.requesterEmail}&gt;</p>
+        <p style="margin:0 0 4px;font-size:13px;color:#718096;">Target player</p>
+        <p style="margin:0 0 10px;font-size:15px;color:#0a2540;">${playerLine}</p>
+        <p style="margin:0 0 4px;font-size:13px;color:#718096;">Reason</p>
+        <p style="margin:0;font-size:14px;color:#4a5568;">${input.reason}</p>
+      </td></tr>
+    </table>
+    ${noteHtml}
+    ${ctaButton(input.adminInboxUrl, 'Review in admin dashboard')}
+  `;
+  for (const to of recipients) {
+    try {
+      await sendEmail(to, 'New player-link request — ShuttleIQ', emailWrapper(body));
+    } catch (err) {
+      console.error(`[Email] sendLinkRequestSubmittedAdminEmail failed for ${to}:`, err);
+    }
+  }
+}
+
+export async function sendLinkRequestApprovedEmail(input: {
+  toEmail: string;
+  userName: string;
+  playerName: string;
+  playerSiq: string | null;
+  marketplaceUrl: string;
+}): Promise<void> {
+  const siqPart = input.playerSiq ? ` (${input.playerSiq})` : '';
+  const body = `
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">Your profile has been linked</h1>
+    <p style="margin:0 0 16px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${input.userName}, an admin has linked your account to <strong>${input.playerName}${siqPart}</strong>. You're all set — your stats, bookings, and queue position will now show up under your account.</p>
+    ${ctaButton(input.marketplaceUrl, 'Open ShuttleIQ')}
+  `;
+  try {
+    await sendEmail(input.toEmail, 'Your ShuttleIQ profile is linked', emailWrapper(body));
+  } catch (err) {
+    console.error('[Email] sendLinkRequestApprovedEmail failed:', err);
+  }
+}
+
+export async function sendLinkRequestRejectedEmail(input: {
+  toEmail: string;
+  userName: string;
+  resolutionNote?: string | null;
+  marketplaceUrl: string;
+}): Promise<void> {
+  const noteHtml = input.resolutionNote
+    ? `<p style="margin:0 0 18px;font-size:14px;color:#4a5568;line-height:1.6;"><strong>Admin note:</strong><br>${input.resolutionNote.replace(/[<>]/g, '')}</p>`
+    : '';
+  const body = `
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">Your link request was reviewed</h1>
+    <p style="margin:0 0 16px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${input.userName}, an admin has reviewed your request to link a player profile but couldn't approve it.</p>
+    ${noteHtml}
+    <p style="margin:0 0 16px;font-size:14px;color:#4a5568;line-height:1.6;">If you think this is a mistake, reply to this email or contact the session organiser at the next session.</p>
+    ${ctaButton(input.marketplaceUrl, 'Open ShuttleIQ')}
+  `;
+  try {
+    await sendEmail(input.toEmail, 'Update on your ShuttleIQ link request', emailWrapper(body));
+  } catch (err) {
+    console.error('[Email] sendLinkRequestRejectedEmail failed:', err);
+  }
+}

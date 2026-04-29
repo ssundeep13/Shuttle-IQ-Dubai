@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getSkillTier, formatSkillLevel } from "@shared/utils/skillUtils";
 import type { Player } from "@shared/schema";
@@ -32,6 +33,8 @@ const skillLevelMap: Record<string, number> = {
 const editPlayerSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name is too long"),
   level: z.enum(['Novice', 'Beginner', 'lower_intermediate', 'upper_intermediate', 'Advanced', 'Professional']),
+  email: z.string().trim().email("Enter a valid email").or(z.literal("")).optional(),
+  phone: z.string().trim().min(7, "Phone looks too short").or(z.literal("")).optional(),
 });
 
 type EditPlayerForm = z.infer<typeof editPlayerSchema>;
@@ -54,6 +57,8 @@ export function EditPlayerModal({
     defaultValues: {
       name: player?.name || '',
       level: player ? (getSkillTier(player.skillScore) as EditPlayerForm['level']) : 'lower_intermediate',
+      email: player?.email ?? '',
+      phone: player?.phone ?? '',
     },
   });
 
@@ -62,9 +67,15 @@ export function EditPlayerModal({
       form.reset({
         name: player.name,
         level: getSkillTier(player.skillScore) as EditPlayerForm['level'],
+        email: player.email ?? '',
+        phone: player.phone ?? '',
       });
     }
-  }, [player?.id, player?.name, player?.skillScore, form]);
+  }, [player?.id, player?.name, player?.skillScore, player?.email, player?.phone, form]);
+
+  const watchedEmail = form.watch("email");
+  const watchedPhone = form.watch("phone");
+  const hasNoContact = !watchedEmail?.trim() && !watchedPhone?.trim();
 
   const updateMutation = useMutation({
     mutationFn: async (data: EditPlayerForm) => {
@@ -73,6 +84,8 @@ export function EditPlayerModal({
       return apiRequest('PATCH', `/api/players/${player.id}`, {
         name: data.name.trim(),
         skillScore: newSkillScore,
+        email: data.email?.trim() ? data.email.trim() : null,
+        phone: data.phone?.trim() ? data.phone.trim() : null,
       });
     },
     onSuccess: () => {
@@ -156,6 +169,61 @@ export function EditPlayerModal({
                 </FormItem>
               )}
             />
+
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      value={field.value ?? ""}
+                      type="email"
+                      placeholder="player@example.com"
+                      data-testid="input-player-email"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="phone"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      value={field.value ?? ""}
+                      type="tel"
+                      placeholder="+971 50 123 4567"
+                      data-testid="input-player-phone"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {hasNoContact && (
+              <div
+                className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
+                data-testid="warning-no-contact"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-warning" />
+                <div>
+                  <p className="font-medium">No contact info on file</p>
+                  <p className="text-muted-foreground text-xs mt-0.5">
+                    Without an email or phone, this player can't self-link to their marketplace account. They'll have to ask an admin.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="rounded-lg border p-3 bg-card/50">
               <div className="text-sm text-muted-foreground">

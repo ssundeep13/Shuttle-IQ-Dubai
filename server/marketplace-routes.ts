@@ -18,6 +18,9 @@ import {
   sendPlayerLinkOtpEmail,
   sendPlayerContactChangeOtpEmail,
   sendMarketplaceContactChangeOtpEmail,
+  sendLinkRequestSubmittedAdminEmail,
+  sendLinkRequestApprovedEmail,
+  sendLinkRequestRejectedEmail,
 } from "./emailClient";
 import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
 import { createHash, randomInt } from "crypto";
@@ -32,6 +35,7 @@ import {
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage } from "./ziinaClient";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
+import { provisionAndEnqueueForBooking, enqueueBookingIfLive } from "./queueAutoAdd";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and } from "drizzle-orm";
@@ -2102,6 +2106,11 @@ export function registerMarketplaceRoutes(app: Express) {
           }
         } catch (emailErr) { console.error('[Email] cash booking confirm lookup failed:', emailErr); }
 
+        // Provision player + auto-enqueue if the linked queue session is live (fire-and-forget)
+        provisionAndEnqueueForBooking(booking.id).catch(err =>
+          console.error('[Cash booking] provisionAndEnqueueForBooking failed', { bookingId: booking.id, err })
+        );
+
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
         return res.json({
           bookingId: booking.id,
@@ -2813,6 +2822,11 @@ export function registerMarketplaceRoutes(app: Express) {
                   await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
                 }
               }
+
+              // Provision player + auto-enqueue if the linked queue session is live (fire-and-forget)
+              provisionAndEnqueueForBooking(first.id).catch(err =>
+                console.error('[Waitlist promo cash] provisionAndEnqueueForBooking failed', { bookingId: first.id, err })
+              );
             }
 
             promoted = { bookingId: first.id, userId: first.userId };
@@ -2897,27 +2911,15 @@ export function registerMarketplaceRoutes(app: Express) {
         attendedAt: new Date(),
       });
 
-      let queueResult: { added: boolean; reason?: string } = { added: false };
+      // Provision player if missing, then enqueue if the linked queue session is live.
+      const result = await provisionAndEnqueueForBooking(req.params.id);
+      const queueResult = result.enqueue.added
+        ? { added: true }
+        : { added: false, reason: result.enqueue.reason };
 
-      const marketplaceUser = await storage.getMarketplaceUser(booking.userId);
-      const bookableSession = await storage.getBookableSession(booking.sessionId);
-
-      if (!marketplaceUser?.linkedPlayerId) {
-        queueResult = { added: false, reason: "no_player_link" };
-      } else if (!bookableSession?.linkedSessionId) {
-        queueResult = { added: false, reason: "no_session_link" };
-      } else {
-        const queue = await storage.getQueue(bookableSession.linkedSessionId);
-        if (queue.includes(marketplaceUser.linkedPlayerId)) {
-          queueResult = { added: false, reason: "already_in_queue" };
-        } else {
-          await storage.addToQueue(bookableSession.linkedSessionId, marketplaceUser.linkedPlayerId);
-          queueResult = { added: true };
-        }
-      }
-
-      res.json({ ...updated, queueResult });
+      res.json({ ...updated, queueResult, provisioned: result.provisioned });
     } catch (error) {
+      console.error('[attend] error', error);
       res.status(500).json({ error: "Failed to mark attendance" });
     }
   });
@@ -3426,6 +3428,260 @@ export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
   // ADMIN: Register Ziina webhook (one-time setup)
   // ============================================================
+
+  // ============================================================
+  // Player link requests (manual "Ask an admin" flow + admin inbox)
+  // ============================================================
+
+  // Marketplace user submits a manual link request when automated linking
+  // (email/phone OTP) cannot reach them.
+  app.post("/api/marketplace/link-requests", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const { playerId, reason, note } = req.body as {
+        playerId?: string | null;
+        reason?: string;
+        note?: string | null;
+      };
+      if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
+        return res.status(400).json({ error: "Please tell us why you can't link automatically." });
+      }
+
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      if (user.linkedPlayerId) {
+        return res.status(400).json({ error: "Your account is already linked to a player." });
+      }
+
+      let targetPlayer = null;
+      if (playerId) {
+        targetPlayer = await storage.getPlayer(playerId);
+        if (!targetPlayer) return res.status(404).json({ error: "Player not found" });
+      }
+
+      // De-dupe pending requests for the same (user, player) pair so admins
+      // aren't flooded if a user clicks multiple times.
+      const existing = await storage.getPendingPlayerLinkRequestForUserPlayer(req.user.userId, playerId ?? null);
+      if (existing) {
+        return res.json({ request: existing, alreadyPending: true });
+      }
+
+      const created = await storage.createPlayerLinkRequest({
+        marketplaceUserId: req.user.userId,
+        playerId: playerId ?? null,
+        reason: reason.trim().slice(0, 500),
+        note: note ? String(note).trim().slice(0, 1000) : null,
+      });
+
+      const baseUrl = process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+      sendLinkRequestSubmittedAdminEmail({
+        requesterName: user.name,
+        requesterEmail: user.email,
+        targetPlayerName: targetPlayer?.name ?? null,
+        targetPlayerSiq: targetPlayer?.shuttleIqId ?? null,
+        reason: created.reason,
+        note: created.note,
+        adminInboxUrl: `${baseUrl}/sessions?tab=marketplace-users`,
+      }).catch(() => {});
+
+      return res.json({ request: created, alreadyPending: false });
+    } catch (error) {
+      console.error('[link-requests] create failed', error);
+      res.status(500).json({ error: "Failed to submit link request" });
+    }
+  });
+
+  // Admin: list pending link requests
+  app.get("/api/admin/link-requests", requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const items = await storage.listPendingPlayerLinkRequests();
+      res.json(items);
+    } catch (error) {
+      console.error('[link-requests] list failed', error);
+      res.status(500).json({ error: "Failed to load link requests" });
+    }
+  });
+
+  // Admin: resolve a link request (approve or reject)
+  app.post("/api/admin/link-requests/:id/resolve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const { action, playerId, resolutionNote } = req.body as {
+        action?: 'approve' | 'reject';
+        playerId?: string;
+        resolutionNote?: string | null;
+      };
+      if (action !== 'approve' && action !== 'reject') {
+        return res.status(400).json({ error: "Invalid action" });
+      }
+
+      const request = await storage.getPlayerLinkRequest(req.params.id);
+      if (!request) return res.status(404).json({ error: "Link request not found" });
+      if (request.status !== 'pending') {
+        return res.status(400).json({ error: "Link request already resolved" });
+      }
+
+      const user = await storage.getMarketplaceUser(request.marketplaceUserId);
+      if (!user) return res.status(404).json({ error: "Requesting user no longer exists" });
+
+      const baseUrl = process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
+      const marketplaceUrl = `${baseUrl}/marketplace`;
+
+      if (action === 'reject') {
+        const resolved = await storage.resolvePlayerLinkRequest(
+          req.params.id,
+          'rejected',
+          req.user.userId,
+          resolutionNote ? String(resolutionNote).slice(0, 1000) : null,
+        );
+        sendLinkRequestRejectedEmail({
+          toEmail: user.email,
+          userName: user.name,
+          resolutionNote: resolved?.resolutionNote ?? null,
+          marketplaceUrl,
+        }).catch(() => {});
+        return res.json({ resolved });
+      }
+
+      // action === 'approve' — must specify the player to link
+      const targetPlayerId = playerId ?? request.playerId;
+      if (!targetPlayerId) {
+        return res.status(400).json({ error: "Choose a player to link to before approving." });
+      }
+      if (user.linkedPlayerId) {
+        return res.status(400).json({ error: "User is already linked to a player." });
+      }
+      const targetPlayer = await storage.getPlayer(targetPlayerId);
+      if (!targetPlayer) return res.status(404).json({ error: "Target player not found" });
+
+      const claimed = await storage.linkPlayerIfUnclaimed(request.marketplaceUserId, targetPlayerId);
+      if (!claimed) {
+        return res.status(409).json({ error: "That player is already linked to another account." });
+      }
+
+      const resolved = await storage.resolvePlayerLinkRequest(
+        req.params.id,
+        'approved',
+        req.user.userId,
+        resolutionNote ? String(resolutionNote).slice(0, 1000) : null,
+      );
+
+      sendLinkRequestApprovedEmail({
+        toEmail: user.email,
+        userName: user.name,
+        playerName: targetPlayer.name,
+        playerSiq: targetPlayer.shuttleIqId ?? null,
+        marketplaceUrl,
+      }).catch(() => {});
+
+      // Best-effort: if the user has confirmed bookings for the currently-active
+      // session, enqueue them now that they're linked.
+      try {
+        const userBookings = await storage.getUserBookings(request.marketplaceUserId);
+        for (const b of userBookings) {
+          if (b.status === 'confirmed' || b.status === 'attended') {
+            await enqueueBookingIfLive(b.id);
+          }
+        }
+      } catch (err) {
+        console.error('[link-requests] post-approve enqueue failed', err);
+      }
+
+      return res.json({ resolved, linkedPlayerId: targetPlayerId });
+    } catch (error) {
+      console.error('[link-requests] resolve failed', error);
+      res.status(500).json({ error: "Failed to resolve link request" });
+    }
+  });
+
+  // ============================================================
+  // Self check-in (marketplace user marks themselves attended)
+  // ============================================================
+
+  // Marketplace user self check-in for one of their own confirmed bookings.
+  // Allowed within a window around the session start (90m before → end of day).
+  app.post("/api/marketplace/bookings/:id/checkin", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not your booking" });
+      if (booking.status === 'cancelled') return res.status(400).json({ error: "Booking is cancelled" });
+      if (booking.attendedAt) {
+        return res.json({ alreadyAttended: true, booking });
+      }
+      if (booking.status !== 'confirmed' && booking.status !== 'attended') {
+        return res.status(400).json({ error: "Only confirmed bookings can self check-in." });
+      }
+
+      const bookableSession = await storage.getBookableSession(booking.sessionId);
+      if (!bookableSession) return res.status(404).json({ error: "Session not found" });
+
+      // Check-in window: from 90 minutes before start until 6 hours after end (covers late arrivals).
+      const sessionDate = new Date(bookableSession.date);
+      const [startH, startM] = bookableSession.startTime.split(':').map(Number);
+      const [endH, endM] = bookableSession.endTime.split(':').map(Number);
+      const startAt = new Date(sessionDate);
+      startAt.setHours(startH, startM, 0, 0);
+      const endAt = new Date(sessionDate);
+      endAt.setHours(endH, endM, 0, 0);
+      const checkinOpens = new Date(startAt.getTime() - 90 * 60 * 1000);
+      const checkinCloses = new Date(endAt.getTime() + 6 * 60 * 60 * 1000);
+      const now = new Date();
+      if (now < checkinOpens) {
+        return res.status(400).json({
+          error: "Check-in opens 90 minutes before the session starts.",
+          opensAt: checkinOpens.toISOString(),
+        });
+      }
+      if (now > checkinCloses) {
+        return res.status(400).json({ error: "Check-in for this session has closed." });
+      }
+
+      const updated = await storage.updateBooking(req.params.id, {
+        status: 'attended',
+        attendedAt: new Date(),
+      });
+
+      const result = await provisionAndEnqueueForBooking(req.params.id);
+      const queueResult = result.enqueue.added
+        ? { added: true }
+        : { added: false, reason: result.enqueue.reason };
+
+      return res.json({ booking: updated, queueResult, provisioned: result.provisioned });
+    } catch (error) {
+      console.error('[self-checkin] failed', error);
+      res.status(500).json({ error: "Failed to check in" });
+    }
+  });
+
+  // ============================================================
+  // Admin: provision-and-enqueue / contact backfill
+  // ============================================================
+
+  app.post("/api/admin/bookings/:id/provision-and-enqueue", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await provisionAndEnqueueForBooking(req.params.id);
+      res.json(result);
+    } catch (error) {
+      console.error('[admin provision-and-enqueue] failed', error);
+      res.status(500).json({ error: "Failed to provision and enqueue" });
+    }
+  });
+
+  app.post("/api/admin/players/backfill-contacts", requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const summary = await storage.backfillPlayerContactsFromLinkedUsers();
+      res.json(summary);
+    } catch (error) {
+      console.error('[admin contact backfill] failed', error);
+      res.status(500).json({ error: "Failed to backfill player contacts" });
+    }
+  });
 
   app.post("/api/admin/ziina/register-webhook", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {

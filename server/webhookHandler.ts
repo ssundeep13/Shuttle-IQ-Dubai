@@ -7,6 +7,7 @@ import {
   sendBookingConfirmationEmail,
   sendGuestBookingEmail,
 } from "./emailClient";
+import { provisionAndEnqueueForBooking } from "./queueAutoAdd";
 
 // Shared confirmation logic — called by both the webhook handler and the
 // admin-triggered /confirm endpoint. Finds the booking by Ziina payment intent
@@ -153,6 +154,11 @@ export async function confirmZiinaBookingByIntentId(
   } catch (err) {
     console.error("[Ziina Webhook] Email/guest confirm failed:", err);
   }
+
+  // Provision player + auto-enqueue if the linked queue session is live (fire-and-forget)
+  provisionAndEnqueueForBooking(booking.id).catch((err) =>
+    console.error("[Ziina Webhook] provisionAndEnqueueForBooking failed", { bookingId: booking.id, err }),
+  );
 
   return { confirmed: true };
 }

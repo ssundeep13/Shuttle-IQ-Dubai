@@ -5,7 +5,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2 } from 'lucide-react';
@@ -46,6 +56,11 @@ export default function Profile() {
     maskedPhone: string | null;
   } | null>(null);
   const [emailNotVerifiedFor, setEmailNotVerifiedFor] = useState<PlayerSearchResult | null>(null);
+  // Manual "Ask an admin" link-request escape hatch.
+  const [linkRequestForm, setLinkRequestForm] = useState<
+    | { open: true; player: PlayerSearchResult | null; note: string }
+    | { open: false }
+  >({ open: false });
   // Self-service contact change sub-flow (within OTP flow)
   const [contactEdit, setContactEdit] = useState<
     | { mode: 'form'; field: 'email' | 'phone'; value: string }
@@ -248,6 +263,29 @@ export default function Profile() {
     },
     onError: (err) => {
       toast({ title: 'Verification failed', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const submitLinkRequestMutation = useMutation({
+    mutationFn: async ({ playerId, note }: { playerId: string | null; note: string }) => {
+      // The server requires a `reason`; we derive it from the user's note,
+      // falling back to a generic message so the dialog remains a single textarea.
+      const reason = note && note.trim().length >= 3
+        ? note.trim()
+        : playerId
+          ? 'User requested to be linked to a specific player from their profile.'
+          : 'User requested help finding their player profile.';
+      return apiRequest('POST', '/api/marketplace/link-requests', { playerId, reason, note });
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Request sent to admin',
+        description: "We'll email you once they take a look.",
+      });
+      setLinkRequestForm({ open: false });
+    },
+    onError: (err) => {
+      toast({ title: 'Could not send request', description: errorMessage(err), variant: 'destructive' });
     },
   });
 
@@ -994,7 +1032,7 @@ export default function Profile() {
                                 <div className="text-xs text-muted-foreground">{player.shuttleIqId}</div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap justify-end">
                               <Badge variant="outline" className="text-xs">{getTierDisplayName(player.level)}</Badge>
                               <Button
                                 size="sm"
@@ -1004,16 +1042,114 @@ export default function Profile() {
                               >
                                 Link
                               </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  setLinkRequestForm({ open: true, player, note: '' })
+                                }
+                                data-testid={`button-ask-admin-${player.id}`}
+                              >
+                                Ask an admin
+                              </Button>
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
+
+                    <div className="rounded-md border border-dashed p-3 text-sm flex items-start gap-2">
+                      <HelpCircle className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                      <div className="flex-1">
+                        <p className="font-medium">Can't find your player profile?</p>
+                        <p className="text-muted-foreground text-xs mt-0.5">
+                          Send a quick note to the admins and they'll link the right one for you.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setLinkRequestForm({ open: true, player: null, note: '' })}
+                        data-testid="button-open-ask-admin"
+                      >
+                        Ask an admin
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>
             </Card>
           </motion.div>
+
+          {linkRequestForm.open && (
+            <Dialog
+              open={linkRequestForm.open}
+              onOpenChange={(open) => {
+                if (!open) setLinkRequestForm({ open: false });
+              }}
+            >
+              <DialogContent data-testid="dialog-link-request">
+                <DialogHeader>
+                  <DialogTitle>Ask an admin to link your player</DialogTitle>
+                  <DialogDescription>
+                    {linkRequestForm.player
+                      ? `We'll let an admin know you'd like to be linked to ${linkRequestForm.player.name}.`
+                      : "Tell the admins which player profile is yours and we'll get you connected."}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  {linkRequestForm.player && (
+                    <div className="rounded-md border p-3 text-sm">
+                      <div className="font-medium">{linkRequestForm.player.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {linkRequestForm.player.shuttleIqId}
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="link-request-note">Note for the admin (optional)</Label>
+                    <Textarea
+                      id="link-request-note"
+                      placeholder={
+                        linkRequestForm.player
+                          ? "Anything that proves this is your profile (e.g. last session attended)…"
+                          : "Tell us your usual name on the courts, who you usually play with, etc."
+                      }
+                      value={linkRequestForm.note}
+                      onChange={(e) =>
+                        setLinkRequestForm((prev) =>
+                          prev.open ? { ...prev, note: e.target.value } : prev,
+                        )
+                      }
+                      rows={4}
+                      data-testid="input-link-request-note"
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setLinkRequestForm({ open: false })}
+                    data-testid="button-cancel-link-request"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      submitLinkRequestMutation.mutate({
+                        playerId: linkRequestForm.player?.id ?? null,
+                        note: linkRequestForm.note.trim(),
+                      })
+                    }
+                    disabled={submitLinkRequestMutation.isPending}
+                    data-testid="button-submit-link-request"
+                  >
+                    {submitLinkRequestMutation.isPending ? 'Sending…' : 'Send request'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
 
           <motion.div variants={fadeInUp}>
             <Card>

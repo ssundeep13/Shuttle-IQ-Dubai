@@ -84,6 +84,10 @@ import {
   type MatchSuggestion,
   type MatchSuggestionPlayer,
   type InsertMatchSuggestion,
+  playerLinkRequests,
+  type PlayerLinkRequest,
+  type InsertPlayerLinkRequest,
+  type PlayerLinkRequestWithDetails,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
@@ -272,6 +276,29 @@ export interface IStorage {
   updateMarketplaceUserPhoto(id: string, photoUrl: string | null): Promise<MarketplaceUser | undefined>;
   linkPlayerIfUnclaimed(userId: string, playerId: string): Promise<MarketplaceUser | undefined>;
   getAllMarketplaceUsers(): Promise<MarketplaceUser[]>;
+
+  // Shared player-provisioning helper. Returns the user's linked player,
+  // creating one (and atomically claiming a matching unclaimed row when
+  // possible) if missing. `created: true` means a new players row was just
+  // inserted; `claimed: true` means an existing unclaimed players row was
+  // matched and atomically linked.
+  ensurePlayerForMarketplaceUser(userId: string): Promise<{
+    player: Player;
+    created: boolean;
+    claimed: boolean;
+  }>;
+
+  // Manual player-link requests (admin-assisted escape hatch when the
+  // self-service OTP flow can't proceed)
+  createPlayerLinkRequest(input: InsertPlayerLinkRequest): Promise<PlayerLinkRequest>;
+  getPlayerLinkRequest(id: string): Promise<PlayerLinkRequest | undefined>;
+  getPendingPlayerLinkRequestForUserPlayer(userId: string, playerId: string | null): Promise<PlayerLinkRequest | undefined>;
+  listPendingPlayerLinkRequests(): Promise<PlayerLinkRequestWithDetails[]>;
+  resolvePlayerLinkRequest(id: string, status: 'approved' | 'rejected', resolvedByAdminId: string, resolutionNote?: string | null): Promise<PlayerLinkRequest | undefined>;
+
+  // One-shot backfill: copy email/phone from already-linked marketplace
+  // users onto their players row when the player has no contact yet.
+  backfillPlayerContactsFromLinkedUsers(): Promise<{ updated: number; emailFilled: number; phoneFilled: number }>;
   createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void>;
   findMarketplaceAuthSession(refreshToken: string): Promise<{ id: string; userId: string; refreshToken: string; expiresAt: Date } | undefined>;
   deleteMarketplaceAuthSession(id: string): Promise<void>;
@@ -1497,6 +1524,210 @@ export class DatabaseStorage implements IStorage {
 
   async getAllMarketplaceUsers(): Promise<MarketplaceUser[]> {
     return await db.select().from(marketplaceUsers).orderBy(desc(marketplaceUsers.createdAt));
+  }
+
+  // ─── Shared player-provisioning ────────────────────────────────────────
+  async ensurePlayerForMarketplaceUser(userId: string): Promise<{
+    player: Player;
+    created: boolean;
+    claimed: boolean;
+  }> {
+    const user = await this.getMarketplaceUser(userId);
+    if (!user) {
+      throw new Error(`Marketplace user ${userId} not found`);
+    }
+
+    // Already linked → return existing player.
+    if (user.linkedPlayerId) {
+      const existing = await this.getPlayer(user.linkedPlayerId);
+      if (existing) {
+        return { player: existing, created: false, claimed: false };
+      }
+      // Linked id is stale (player was deleted). Fall through to create.
+    }
+
+    // Try to claim an unclaimed player by exact email or phone match.
+    const normalizedEmail = (user.email || '').trim().toLowerCase();
+    const normalizedPhone = (user.phone || '').trim();
+    const candidateConditions: SQL[] = [];
+    if (normalizedEmail) {
+      candidateConditions.push(sql`LOWER(${players.email}) = ${normalizedEmail}`);
+    }
+    if (normalizedPhone) {
+      candidateConditions.push(sql`${players.phone} = ${normalizedPhone}`);
+    }
+    if (candidateConditions.length > 0) {
+      const orConditions = candidateConditions.length === 1
+        ? candidateConditions[0]
+        : sql`(${candidateConditions[0]}) OR (${candidateConditions[1]})`;
+
+      const candidates = await db
+        .select()
+        .from(players)
+        .where(sql`(${orConditions}) AND NOT EXISTS (
+          SELECT 1 FROM ${marketplaceUsers} AS mu WHERE mu.linked_player_id = ${players.id}
+        )`)
+        .limit(5);
+
+      for (const candidate of candidates) {
+        const claimed = await this.linkPlayerIfUnclaimed(userId, candidate.id);
+        if (claimed) {
+          console.log(
+            `[ensurePlayerForMarketplaceUser] Claimed unclaimed player ${candidate.id} (${candidate.shuttleIqId}) for user ${userId}`,
+          );
+          return { player: addSkidToPlayer(candidate), created: false, claimed: true };
+        }
+      }
+    }
+
+    // No claimable match → create a fresh player row and link it.
+    const newPlayer = await this.createPlayer({
+      name: user.name,
+      email: user.email || null,
+      phone: user.phone || null,
+      gender: user.gender || 'Male',
+      level: 'Beginner',
+      skillScore: 50,
+      gamesPlayed: 0,
+      wins: 0,
+      status: 'waiting',
+    });
+
+    const linked = await this.linkPlayerIfUnclaimed(userId, newPlayer.id);
+    if (!linked) {
+      // Race: another concurrent provisioning won. Re-read the user and use
+      // the player it ended up linked to.
+      const refreshed = await this.getMarketplaceUser(userId);
+      if (refreshed?.linkedPlayerId) {
+        const winner = await this.getPlayer(refreshed.linkedPlayerId);
+        if (winner) {
+          // Best-effort: clean up the orphaned player row we just created.
+          try { await this.deletePlayer(newPlayer.id); } catch { /* noop */ }
+          return { player: winner, created: false, claimed: false };
+        }
+      }
+    }
+    console.log(
+      `[ensurePlayerForMarketplaceUser] Created player ${newPlayer.id} (${newPlayer.shuttleIqId}) for user ${userId}`,
+    );
+    return { player: newPlayer, created: true, claimed: false };
+  }
+
+  // ─── Manual player-link requests ───────────────────────────────────────
+  async createPlayerLinkRequest(input: InsertPlayerLinkRequest): Promise<PlayerLinkRequest> {
+    const [row] = await db.insert(playerLinkRequests).values({
+      id: randomUUID(),
+      marketplaceUserId: input.marketplaceUserId,
+      playerId: input.playerId ?? null,
+      reason: input.reason,
+      note: input.note ?? null,
+    }).returning();
+    return row;
+  }
+
+  async getPlayerLinkRequest(id: string): Promise<PlayerLinkRequest | undefined> {
+    const [row] = await db.select().from(playerLinkRequests).where(eq(playerLinkRequests.id, id));
+    return row || undefined;
+  }
+
+  async getPendingPlayerLinkRequestForUserPlayer(userId: string, playerId: string | null): Promise<PlayerLinkRequest | undefined> {
+    const conditions: SQL[] = [
+      eq(playerLinkRequests.marketplaceUserId, userId),
+      eq(playerLinkRequests.status, 'pending'),
+    ];
+    if (playerId) {
+      conditions.push(eq(playerLinkRequests.playerId, playerId));
+    } else {
+      conditions.push(sql`${playerLinkRequests.playerId} IS NULL`);
+    }
+    const [row] = await db.select().from(playerLinkRequests)
+      .where(and(...conditions))
+      .orderBy(desc(playerLinkRequests.createdAt))
+      .limit(1);
+    return row || undefined;
+  }
+
+  async listPendingPlayerLinkRequests(): Promise<PlayerLinkRequestWithDetails[]> {
+    const rows = await db.select().from(playerLinkRequests)
+      .where(eq(playerLinkRequests.status, 'pending'))
+      .orderBy(asc(playerLinkRequests.createdAt));
+    if (rows.length === 0) return [];
+
+    const userIds = Array.from(new Set(rows.map(r => r.marketplaceUserId)));
+    const playerIds = Array.from(new Set(rows.map(r => r.playerId).filter((id): id is string => !!id)));
+
+    const userRows = userIds.length
+      ? await db.select().from(marketplaceUsers).where(inArray(marketplaceUsers.id, userIds))
+      : [];
+    const playerRows = playerIds.length
+      ? await db.select().from(players).where(inArray(players.id, playerIds))
+      : [];
+    const userMap = new Map(userRows.map(u => [u.id, u]));
+    const playerMap = new Map(playerRows.map(p => [p.id, p]));
+
+    return rows.map(r => {
+      const u = userMap.get(r.marketplaceUserId);
+      const p = r.playerId ? playerMap.get(r.playerId) : null;
+      return {
+        ...r,
+        user: u
+          ? { id: u.id, name: u.name, email: u.email, phone: u.phone }
+          : { id: r.marketplaceUserId, name: 'Unknown', email: '', phone: null },
+        player: p
+          ? { id: p.id, name: p.name, shuttleIqId: p.shuttleIqId, level: p.level, email: p.email, phone: p.phone }
+          : null,
+      };
+    });
+  }
+
+  async resolvePlayerLinkRequest(
+    id: string,
+    status: 'approved' | 'rejected',
+    resolvedByAdminId: string,
+    resolutionNote?: string | null,
+  ): Promise<PlayerLinkRequest | undefined> {
+    const [updated] = await db.update(playerLinkRequests)
+      .set({
+        status,
+        resolvedByAdminId,
+        resolvedAt: new Date(),
+        resolutionNote: resolutionNote ?? null,
+      })
+      .where(and(eq(playerLinkRequests.id, id), eq(playerLinkRequests.status, 'pending')))
+      .returning();
+    return updated || undefined;
+  }
+
+  // ─── One-shot backfill of player contact info from linked accounts ─────
+  async backfillPlayerContactsFromLinkedUsers(): Promise<{ updated: number; emailFilled: number; phoneFilled: number }> {
+    const linkedUsers = await db.select().from(marketplaceUsers)
+      .where(isNotNull(marketplaceUsers.linkedPlayerId));
+
+    let emailFilled = 0;
+    let phoneFilled = 0;
+    const touched = new Set<string>();
+
+    for (const user of linkedUsers) {
+      if (!user.linkedPlayerId) continue;
+      const player = await this.getPlayer(user.linkedPlayerId);
+      if (!player) continue;
+
+      const updates: Partial<Player> = {};
+      if ((!player.email || player.email.trim() === '') && user.email && user.email.trim() !== '') {
+        updates.email = user.email;
+      }
+      if ((!player.phone || player.phone.trim() === '') && user.phone && user.phone.trim() !== '') {
+        updates.phone = user.phone;
+      }
+      if (Object.keys(updates).length > 0) {
+        if (updates.email) emailFilled += 1;
+        if (updates.phone) phoneFilled += 1;
+        await db.update(players).set(updates).where(eq(players.id, player.id));
+        touched.add(player.id);
+      }
+    }
+
+    return { updated: touched.size, emailFilled, phoneFilled };
   }
 
   async createMarketplaceAuthSession(userId: string, refreshToken: string, expiresAt: Date): Promise<void> {

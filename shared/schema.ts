@@ -652,6 +652,40 @@ export const marketplaceUserContactChanges = pgTable("marketplace_user_contact_c
 });
 export type MarketplaceUserContactChange = typeof marketplaceUserContactChanges.$inferSelect;
 
+// ─── Manual player-link requests (admin-assisted escape hatch) ───────────
+// When self-service OTP linking can't proceed (no email/phone on the player,
+// SMS not configured, profile already claimed), the marketplace user files a
+// manual link request. An admin reviews the request and approves it (which
+// runs the same atomic claim as the OTP path) or rejects it. The user is
+// emailed on resolution. `playerId` may be null when the user couldn't find
+// any matching profile to point at.
+export const playerLinkRequests = pgTable("player_link_requests", {
+  id: varchar("id").primaryKey(),
+  marketplaceUserId: varchar("marketplace_user_id").notNull(),
+  playerId: varchar("player_id"),
+  reason: text("reason").notNull(), // 'no_delivery_channel' | 'sms_not_configured' | 'player_already_linked' | 'no_match' | 'other'
+  note: text("note"),
+  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
+  resolvedByAdminId: varchar("resolved_by_admin_id"),
+  resolvedAt: timestamp("resolved_at"),
+  resolutionNote: text("resolution_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export const insertPlayerLinkRequestSchema = createInsertSchema(playerLinkRequests).omit({
+  id: true,
+  status: true,
+  resolvedByAdminId: true,
+  resolvedAt: true,
+  resolutionNote: true,
+  createdAt: true,
+});
+export type InsertPlayerLinkRequest = z.infer<typeof insertPlayerLinkRequestSchema>;
+export type PlayerLinkRequest = typeof playerLinkRequests.$inferSelect;
+export interface PlayerLinkRequestWithDetails extends PlayerLinkRequest {
+  user: Pick<MarketplaceUser, 'id' | 'name' | 'email' | 'phone'>;
+  player: { id: string; name: string; shuttleIqId: string | null; level: string; email: string | null; phone: string | null } | null;
+}
+
 // ─── Blog Posts ────────────────────────────────────────────────────────────────
 export const blogPosts = pgTable("blog_posts", {
   id: varchar("id").primaryKey(),

@@ -250,6 +250,19 @@ export default function MyBookings() {
     },
   });
 
+  const checkinMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/checkin`);
+    },
+    onSuccess: () => {
+      toast({ title: "You're checked in!", description: "Have a great session." });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Check-in failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
   const initiatePaymentMutation = useMutation({
     mutationFn: async (bookingId: string): Promise<{ redirectUrl: string }> => {
       return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/initiate-payment`);
@@ -315,6 +328,19 @@ export default function MyBookings() {
     const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && sessionEndTime(booking) >= new Date();
     const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && sessionEndTime(booking) >= new Date();
     const lateFee = !isWaitlisted && !isPendingPayment && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
+
+    // Self check-in window: opens 90 minutes before session start, closes 6h after end.
+    const sessionStartTime = new Date(`${String(booking.session.date).slice(0, 10)}T${booking.session.startTime || '00:00'}`);
+    const sessionEndTimeDate = sessionEndTime(booking);
+    const now = new Date();
+    const checkinWindowOpen = now.getTime() >= sessionStartTime.getTime() - 90 * 60 * 1000;
+    const checkinWindowClosed = now.getTime() > sessionEndTimeDate.getTime() + 6 * 60 * 60 * 1000;
+    const canCheckIn =
+      !booking.isGuestBooking &&
+      booking.status === 'confirmed' &&
+      checkinWindowOpen &&
+      !checkinWindowClosed;
+    const isCheckedIn = booking.status === 'attended';
 
     const stripColor = isWaitlisted ? 'bg-amber-500'
       : isPendingPayment ? 'bg-orange-500'
@@ -461,6 +487,32 @@ export default function MyBookings() {
                 <span className="text-xs text-muted-foreground">AED {booking.amountAed} — payment required</span>
               )}
             </div>
+
+            {(canCheckIn || (isCheckedIn && !checkinWindowClosed)) && (
+              <div className="mt-3 flex sm:justify-end">
+                {isCheckedIn ? (
+                  <Badge
+                    variant="secondary"
+                    className="gap-1.5 bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/30"
+                    data-testid={`badge-checked-in-${booking.id}`}
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    Checked in
+                  </Badge>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="w-full sm:w-auto gap-1.5"
+                    onClick={() => checkinMutation.mutate(booking.id)}
+                    disabled={checkinMutation.isPending}
+                    data-testid={`button-checkin-${booking.id}`}
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    {checkinMutation.isPending ? 'Checking in…' : 'Check in'}
+                  </Button>
+                )}
+              </div>
+            )}
 
             {canCancelAsGuest && (
               <div className="mt-3 flex sm:justify-end">

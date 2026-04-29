@@ -32,7 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Search, UserPlus, Users, Trophy, Target, Check, Ticket, UserCheck, Link2Off, CreditCard, Banknote } from "lucide-react";
+import { Search, UserPlus, Users, Trophy, Target, Check, Ticket, UserCheck, Link2Off, CreditCard, Banknote, AlertTriangle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatSkillLevel, getTierDisplayName } from "@shared/utils/skillUtils";
@@ -41,7 +41,12 @@ import { cn } from "@/lib/utils";
 interface AddPlayerModalProps {
   open: boolean;
   onClose: () => void;
-  onAddPlayer: (name: string, gender: string, level: string) => void;
+  onAddPlayer: (
+    name: string,
+    gender: string,
+    level: string,
+    contact?: { email?: string | null; phone?: string | null },
+  ) => void;
   sessionId?: string;
   queuePlayerIds?: string[];
 }
@@ -71,6 +76,20 @@ const formSchema = insertPlayerSchema.extend({
   gender: z.enum(['Male', 'Female']),
   level: z.enum(['Novice', 'Beginner', 'lower_intermediate', 'upper_intermediate', 'Advanced', 'Professional']),
   skillScore: z.number().min(10).max(200).optional(),
+  email: z
+    .string()
+    .trim()
+    .email("Enter a valid email")
+    .or(z.literal(""))
+    .optional()
+    .nullable(),
+  phone: z
+    .string()
+    .trim()
+    .min(7, "Phone looks too short")
+    .or(z.literal(""))
+    .optional()
+    .nullable(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -95,8 +114,14 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
       gamesPlayed: 0,
       wins: 0,
       status: "waiting",
+      email: "",
+      phone: "",
     },
   });
+
+  const watchedEmail = form.watch("email");
+  const watchedPhone = form.watch("phone");
+  const hasNoContact = !watchedEmail?.trim() && !watchedPhone?.trim();
 
   const { data: allPlayers = [], isLoading: isLoadingPlayers } = useQuery<Player[]>({
     queryKey: ['/api/players'],
@@ -127,6 +152,38 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
   const checkinMutation = useMutation({
     mutationFn: async ({ bookingId }: { bookingId: string }) => {
       return apiRequest('PATCH', `/api/sessions/${sessionId}/bookings/${bookingId}/checkin`);
+    },
+  });
+
+  const provisionAndEnqueueMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      return apiRequest<{ provisioned?: { playerId: string; created: boolean; claimed: boolean }; enqueue: { added: boolean; reason?: string } }>(
+        'POST',
+        `/api/admin/bookings/${bookingId}/provision-and-enqueue`,
+      );
+    },
+    onSuccess: (data) => {
+      const created = data.provisioned?.created;
+      const enqueued = data.enqueue?.added;
+      toast({
+        title: enqueued ? 'Added to queue' : created ? 'Player created' : 'Linked player ready',
+        description: created
+          ? 'A new player profile was created and linked to this booking.'
+          : enqueued
+            ? 'Player was added to the live queue.'
+            : `Player ready (${data.enqueue?.reason ?? 'no-op'})`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions', sessionId, 'bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/users'] });
+    },
+    onError: (err: any) => {
+      toast({
+        title: 'Could not provision player',
+        description: err?.error || err?.message || 'Try again',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -221,7 +278,9 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
   };
 
   const handleSubmit = (values: FormValues) => {
-    onAddPlayer(values.name, values.gender, values.level);
+    const email = values.email?.trim() || null;
+    const phone = values.phone?.trim() || null;
+    onAddPlayer(values.name, values.gender, values.level, { email, phone });
     form.reset();
     onClose();
   };
@@ -384,7 +443,64 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
                     </FormItem>
                   )}
                 />
-                
+
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value ?? ""}
+                          type="email"
+                          placeholder="player@example.com"
+                          className="min-h-12 sm:min-h-10"
+                          data-testid="input-player-email"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value ?? ""}
+                          type="tel"
+                          placeholder="+971 50 123 4567"
+                          className="min-h-12 sm:min-h-10"
+                          data-testid="input-player-phone"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {hasNoContact && (
+                  <div
+                    className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning-foreground"
+                    data-testid="warning-no-contact"
+                  >
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-warning" />
+                    <div>
+                      <p className="font-medium">No contact info on file</p>
+                      <p className="text-muted-foreground text-xs mt-0.5">
+                        Without an email or phone, this player can't self-link to their marketplace account. They'll have to ask an admin.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={handleClose} className="min-h-12 sm:min-h-10" data-testid="button-cancel-add-player">
                     Cancel
@@ -642,9 +758,25 @@ export function AddPlayerModal({ open, onClose, onAddPlayer, sessionId, queuePla
                               </span>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1 mt-1.5 text-xs text-muted-foreground">
-                              <Link2Off className="h-3 w-3" />
-                              No linked player profile
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Link2Off className="h-3 w-3" />
+                                No linked player profile
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  provisionAndEnqueueMutation.mutate(entry.bookingId);
+                                }}
+                                disabled={provisionAndEnqueueMutation.isPending}
+                                data-testid={`button-provision-enqueue-${entry.bookingId}`}
+                              >
+                                <UserPlus className="h-3 w-3 mr-1" />
+                                {provisionAndEnqueueMutation.isPending ? 'Working…' : 'Create player & enqueue'}
+                              </Button>
                             </div>
                           )}
                         </div>

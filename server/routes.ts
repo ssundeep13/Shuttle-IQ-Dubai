@@ -52,6 +52,7 @@ import {
   type TeamCombination
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
+import { autoImportConfirmedBookingsForSession } from "./queueAutoAdd";
 import { registerFinanceRoutes, seedExpenseCategories } from "./financeRoutes";
 import {
   canApplyReferralCode,
@@ -461,6 +462,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updated = await storage.updateSession(req.params.id, updates);
+
+      // If we just activated this session, auto-import any confirmed bookings
+      // attached to its linked bookable session into the queue (fire-and-forget).
+      if (req.body.status === 'active' && session.status !== 'active') {
+        autoImportConfirmedBookingsForSession(req.params.id).catch((err) =>
+          console.error('[Session activation] auto-import failed', { sessionId: req.params.id, err }),
+        );
+      }
+
       res.json(updated);
     } catch (error) {
       console.error('Failed to update session:', error);
