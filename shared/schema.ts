@@ -672,11 +672,17 @@ export const playerLinkRequests = pgTable("player_link_requests", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   // Prevent duplicate pending requests from the same user pointing at the
-  // same player (or "no specific player" → null). Resolved rows are exempt
-  // so historical requests can coexist with new ones.
+  // same SPECIFIC player. Resolved rows are exempt so historical requests
+  // can coexist with new ones.
   uniqueIndex('unique_pending_link_request_per_user_player')
     .on(table.marketplaceUserId, table.playerId)
-    .where(sql`${table.status} = 'pending'`),
+    .where(sql`${table.status} = 'pending' AND ${table.playerId} IS NOT NULL`),
+  // Postgres treats NULLs as distinct in unique indexes, so the index above
+  // does NOT block duplicate "no specific player" pending rows. This second
+  // partial index covers that case explicitly.
+  uniqueIndex('unique_pending_link_request_per_user_no_player')
+    .on(table.marketplaceUserId)
+    .where(sql`${table.status} = 'pending' AND ${table.playerId} IS NULL`),
 ]);
 export const insertPlayerLinkRequestSchema = createInsertSchema(playerLinkRequests).omit({
   id: true,
