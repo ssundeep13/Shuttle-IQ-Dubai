@@ -860,7 +860,15 @@ function SessionCard({
   );
 }
 
-function BookingsSheet({ session, onClose }: { session: Session | null; onClose: () => void }) {
+// The bookings table holds two payment-due statuses on the same column:
+//   - `'pending'`         — set when a brand-new Ziina checkout booking is created
+//   - `'pending_payment'` — set when a waitlisted booking is promoted into a
+//                           4-hour Ziina payment window
+// Both must be treated identically by the admin sheet (filter, badge, override).
+const isPaymentPending = (status: string | null | undefined) =>
+  status === 'pending' || status === 'pending_payment';
+
+export function BookingsSheet({ session, onClose }: { session: Session | null; onClose: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -975,7 +983,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
   const sessionRevenue = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended').reduce((sum, b) => sum + b.amountAed, 0) || 0;
 
   const activeBookings = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended') || [];
-  const pendingBookings = bookings?.filter(b => b.status === 'pending') || [];
+  const pendingBookings = bookings?.filter(b => isPaymentPending(b.status)) || [];
   const waitlistedBookings = bookings?.filter(b => b.status === 'waitlisted') || [];
   const cancelledBookings = bookings?.filter(b => b.status === 'cancelled') || [];
 
@@ -1106,7 +1114,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             variant={
               booking.status === 'cancelled' ? 'destructive'
               : (booking.paymentMethod === 'cash' && !booking.cashPaid) ? 'outline'
-              : booking.status === 'pending' ? 'outline'
+              : isPaymentPending(booking.status) ? 'outline'
               : 'default'
             }
             className={booking.paymentMethod === 'cash' && !booking.cashPaid && booking.status !== 'cancelled' ? 'border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400' : ''}
@@ -1153,7 +1161,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
               {booking.cashPaid ? 'Mark Unpaid' : 'Mark Cash Paid'}
             </Button>
           )}
-          {booking.paymentMethod !== 'cash' && booking.status === 'pending' && (
+          {booking.paymentMethod !== 'cash' && isPaymentPending(booking.status) && (
             <Button
               size="sm"
               variant="outline"
