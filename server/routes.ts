@@ -53,6 +53,10 @@ import {
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
 import { registerFinanceRoutes, seedExpenseCategories } from "./financeRoutes";
+import {
+  canApplyReferralCode,
+  linkReferralForUser,
+} from "./referralPolicy";
 
 // ─── Tier buffer helper ───────────────────────────────────────────────────────
 // After each game, a player's confirmed level (stored in DB) only changes after
@@ -3515,29 +3519,14 @@ Return ONLY valid JSON, no markdown, no other text:
       const schema = z.object({ referralCode: z.string().min(1) });
       const { referralCode } = schema.parse(req.body);
 
-      const existing = await storage.getReferralByRefereeUserId(req.user.userId);
-      if (existing) {
-        return res.status(409).json({ error: 'You have already used a referral code' });
-      }
-
-      const referrer = await storage.getPlayerByReferralCode(referralCode.toUpperCase());
-      if (!referrer) {
-        return res.status(404).json({ error: 'Invalid referral code' });
-      }
-
-      const user = await storage.getMarketplaceUser(req.user.userId);
-      if (user?.linkedPlayerId === referrer.id) {
-        return res.status(400).json({ error: 'You cannot refer yourself' });
-      }
-
-      const referral = await storage.createReferral({
-        referrerId: referrer.id,
-        refereeUserId: req.user.userId,
-        refereePlayerId: user?.linkedPlayerId ?? null,
-        status: 'pending',
+      const result = await linkReferralForUser(storage, {
+        userId: req.user.userId,
+        referralCode,
       });
-
-      res.json(referral);
+      if (!result.ok) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      res.json(result.referral);
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });
@@ -3555,11 +3544,15 @@ Return ONLY valid JSON, no markdown, no other text:
     try {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       const myReferral = await storage.getReferralByRefereeUserId(req.user.userId);
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      // `canApply` lets the dashboard hide the "Apply referral code" entry
+      // point once the post-signup window has closed (see referralPolicy.ts).
+      const canApply = !myReferral && !!user && canApplyReferralCode(user.createdAt);
       if (!myReferral) {
-        return res.json({ referrerName: null });
+        return res.json({ referrerName: null, canApply });
       }
       const referrer = await storage.getPlayer(myReferral.referrerId);
-      res.json({ referrerName: referrer?.name ?? null });
+      res.json({ referrerName: referrer?.name ?? null, canApply });
     } catch (error: unknown) {
       console.error('Error getting referred-by:', error);
       res.status(500).json({ error: 'Failed to get referrer' });

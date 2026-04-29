@@ -268,13 +268,17 @@ export default function Dashboard() {
     staleTime: 60_000,
   });
 
-  const { data: referredByData } = useQuery<{ referrerName: string | null }>({
+  const { data: referredByData } = useQuery<{ referrerName: string | null; canApply?: boolean }>({
     queryKey: ['/api/referrals/me/referred-by'],
     enabled: !!user,
     staleTime: 60_000,
   });
   const referrerName = referredByData?.referrerName ?? null;
   const hasReferralOnFile = !!referrerName;
+  // Server-side flag: false once the user is past the post-signup window
+  // (see server/referralPolicy.ts). Treat older API responses without the
+  // field as "true" so we don't break clients during rollout.
+  const canApplyReferral = referredByData?.canApply !== false;
   // Only render the apply-code entry point and the "Referred by" line once the
   // referred-by query has settled, so users with an existing referrer don't
   // briefly see the "Apply a code" affordance flash.
@@ -657,7 +661,7 @@ export default function Dashboard() {
             {/* Standalone apply-referral entry point for users who do not have
                 a linked player profile yet (so they can still credit a friend).
                 The My Referrals card above handles the linked-user case. */}
-            {!linkedPlayerId && referredByLoaded && !hasReferralOnFile && (
+            {!linkedPlayerId && referredByLoaded && !hasReferralOnFile && canApplyReferral && (
               <motion.div variants={fadeInUp}>
                 <Card data-testid="card-apply-referral-standalone">
                   <CardContent className="p-4">
@@ -732,7 +736,7 @@ export default function Dashboard() {
                       </p>
                     )}
 
-                    {referredByLoaded && !hasReferralOnFile && (
+                    {referredByLoaded && !hasReferralOnFile && canApplyReferral && (
                       <button
                         type="button"
                         className="w-full flex items-center gap-2 p-3 rounded-lg border border-dashed hover-elevate text-left"

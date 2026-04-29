@@ -49,14 +49,21 @@ const USER = {
 
 type FetchHandler = (url: string, init?: RequestInit) => Response | Promise<Response>;
 
-function makeFetchMock(referredByName: string | null, opts?: { linkResult?: { ok: boolean; status?: number; body?: any }; validateResult?: { valid: boolean; referrerName?: string } }) {
+function makeFetchMock(referredByName: string | null, opts?: { linkResult?: { ok: boolean; status?: number; body?: any }; validateResult?: { valid: boolean; referrerName?: string }; canApply?: boolean }) {
   let currentReferrer = referredByName;
   const handler: FetchHandler = async (url, init) => {
     if (url.includes('/api/referrals/me/referred-by')) {
-      return new Response(JSON.stringify({ referrerName: currentReferrer }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({
+          referrerName: currentReferrer,
+          // Default: in-window. Tests opt out by passing canApply: false.
+          canApply: opts?.canApply !== false && !currentReferrer,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
     }
     if (url.includes('/api/referrals/player/')) {
       return new Response(
@@ -264,6 +271,37 @@ describe('Dashboard — Apply referral code post-signup', () => {
       expect(screen.getByTestId('text-referred-by-standalone')).toHaveTextContent('Referred by Ahmed');
     });
     expect(screen.queryByTestId('button-open-apply-referral-standalone')).toBeNull();
+  });
+
+  it('hides the entry point when the post-signup window has expired (canApply=false)', async () => {
+    global.fetch = makeFetchMock(null, {
+      canApply: false,
+    }) as unknown as typeof fetch;
+    renderDashboard();
+
+    // The My Referrals card still renders (linked player), but the apply
+    // affordance inside it should be gone.
+    await screen.findByTestId('card-my-referrals');
+    expect(screen.queryByTestId('button-open-apply-referral')).toBeNull();
+    expect(screen.queryByTestId('text-referred-by')).toBeNull();
+  });
+
+  it('hides the standalone entry point when the window has expired (no linked player)', async () => {
+    (useMarketplaceAuth as unknown as Mock).mockReturnValue({
+      user: { ...USER, linkedPlayerId: null },
+      isAuthenticated: true,
+    });
+    global.fetch = makeFetchMock(null, {
+      canApply: false,
+    }) as unknown as typeof fetch;
+    renderDashboard();
+
+    // Wait for the referred-by query to settle by waiting for any non-loading
+    // dashboard content; then assert the standalone affordance is absent.
+    await waitFor(() => {
+      expect(screen.queryByTestId('card-apply-referral-standalone')).toBeNull();
+      expect(screen.queryByTestId('button-open-apply-referral-standalone')).toBeNull();
+    });
   });
 
   it('surfaces the server error (e.g. self-referral) when /api/referrals/link rejects', async () => {
