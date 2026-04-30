@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1838,6 +1838,7 @@ function MarketplaceUsersSubTab() {
   const [linkingUser, setLinkingUser] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlayerSearchResult[]>([]);
+  const [userFilter, setUserFilter] = useState('');
   const [conflict, setConflict] = useState<{
     marketplaceUserId: string;
     playerId: number;
@@ -1855,6 +1856,28 @@ function MarketplaceUsersSubTab() {
       return res.json();
     },
   });
+
+  const normalizedFilter = userFilter.trim().toLowerCase();
+  const filteredUsers = useMemo(() => {
+    if (!users) return [];
+    if (!normalizedFilter) return users;
+    return users.filter((u) => {
+      const haystack = [
+        u.name,
+        u.email,
+        u.phone,
+        u.linkedPlayer?.name,
+        u.linkedPlayer?.shuttleIqId,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedFilter);
+    });
+  }, [users, normalizedFilter]);
+  const totalCount = users?.length ?? 0;
+  const filteredCount = filteredUsers.length;
+  const isFiltering = normalizedFilter.length > 0;
 
   const searchPlayers = async (query: string) => {
     if (query.length < 2) { setSearchResults([]); return; }
@@ -1949,8 +1972,37 @@ function MarketplaceUsersSubTab() {
       <LinkRequestsInbox />
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold">Marketplace Users</h2>
-        <Badge variant="outline">{users?.length || 0} users</Badge>
+        <Badge variant="outline" data-testid="badge-marketplace-users-count">
+          {isFiltering ? `${filteredCount} of ${totalCount} users` : `${totalCount} users`}
+        </Badge>
       </div>
+      {users && users.length > 0 && (
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              value={userFilter}
+              onChange={(e) => setUserFilter(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setUserFilter(''); }}
+              placeholder="Search by name, email, phone, or linked player…"
+              className="pl-9"
+              data-testid="input-search-marketplace-users"
+            />
+          </div>
+          {isFiltering && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setUserFilter('')}
+              data-testid="button-clear-marketplace-users-search"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      )}
       {isLoading ? (
         <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-16" />)}</div>
       ) : !users?.length ? (
@@ -1959,9 +2011,25 @@ function MarketplaceUsersSubTab() {
             No marketplace users yet. Users will appear here after signing up on the marketplace.
           </CardContent>
         </Card>
+      ) : filteredUsers.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center space-y-3">
+            <div className="text-muted-foreground" data-testid="text-marketplace-users-no-matches">
+              No users match your search.
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setUserFilter('')}
+              data-testid="button-clear-marketplace-users-search-empty"
+            >
+              Clear filter
+            </Button>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-2">
-          {users.map((user) => (
+          {filteredUsers.map((user) => (
             <Card key={user.id} data-testid={`card-admin-user-${user.id}`}>
               <CardContent className="p-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
