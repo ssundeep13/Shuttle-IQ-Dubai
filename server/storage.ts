@@ -3682,12 +3682,17 @@ export class DatabaseStorage implements IStorage {
       // Step 1: collect IDs of any active suggestions tied to this court
       // OR involving any of these players. Two narrow queries are cheaper
       // (and easier to reason about) than a single OR'd join.
+      // 'queued' is included so an admin assignment never leaves a stale
+      // next-round lineup pointing at the same court or naming any of
+      // the 4 newly-assigned players. Without this, the queued row
+      // would silently linger and double-book players when the current
+      // game ends.
       const byCourt = await tx
         .select({ id: matchSuggestions.id })
         .from(matchSuggestions)
         .where(and(
           eq(matchSuggestions.courtId, input.courtId),
-          inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+          inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
         ));
       const byPlayer = await tx
         .select({ id: matchSuggestions.id })
@@ -3695,7 +3700,7 @@ export class DatabaseStorage implements IStorage {
         .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
         .where(and(
           inArray(matchSuggestionPlayers.playerId, playerIds),
-          inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+          inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
         ));
       const conflictIds = Array.from(new Set([
         ...byCourt.map(r => r.id),

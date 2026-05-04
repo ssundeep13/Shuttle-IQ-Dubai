@@ -491,18 +491,30 @@ async function runQueuedOrchestrator(
   // have enough players to fill at least 2 lineups (8 players).
   const useClaude = courtsNeedingQueued.length >= 2 && pool.length >= 8 && !!process.env.ANTHROPIC_API_KEY;
 
+  // Court IDs Claude has already filled this run, so the standard
+  // generator below skips them. Anything Claude couldn't fill (parse
+  // error, partial response, dupe player rejected) falls through to the
+  // standard generator for that specific court — never silently
+  // skipped.
+  let createdClaude = 0;
+  let claudeFilledCourtIds = new Set<string>();
   if (useClaude) {
-    const created = await tryClaudeQueuedBatch(sessionId, courtsNeedingQueued, pool, allPlayers);
-    if (created > 0) {
-      console.log(`[queued-orchestrator] session=${sessionId} created ${created} queued lineup(s) via Claude`);
-      return;
+    const result = await tryClaudeQueuedBatch(sessionId, courtsNeedingQueued, pool, allPlayers);
+    createdClaude = result.created;
+    claudeFilledCourtIds = result.filledCourtIds;
+    if (result.usedPlayerIds.size > 0) {
+      pool = pool.filter(id => !result.usedPlayerIds.has(id));
     }
-    // Claude failed → fall through to standard generator below.
+    if (createdClaude > 0) {
+      console.log(`[queued-orchestrator] session=${sessionId} created ${createdClaude}/${courtsNeedingQueued.length} queued lineup(s) via Claude`);
+    }
   }
 
-  // Standard generator path (single-court or Claude fallback).
+  // Standard generator path: covers single-court runs, Claude-skipped
+  // runs, AND any courts Claude couldn't fill in a partial response.
   let createdStd = 0;
   for (const court of courtsNeedingQueued) {
+    if (claudeFilledCourtIds.has(court.id)) continue;
     if (pool.length < 4) break;
     const lineup = pickStandardLineup(sessionId, pool, allPlayers);
     if (!lineup) break;
@@ -535,7 +547,7 @@ async function tryClaudeQueuedBatch(
   courtsNeedingQueued: Awaited<ReturnType<typeof storage.getCourtsBySession>>,
   pool: string[],
   allPlayers: Awaited<ReturnType<typeof storage.getAllPlayers>>,
-): Promise<number> {
+): Promise<{ created: number; filledCourtIds: Set<string>; usedPlayerIds: Set<string> }> {
   const poolIdSet = new Set(pool);
   const poolPlayers = allPlayers.filter(p => poolIdSet.has(p.id));
   const playersById = new Map(poolPlayers.map(p => [p.id, p]));
@@ -574,10 +586,11 @@ async function tryClaudeQueuedBatch(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.log(`[queued-orchestrator] session=${sessionId} Claude failed elapsedMs=${Date.now() - startedAt} reason="${reason}" — falling back`);
-    return 0;
+    return { created: 0, filledCourtIds: new Set(), usedPlayerIds: new Set() };
   }
 
   const usedIds = new Set<string>();
+  const filledCourtIds = new Set<string>();
   let created = 0;
   for (let i = 0; i < courtsNeedingQueued.length && i < parsed.suggestions.length; i++) {
     const court = courtsNeedingQueued[i];
@@ -613,12 +626,13 @@ async function tryClaudeQueuedBatch(
         ],
       });
       created++;
+      filledCourtIds.add(court.id);
       all4.forEach(id => usedIds.add(id));
     } catch (createErr) {
       console.error(`[queued-orchestrator] session=${sessionId} court=${court.id} Claude-row create failed:`, createErr);
     }
   }
-  return created;
+  return { created, filledCourtIds, usedPlayerIds: usedIds };
 }
 
 // ─── Game-end queued→pending transition ─────────────────────────────────────

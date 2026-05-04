@@ -3582,31 +3582,41 @@ export function registerMarketplaceRoutes(app: Express) {
         const userId = req.user!.userId;
         const user = await storage.getMarketplaceUser(userId);
         const linkedPlayerId = user?.linkedPlayerId ?? null;
-        const activeSession = await storage.getActiveSession();
 
-        if (!linkedPlayerId || !activeSession) {
-          return res.json({ gamesPlayed: 0, wins: 0, skillScore: 0, tierName: '' });
+        // Resolve the player profile FIRST so skillScore + tierName are
+        // always returned with real values when the account is linked,
+        // regardless of whether there's an active session right now.
+        const player = linkedPlayerId ? await storage.getPlayer(linkedPlayerId) : undefined;
+        const skillScore = player?.skillScore ?? 0;
+        const tierName = player ? tierDisplayName(player.level) : '';
+
+        if (!linkedPlayerId) {
+          return res.json({ gamesPlayed: 0, wins: 0, skillScore, tierName });
         }
 
-        const [gpRows, player] = await Promise.all([
-          db
-            .select({
-              team: gameParticipants.team,
-              winningTeam: gameResults.winningTeam,
-            })
-            .from(gameParticipants)
-            .innerJoin(gameResults, eq(gameParticipants.gameId, gameResults.id))
-            .where(and(
-              eq(gameParticipants.playerId, linkedPlayerId),
-              eq(gameResults.sessionId, activeSession.id),
-            )),
-          storage.getPlayer(linkedPlayerId),
-        ]);
+        const activeSession = await storage.getActiveSession();
+        if (!activeSession) {
+          // No active session — the in-session counters are zero, but
+          // the player's lifetime skill + tier still surface so the
+          // chips don't render as "—" when the player is just waiting
+          // between sessions.
+          return res.json({ gamesPlayed: 0, wins: 0, skillScore, tierName });
+        }
+
+        const gpRows = await db
+          .select({
+            team: gameParticipants.team,
+            winningTeam: gameResults.winningTeam,
+          })
+          .from(gameParticipants)
+          .innerJoin(gameResults, eq(gameParticipants.gameId, gameResults.id))
+          .where(and(
+            eq(gameParticipants.playerId, linkedPlayerId),
+            eq(gameResults.sessionId, activeSession.id),
+          ));
 
         const gamesPlayed = gpRows.length;
         const wins = gpRows.filter(r => r.team === r.winningTeam).length;
-        const skillScore = player?.skillScore ?? 0;
-        const tierName = player ? tierDisplayName(player.level) : '';
 
         return res.json({ gamesPlayed, wins, skillScore, tierName });
       } catch (error) {
