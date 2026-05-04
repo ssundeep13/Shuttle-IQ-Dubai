@@ -2282,6 +2282,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Persist rest states so they survive server restarts
       await persistRestStatesToDb(activeSession.id);
 
+      // Queued → pending transition (mirrors the player-driven submit-score
+      // path in marketplace-routes.ts). Runs BEFORE any background
+      // matchmaking so a pre-built next-round lineup is honoured rather
+      // than replaced. Best-effort: any failure here is logged but never
+      // breaks the end-game response.
+      try {
+        const { tryFlipQueuedToPendingForCourt } = await import('./auto-matchmaking');
+        await tryFlipQueuedToPendingForCourt(activeSession.id, court.id);
+      } catch (flipErr) {
+        console.error('[queued-transition] admin-end-game unhandled:', flipErr);
+      }
+
       res.json({ ...updatedCourt, players: [] });
     } catch (error) {
       console.error(`[END-GAME] Error ending game:`, error);

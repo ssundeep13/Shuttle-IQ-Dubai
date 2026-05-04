@@ -12,7 +12,10 @@ type PendingSuggestion = {
   sessionId: string;
   courtId: string;
   courtName: string;
-  pendingUntil: string;
+  // null for 'queued' rows (queued lineups have no auto-approve deadline;
+  // they only get a pendingUntil once the current game ends and the
+  // game-end transition flips them to 'pending').
+  pendingUntil: string | null;
   status: string;
   players: Array<{
     suggestionId: string;
@@ -55,7 +58,13 @@ function SuggestionRow({
     return () => clearInterval(t);
   }, []);
 
-  const remainingMs = new Date(suggestion.pendingUntil).getTime() - now;
+  // SuggestionRow only renders 'pending' rows (queued rows go through
+  // QueuedRow), so pendingUntil is guaranteed non-null in practice. Guard
+  // anyway to keep the type narrow and avoid an NaN countdown if a stale
+  // row ever slips through.
+  const remainingMs = suggestion.pendingUntil
+    ? new Date(suggestion.pendingUntil).getTime() - now
+    : 0;
   const expired = remainingMs <= 0;
 
   const team1 = suggestion.players.filter(p => p.team === 1);
@@ -149,14 +158,15 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
     },
   });
 
-  // The endpoint returns both pending and approved suggestions so other
-  // surfaces can read the same payload, but per the P5b spec this panel
-  // only renders suggestions still awaiting captain action — once a row
-  // is approved (by the sweep, by Approve-now, or elsewhere) the card
-  // disappears immediately.
-  const actionable = suggestions.filter(s => s.status === 'pending');
+  // The endpoint returns pending, approved, and queued suggestions. The
+  // panel renders the "pending" rows in the actionable group (Approve /
+  // Dismiss buttons) and the "queued" rows in a separate "Up next" group
+  // (read-only — these auto-flip to pending when the current game ends).
+  // Approved rows are never shown here; they're player-facing only.
+  const pending = suggestions.filter(s => s.status === 'pending');
+  const queued = suggestions.filter(s => s.status === 'queued');
 
-  if (actionable.length === 0) return null;
+  if (pending.length === 0 && queued.length === 0) return null;
 
   const pendingId = approveMutation.variables ?? dismissMutation.variables;
 
@@ -165,18 +175,59 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
       <CardHeader>
         <CardTitle className="text-base">Pending Lineups (Court Captain)</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {actionable.map((s) => (
-          <SuggestionRow
-            key={s.id}
-            suggestion={s}
-            onApprove={() => approveMutation.mutate(s.id)}
-            onDismiss={() => dismissMutation.mutate(s.id)}
-            isApproving={approveMutation.isPending && pendingId === s.id}
-            isDismissing={dismissMutation.isPending && pendingId === s.id}
-          />
-        ))}
+      <CardContent className="space-y-4">
+        {pending.length > 0 && (
+          <div className="space-y-3" data-testid="group-pending">
+            {pending.map((s) => (
+              <SuggestionRow
+                key={s.id}
+                suggestion={s}
+                onApprove={() => approveMutation.mutate(s.id)}
+                onDismiss={() => dismissMutation.mutate(s.id)}
+                isApproving={approveMutation.isPending && pendingId === s.id}
+                isDismissing={dismissMutation.isPending && pendingId === s.id}
+              />
+            ))}
+          </div>
+        )}
+        {queued.length > 0 && (
+          <div className="space-y-2" data-testid="group-queued">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Up next (auto-confirms when current game ends)
+            </p>
+            {queued.map((s) => (
+              <QueuedRow key={s.id} suggestion={s} />
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function QueuedRow({ suggestion }: { suggestion: PendingSuggestion }) {
+  const team1 = suggestion.players.filter(p => p.team === 1);
+  const team2 = suggestion.players.filter(p => p.team === 2);
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-md border border-dashed p-3"
+      data-testid={`row-queued-suggestion-${suggestion.id}`}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline" data-testid={`badge-queued-court-${suggestion.id}`}>
+          Court {suggestion.courtName}
+        </Badge>
+        <span className="text-xs text-muted-foreground">On deck</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="font-medium" data-testid={`text-queued-team1-${suggestion.id}`}>
+          {team1.map(p => p.name).join(" + ") || "—"}
+        </span>
+        <span className="text-muted-foreground">vs</span>
+        <span className="font-medium" data-testid={`text-queued-team2-${suggestion.id}`}>
+          {team2.map(p => p.name).join(" + ") || "—"}
+        </span>
+      </div>
+    </div>
   );
 }

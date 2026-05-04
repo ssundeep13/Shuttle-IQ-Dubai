@@ -34,6 +34,7 @@ import {
   loadRestStatesFromDb,
   getPlayerRestState,
   getSittingOutPlayers,
+  computeRecentPartnersAndOpponents,
 } from './matchmaking';
 import {
   matchSuggestions,
@@ -42,7 +43,10 @@ import {
 } from '@shared/schema';
 import {
   requestClaudeMatchmaking,
+  requestPlayerFlowMatchmaking,
   type ClaudeSessionState,
+  type PlayerFlowPlayerProfile,
+  type PlayerFlowCourtRequest,
 } from './claude-matchmaking';
 
 const PENDING_WINDOW_MS = 90_000;
@@ -159,6 +163,35 @@ async function getCourtsWithInFlightSuggestions(sessionId: string): Promise<Set<
     .where(and(
       eq(matchSuggestions.sessionId, sessionId),
       inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+    ));
+  return new Set(rows.map(r => r.courtId));
+}
+
+// Player IDs already locked into ANY non-terminal suggestion (including
+// 'queued' next-round lineups). Used by the queued orchestrator's pool
+// computation so a player who is named in one court's queued lineup can't
+// be double-assigned to another court's queued lineup in the same pass.
+async function getPlayersOnAnyOpenSuggestion(sessionId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ playerId: matchSuggestionPlayers.playerId })
+    .from(matchSuggestionPlayers)
+    .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
+    .where(and(
+      eq(matchSuggestions.sessionId, sessionId),
+      inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
+    ));
+  return new Set(rows.map(r => r.playerId));
+}
+
+// Court IDs that already have a 'queued' next-round suggestion — used by
+// the queued orchestrator so we don't stack two queued rows on one court.
+async function getCourtsWithQueuedSuggestions(sessionId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ courtId: matchSuggestions.courtId })
+    .from(matchSuggestions)
+    .where(and(
+      eq(matchSuggestions.sessionId, sessionId),
+      eq(matchSuggestions.status, 'queued'),
     ));
   return new Set(rows.map(r => r.courtId));
 }
@@ -395,8 +428,256 @@ export async function tryAutoMatchmaking(sessionId: string): Promise<void> {
         `created=${suggestionsCreated} firstMatch=${firstMatch}`,
       );
       emitEvent({ type: 'done', sessionId, created: suggestionsCreated, firstMatch, ts: Date.now() });
+
+      // Second pass: queued orchestrator. For every court currently in
+      // 'playing' status that does not already have a 'queued' next-round
+      // lineup, build one from the waiting pool so the Court Captain
+      // panel can show "Up next" and the next-round transition is
+      // instantaneous when the score is submitted.
+      //
+      // Case 1 only (pure waiting pool). Case 2/3 (mixing in active
+      // players currently on the court) is intentionally skipped for
+      // this iteration — the game-end transition handles "no queued
+      // exists" gracefully by falling through to the regular pending
+      // path via tryAutoMatchmaking.
+      try {
+        await runQueuedOrchestrator(sessionId, allPlayers);
+      } catch (orchErr) {
+        // Best-effort. The pending lineups are already created above; a
+        // failure here just means the next round won't pre-build, which
+        // is the same behaviour as before this orchestrator existed.
+        console.error(`[queued-orchestrator] session=${sessionId} failed:`, orchErr);
+      }
     });
   } catch (err) {
     console.error(`[auto-matchmaking] session=${sessionId} unhandled:`, err);
   }
 }
+
+// ─── Queued (next-round) orchestrator ───────────────────────────────────────
+// Builds 'queued' suggestions for any 'playing' court that doesn't already
+// have one. Uses the standard bracket generator for a single court, and the
+// player-flow Claude prompt (batched, single API call) when 2+ courts need
+// queued at the same time.
+async function runQueuedOrchestrator(
+  sessionId: string,
+  allPlayers: Awaited<ReturnType<typeof storage.getAllPlayers>>,
+): Promise<void> {
+  const allCourts = await storage.getCourtsBySession(sessionId);
+  const playingCourts = allCourts.filter(c => c.status === 'playing');
+  if (playingCourts.length === 0) return;
+
+  const courtsWithQueued = await getCourtsWithQueuedSuggestions(sessionId);
+  const courtsNeedingQueued = playingCourts.filter(c => !courtsWithQueued.has(c.id));
+  if (courtsNeedingQueued.length === 0) return;
+
+  // Pool: queue minus sitting-out minus anyone already on a non-terminal
+  // suggestion (pending|approved|playing|queued).
+  const onAnyOpen = await getPlayersOnAnyOpenSuggestion(sessionId);
+  const sittingOut = new Set(getSittingOutPlayers(sessionId));
+  const queue = await storage.getQueue(sessionId);
+  let pool = queue.filter(id => !sittingOut.has(id) && !onAnyOpen.has(id));
+
+  if (pool.length < 4) {
+    console.log(`[queued-orchestrator] session=${sessionId} skipped — pool=${pool.length} < 4`);
+    return;
+  }
+
+  // Multi-court Claude path. Only used when 2+ courts need queued AND we
+  // have enough players to fill at least 2 lineups (8 players).
+  const useClaude = courtsNeedingQueued.length >= 2 && pool.length >= 8 && !!process.env.ANTHROPIC_API_KEY;
+
+  if (useClaude) {
+    const created = await tryClaudeQueuedBatch(sessionId, courtsNeedingQueued, pool, allPlayers);
+    if (created > 0) {
+      console.log(`[queued-orchestrator] session=${sessionId} created ${created} queued lineup(s) via Claude`);
+      return;
+    }
+    // Claude failed → fall through to standard generator below.
+  }
+
+  // Standard generator path (single-court or Claude fallback).
+  let createdStd = 0;
+  for (const court of courtsNeedingQueued) {
+    if (pool.length < 4) break;
+    const lineup = pickStandardLineup(sessionId, pool, allPlayers);
+    if (!lineup) break;
+    try {
+      await storage.createMatchSuggestion({
+        sessionId,
+        courtId: court.id,
+        pendingUntil: null,
+        status: 'queued',
+        includesActivePlayers: false,
+        players: [
+          ...lineup.team1Ids.map(id => ({ playerId: id, team: 1 as const })),
+          ...lineup.team2Ids.map(id => ({ playerId: id, team: 2 as const })),
+        ],
+      });
+      createdStd++;
+      const usedIds = new Set([...lineup.team1Ids, ...lineup.team2Ids]);
+      pool = pool.filter(id => !usedIds.has(id));
+    } catch (createErr) {
+      console.error(`[queued-orchestrator] session=${sessionId} court=${court.id} create failed:`, createErr);
+    }
+  }
+  if (createdStd > 0) {
+    console.log(`[queued-orchestrator] session=${sessionId} created ${createdStd} queued lineup(s) via standard generator`);
+  }
+}
+
+async function tryClaudeQueuedBatch(
+  sessionId: string,
+  courtsNeedingQueued: Awaited<ReturnType<typeof storage.getCourtsBySession>>,
+  pool: string[],
+  allPlayers: Awaited<ReturnType<typeof storage.getAllPlayers>>,
+): Promise<number> {
+  const poolIdSet = new Set(pool);
+  const poolPlayers = allPlayers.filter(p => poolIdSet.has(p.id));
+  const playersById = new Map(poolPlayers.map(p => [p.id, p]));
+
+  // Recent partners/opponents for richer prompts.
+  const history = await storage.getSessionGameParticipants(sessionId);
+  const recentMap = computeRecentPartnersAndOpponents(history, 3);
+  const nameById = new Map(allPlayers.map(p => [p.id, p.name]));
+  const playerIdByLowerName = new Map(allPlayers.map(p => [p.name.toLowerCase(), p.id]));
+
+  const profiles: PlayerFlowPlayerProfile[] = poolPlayers.map(p => {
+    const rs = getPlayerRestState(sessionId, p.id);
+    const recent = recentMap.get(p.id) ?? { partners: [], opponents: [] };
+    return {
+      name: p.name,
+      score: p.skillScore || 90,
+      tier: p.level || 'lower_intermediate',
+      gender: p.gender || 'male',
+      gamesThisSession: rs.gamesThisSession || 0,
+      gamesWaited: rs.gamesWaited || 0,
+      recentPartners: recent.partners.map(id => nameById.get(id) ?? '').filter(Boolean),
+      recentOpponents: recent.opponents.map(id => nameById.get(id) ?? '').filter(Boolean),
+    };
+  });
+
+  const courtRequests: PlayerFlowCourtRequest[] = courtsNeedingQueued.map((c, idx) => ({
+    courtNumber: idx + 1,
+    availablePlayerNames: poolPlayers.map(p => p.name),
+    mustIncludeNames: [],
+  }));
+
+  const startedAt = Date.now();
+  let parsed: Awaited<ReturnType<typeof requestPlayerFlowMatchmaking>>;
+  try {
+    parsed = await requestPlayerFlowMatchmaking(profiles, courtRequests, { timeoutMs: 5000 });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.log(`[queued-orchestrator] session=${sessionId} Claude failed elapsedMs=${Date.now() - startedAt} reason="${reason}" — falling back`);
+    return 0;
+  }
+
+  const usedIds = new Set<string>();
+  let created = 0;
+  for (let i = 0; i < courtsNeedingQueued.length && i < parsed.suggestions.length; i++) {
+    const court = courtsNeedingQueued[i];
+    const sug = parsed.suggestions[i];
+    if (!sug || !Array.isArray(sug.team1) || !Array.isArray(sug.team2)) continue;
+
+    const resolveTeam = (team: { name: string }[]): string[] | null => {
+      const ids: string[] = [];
+      for (const raw of team) {
+        const id = playerIdByLowerName.get(raw.name.toLowerCase());
+        if (!id || !playersById.has(id) || usedIds.has(id)) return null;
+        ids.push(id);
+      }
+      return ids;
+    };
+
+    const t1 = resolveTeam(sug.team1);
+    const t2 = resolveTeam(sug.team2);
+    if (!t1 || !t2 || t1.length !== 2 || t2.length !== 2) continue;
+    const all4 = new Set([...t1, ...t2]);
+    if (all4.size !== 4) continue;
+
+    try {
+      await storage.createMatchSuggestion({
+        sessionId,
+        courtId: court.id,
+        pendingUntil: null,
+        status: 'queued',
+        includesActivePlayers: false,
+        players: [
+          ...t1.map(id => ({ playerId: id, team: 1 as const })),
+          ...t2.map(id => ({ playerId: id, team: 2 as const })),
+        ],
+      });
+      created++;
+      all4.forEach(id => usedIds.add(id));
+    } catch (createErr) {
+      console.error(`[queued-orchestrator] session=${sessionId} court=${court.id} Claude-row create failed:`, createErr);
+    }
+  }
+  return created;
+}
+
+// ─── Game-end queued→pending transition ─────────────────────────────────────
+// Called from BOTH score-submit paths (player-driven + admin end-game) AFTER
+// the court has been freed and BEFORE tryAutoMatchmaking fires. If there is
+// a queued lineup waiting for this court and all four named players are
+// still eligible (in queue, not on another in-flight suggestion, not sitting
+// out), we flip queued→pending with a fresh 90s pendingUntil. Otherwise we
+// dismiss the queued row so tryAutoMatchmaking is free to assign the court
+// from scratch.
+//
+// Returns the suggestion id of the row that was flipped to pending, or null
+// if nothing actionable happened. Callers fire-and-forget tryAutoMatchmaking
+// regardless — when we flip, the orchestrator's "court has in-flight"
+// filter will skip this court (correct), and when we dismiss it, the
+// orchestrator will pick it up (also correct).
+export async function tryFlipQueuedToPendingForCourt(
+  sessionId: string,
+  courtId: string,
+): Promise<{ flippedId: string | null; dismissedId: string | null }> {
+  const queued = await storage.getQueuedSuggestionForCourt(courtId);
+  if (!queued) return { flippedId: null, dismissedId: null };
+
+  // Eligibility check: all 4 named players must be in the session queue,
+  // not sitting out, and not named on any OTHER open suggestion (we
+  // explicitly exclude the queued row itself, since the named players
+  // necessarily appear on it).
+  const namedIds = queued.players.map(p => p.playerId);
+  const queue = await storage.getQueue(sessionId);
+  const queueSet = new Set(queue);
+  const sittingOut = new Set(getSittingOutPlayers(sessionId));
+
+  const otherOpenRows = await db
+    .select({ playerId: matchSuggestionPlayers.playerId })
+    .from(matchSuggestionPlayers)
+    .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
+    .where(and(
+      eq(matchSuggestions.sessionId, sessionId),
+      inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
+      sql`${matchSuggestions.id} <> ${queued.id}`,
+      inArray(matchSuggestionPlayers.playerId, namedIds),
+    ));
+  const onOtherOpen = new Set(otherOpenRows.map(r => r.playerId));
+
+  const eligible = namedIds.every(id =>
+    queueSet.has(id) && !sittingOut.has(id) && !onOtherOpen.has(id),
+  );
+
+  if (!eligible) {
+    await storage.dismissQueuedSuggestion(queued.id);
+    console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} dismissed — eligibility failed`);
+    return { flippedId: null, dismissedId: queued.id };
+  }
+
+  const pendingUntil = new Date(Date.now() + PENDING_WINDOW_MS);
+  const flipped = await storage.flipQueuedSuggestionToPending(queued.id, pendingUntil);
+  if (!flipped) {
+    // Race: another worker (admin replace, end-session sweep) just changed
+    // the row out from under us. Treat as no-op.
+    console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} race lost`);
+    return { flippedId: null, dismissedId: null };
+  }
+  console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} flipped to pending`);
+  return { flippedId: flipped.id, dismissedId: null };
+}
+

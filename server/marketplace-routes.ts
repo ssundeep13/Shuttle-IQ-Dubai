@@ -46,7 +46,7 @@ import {
   updatePartnerHistory,
   persistRestStatesToDb,
 } from "./matchmaking";
-import { tryAutoMatchmaking } from "./auto-matchmaking";
+import { tryAutoMatchmaking, tryFlipQueuedToPendingForCourt } from "./auto-matchmaking";
 
 // ─── Tier buffer helper (mirror of server/routes.ts:61 — keep in sync) ───────
 // After each game, a player's confirmed level (stored in DB) only changes after
@@ -3293,7 +3293,10 @@ export function registerMarketplaceRoutes(app: Express) {
         let parent: {
           id: string;
           courtId: string;
-          pendingUntil: Date;
+          // Nullable because 'queued' rows have no auto-approve deadline.
+          // For pending/approved/playing/dismissed/completed rows the
+          // value is always populated.
+          pendingUntil: Date | null;
           status: string;
         } | null = null;
         let playerRows: Array<{ playerId: string; team: number }> = [];
@@ -3468,6 +3471,130 @@ export function registerMarketplaceRoutes(app: Express) {
       } catch (error) {
         console.error('[Current suggestion] error:', error);
         res.status(500).json({ error: "Failed to load current suggestion." });
+      }
+    },
+  );
+
+  // POST /api/marketplace/players/me/done — "I'm done for today"
+  // Removes the player from the active session's queue, dismisses any
+  // queued|pending|approved suggestion that names them, and fires
+  // tryAutoMatchmaking so the remaining waiting players can be reassigned
+  // immediately. Idempotent — calling it twice in a row succeeds both
+  // times. Returns { success: true } either way.
+  app.post(
+    "/api/marketplace/players/me/done",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        const userId = req.user!.userId;
+        const user = await storage.getMarketplaceUser(userId);
+        const linkedPlayerId = user?.linkedPlayerId ?? null;
+        if (!linkedPlayerId) {
+          // No linked player → nothing in any session queue to remove.
+          // The frontend treats this the same as a successful no-op so
+          // the navigation back to /marketplace still happens.
+          return res.json({ success: true });
+        }
+
+        const activeSession = await storage.getActiveSession();
+        if (!activeSession) {
+          return res.json({ success: true });
+        }
+
+        // 1. Remove from queue (no-op if not in it).
+        await storage.removeFromQueue(activeSession.id, linkedPlayerId);
+
+        // 2. Dismiss any non-terminal suggestion this player is named on
+        //    (pending|approved|queued). 'playing' is intentionally NOT
+        //    dismissed — once the live game is in motion, ending it is
+        //    the Court Captain's call, not a tap-out.
+        //
+        // Race-safe CAS: we update by id AND status so a row that flips
+        // from 'pending'→'playing' between the SELECT and the UPDATE
+        // will be skipped (zero rows affected) instead of being clobbered
+        // to 'dismissed'. The court state for pending/approved rows is
+        // re-derived by the subsequent tryAutoMatchmaking call; queued
+        // rows leave their parent court 'playing' untouched.
+        const myOpenRows = await db
+          .select({ id: matchSuggestions.id, status: matchSuggestions.status, courtId: matchSuggestions.courtId })
+          .from(matchSuggestions)
+          .innerJoin(matchSuggestionPlayers, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
+          .where(and(
+            eq(matchSuggestions.sessionId, activeSession.id),
+            eq(matchSuggestionPlayers.playerId, linkedPlayerId),
+            inArray(matchSuggestions.status, ['pending', 'approved', 'queued']),
+          ));
+
+        for (const row of myOpenRows) {
+          await db
+            .update(matchSuggestions)
+            .set({ status: 'dismissed' })
+            .where(and(
+              eq(matchSuggestions.id, row.id),
+              inArray(matchSuggestions.status, ['pending', 'approved', 'queued']),
+            ));
+        }
+
+        // 3. Fire-and-forget rematchmaking so the remaining waiting
+        //    players get reassigned to any newly free pending slot.
+        setImmediate(() => {
+          tryAutoMatchmaking(activeSession.id).catch(err => {
+            console.error('[auto-matchmaking] post-done unhandled:', err);
+          });
+        });
+
+        return res.json({ success: true });
+      } catch (error) {
+        console.error('[POST /api/marketplace/players/me/done] error:', error);
+        return res.status(500).json({ error: "Couldn't sign you out — please ask the Court Captain for help." });
+      }
+    },
+  );
+
+  // GET /api/marketplace/players/me/today-stats
+  // Lightweight stat counters for the WaitingScreen header chips. Counts
+  // the games this player has actually played in the currently-active
+  // session (gamesToday), how many other waiting players are in the queue
+  // ahead/with them (waitingNow), and the number of currently-occupied
+  // courts (courtsBusy). Returns zeros when there is no active session or
+  // the player isn't linked.
+  app.get(
+    "/api/marketplace/players/me/today-stats",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        const userId = req.user!.userId;
+        const user = await storage.getMarketplaceUser(userId);
+        const linkedPlayerId = user?.linkedPlayerId ?? null;
+        const activeSession = await storage.getActiveSession();
+
+        if (!linkedPlayerId || !activeSession) {
+          return res.json({ gamesToday: 0, waitingNow: 0, courtsBusy: 0 });
+        }
+
+        const [gamesRows, queue, allCourts] = await Promise.all([
+          db
+            .select({ id: gameParticipants.gameId })
+            .from(gameParticipants)
+            .innerJoin(gameResults, eq(gameParticipants.gameId, gameResults.id))
+            .where(and(
+              eq(gameParticipants.playerId, linkedPlayerId),
+              eq(gameResults.sessionId, activeSession.id),
+            )),
+          storage.getQueue(activeSession.id),
+          storage.getCourtsBySession(activeSession.id),
+        ]);
+
+        const gamesToday = gamesRows.length;
+        const waitingNow = queue.length;
+        const courtsBusy = allCourts.filter(c => c.status === 'playing').length;
+
+        return res.json({ gamesToday, waitingNow, courtsBusy });
+      } catch (error) {
+        console.error('[GET /api/marketplace/players/me/today-stats] error:', error);
+        return res.status(500).json({ error: "Couldn't load today's stats." });
       }
     },
   );
@@ -4518,6 +4645,20 @@ export function registerMarketplaceRoutes(app: Express) {
         });
         await storage.setCourtPlayers(court.id, []);
         await persistRestStatesToDb(session.id);
+
+        // Queued → pending transition. If a 'queued' next-round lineup
+        // exists for this court and all 4 named players are still
+        // eligible, we flip it to 'pending' with a fresh 90s window
+        // BEFORE the auto-matchmaker runs. This way tryAutoMatchmaking's
+        // "court has in-flight suggestion" filter will respect the
+        // pre-built lineup instead of replacing it. If eligibility
+        // fails, the helper dismisses the queued row and the auto-
+        // matchmaker is free to assign the court from scratch.
+        try {
+          await tryFlipQueuedToPendingForCourt(session.id, court.id);
+        } catch (flipErr) {
+          console.error('[queued-transition] post-score unhandled:', flipErr);
+        }
 
         res.json({
           success: true,

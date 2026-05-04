@@ -5,7 +5,7 @@ import { format } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { MapPin, Clock, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
+import { MapPin, Clock, Calendar as CalendarIcon, Loader2, Trophy, Users, LayoutGrid } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useToast } from '@/hooks/use-toast';
@@ -27,12 +27,20 @@ interface CurrentSuggestion {
   // the admin cancels a game, so PlayingScreen can detect the cancel and
   // route back to the waiting screen. The waiting screen itself treats
   // 'dismissed' as "no live suggestion" — see the render branch below.
-  status: 'pending' | 'approved' | 'playing' | 'dismissed';
+  // 'queued' = pre-built next-round lineup waiting on an occupied court;
+  // rendered as the "On deck" variant.
+  status: 'pending' | 'approved' | 'playing' | 'dismissed' | 'queued';
   courtId: string;
   courtName: string;
-  pendingUntil: string;
+  pendingUntil: string | null;
   selfTeam: 1 | 2 | null;
   players: CurrentSuggestionPlayer[];
+}
+
+interface TodayStatsResponse {
+  gamesToday: number;
+  waitingNow: number;
+  courtsBusy: number;
 }
 
 interface CurrentSuggestionResponse {
@@ -240,10 +248,18 @@ function CheckInScreen({
 
 function WaitingScreen({ onDone }: { onDone: () => void }) {
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const suggestionQuery = useQuery<CurrentSuggestionResponse>({
     queryKey: ['/api/marketplace/players/me/current-suggestion'],
     refetchInterval: 5000,
+    staleTime: 0,
+  });
+
+  const todayStatsQuery = useQuery<TodayStatsResponse>({
+    queryKey: ['/api/marketplace/players/me/today-stats'],
+    refetchInterval: 10_000,
     staleTime: 0,
   });
 
@@ -258,6 +274,33 @@ function WaitingScreen({ onDone }: { onDone: () => void }) {
     }
   }, [suggestion?.status, setLocation]);
 
+  // "I'm done for today" — wired to the dedicated backend endpoint that
+  // removes the player from the queue, dismisses any open suggestion
+  // they're named on, and fires re-matchmaking. We always navigate back
+  // to /marketplace after the call resolves (success or failure) so the
+  // player isn't trapped on the waiting screen if something goes wrong.
+  const doneMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest<{ success: boolean }>(
+        'POST',
+        '/api/marketplace/players/me/done',
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/players/me/current-suggestion'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/players/me/today-stats'] });
+      onDone();
+    },
+    onError: () => {
+      toast({
+        title: "Couldn't sign you out cleanly",
+        description: "Please let the Court Captain know — heading back to the marketplace.",
+        variant: 'destructive',
+      });
+      onDone();
+    },
+  });
+
   // Initial-load skeleton only. Background polls do NOT re-trigger this
   // (we ignore isFetching) so the screen stays calm.
   if (suggestionQuery.isPending) {
@@ -268,6 +311,8 @@ function WaitingScreen({ onDone }: { onDone: () => void }) {
       </div>
     );
   }
+
+  const stats = todayStatsQuery.data;
 
   return (
     <div className="space-y-6" data-testid="state-waiting">
@@ -280,11 +325,15 @@ function WaitingScreen({ onDone }: { onDone: () => void }) {
         </h1>
       </div>
 
+      <StatChips stats={stats} />
+
       {!suggestion || suggestion.status === 'dismissed' ? (
         // 'dismissed' is surfaced briefly so PlayingScreen can detect an
         // admin cancel-game; for the waiting screen it just means "no
         // live game", same as a null suggestion.
         <FindingNextGameCard />
+      ) : suggestion.status === 'queued' ? (
+        <OnDeckCard suggestion={suggestion} />
       ) : (
         <NextGameCard suggestion={suggestion} />
       )}
@@ -293,13 +342,92 @@ function WaitingScreen({ onDone }: { onDone: () => void }) {
         <Button
           variant="ghost"
           size="sm"
-          onClick={onDone}
+          onClick={() => doneMutation.mutate()}
+          disabled={doneMutation.isPending}
           data-testid="button-done-for-today"
         >
-          I'm done for today
+          {doneMutation.isPending ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Signing you out…
+            </>
+          ) : (
+            "I'm done for today"
+          )}
         </Button>
       </div>
     </div>
+  );
+}
+
+function StatChips({ stats }: { stats: TodayStatsResponse | undefined }) {
+  // Three small chips of session context for the player. Renders the same
+  // layout whether stats are loaded or still pending so the page doesn't
+  // jump on first render.
+  const items: Array<{ icon: typeof Trophy; label: string; value: number | string; testId: string }> = [
+    { icon: Trophy, label: 'Games today', value: stats?.gamesToday ?? '—', testId: 'stat-games-today' },
+    { icon: Users, label: 'Waiting now', value: stats?.waitingNow ?? '—', testId: 'stat-waiting-now' },
+    { icon: LayoutGrid, label: 'Courts busy', value: stats?.courtsBusy ?? '—', testId: 'stat-courts-busy' },
+  ];
+  return (
+    <div className="grid grid-cols-3 gap-2" data-testid="row-stat-chips">
+      {items.map(item => {
+        const Icon = item.icon;
+        return (
+          <div
+            key={item.testId}
+            className="flex flex-col items-center gap-1 rounded-md border bg-card px-2 py-3"
+            data-testid={item.testId}
+          >
+            <Icon className="h-4 w-4 text-muted-foreground" />
+            <span className="text-lg font-semibold" style={{ color: NAVY }}>
+              {item.value}
+            </span>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground text-center">
+              {item.label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function OnDeckCard({ suggestion }: { suggestion: CurrentSuggestion }) {
+  // 'queued' lineup — render the same Your team / Opponents structure as
+  // the pending/approved card, but with an "On deck" header and no Start
+  // Game button. The card flips into the regular pending view
+  // automatically on the next 5s poll once the previous game ends.
+  const selfTeamNum = suggestion.selfTeam ?? 1;
+  const oppTeamNum = selfTeamNum === 1 ? 2 : 1;
+  const yourTeam = suggestion.players.filter(p => p.team === selfTeamNum);
+  const opponents = suggestion.players.filter(p => p.team === oppTeamNum);
+
+  return (
+    <Card data-testid="card-on-deck">
+      <CardContent className="py-6 space-y-5">
+        <div className="text-center space-y-1">
+          <p className="text-xs uppercase tracking-wider" style={{ color: TEAL }}>
+            On deck
+          </p>
+          <h2 className="text-xl font-semibold" style={{ color: NAVY }} data-testid="text-on-deck-heading">
+            Up next on{' '}
+            <span style={{ color: TEAL }} data-testid="text-on-deck-court-name">
+              {suggestion.courtName}
+            </span>
+          </h2>
+          <p className="text-xs text-muted-foreground" data-testid="text-on-deck-helper">
+            We'll move you to the court the moment the current game ends.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <TeamRow label="Your team" players={yourTeam} accent={TEAL} testId="team-self" />
+          <div className="text-center text-xs uppercase tracking-wider text-muted-foreground">vs</div>
+          <TeamRow label="Opponents" players={opponents} accent={NAVY} testId="team-opponents" />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
