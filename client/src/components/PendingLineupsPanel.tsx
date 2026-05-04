@@ -238,7 +238,7 @@ function QueuedRow({
               className="text-xs italic text-muted-foreground"
               data-testid={`text-queued-may-adjust-${suggestion.id}`}
             >
-              Lineup may adjust
+              Lineup may adjust when the current game ends
             </span>
           )}
         </div>

@@ -418,10 +418,16 @@ function OnDeckCard({ suggestion }: { suggestion: CurrentSuggestion }) {
             On deck
           </p>
           <h2 className="text-xl font-semibold" style={{ color: NAVY }} data-testid="text-on-deck-heading">
-            Up next on{' '}
-            <span style={{ color: TEAL }} data-testid="text-on-deck-court-name">
-              {suggestion.courtName}
-            </span>
+            {suggestion.courtName ? (
+              <>
+                You're up next on{' '}
+                <span style={{ color: TEAL }} data-testid="text-on-deck-court-name">
+                  Court {suggestion.courtName}
+                </span>
+              </>
+            ) : (
+              <>You're up next</>
+            )}
           </h2>
           <p className="text-xs text-muted-foreground" data-testid="text-on-deck-helper">
             We'll move you to the court the moment the current game ends.
@@ -431,7 +437,7 @@ function OnDeckCard({ suggestion }: { suggestion: CurrentSuggestion }) {
               className="text-xs italic text-muted-foreground"
               data-testid="text-on-deck-may-adjust"
             >
-              Lineup may adjust before the game starts.
+              Lineup may adjust when the current game ends.
             </p>
           )}
         </div>
