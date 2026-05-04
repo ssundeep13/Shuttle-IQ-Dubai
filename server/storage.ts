@@ -601,6 +601,45 @@ export class DatabaseStorage implements IStorage {
   }
 
   async endSession(id: string): Promise<Session | undefined> {
+    // Sweep any in-flight match suggestions for this session to 'dismissed'
+    // BEFORE flipping the session to 'ended'. Without this, a never-resolved
+    // pending/approved/playing/queued row would keep being returned by
+    // /current-suggestion the next time those same players join a new
+    // session — see getCurrentSuggestionForPlayer's session-active filter,
+    // which would still surface the row if the source session were left
+    // 'active'. Doing the sweep here gives us belt-and-braces: even if a
+    // future caller forgets the session-active filter, the rows themselves
+    // are no longer in an active state.
+    //
+    // Also free any 'playing' courts for this session so the admin court
+    // grid doesn't show ghost games after the session has ended.
+    const inFlightCourtIds = await db
+      .select({ courtId: matchSuggestions.courtId })
+      .from(matchSuggestions)
+      .where(and(
+        eq(matchSuggestions.sessionId, id),
+        inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
+      ));
+
+    await db
+      .update(matchSuggestions)
+      .set({ status: 'dismissed' })
+      .where(and(
+        eq(matchSuggestions.sessionId, id),
+        inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
+      ));
+
+    if (inFlightCourtIds.length > 0) {
+      const uniqueCourtIds = Array.from(new Set(inFlightCourtIds.map(r => r.courtId)));
+      await db
+        .update(courts)
+        .set({ status: 'available' })
+        .where(and(
+          inArray(courts.id, uniqueCourtIds),
+          eq(courts.status, 'playing'),
+        ));
+    }
+
     const [session] = await db
       .update(sessions)
       .set({ status: 'ended', endedAt: new Date() })
@@ -3738,9 +3777,11 @@ export class DatabaseStorage implements IStorage {
       })
       .from(matchSuggestionPlayers)
       .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+      .innerJoin(sessions, eq(matchSuggestions.sessionId, sessions.id))
       .where(and(
         eq(matchSuggestionPlayers.playerId, playerId),
         inArray(matchSuggestions.status, ['playing', 'approved', 'pending', 'queued']),
+        eq(sessions.status, 'active'),
       ))
       .orderBy(
         sql`CASE ${matchSuggestions.status}

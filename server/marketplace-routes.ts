@@ -3311,7 +3311,9 @@ export function registerMarketplaceRoutes(app: Express) {
           }));
         } else {
           // Fallback 1: live 'playing' suggestion the player belongs to.
-          // Drives the P5 → P7 transition.
+          // Drives the P5 → P7 transition. Scoped to currently-active
+          // sessions so a never-resolved 'playing' row from an ended
+          // session can never follow a player into a new session.
           const [playingParent] = await db
             .select({
               id: matchSuggestions.id,
@@ -3321,9 +3323,11 @@ export function registerMarketplaceRoutes(app: Express) {
             })
             .from(matchSuggestionPlayers)
             .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+            .innerJoin(sessions, eq(matchSuggestions.sessionId, sessions.id))
             .where(and(
               eq(matchSuggestionPlayers.playerId, linkedPlayerId),
               eq(matchSuggestions.status, 'playing'),
+              eq(sessions.status, 'active'),
             ))
             .orderBy(desc(matchSuggestions.suggestedAt))
             .limit(1);
@@ -3400,10 +3404,12 @@ export function registerMarketplaceRoutes(app: Express) {
               })
               .from(matchSuggestionPlayers)
               .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
+              .innerJoin(sessions, eq(matchSuggestions.sessionId, sessions.id))
               .where(and(
                 eq(matchSuggestionPlayers.playerId, linkedPlayerId),
                 eq(matchSuggestions.status, 'dismissed'),
                 gt(matchSuggestions.pendingUntil, new Date()),
+                eq(sessions.status, 'active'),
               ))
               .orderBy(desc(matchSuggestions.suggestedAt))
               .limit(1);
