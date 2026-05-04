@@ -33,14 +33,19 @@ interface CurrentSuggestion {
   courtId: string;
   courtName: string;
   pendingUntil: string | null;
+  // true only for queued rows that mix in 1+ currently-playing players
+  // (Case 2/3 of the orchestrator). Drives the muted "Lineup may adjust
+  // before the game starts" note on the OnDeckCard.
+  includesActivePlayers: boolean;
   selfTeam: 1 | 2 | null;
   players: CurrentSuggestionPlayer[];
 }
 
 interface TodayStatsResponse {
-  gamesToday: number;
-  waitingNow: number;
-  courtsBusy: number;
+  gamesPlayed: number;
+  wins: number;
+  skillScore: number;
+  tierName: string;
 }
 
 interface CurrentSuggestionResponse {
@@ -361,13 +366,15 @@ function WaitingScreen({ onDone }: { onDone: () => void }) {
 }
 
 function StatChips({ stats }: { stats: TodayStatsResponse | undefined }) {
-  // Three small chips of session context for the player. Renders the same
-  // layout whether stats are loaded or still pending so the page doesn't
-  // jump on first render.
+  // Three small chips of player context for the WaitingScreen header:
+  // "Games Today" (gamesPlayed in this session), "Wins" (gamesPlayed
+  // restricted to wins), and "Current Tier" (display name of the
+  // player's confirmed level). Layout doesn't change between loaded /
+  // loading so the page doesn't jump on first render.
   const items: Array<{ icon: typeof Trophy; label: string; value: number | string; testId: string }> = [
-    { icon: Trophy, label: 'Games today', value: stats?.gamesToday ?? '—', testId: 'stat-games-today' },
-    { icon: Users, label: 'Waiting now', value: stats?.waitingNow ?? '—', testId: 'stat-waiting-now' },
-    { icon: LayoutGrid, label: 'Courts busy', value: stats?.courtsBusy ?? '—', testId: 'stat-courts-busy' },
+    { icon: Trophy, label: 'Games today', value: stats?.gamesPlayed ?? '—', testId: 'stat-games-today' },
+    { icon: Users, label: 'Wins', value: stats?.wins ?? '—', testId: 'stat-wins' },
+    { icon: LayoutGrid, label: 'Current tier', value: stats?.tierName || '—', testId: 'stat-current-tier' },
   ];
   return (
     <div className="grid grid-cols-3 gap-2" data-testid="row-stat-chips">
@@ -419,6 +426,14 @@ function OnDeckCard({ suggestion }: { suggestion: CurrentSuggestion }) {
           <p className="text-xs text-muted-foreground" data-testid="text-on-deck-helper">
             We'll move you to the court the moment the current game ends.
           </p>
+          {suggestion.includesActivePlayers && (
+            <p
+              className="text-xs italic text-muted-foreground"
+              data-testid="text-on-deck-may-adjust"
+            >
+              Lineup may adjust before the game starts.
+            </p>
+          )}
         </div>
 
         <div className="space-y-3">

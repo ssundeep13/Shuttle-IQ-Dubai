@@ -1413,18 +1413,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (suggestion.status === 'dismissed') {
         return res.json(suggestion);
       }
-      if (suggestion.status !== 'pending') {
+      // Allow dismissing 'pending' (the original Court Captain action) and
+      // 'queued' (the new "Up next" rows). Approved/playing/completed are
+      // not dismissable through this surface.
+      if (suggestion.status !== 'pending' && suggestion.status !== 'queued') {
         return res.status(409).json({ error: `Suggestion is already ${suggestion.status} and cannot be dismissed.` });
       }
       const adminId = req.user?.userId ?? 'admin';
-      // Pass null for approvedBy on dismiss — the field's name reflects
-      // approval semantics; dismissal audit lives in the server log.
-      const updated = await storage.transitionPendingMatchSuggestion(suggestionId, 'dismissed', null);
+      let updated;
+      if (suggestion.status === 'queued') {
+        // Queued rows have a dedicated CAS dismiss helper that won't
+        // accidentally overwrite a row that just flipped to 'pending'
+        // via the game-end transition.
+        updated = await storage.dismissQueuedSuggestion(suggestionId);
+      } else {
+        // Pass null for approvedBy on dismiss — the field's name reflects
+        // approval semantics; dismissal audit lives in the server log.
+        updated = await storage.transitionPendingMatchSuggestion(suggestionId, 'dismissed', null);
+      }
       if (!updated) {
         const current = await storage.getMatchSuggestion(suggestionId);
         return res.json(current);
       }
-      console.log(`[Court Captain] suggestion ${suggestionId} dismissed by ${adminId}`);
+      console.log(`[Court Captain] suggestion ${suggestionId} dismissed by ${adminId} (was ${suggestion.status})`);
+      // After dismissing a queued row, fire the auto-matchmaker so the
+      // court can either get a fresh queued lineup from the now-larger
+      // waiting pool or remain bare until game-end.
+      if (suggestion.status === 'queued') {
+        setImmediate(() => {
+          import('./auto-matchmaking').then(m =>
+            m.tryAutoMatchmaking(sessionId).catch(err =>
+              console.error('[auto-matchmaking] post-queued-dismiss unhandled:', err),
+            ),
+          );
+        });
+      }
       res.json(updated);
     } catch (error) {
       console.error('Dismiss suggestion error:', error);

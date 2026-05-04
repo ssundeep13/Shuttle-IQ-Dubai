@@ -140,8 +140,11 @@ async function isFirstMatchOfSession(sessionId: string): Promise<boolean> {
   return inFlightRows.length === 0;
 }
 
-// All player IDs already locked into a pending/approved/playing suggestion
-// for this session — they MUST NOT be reassigned to a new court.
+// All player IDs already locked into ANY non-terminal suggestion for this
+// session (pending|approved|playing|queued) — they MUST NOT be reassigned
+// to a new court by the pending-creation pass. 'queued' is included so a
+// player named on a pre-built next-round lineup can never end up
+// double-booked into a fresh pending row.
 async function getPlayersOnInFlightSuggestions(sessionId: string): Promise<Set<string>> {
   const rows = await db
     .select({ playerId: matchSuggestionPlayers.playerId })
@@ -149,20 +152,21 @@ async function getPlayersOnInFlightSuggestions(sessionId: string): Promise<Set<s
     .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
     .where(and(
       eq(matchSuggestions.sessionId, sessionId),
-      inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+      inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
     ));
   return new Set(rows.map(r => r.playerId));
 }
 
-// Court IDs that already have a pending/approved/playing suggestion — they
-// MUST NOT receive a second one.
+// Court IDs that already have a pending/approved/playing/queued suggestion
+// — they MUST NOT receive a second pending row. 'queued' is included so
+// the orchestrator can never overwrite a pre-built next-round lineup.
 async function getCourtsWithInFlightSuggestions(sessionId: string): Promise<Set<string>> {
   const rows = await db
     .select({ courtId: matchSuggestions.courtId })
     .from(matchSuggestions)
     .where(and(
       eq(matchSuggestions.sessionId, sessionId),
-      inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+      inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
     ));
   return new Set(rows.map(r => r.courtId));
 }
@@ -638,35 +642,44 @@ export async function tryFlipQueuedToPendingForCourt(
   const queued = await storage.getQueuedSuggestionForCourt(courtId);
   if (!queued) return { flippedId: null, dismissedId: null };
 
-  // Eligibility check: all 4 named players must be in the session queue,
-  // not sitting out, and not named on any OTHER open suggestion (we
-  // explicitly exclude the queued row itself, since the named players
-  // necessarily appear on it).
   const namedIds = queued.players.map(p => p.playerId);
-  const queue = await storage.getQueue(sessionId);
-  const queueSet = new Set(queue);
-  const sittingOut = new Set(getSittingOutPlayers(sessionId));
 
-  const otherOpenRows = await db
-    .select({ playerId: matchSuggestionPlayers.playerId })
-    .from(matchSuggestionPlayers)
-    .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
-    .where(and(
-      eq(matchSuggestions.sessionId, sessionId),
-      inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
-      sql`${matchSuggestions.id} <> ${queued.id}`,
-      inArray(matchSuggestionPlayers.playerId, namedIds),
-    ));
-  const onOtherOpen = new Set(otherOpenRows.map(r => r.playerId));
+  // Branch on includesActivePlayers (per spec):
+  //  • false (Case 1 — pure waiting pool): the named players were
+  //    explicitly chosen from the queue at orchestrator time and were
+  //    excluded from any other in-flight suggestion. Flip directly with
+  //    a CAS on status='queued' — no extra eligibility round-trips.
+  //  • true (Case 2/3 — mixes in 1+ active court players): we must
+  //    re-verify the active players are now actually available (the
+  //    score-submit path that called us frees the court immediately
+  //    before, so they should be — but a racing /done or admin cancel
+  //    can have removed them). Failure → dismiss.
+  if (queued.includesActivePlayers) {
+    const queue = await storage.getQueue(sessionId);
+    const queueSet = new Set(queue);
+    const sittingOut = new Set(getSittingOutPlayers(sessionId));
 
-  const eligible = namedIds.every(id =>
-    queueSet.has(id) && !sittingOut.has(id) && !onOtherOpen.has(id),
-  );
+    const otherOpenRows = await db
+      .select({ playerId: matchSuggestionPlayers.playerId })
+      .from(matchSuggestionPlayers)
+      .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
+      .where(and(
+        eq(matchSuggestions.sessionId, sessionId),
+        inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
+        sql`${matchSuggestions.id} <> ${queued.id}`,
+        inArray(matchSuggestionPlayers.playerId, namedIds),
+      ));
+    const onOtherOpen = new Set(otherOpenRows.map(r => r.playerId));
 
-  if (!eligible) {
-    await storage.dismissQueuedSuggestion(queued.id);
-    console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} dismissed — eligibility failed`);
-    return { flippedId: null, dismissedId: queued.id };
+    const eligible = namedIds.every(id =>
+      queueSet.has(id) && !sittingOut.has(id) && !onOtherOpen.has(id),
+    );
+
+    if (!eligible) {
+      await storage.dismissQueuedSuggestion(queued.id);
+      console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} dismissed — Case 2/3 eligibility failed`);
+      return { flippedId: null, dismissedId: queued.id };
+    }
   }
 
   const pendingUntil = new Date(Date.now() + PENDING_WINDOW_MS);
@@ -677,7 +690,7 @@ export async function tryFlipQueuedToPendingForCourt(
     console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} race lost`);
     return { flippedId: null, dismissedId: null };
   }
-  console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} flipped to pending`);
+  console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} flipped to pending (includesActivePlayers=${queued.includesActivePlayers})`);
   return { flippedId: flipped.id, dismissedId: null };
 }
 

@@ -3298,6 +3298,7 @@ export function registerMarketplaceRoutes(app: Express) {
           // value is always populated.
           pendingUntil: Date | null;
           status: string;
+          includesActivePlayers: boolean;
         } | null = null;
         let playerRows: Array<{ playerId: string; team: number }> = [];
 
@@ -3307,6 +3308,7 @@ export function registerMarketplaceRoutes(app: Express) {
             courtId: helperResult.courtId,
             pendingUntil: helperResult.pendingUntil,
             status: helperResult.status,
+            includesActivePlayers: helperResult.includesActivePlayers,
           };
           playerRows = helperResult.players.map(p => ({
             playerId: p.playerId,
@@ -3323,6 +3325,7 @@ export function registerMarketplaceRoutes(app: Express) {
               courtId: matchSuggestions.courtId,
               pendingUntil: matchSuggestions.pendingUntil,
               status: matchSuggestions.status,
+              includesActivePlayers: matchSuggestions.includesActivePlayers,
             })
             .from(matchSuggestionPlayers)
             .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
@@ -3360,6 +3363,7 @@ export function registerMarketplaceRoutes(app: Express) {
                 courtId: matchSuggestions.courtId,
                 pendingUntil: matchSuggestions.pendingUntil,
                 status: matchSuggestions.status,
+                includesActivePlayers: matchSuggestions.includesActivePlayers,
               })
               .from(matchSuggestionPlayers)
               .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
@@ -3404,6 +3408,7 @@ export function registerMarketplaceRoutes(app: Express) {
                 courtId: matchSuggestions.courtId,
                 pendingUntil: matchSuggestions.pendingUntil,
                 status: matchSuggestions.status,
+                includesActivePlayers: matchSuggestions.includesActivePlayers,
               })
               .from(matchSuggestionPlayers)
               .innerJoin(matchSuggestions, eq(matchSuggestionPlayers.suggestionId, matchSuggestions.id))
@@ -3460,6 +3465,13 @@ export function registerMarketplaceRoutes(app: Express) {
             courtId: parent.courtId,
             courtName: court?.name ?? '',
             pendingUntil: parent.pendingUntil,
+            // Drives the muted "Lineup may adjust before the game starts"
+            // note on the player's On-Deck card. true only for queued
+            // rows built by Case 2/3 of the orchestrator, where the
+            // lineup currently names players still on the active court
+            // and may need to dismiss-and-rebuild if any of them tap
+            // "I'm done" before the current game ends.
+            includesActivePlayers: parent.includesActivePlayers,
             selfTeam,
             players: playerRows.map(p => ({
               playerId: p.playerId,
@@ -3553,12 +3565,14 @@ export function registerMarketplaceRoutes(app: Express) {
   );
 
   // GET /api/marketplace/players/me/today-stats
-  // Lightweight stat counters for the WaitingScreen header chips. Counts
-  // the games this player has actually played in the currently-active
-  // session (gamesToday), how many other waiting players are in the queue
-  // ahead/with them (waitingNow), and the number of currently-occupied
-  // courts (courtsBusy). Returns zeros when there is no active session or
-  // the player isn't linked.
+  // Lightweight stat counters for the WaitingScreen header chips:
+  //   gamesPlayed — count of game_participants rows for this player in the
+  //                 currently-active session
+  //   wins        — same set, restricted to rows where team === winningTeam
+  //   skillScore  — current player.skillScore (live, after each game)
+  //   tierName    — display name of the player's confirmed level
+  // Returns zeros / empty strings when there is no active session or the
+  // player isn't linked.
   app.get(
     "/api/marketplace/players/me/today-stats",
     requireAuth,
@@ -3571,27 +3585,30 @@ export function registerMarketplaceRoutes(app: Express) {
         const activeSession = await storage.getActiveSession();
 
         if (!linkedPlayerId || !activeSession) {
-          return res.json({ gamesToday: 0, waitingNow: 0, courtsBusy: 0 });
+          return res.json({ gamesPlayed: 0, wins: 0, skillScore: 0, tierName: '' });
         }
 
-        const [gamesRows, queue, allCourts] = await Promise.all([
+        const [gpRows, player] = await Promise.all([
           db
-            .select({ id: gameParticipants.gameId })
+            .select({
+              team: gameParticipants.team,
+              winningTeam: gameResults.winningTeam,
+            })
             .from(gameParticipants)
             .innerJoin(gameResults, eq(gameParticipants.gameId, gameResults.id))
             .where(and(
               eq(gameParticipants.playerId, linkedPlayerId),
               eq(gameResults.sessionId, activeSession.id),
             )),
-          storage.getQueue(activeSession.id),
-          storage.getCourtsBySession(activeSession.id),
+          storage.getPlayer(linkedPlayerId),
         ]);
 
-        const gamesToday = gamesRows.length;
-        const waitingNow = queue.length;
-        const courtsBusy = allCourts.filter(c => c.status === 'playing').length;
+        const gamesPlayed = gpRows.length;
+        const wins = gpRows.filter(r => r.team === r.winningTeam).length;
+        const skillScore = player?.skillScore ?? 0;
+        const tierName = player ? tierDisplayName(player.level) : '';
 
-        return res.json({ gamesToday, waitingNow, courtsBusy });
+        return res.json({ gamesPlayed, wins, skillScore, tierName });
       } catch (error) {
         console.error('[GET /api/marketplace/players/me/today-stats] error:', error);
         return res.status(500).json({ error: "Couldn't load today's stats." });

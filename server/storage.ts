@@ -2493,6 +2493,7 @@ export class DatabaseStorage implements IStorage {
         pendingUntil: matchSuggestions.pendingUntil,
         status: matchSuggestions.status,
         approvedBy: matchSuggestions.approvedBy,
+        includesActivePlayers: matchSuggestions.includesActivePlayers,
         createdAt: matchSuggestions.createdAt,
         courtName: courts.name,
       })

@@ -17,6 +17,7 @@ type PendingSuggestion = {
   // game-end transition flips them to 'pending').
   pendingUntil: string | null;
   status: string;
+  includesActivePlayers?: boolean;
   players: Array<{
     suggestionId: string;
     courtId: string;
@@ -196,7 +197,12 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
               Up next (auto-confirms when current game ends)
             </p>
             {queued.map((s) => (
-              <QueuedRow key={s.id} suggestion={s} />
+              <QueuedRow
+                key={s.id}
+                suggestion={s}
+                onDismiss={() => dismissMutation.mutate(s.id)}
+                isDismissing={dismissMutation.isPending && pendingId === s.id}
+              />
             ))}
           </div>
         )}
@@ -205,28 +211,58 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
   );
 }
 
-function QueuedRow({ suggestion }: { suggestion: PendingSuggestion }) {
+function QueuedRow({
+  suggestion,
+  onDismiss,
+  isDismissing,
+}: {
+  suggestion: PendingSuggestion;
+  onDismiss: () => void;
+  isDismissing: boolean;
+}) {
   const team1 = suggestion.players.filter(p => p.team === 1);
   const team2 = suggestion.players.filter(p => p.team === 2);
   return (
     <div
-      className="flex flex-col gap-2 rounded-md border border-dashed p-3"
+      className="flex flex-col gap-3 rounded-md border border-dashed p-3 sm:flex-row sm:items-center sm:justify-between"
       data-testid={`row-queued-suggestion-${suggestion.id}`}
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline" data-testid={`badge-queued-court-${suggestion.id}`}>
-          Court {suggestion.courtName}
-        </Badge>
-        <span className="text-xs text-muted-foreground">On deck</span>
+      <div className="flex flex-col gap-2 min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" data-testid={`badge-queued-court-${suggestion.id}`}>
+            Court {suggestion.courtName}
+          </Badge>
+          <span className="text-xs text-muted-foreground">On deck</span>
+          {suggestion.includesActivePlayers && (
+            <span
+              className="text-xs italic text-muted-foreground"
+              data-testid={`text-queued-may-adjust-${suggestion.id}`}
+            >
+              Lineup may adjust
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-medium" data-testid={`text-queued-team1-${suggestion.id}`}>
+            {team1.map(p => p.name).join(" + ") || "—"}
+          </span>
+          <span className="text-muted-foreground">vs</span>
+          <span className="font-medium" data-testid={`text-queued-team2-${suggestion.id}`}>
+            {team2.map(p => p.name).join(" + ") || "—"}
+          </span>
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium" data-testid={`text-queued-team1-${suggestion.id}`}>
-          {team1.map(p => p.name).join(" + ") || "—"}
-        </span>
-        <span className="text-muted-foreground">vs</span>
-        <span className="font-medium" data-testid={`text-queued-team2-${suggestion.id}`}>
-          {team2.map(p => p.name).join(" + ") || "—"}
-        </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onDismiss}
+          disabled={isDismissing}
+          data-testid={`button-dismiss-queued-${suggestion.id}`}
+        >
+          <X className="h-4 w-4" />
+          Dismiss
+        </Button>
       </div>
     </div>
   );
