@@ -1937,18 +1937,15 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       // Wallet refunds already happened inside the storage transaction.
-      // Now email each booker with their refund details. Per-row failures are
-      // logged but do not abort the response — the cancellation is committed
-      // and re-running the route is a safe no-op (alreadyCancelled).
-      // Only email bookers who actually held a confirmed/attended seat. A
-      // pending_payment row never charged anyone, so a refund email would
-      // be confusing and contradicts the refund-row gating in the storage
-      // helper above.
+      // Now email EVERY affected booker — including those whose seats were
+      // not yet paid (pending / pending_payment) — so they all know the
+      // event is off. The email template branches on payment method /
+      // walletAmountUsedAed to render the right refund wording (or the
+      // "no payment was taken" fallback for unpaid seats).
       let emailsSent = 0;
       for (const booking of result.affectedBookings) {
         const wasPaidStatus =
           booking.status === 'confirmed' || booking.status === 'attended';
-        if (!wasPaidStatus) continue;
         const user = booking.user ?? await storage.getMarketplaceUser(booking.userId);
         if (user?.email) {
           try {
@@ -1958,11 +1955,11 @@ export function registerMarketplaceRoutes(app: Express) {
               user.name ?? 'there',
               bookableSession,
               false,
-              booking.amountAed,
+              wasPaidStatus ? booking.amountAed : 0,
               {
                 eventCancelledByAdmin: true,
-                paymentMethod: booking.paymentMethod,
-                walletAmountUsedAed: walletAed,
+                paymentMethod: wasPaidStatus ? booking.paymentMethod : null,
+                walletAmountUsedAed: wasPaidStatus ? walletAed : 0,
               },
             );
             emailsSent += 1;

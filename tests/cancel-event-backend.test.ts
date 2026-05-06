@@ -266,3 +266,4 @@ describe('cancelBookableSessionAndRefund — refund-row gating by booking status
     getBookingsSpy.mockRestore();
   });
 });
+
