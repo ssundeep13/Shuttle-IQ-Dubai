@@ -2,8 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vite
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { Router } from 'wouter';
 import { memoryLocation } from 'wouter/memory-location';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, type QueryFunction } from '@tanstack/react-query';
 import { TooltipProvider } from '@/components/ui/tooltip';
+
+const toastMock = vi.fn();
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: toastMock, dismiss: vi.fn(), toasts: [] }),
+}));
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: vi.fn(),
@@ -69,7 +74,7 @@ function renderPage(fetchImpl: typeof fetch) {
   const memHook = memoryLocation({ path: '/admin/sessions', record: true });
   const qc = new QueryClient({
     defaultOptions: {
-      queries: { queryFn: getQueryFn({ on401: 'throw' }) as any, retry: false },
+      queries: { queryFn: getQueryFn({ on401: 'throw' }) as QueryFunction, retry: false },
       mutations: { retry: false },
     },
   });
@@ -89,6 +94,7 @@ describe('SessionsManagement — cancel event flow', () => {
 
   beforeEach(() => {
     originalFetch = global.fetch;
+    toastMock.mockReset();
     (useAuth as unknown as Mock).mockReturnValue({
       user: { id: 'admin-1', email: 'admin@example.com', role: 'admin' },
       logout: vi.fn(),
@@ -165,6 +171,28 @@ describe('SessionsManagement — cancel event flow', () => {
 
     await waitFor(() => {
       expect(cancelCalls.length).toBe(1);
+    });
+
+    // Success toast must summarise the refund counts so the admin sees
+    // exactly what happened — not just a generic "done" message.
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalled();
+    });
+    const successCall = toastMock.mock.calls.find(
+      (args) => (args[0] as { title?: string })?.title === 'Event cancelled',
+    );
+    expect(successCall, 'expected an "Event cancelled" toast').toBeTruthy();
+    const description = (successCall![0] as { description: string }).description;
+    expect(description).toContain('4 bookings cancelled');
+    expect(description).toContain('3 refunds queued'); // 2 ziina + 1 cash
+    expect(description).toContain('4 players emailed');
+
+    // Admin/marketplace/refunds query caches must be invalidated — verified
+    // by the refunds endpoint being re-fetched after the mutation resolves.
+    await waitFor(() => {
+      const refundFetches = (fetchMock.mock.calls as Array<[string | URL | Request, RequestInit | undefined]>)
+        .filter(([url]) => String(url).endsWith('/api/marketplace/admin/refunds'));
+      expect(refundFetches.length).toBeGreaterThanOrEqual(2);
     });
   });
 

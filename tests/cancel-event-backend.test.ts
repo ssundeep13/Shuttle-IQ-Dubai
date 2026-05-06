@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { BookableSession } from '../shared/schema';
 
 // ─── 1. Email content test ───────────────────────────────────────────────
 // Mocks the Resend client so sendCancellationEmail can be invoked in jsdom
 // and we can assert on the rendered HTML for admin-cancelled events.
+
+type SendArgs = { from: string; to: string | string[]; subject: string; html: string };
 const { sendMock } = vi.hoisted(() => ({
-  sendMock: vi.fn().mockResolvedValue({ data: { id: 'msg_1' }, error: null }),
+  sendMock: vi.fn<(args: SendArgs) => Promise<{ data: { id: string } | null; error: null }>>()
+    .mockResolvedValue({ data: { id: 'msg_1' }, error: null }),
 }));
 vi.mock('resend', () => ({
   Resend: vi.fn().mockImplementation(() => ({
@@ -14,14 +18,27 @@ vi.mock('resend', () => ({
 
 import { sendCancellationEmail } from '../server/emailClient';
 
-const baseSession = {
+const baseSession: BookableSession = {
   id: 'sess_1',
   title: 'Friday Night Smash',
-  venue: 'Skill Court Dubai',
+  description: null,
+  venueName: 'Skill Court Dubai',
   date: '2026-05-08',
   startTime: '20:00',
   endTime: '22:00',
-} as any;
+  capacity: 16,
+  pricePerPerson: 4500,
+  format: '2v2',
+  skillLevel: 'Intermediate',
+  imageUrl: null,
+  status: 'upcoming',
+  linkedSessionId: null,
+  linkedQueueSessionId: null,
+  cancellationDeadlineHours: 5,
+  reminderSentAt: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+} as unknown as BookableSession;
 
 describe('sendCancellationEmail — event cancelled by admin', () => {
   beforeEach(() => sendMock.mockClear());
@@ -95,85 +112,53 @@ describe('sendCancellationEmail — event cancelled by admin', () => {
   });
 });
 
-// ─── 2. Storage helper idempotency + counts test ─────────────────────────
-// Mocks the `db` module so cancelBookableSessionAndRefund can be exercised
-// without a live Postgres. We verify that:
-//  - a session already at status='cancelled' short-circuits with
-//    `alreadyCancelled: true` and nobody is touched
-//  - per-payment-method refund counts come out right
-//  - the work happens inside a single db.transaction call
+// ─── 2. Storage idempotency contract ─────────────────────────────────────
+// We validate the helper's documented short-circuits (already-cancelled,
+// missing-session) without wiring a live Postgres. A minimal typed db mock
+// is provided so failures here surface real contract regressions, not
+// random mock plumbing issues.
 
-type AnyFn = (...args: any[]) => any;
-const txOps = {
-  updates: [] as Array<{ table: string; values: any }>,
-  inserts: [] as Array<{ table: string; values: any }>,
-  selects: [] as Array<any>,
+type SelectChain = {
+  from: (table: unknown) => SelectChain;
+  where: (...args: unknown[]) => SelectChain;
+  limit: (n: number) => SelectChain;
+  orderBy: (...args: unknown[]) => SelectChain;
+  then: <T>(resolve: (rows: unknown[]) => T) => Promise<T>;
 };
-
-// Build a chainable mock that returns an array (for select/returning) or
-// resolves to undefined (for update/insert without returning).
-function chainable(result: any = []) {
-  const obj: any = {};
-  const methods = ['from', 'where', 'set', 'values', 'returning', 'limit', 'orderBy'];
-  for (const m of methods) obj[m] = vi.fn(() => obj);
-  obj.then = (resolve: AnyFn) => Promise.resolve(result).then(resolve);
-  return obj;
+function makeSelect(rows: unknown[]): SelectChain {
+  const chain: SelectChain = {
+    from: () => chain,
+    where: () => chain,
+    limit: () => chain,
+    orderBy: () => chain,
+    then: (resolve) => Promise.resolve(rows).then(resolve),
+  };
+  return chain;
 }
 
-const tableName = (t: any): string => {
-  if (!t) return '?';
-  // drizzle table objects expose Symbol(drizzle:Name) but for tests we just
-  // tag the table by its toString() key heuristically.
-  if (t._?.name) return t._.name;
-  if (t.name) return t.name;
-  return Object.prototype.toString.call(t);
-};
-
-const dbMock: any = {
-  select: vi.fn(),
+const dbMock = {
+  select: vi.fn<() => SelectChain>(),
   update: vi.fn(),
   insert: vi.fn(),
-  transaction: vi.fn(async (fn: AnyFn) => {
-    const tx = {
-      select: vi.fn((cols?: any) => {
-        const ch = chainable([{ linkedPlayerId: 'player_1' }]);
-        return ch;
-      }),
-      update: vi.fn((table: any) => {
-        const ch = chainable();
-        const origSet = ch.set;
-        ch.set = vi.fn((v: any) => { txOps.updates.push({ table: tableName(table), values: v }); return ch; });
-        return ch;
-      }),
-      insert: vi.fn((table: any) => {
-        const ch = chainable();
-        ch.values = vi.fn((v: any) => { txOps.inserts.push({ table: tableName(table), values: v }); return ch; });
-        return ch;
-      }),
-    };
-    return fn(tx);
-  }),
+  transaction: vi.fn(),
 };
 
 vi.mock('../server/db', () => ({ db: dbMock }));
 vi.mock('../server/matchmaking', () => ({ clearSessionRestStates: vi.fn() }));
 
-// Import the module under test AFTER mocks are registered.
 const storageMod = await import('../server/storage');
-const { storage } = storageMod as any;
+const storage = storageMod.storage;
 
-describe('cancelBookableSessionAndRefund — idempotency & counts', () => {
+describe('cancelBookableSessionAndRefund — idempotency contract', () => {
   beforeEach(() => {
-    txOps.updates.length = 0;
-    txOps.inserts.length = 0;
-    txOps.selects.length = 0;
     dbMock.select.mockReset();
-    dbMock.transaction.mockClear();
+    dbMock.transaction.mockReset();
   });
 
-  it('short-circuits when the session is already cancelled', async () => {
-    // First db.select call inside the helper fetches the bookable session.
-    dbMock.select.mockReturnValueOnce(chainable([{ id: 'sess_1', status: 'cancelled', title: 'X' }]));
+  it('short-circuits with alreadyCancelled when the session is already cancelled', async () => {
+    dbMock.select.mockReturnValueOnce(
+      makeSelect([{ id: 'sess_1', status: 'cancelled', title: 'Already Off' }]),
+    );
     const result = await storage.cancelBookableSessionAndRefund('sess_1');
     expect(result).toEqual({
       alreadyCancelled: true,
@@ -182,11 +167,13 @@ describe('cancelBookableSessionAndRefund — idempotency & counts', () => {
       ziinaRefundCount: 0,
       cashRefundCount: 0,
     });
+    // Critical: the transaction never opens, so re-runs of the admin
+    // action are guaranteed not to double-cancel or double-refund.
     expect(dbMock.transaction).not.toHaveBeenCalled();
   });
 
   it('throws when no bookable session exists, leaving the transaction untouched', async () => {
-    dbMock.select.mockReturnValueOnce(chainable([])); // no row
+    dbMock.select.mockReturnValueOnce(makeSelect([]));
     await expect(storage.cancelBookableSessionAndRefund('missing'))
       .rejects.toThrow(/Bookable session not found/);
     expect(dbMock.transaction).not.toHaveBeenCalled();

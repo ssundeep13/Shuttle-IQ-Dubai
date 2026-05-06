@@ -125,28 +125,38 @@ export default function SessionsManagement() {
     },
   });
 
-  const cancelEventMutation = useMutation({
-    mutationFn: async (bookableId: string) => {
-      return await apiRequest('POST', `/api/marketplace/admin/sessions/${bookableId}/cancel`);
+  type CancelEventResponse = {
+    success: boolean;
+    alreadyCancelled: boolean;
+    bookingsCancelled: number;
+    walletRefundedCount: number;
+    ziinaRefundCount: number;
+    cashRefundCount: number;
+    emailsSent: number;
+  };
+
+  const cancelEventMutation = useMutation<CancelEventResponse, Error, string>({
+    mutationFn: async (bookableId) => {
+      return await apiRequest<CancelEventResponse>('POST', `/api/marketplace/admin/sessions/${bookableId}/cancel`);
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/refunds'] });
       setEventToCancel(null);
-      if (data?.alreadyCancelled) {
+      if (data.alreadyCancelled) {
         toast({ title: 'Already cancelled', description: 'This event was already cancelled — nothing more to do.' });
         return;
       }
-      const refunds = (data?.ziinaRefundCount ?? 0) + (data?.cashRefundCount ?? 0);
+      const refunds = data.ziinaRefundCount + data.cashRefundCount;
       toast({
         title: 'Event cancelled',
-        description: `${data?.bookingsCancelled ?? 0} bookings cancelled · ${refunds} refunds queued · ${data?.emailsSent ?? 0} players emailed`,
+        description: `${data.bookingsCancelled} bookings cancelled · ${refunds} refunds queued · ${data.emailsSent} players emailed`,
       });
       setActiveTab('refunds');
     },
-    onError: (err: any) => {
-      const message = err?.error || err?.message || 'Failed to cancel event';
+    onError: (err) => {
+      const message = err.message || 'Failed to cancel event';
       toast({ title: 'Cannot cancel event', description: message, variant: 'destructive' });
     },
   });
