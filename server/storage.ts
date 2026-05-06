@@ -1860,15 +1860,10 @@ export class DatabaseStorage implements IStorage {
     let cashRefundCount = 0;
     const cancelledAt = new Date();
 
-    // Wrap booking cancellations + refund-notification inserts + session
-    // status update in a single transaction so a partial failure can't leave
-    // bookings cancelled without their refund rows. The wallet refund itself
-    // (creditWallet) still happens in the route after this returns — those
-    // are tracked via marketplaceWalletTransactions and are individually
-    // logged on failure, but they are NOT idempotent on retry once the
-    // session is marked cancelled (caller treats `alreadyCancelled` as a
-    // no-op). This is acceptable today because wallet credit is internal
-    // and rare; revisit if needed.
+    // Wrap booking cancellations + wallet refunds + refund-notification
+    // inserts + session status update in a single transaction so a partial
+    // failure rolls everything back. This keeps the action retry-safe: if
+    // anything below throws, nothing is committed and the admin can re-run.
     await db.transaction(async (tx) => {
       for (const booking of affected) {
         await tx.update(bookings).set({
@@ -1877,7 +1872,22 @@ export class DatabaseStorage implements IStorage {
           cancellationReason: 'event_cancelled_by_admin',
         }).where(eq(bookings.id, booking.id));
 
-        if ((booking.walletAmountUsed ?? 0) > 0) walletRefundedCount += 1;
+        // Wallet credit refund — done inside the tx so a failure rolls back
+        // the booking cancellation too. We resolve the linked player via
+        // marketplaceUsers in-tx to avoid stale reads.
+        if ((booking.walletAmountUsed ?? 0) > 0) {
+          const [user] = await tx
+            .select({ linkedPlayerId: marketplaceUsers.linkedPlayerId })
+            .from(marketplaceUsers)
+            .where(eq(marketplaceUsers.id, booking.userId));
+          if (user?.linkedPlayerId) {
+            await tx
+              .update(players)
+              .set({ walletBalance: sql`${players.walletBalance} + ${booking.walletAmountUsed}` })
+              .where(eq(players.id, user.linkedPlayerId));
+            walletRefundedCount += 1;
+          }
+        }
 
         const isZiinaPaid = booking.paymentMethod === 'ziina' && !!booking.ziinaPaymentIntentId;
         const isCashPaid = booking.paymentMethod === 'cash' && booking.cashPaid;

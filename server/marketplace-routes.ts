@@ -1936,20 +1936,28 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      // Refund wallet credits + email each booker. Per-row failures are logged
-      // but do not abort the response — the cancellation itself is committed
-      // and the admin can re-run the action safely (it's idempotent).
+      // Wallet refunds already happened inside the storage transaction.
+      // Now email each booker with their refund details. Per-row failures are
+      // logged but do not abort the response — the cancellation is committed
+      // and re-running the route is a safe no-op (alreadyCancelled).
       let emailsSent = 0;
       for (const booking of result.affectedBookings) {
-        try {
-          await refundBookingWalletCredit(booking);
-        } catch (err) {
-          console.error(`[CancelEvent] Wallet refund failed for booking ${booking.id}:`, err);
-        }
         const user = booking.user ?? await storage.getMarketplaceUser(booking.userId);
         if (user?.email) {
           try {
-            await sendCancellationEmail(user.email, user.name ?? 'there', bookableSession, false, booking.amountAed);
+            const walletAed = (booking.walletAmountUsed ?? 0) / 100;
+            await sendCancellationEmail(
+              user.email,
+              user.name ?? 'there',
+              bookableSession,
+              false,
+              booking.amountAed,
+              {
+                eventCancelledByAdmin: true,
+                paymentMethod: booking.paymentMethod,
+                walletAmountUsedAed: walletAed,
+              },
+            );
             emailsSent += 1;
           } catch (err) {
             console.error(`[CancelEvent] Email failed for booking ${booking.id}:`, err);
