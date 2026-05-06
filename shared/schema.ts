@@ -358,7 +358,7 @@ export const bookableSessions = pgTable("bookable_sessions", {
   courtCount: integer("court_count").notNull().default(2),
   capacity: integer("capacity").notNull().default(16),
   priceAed: integer("price_aed").notNull().default(50),
-  status: text("status").notNull().default('upcoming'),
+  status: text("status").notNull().default('upcoming'), // 'upcoming' | 'cancelled'
   imageUrl: text("image_url"),
   bookingStartAt: timestamp("booking_start_at"),
   bookingEndAt: timestamp("booking_end_at"),
@@ -389,6 +389,7 @@ export const bookings = pgTable("bookings", {
   reminderSentAt: timestamp("reminder_sent_at"),
   promotedAt: timestamp("promoted_at"),
   walletAmountUsed: integer("wallet_amount_used").notNull().default(0), // fils of wallet credit applied to this booking
+  cancellationReason: text("cancellation_reason"), // e.g. 'event_cancelled_by_admin', 'guest_self_cancel', 'late_cancel', 'admin_cancel'
 }, (table) => [
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)

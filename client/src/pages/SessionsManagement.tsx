@@ -69,6 +69,7 @@ export default function SessionsManagement() {
   const [sessionToActivate, setSessionToActivate] = useState<Session | null>(null);
   const [bookingsSession, setBookingsSession] = useState<Session | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [eventToCancel, setEventToCancel] = useState<{ session: Session; bookable: BookableSessionWithAvailability } | null>(null);
 
   const { data: allSessions = [], isLoading } = useQuery<Session[]>({
     queryKey: ['/api/sessions'],
@@ -121,6 +122,32 @@ export default function SessionsManagement() {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
       setSessionToDelete(null);
+    },
+  });
+
+  const cancelEventMutation = useMutation({
+    mutationFn: async (bookableId: string) => {
+      return await apiRequest('POST', `/api/marketplace/admin/sessions/${bookableId}/cancel`);
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/refunds'] });
+      setEventToCancel(null);
+      if (data?.alreadyCancelled) {
+        toast({ title: 'Already cancelled', description: 'This event was already cancelled — nothing more to do.' });
+        return;
+      }
+      const refunds = (data?.ziinaRefundCount ?? 0) + (data?.cashRefundCount ?? 0);
+      toast({
+        title: 'Event cancelled',
+        description: `${data?.bookingsCancelled ?? 0} bookings cancelled · ${refunds} refunds queued · ${data?.emailsSent ?? 0} players emailed`,
+      });
+      setActiveTab('refunds');
+    },
+    onError: (err: any) => {
+      const message = err?.error || err?.message || 'Failed to cancel event';
+      toast({ title: 'Cannot cancel event', description: message, variant: 'destructive' });
     },
   });
 
@@ -322,6 +349,7 @@ export default function SessionsManagement() {
               onViewBookings={(session) => setBookingsSession(session)}
               onActivate={(session) => setSessionToActivate(session)}
               onEdit={(session) => setEditingSession(session)}
+              onCancelEvent={(session, bookable) => setEventToCancel({ session, bookable })}
               totalBookings={totalBookings}
               totalRevenue={totalRevenue}
             />
@@ -438,6 +466,32 @@ export default function SessionsManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={!!eventToCancel} onOpenChange={(open) => !open && setEventToCancel(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this event?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will cancel <strong>{eventToCancel?.bookable.totalBookings ?? 0}</strong> booking
+              {(eventToCancel?.bookable.totalBookings ?? 0) === 1 ? '' : 's'} for "{eventToCancel?.session.venueName}",
+              refund any wallet credits applied at checkout, queue refund rows for any Ziina/cash payments
+              in the Refunds tab, and email every booker. Ziina refunds still need to be issued from the
+              Ziina merchant dashboard. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-cancel-event">Keep event</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => eventToCancel && cancelEventMutation.mutate(eventToCancel.bookable.id)}
+              disabled={cancelEventMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="button-confirm-cancel-event"
+            >
+              {cancelEventMutation.isPending ? 'Cancelling…' : 'Cancel event'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!sessionToActivate} onOpenChange={(open) => !open && setSessionToActivate(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -481,7 +535,7 @@ export default function SessionsManagement() {
 
 function SessionsTabContent({ 
   sessions, activeSessions, upcomingSessions, endedSessions, sandboxSessions, bookableSessions,
-  isLoading, onView, onDelete, onDeleteSandbox, onViewBookings, onActivate, onEdit, totalBookings, totalRevenue
+  isLoading, onView, onDelete, onDeleteSandbox, onViewBookings, onActivate, onEdit, onCancelEvent, totalBookings, totalRevenue
 }: { 
   sessions: Session[];
   activeSessions: Session[];
@@ -496,6 +550,7 @@ function SessionsTabContent({
   onViewBookings: (session: Session) => void;
   onActivate: (session: Session) => void;
   onEdit: (session: Session) => void;
+  onCancelEvent: (session: Session, bookable: BookableSessionWithAvailability) => void;
   totalBookings: number;
   totalRevenue: number;
 }) {
@@ -574,6 +629,7 @@ function SessionsTabContent({
             onViewBookings={onViewBookings}
             onActivate={onActivate}
             onEdit={onEdit}
+            onCancelEvent={onCancelEvent}
             getLinkedBookableSession={getLinkedBookableSession}
           />
 
@@ -589,6 +645,7 @@ function SessionsTabContent({
               onViewBookings={onViewBookings}
               onActivate={onActivate}
               onEdit={onEdit}
+              onCancelEvent={onCancelEvent}
               getLinkedBookableSession={getLinkedBookableSession}
             />
           )}
@@ -605,6 +662,7 @@ function SessionsTabContent({
               onViewBookings={onViewBookings}
               onActivate={onActivate}
               onEdit={onEdit}
+              onCancelEvent={onCancelEvent}
               getLinkedBookableSession={getLinkedBookableSession}
             />
           )}
@@ -621,6 +679,7 @@ function SessionsTabContent({
               onViewBookings={onViewBookings}
               onActivate={onActivate}
               onEdit={onEdit}
+              onCancelEvent={onCancelEvent}
               getLinkedBookableSession={getLinkedBookableSession}
               isSandbox
             />
@@ -633,7 +692,7 @@ function SessionsTabContent({
 
 function SessionSection({ 
   title, icon, iconBg, sessions, badge, emptyMessage, emptySubMessage,
-  onView, onDelete, onViewBookings, onActivate, onEdit, getLinkedBookableSession, isSandbox
+  onView, onDelete, onViewBookings, onActivate, onEdit, onCancelEvent, getLinkedBookableSession, isSandbox
 }: {
   title: string;
   icon: React.ReactNode;
@@ -647,6 +706,7 @@ function SessionSection({
   onViewBookings: (session: Session) => void;
   onActivate: (session: Session) => void;
   onEdit: (session: Session) => void;
+  onCancelEvent: (session: Session, bookable: BookableSessionWithAvailability) => void;
   getLinkedBookableSession: (sessionId: string) => BookableSessionWithAvailability | undefined;
   isSandbox?: boolean;
 }) {
@@ -669,19 +729,23 @@ function SessionSection({
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {sessions.map(session => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              linkedBookable={getLinkedBookableSession(session.id)}
-              onView={() => onView(session)}
-              onDelete={() => onDelete(session)}
-              onViewBookings={() => onViewBookings(session)}
-              onActivate={() => onActivate(session)}
-              onEdit={() => onEdit(session)}
-              isSandbox={isSandbox}
-            />
-          ))}
+          {sessions.map(session => {
+            const linked = getLinkedBookableSession(session.id);
+            return (
+              <SessionCard
+                key={session.id}
+                session={session}
+                linkedBookable={linked}
+                onView={() => onView(session)}
+                onDelete={() => onDelete(session)}
+                onViewBookings={() => onViewBookings(session)}
+                onActivate={() => onActivate(session)}
+                onEdit={() => onEdit(session)}
+                onCancelEvent={linked ? () => onCancelEvent(session, linked) : undefined}
+                isSandbox={isSandbox}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -689,7 +753,7 @@ function SessionSection({
 }
 
 function SessionCard({ 
-  session, linkedBookable, onView, onDelete, onViewBookings, onActivate, onEdit, isSandbox
+  session, linkedBookable, onView, onDelete, onViewBookings, onActivate, onEdit, onCancelEvent, isSandbox
 }: { 
   session: Session;
   linkedBookable?: BookableSessionWithAvailability;
@@ -698,8 +762,10 @@ function SessionCard({
   onViewBookings: () => void;
   onActivate?: () => void;
   onEdit?: () => void;
+  onCancelEvent?: () => void;
   isSandbox?: boolean;
 }) {
+  const isEventCancelled = linkedBookable?.status === 'cancelled';
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
       case 'active': return 'default';
@@ -710,7 +776,7 @@ function SessionCard({
   };
 
   return (
-    <Card className="hover-elevate" data-testid={`session-card-${session.id}`}>
+    <Card className={`hover-elevate ${isEventCancelled ? 'opacity-60' : ''}`} data-testid={`session-card-${session.id}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -724,6 +790,12 @@ function SessionCard({
               <Badge variant={getStatusBadgeVariant(session.status)} className="capitalize">
                 {session.status}
               </Badge>
+              {isEventCancelled && (
+                <Badge variant="destructive" className="gap-1" data-testid={`badge-event-cancelled-${session.id}`}>
+                  <XCircle className="h-3 w-3" />
+                  Cancelled
+                </Badge>
+              )}
               {linkedBookable && (
                 <Badge variant="outline" className="text-xs gap-1">
                   <ShoppingBag className="h-3 w-3" />
@@ -849,6 +921,17 @@ function SessionCard({
               data-testid={`button-edit-${session.id}`}
             >
               <Pencil className="w-4 h-4" />
+            </Button>
+          )}
+          {onCancelEvent && !isEventCancelled && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onCancelEvent}
+              data-testid={`button-cancel-event-${session.id}`}
+              title="Cancel event and refund bookers"
+            >
+              <XCircle className="w-4 h-4 text-destructive" />
             </Button>
           )}
           <Button 
