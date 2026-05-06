@@ -179,3 +179,90 @@ describe('cancelBookableSessionAndRefund — idempotency contract', () => {
     expect(dbMock.transaction).not.toHaveBeenCalled();
   });
 });
+
+// ─── 3. Refund-row gating: only confirmed/attended bookings get refunds ──
+// Exercises the in-transaction logic with a fully mocked tx so we can
+// assert which bookings produce a refund_required notification. This
+// guards against the regression flagged in code review where a
+// pending_payment Ziina booking with an intent ID would falsely produce
+// a refund row.
+
+type RefundInsert = { type: string; relatedBookingId: string };
+
+describe('cancelBookableSessionAndRefund — refund-row gating by booking status', () => {
+  beforeEach(() => {
+    dbMock.select.mockReset();
+    dbMock.transaction.mockReset();
+  });
+
+  it('queues refund rows only for confirmed/attended bookings, never pending or pending_payment', async () => {
+    // Spy on the helper's two read dependencies so we don't have to model
+    // the multi-select join chain in getSessionBookings.
+    const sessionRow = { id: 'sess_1', status: 'upcoming', title: 'Mixed Status Night' };
+    const getSessionSpy = vi.spyOn(storage, 'getBookableSession')
+      .mockResolvedValue(sessionRow as never);
+
+    // Mix of statuses — helper is documented to filter out 'cancelled' itself.
+    const bookings = [
+      // SHOULD refund (Ziina, confirmed, has intent)
+      { id: 'b_paid_ziina', userId: 'u1', status: 'confirmed', paymentMethod: 'ziina',
+        ziinaPaymentIntentId: 'pi_1', cashPaid: false, walletAmountUsed: 0, amountAed: 50 },
+      // SHOULD refund (cash, attended, marked paid)
+      { id: 'b_paid_cash', userId: 'u2', status: 'attended', paymentMethod: 'cash',
+        ziinaPaymentIntentId: null, cashPaid: true, walletAmountUsed: 0, amountAed: 30 },
+      // MUST NOT refund — pending_payment with a Ziina intent ID
+      // (regression case from code review)
+      { id: 'b_pending_ziina', userId: 'u3', status: 'pending_payment', paymentMethod: 'ziina',
+        ziinaPaymentIntentId: 'pi_unfinished', cashPaid: false, walletAmountUsed: 0, amountAed: 50 },
+      // MUST NOT refund — pending cash, not yet paid
+      { id: 'b_pending_cash', userId: 'u4', status: 'pending', paymentMethod: 'cash',
+        ziinaPaymentIntentId: null, cashPaid: false, walletAmountUsed: 0, amountAed: 30 },
+      // Already cancelled — filtered out by helper, included to prove it
+      { id: 'b_cancelled', userId: 'u5', status: 'cancelled', paymentMethod: 'ziina',
+        ziinaPaymentIntentId: 'pi_old', cashPaid: false, walletAmountUsed: 0, amountAed: 50 },
+    ];
+    const getBookingsSpy = vi.spyOn(storage, 'getSessionBookings')
+      .mockResolvedValue(bookings as never);
+
+    // Capture refund_required inserts inside the transaction.
+    const refundInserts: RefundInsert[] = [];
+    dbMock.transaction.mockImplementationOnce(async (fn: (tx: unknown) => Promise<void>) => {
+      const tx = {
+        update: () => ({
+          set: () => ({ where: () => Promise.resolve(undefined) }),
+        }),
+        select: () => makeSelect([{ linkedPlayerId: null }]),
+        insert: () => ({
+          values: (v: { type: string; relatedBookingId: string }) => {
+            if (v?.type === 'refund_required') {
+              refundInserts.push({ type: v.type, relatedBookingId: v.relatedBookingId });
+            }
+            return Promise.resolve(undefined);
+          },
+        }),
+      };
+      await fn(tx);
+    });
+
+    const result = await storage.cancelBookableSessionAndRefund('sess_1');
+
+    // Only the two paid bookings should produce refund rows.
+    expect(refundInserts).toHaveLength(2);
+    const refundedIds = refundInserts.map((r) => r.relatedBookingId).sort();
+    expect(refundedIds).toEqual(['b_paid_cash', 'b_paid_ziina']);
+
+    // Counts must reflect ziina vs cash split, not raw booking count.
+    expect(result.ziinaRefundCount).toBe(1);
+    expect(result.cashRefundCount).toBe(1);
+    expect(result.walletRefundedCount).toBe(0);
+
+    // affectedBookings excludes the already-cancelled row but includes all
+    // others (including the pending ones — they are still cancelled,
+    // just not refunded).
+    expect(result.affectedBookings).toHaveLength(4);
+    expect(result.affectedBookings.map((b) => b.id)).not.toContain('b_cancelled');
+
+    getSessionSpy.mockRestore();
+    getBookingsSpy.mockRestore();
+  });
+});

@@ -1889,8 +1889,21 @@ export class DatabaseStorage implements IStorage {
           }
         }
 
-        const isZiinaPaid = booking.paymentMethod === 'ziina' && !!booking.ziinaPaymentIntentId;
-        const isCashPaid = booking.paymentMethod === 'cash' && booking.cashPaid;
+        // Only queue refund rows for bookings where money actually changed
+        // hands. A pending_payment Ziina row can carry an intent ID without
+        // the customer ever completing checkout — refunding those would
+        // create false positives on the admin Pending Refunds tab. We gate
+        // strictly on the pre-cancel booking status (confirmed or attended).
+        const wasPaidStatus =
+          booking.status === 'confirmed' || booking.status === 'attended';
+        const isZiinaPaid =
+          wasPaidStatus &&
+          booking.paymentMethod === 'ziina' &&
+          !!booking.ziinaPaymentIntentId;
+        const isCashPaid =
+          wasPaidStatus &&
+          booking.paymentMethod === 'cash' &&
+          booking.cashPaid === true;
 
         if (isZiinaPaid) {
           await tx.insert(marketplaceNotifications).values({

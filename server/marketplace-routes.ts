@@ -1940,8 +1940,15 @@ export function registerMarketplaceRoutes(app: Express) {
       // Now email each booker with their refund details. Per-row failures are
       // logged but do not abort the response — the cancellation is committed
       // and re-running the route is a safe no-op (alreadyCancelled).
+      // Only email bookers who actually held a confirmed/attended seat. A
+      // pending_payment row never charged anyone, so a refund email would
+      // be confusing and contradicts the refund-row gating in the storage
+      // helper above.
       let emailsSent = 0;
       for (const booking of result.affectedBookings) {
+        const wasPaidStatus =
+          booking.status === 'confirmed' || booking.status === 'attended';
+        if (!wasPaidStatus) continue;
         const user = booking.user ?? await storage.getMarketplaceUser(booking.userId);
         if (user?.email) {
           try {
