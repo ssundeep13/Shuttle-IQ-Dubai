@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation } from 'wouter';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,14 +34,19 @@ import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails, TagSuggestionWithVote, PlayerLinkRequestWithDetails } from '@shared/schema';
 import { UserCheck, FileText } from 'lucide-react';
 import BlogEditor from '@/components/BlogEditor';
 import type { BlogPost } from '@shared/schema';
 
 interface MarketplaceUserWithLinkedPlayer extends MarketplaceUser {
-  linkedPlayer: { id: string; name: string; shuttleIqId: string } | null;
+  linkedPlayer: { id: string; name: string; shuttleIqId: string; gamesPlayed: number } | null;
 }
+
+type MarketplaceUserSort = 'recent' | 'oldest' | 'mostGames' | 'fewestGames' | 'name';
+type MarketplaceUserJoinedFilter = 'any' | '7d' | '30d' | 'year';
+type MarketplaceUserStatusFilter = 'all' | 'linked' | 'notLinked' | 'hasPlayed' | 'hasNotPlayed';
 
 interface PlayerSearchResult {
   id: number;
@@ -1839,6 +1844,9 @@ function MarketplaceUsersSubTab() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlayerSearchResult[]>([]);
   const [userFilter, setUserFilter] = useState('');
+  const [sortBy, setSortBy] = useState<MarketplaceUserSort>('recent');
+  const [joinedFilter, setJoinedFilter] = useState<MarketplaceUserJoinedFilter>('any');
+  const [statusFilter, setStatusFilter] = useState<MarketplaceUserStatusFilter>('all');
   const [conflict, setConflict] = useState<{
     marketplaceUserId: string;
     playerId: number;
@@ -1860,24 +1868,116 @@ function MarketplaceUsersSubTab() {
   const normalizedFilter = userFilter.trim().toLowerCase();
   const filteredUsers = useMemo(() => {
     if (!users) return [];
-    if (!normalizedFilter) return users;
-    return users.filter((u) => {
-      const haystack = [
-        u.name,
-        u.email,
-        u.phone,
-        u.linkedPlayer?.name,
-        u.linkedPlayer?.shuttleIqId,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(normalizedFilter);
+    const now = Date.now();
+    const joinedThresholdMs: Record<MarketplaceUserJoinedFilter, number | null> = {
+      any: null,
+      '7d': 7 * 24 * 60 * 60 * 1000,
+      '30d': 30 * 24 * 60 * 60 * 1000,
+      year: 0,
+    };
+    const filtered = users.filter((u) => {
+      if (normalizedFilter) {
+        const haystack = [
+          u.name,
+          u.email,
+          u.phone,
+          u.linkedPlayer?.name,
+          u.linkedPlayer?.shuttleIqId,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(normalizedFilter)) return false;
+      }
+      if (joinedFilter !== 'any') {
+        const created = u.createdAt ? new Date(u.createdAt).getTime() : NaN;
+        if (!Number.isFinite(created)) return false;
+        if (joinedFilter === 'year') {
+          if (new Date(created).getFullYear() !== new Date(now).getFullYear()) return false;
+        } else {
+          const threshold = joinedThresholdMs[joinedFilter];
+          if (threshold !== null && now - created > threshold) return false;
+        }
+      }
+      switch (statusFilter) {
+        case 'linked':
+          if (!u.linkedPlayer) return false;
+          break;
+        case 'notLinked':
+          if (u.linkedPlayer) return false;
+          break;
+        case 'hasPlayed':
+          if (!u.linkedPlayer || (u.linkedPlayer.gamesPlayed ?? 0) <= 0) return false;
+          break;
+        case 'hasNotPlayed':
+          if (!u.linkedPlayer || (u.linkedPlayer.gamesPlayed ?? 0) > 0) return false;
+          break;
+      }
+      return true;
     });
-  }, [users, normalizedFilter]);
+    const sorted = [...filtered];
+    const ts = (u: MarketplaceUserWithLinkedPlayer) =>
+      u.createdAt ? new Date(u.createdAt).getTime() : 0;
+    switch (sortBy) {
+      case 'recent':
+        sorted.sort((a, b) => ts(b) - ts(a));
+        break;
+      case 'oldest':
+        sorted.sort((a, b) => ts(a) - ts(b));
+        break;
+      case 'name':
+        sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        break;
+      case 'mostGames':
+        sorted.sort((a, b) => {
+          const av = a.linkedPlayer?.gamesPlayed;
+          const bv = b.linkedPlayer?.gamesPlayed;
+          if (av == null && bv == null) return ts(b) - ts(a);
+          if (av == null) return 1;
+          if (bv == null) return -1;
+          return bv - av;
+        });
+        break;
+      case 'fewestGames':
+        sorted.sort((a, b) => {
+          const av = a.linkedPlayer?.gamesPlayed;
+          const bv = b.linkedPlayer?.gamesPlayed;
+          if (av == null && bv == null) return ts(b) - ts(a);
+          if (av == null) return 1;
+          if (bv == null) return -1;
+          return av - bv;
+        });
+        break;
+    }
+    return sorted;
+  }, [users, normalizedFilter, joinedFilter, statusFilter, sortBy]);
   const totalCount = users?.length ?? 0;
   const filteredCount = filteredUsers.length;
-  const isFiltering = normalizedFilter.length > 0;
+  const hasActiveFilters =
+    normalizedFilter.length > 0 || joinedFilter !== 'any' || statusFilter !== 'all';
+  const hasNonDefaultSort = sortBy !== 'recent';
+  const canReset = hasActiveFilters || hasNonDefaultSort;
+  const isFiltering = hasActiveFilters;
+  const resetAllFilters = () => {
+    setUserFilter('');
+    setJoinedFilter('any');
+    setStatusFilter('all');
+    setSortBy('recent');
+  };
+
+  const joinedChips: { value: MarketplaceUserJoinedFilter; label: string }[] = [
+    { value: 'any', label: 'Any time' },
+    { value: '7d', label: 'Last 7 days' },
+    { value: '30d', label: 'Last 30 days' },
+    { value: 'year', label: 'This year' },
+  ];
+  const statusChips: { value: MarketplaceUserStatusFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'linked', label: 'Linked' },
+    { value: 'notLinked', label: 'Not linked' },
+    { value: 'hasPlayed', label: 'Has played' },
+    { value: 'hasNotPlayed', label: "Hasn't played" },
+  ];
 
   const searchPlayers = async (query: string) => {
     if (query.length < 2) { setSearchResults([]); return; }
@@ -1977,30 +2077,74 @@ function MarketplaceUsersSubTab() {
         </Badge>
       </div>
       {users && users.length > 0 && (
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              value={userFilter}
-              onChange={(e) => setUserFilter(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Escape') setUserFilter(''); }}
-              placeholder="Search by name, email, phone, or linked player…"
-              className="pl-9"
-              data-testid="input-search-marketplace-users"
-            />
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                value={userFilter}
+                onChange={(e) => setUserFilter(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') setUserFilter(''); }}
+                placeholder="Search by name, email, phone, or linked player…"
+                className="pl-9"
+                data-testid="input-search-marketplace-users"
+              />
+            </div>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as MarketplaceUserSort)}>
+              <SelectTrigger className="w-[200px]" data-testid="select-marketplace-users-sort">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recent">Recently joined</SelectItem>
+                <SelectItem value="oldest">Joined oldest first</SelectItem>
+                <SelectItem value="mostGames">Most games played</SelectItem>
+                <SelectItem value="fewestGames">Fewest games played</SelectItem>
+                <SelectItem value="name">Name (A–Z)</SelectItem>
+              </SelectContent>
+            </Select>
+            {canReset && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={resetAllFilters}
+                data-testid="button-clear-marketplace-users-search"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
           </div>
-          {isFiltering && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setUserFilter('')}
-              data-testid="button-clear-marketplace-users-search"
-              aria-label="Clear search"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground mr-1">Joined:</span>
+            {joinedChips.map((chip) => (
+              <Button
+                key={chip.value}
+                type="button"
+                variant={joinedFilter === chip.value ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setJoinedFilter(chip.value)}
+                data-testid={`chip-joined-${chip.value}`}
+              >
+                {chip.label}
+              </Button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground mr-1">Status:</span>
+            {statusChips.map((chip) => (
+              <Button
+                key={chip.value}
+                type="button"
+                variant={statusFilter === chip.value ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setStatusFilter(chip.value)}
+                data-testid={`chip-status-${chip.value}`}
+              >
+                {chip.label}
+              </Button>
+            ))}
+          </div>
         </div>
       )}
       {isLoading ? (
@@ -2015,12 +2159,12 @@ function MarketplaceUsersSubTab() {
         <Card>
           <CardContent className="py-12 text-center space-y-3">
             <div className="text-muted-foreground" data-testid="text-marketplace-users-no-matches">
-              No users match your search.
+              No users match your current filters.
             </div>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setUserFilter('')}
+              onClick={resetAllFilters}
               data-testid="button-clear-marketplace-users-search-empty"
             >
               Clear filter
@@ -2034,7 +2178,19 @@ function MarketplaceUsersSubTab() {
               <CardContent className="p-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div>
-                    <div className="font-medium">{user.name}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium">{user.name}</span>
+                      {user.createdAt && (
+                        <Badge variant="outline" className="text-xs" data-testid={`badge-joined-${user.id}`}>
+                          Joined {formatDistanceToNow(new Date(user.createdAt), { addSuffix: true })}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-games-${user.id}`}>
+                        {user.linkedPlayer
+                          ? `${user.linkedPlayer.gamesPlayed} games played`
+                          : '— games played'}
+                      </Badge>
+                    </div>
                     <div className="text-xs text-muted-foreground">{user.email}{user.phone ? ` | ${user.phone}` : ''}</div>
                   </div>
                   <div className="flex items-center gap-2">
