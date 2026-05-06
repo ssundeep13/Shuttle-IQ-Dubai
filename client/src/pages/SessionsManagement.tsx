@@ -2624,65 +2624,135 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
     return format(new Date(d), 'dd MMM yyyy');
   };
 
-  const RefundRow = ({ r, showAction }: { r: RefundNotificationWithDetails; showAction: boolean }) => (
-    <div
-      className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-md border ${showAction ? 'bg-card' : 'bg-muted/30 opacity-70'}`}
-      data-testid={`refund-row-${r.id}`}
-    >
-      <div className="flex-1 min-w-0 space-y-0.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-sm" data-testid={`text-refund-player-${r.id}`}>
-            {r.playerName ?? 'Unknown player'}
-          </span>
-          {r.playerEmail && (
-            <span className="text-xs text-muted-foreground">{r.playerEmail}</span>
+  const copyToClipboard = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast({ title: 'Copied', description: `${label} copied to clipboard.` });
+    } catch {
+      toast({ title: 'Copy failed', description: 'Could not copy to clipboard.', variant: 'destructive' });
+    }
+  };
+
+  const RefundRow = ({ r, showAction }: { r: RefundNotificationWithDetails; showAction: boolean }) => {
+    const method = (r.paymentMethod ?? '').toLowerCase();
+    const isZiina = method === 'ziina';
+    const isCash = method === 'cash';
+    return (
+      <div
+        className={`flex flex-col sm:flex-row sm:items-start gap-3 p-4 rounded-md border ${showAction ? 'bg-card' : 'bg-muted/30 opacity-70'}`}
+        data-testid={`refund-row-${r.id}`}
+      >
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-sm" data-testid={`text-refund-player-${r.id}`}>
+              {r.playerName ?? 'Unknown player'}
+            </span>
+            {r.playerEmail && (
+              <span className="text-xs text-muted-foreground">{r.playerEmail}</span>
+            )}
+            {isZiina && (
+              <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate" data-testid={`badge-method-ziina-${r.id}`}>
+                Ziina refund
+              </Badge>
+            )}
+            {isCash && (
+              <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate" data-testid={`badge-method-cash-${r.id}`}>
+                Cash refund owed
+              </Badge>
+            )}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {r.sessionTitle ?? 'Unknown session'}
+            {r.sessionDate && <span> · {formatDate(r.sessionDate)}</span>}
+            {r.sessionVenueName && <span> · {r.sessionVenueName}</span>}
+          </div>
+          <div className="text-xs text-muted-foreground flex flex-wrap gap-3 pt-0.5">
+            {r.amountAed != null && (
+              <span className="font-medium text-foreground">AED {r.amountAed.toFixed(2)}</span>
+            )}
+            {r.spotsBooked != null && r.spotsBooked > 1 && (
+              <span>{r.spotsBooked} spots</span>
+            )}
+            <span>Flagged {formatDate(r.createdAt)}</span>
+            {r.relatedBookingId && (
+              <span className="font-mono">#{r.relatedBookingId.slice(-8)}</span>
+            )}
+          </div>
+          {isZiina && r.ziinaPaymentIntentId && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-xs text-muted-foreground">Intent</span>
+              <code
+                className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded"
+                data-testid={`text-refund-intent-${r.id}`}
+              >
+                {r.ziinaPaymentIntentId}
+              </code>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => copyToClipboard(r.ziinaPaymentIntentId!, 'Payment intent ID')}
+                data-testid={`button-copy-intent-${r.id}`}
+              >
+                Copy
+              </Button>
+            </div>
+          )}
+          {r.message && (
+            <p className="text-xs text-muted-foreground pt-1" data-testid={`text-refund-message-${r.id}`}>
+              {r.message}
+            </p>
           )}
         </div>
-        <div className="text-sm text-muted-foreground">
-          {r.sessionTitle ?? 'Unknown session'}
-          {r.sessionDate && <span> · {formatDate(r.sessionDate)}</span>}
-          {r.sessionVenueName && <span> · {r.sessionVenueName}</span>}
-        </div>
-        <div className="text-xs text-muted-foreground flex flex-wrap gap-3 pt-0.5">
-          {r.amountAed != null && (
-            <span className="font-medium text-foreground">AED {r.amountAed.toFixed(2)}</span>
-          )}
-          {r.spotsBooked != null && r.spotsBooked > 1 && (
-            <span>{r.spotsBooked} spots</span>
-          )}
-          <span>Flagged {formatDate(r.createdAt)}</span>
-          {r.relatedBookingId && (
-            <span className="font-mono">#{r.relatedBookingId.slice(-8)}</span>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+          {isZiina && r.ziinaPaymentIntentId ? (
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              data-testid={`button-ziina-dashboard-${r.id}`}
+            >
+              <a
+                href={`https://app.ziina.com/payment_intent/${r.ziinaPaymentIntentId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                Open in Ziina
+              </a>
+            </Button>
+          ) : isZiina ? (
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              data-testid={`button-ziina-dashboard-${r.id}`}
+            >
+              <a href="https://app.ziina.com" target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                Ziina Dashboard
+              </a>
+            </Button>
+          ) : isCash ? (
+            <span className="text-xs text-muted-foreground italic px-2" data-testid={`text-cash-instructions-${r.id}`}>
+              Settle in person at venue
+            </span>
+          ) : null}
+          {showAction && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => resolveMutation.mutate(r.id)}
+              disabled={resolveMutation.isPending}
+              data-testid={`button-resolve-refund-${r.id}`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+              Mark Resolved
+            </Button>
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          asChild
-          data-testid={`button-ziina-dashboard-${r.id}`}
-        >
-          <a href="https://app.ziina.com" target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-            Ziina Dashboard
-          </a>
-        </Button>
-        {showAction && (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => resolveMutation.mutate(r.id)}
-            disabled={resolveMutation.isPending}
-            data-testid={`button-resolve-refund-${r.id}`}
-          >
-            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-            Mark Resolved
-          </Button>
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-8">
