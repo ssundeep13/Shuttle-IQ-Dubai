@@ -229,7 +229,10 @@ export async function createZiinaRefund(input: {
       message: data?.message,
       body: data,
     });
-    throw new Error((data?.message || data?.error || `Ziina refund error: ${res.status}`) as string);
+    const err = new Error((data?.message || data?.error || `Ziina refund error: ${res.status}`) as string) as Error & { ziinaCode?: string; httpStatus?: number };
+    err.ziinaCode = (data?.code as string) || undefined;
+    err.httpStatus = res.status;
+    throw err;
   }
   return data as unknown as ZiinaRefund;
 }

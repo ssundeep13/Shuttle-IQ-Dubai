@@ -3459,7 +3459,19 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Ziina refund failed';
-        console.error('[Refund] Ziina API failed', { notificationId, intentId: refund.ziinaPaymentIntentId, error: message });
+        const ziinaCode = (err as { ziinaCode?: string })?.ziinaCode;
+        console.error('[Refund] Ziina API failed', { notificationId, intentId: refund.ziinaPaymentIntentId, error: message, ziinaCode });
+        // NOT_AUTHORISED here means our token can authenticate (we already
+        // read the intent successfully when the page loaded) but isn't
+        // permitted to issue refunds. This is a Ziina account/scope problem
+        // — the admin needs to enable refund permission on the API token in
+        // the Ziina merchant dashboard, or refund manually via "Open in
+        // Ziina" and then click "Mark Resolved".
+        if (ziinaCode === 'NOT_AUTHORISED') {
+          return res.status(502).json({
+            error: "Ziina rejected the refund: this API token isn't authorised to issue refunds. Refund the booking manually using \"Open in Ziina\" and then click \"Mark Resolved\", or contact Ziina support to enable refund permission on your API token.",
+          });
+        }
         return res.status(502).json({ error: message });
       }
 
