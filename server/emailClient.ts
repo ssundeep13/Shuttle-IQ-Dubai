@@ -363,6 +363,40 @@ export async function sendCancellationEmail(
   }
 }
 
+// ─── Refund Processed (admin issued via Ziina) ────────────────────────────
+
+export async function sendRefundProcessedEmail(
+  toEmail: string,
+  name: string,
+  session: BookableSession,
+  amountAed: number,
+  refundReference?: string,
+): Promise<void> {
+  const refLine = refundReference
+    ? `<p style="margin:0 0 4px;font-size:13px;color:#718096;">Reference: <span style="color:#0a2540;font-family:Menlo,Consolas,monospace;">${refundReference}</span></p>`
+    : '';
+  const body = `
+    <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">Your refund has been processed</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">
+      Hi ${name}, we've issued your refund of <strong>AED ${amountAed.toFixed(2)}</strong> for the following session via Ziina:
+    </p>
+    ${sessionBlock(session)}
+    <div style="margin:0 0 24px;padding:14px 18px;background-color:#f0f9ff;border-radius:6px;color:#0a2540;font-size:14px;line-height:1.7;">
+      <p style="margin:0 0 6px;"><strong>Refund of AED ${amountAed.toFixed(2)}</strong> sent to the card you paid with.</p>
+      <p style="margin:0 0 6px;">Ziina refunds typically take <strong>3–5 working days</strong> to appear on your statement.</p>
+      ${refLine}
+    </div>
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+    <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">If you don't see the refund within 5 working days, just reply to this email and we'll look into it.</p>
+  `;
+  try {
+    await sendEmail(toEmail, `Refund processed: ${session.title}`, emailWrapper(body));
+    console.log(`[Email] Refund processed email sent to ${toEmail}`);
+  } catch (err) {
+    console.error('[Email] sendRefundProcessedEmail failed:', err);
+  }
+}
+
 // ─── Session Reminder ─────────────────────────────────────────────────────
 // NOTE: This function rethrows on failure so the scheduler can track success/failure
 // and only mark reminderSentAt when the email actually delivered.

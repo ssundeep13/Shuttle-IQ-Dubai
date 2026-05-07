@@ -2608,6 +2608,7 @@ function DisputesTabContent({ disputes }: { disputes: ScoreDisputeWithDetails[] 
 function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails[] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [confirmRefund, setConfirmRefund] = useState<RefundNotificationWithDetails | null>(null);
 
   const resolveMutation = useMutation({
     mutationFn: async (id: string) => apiRequest('PATCH', `/api/marketplace/admin/refunds/${id}/resolve`),
@@ -2616,6 +2617,57 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/refunds'] });
     },
     onError: () => toast({ title: 'Error', description: 'Failed to resolve refund', variant: 'destructive' }),
+  });
+
+  const ziinaRefundMutation = useMutation({
+    mutationFn: async (id: string) =>
+      apiRequest<{ success: boolean; alreadyRefunded?: boolean; pending?: boolean; refundId?: string }>(
+        'POST',
+        `/api/marketplace/admin/refunds/${id}/process`,
+      ),
+    onSuccess: (data) => {
+      const title = data.alreadyRefunded
+        ? 'Already refunded'
+        : data.pending
+          ? 'Refund pending'
+          : 'Refund issued';
+      const description = data.alreadyRefunded
+        ? 'This payment was already refunded — row marked resolved.'
+        : data.pending
+          ? `Ziina is processing the refund${data.refundId ? ` (${data.refundId})` : ''}. The row will resolve and the player will be emailed once Ziina confirms settlement.`
+          : `Ziina has accepted the refund${data.refundId ? ` (${data.refundId})` : ''}. Player has been emailed.`;
+      toast({ title, description });
+      setConfirmRefund(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/refunds'] });
+    },
+    onError: (err: unknown) => {
+      // apiRequest throws plain `{ error, status, code }` objects (not Error
+      // instances). Due to a quirk in throwIfResNotOk's try/catch, `error`
+      // can be either the parsed message or the raw JSON body — try to
+      // unwrap so admins see the real Ziina message in the toast.
+      let raw: string | null = null;
+      if (err && typeof err === 'object' && 'error' in err && typeof (err as { error: unknown }).error === 'string') {
+        raw = (err as { error: string }).error;
+      } else if (err instanceof Error) {
+        raw = err.message;
+      }
+      let description = raw ?? '';
+      if (raw && raw.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object' && typeof parsed.error === 'string') {
+            description = parsed.error;
+          } else if (parsed && typeof parsed === 'object' && typeof parsed.message === 'string') {
+            description = parsed.message;
+          }
+        } catch { /* leave description as raw */ }
+      }
+      toast({
+        title: 'Refund failed',
+        description: description || 'Ziina rejected the refund. The row is still pending — try the dashboard or retry.',
+        variant: 'destructive',
+      });
+    },
   });
 
   const pending = refunds.filter(r => !r.read);
@@ -2639,6 +2691,14 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
     const method = (r.paymentMethod ?? '').toLowerCase();
     const isZiina = method === 'ziina';
     const isCash = method === 'cash';
+    const refundStatus = (r.refundStatus ?? '').toLowerCase();
+    const SUCCESS_STATUSES = ['completed', 'succeeded', 'success', 'refunded'];
+    const FAIL_STATUSES = ['failed', 'declined', 'cancelled', 'canceled', 'rejected'];
+    const isRefunded = isZiina && SUCCESS_STATUSES.includes(refundStatus);
+    const refundFailed = isZiina && FAIL_STATUSES.includes(refundStatus);
+    // Anything Ziina sent back that's neither terminal-success nor
+    // terminal-failure is treated as in-flight (pending settlement).
+    const refundPending = isZiina && refundStatus !== '' && !isRefunded && !refundFailed;
     return (
       <div
         className={`flex flex-col sm:flex-row sm:items-start gap-3 p-4 rounded-md border ${showAction ? 'bg-card' : 'bg-muted/30 opacity-70'}`}
@@ -2660,6 +2720,27 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
             {isCash && (
               <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate" data-testid={`badge-method-cash-${r.id}`}>
                 Cash refund owed
+              </Badge>
+            )}
+            {isRefunded && (
+              <Badge
+                className="bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800 no-default-hover-elevate no-default-active-elevate"
+                data-testid={`badge-refunded-${r.id}`}
+              >
+                Refunded{r.refundedAt ? ` · ${formatDate(r.refundedAt)}` : ''}
+              </Badge>
+            )}
+            {refundPending && (
+              <Badge
+                className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800 no-default-hover-elevate no-default-active-elevate"
+                data-testid={`badge-refund-pending-${r.id}`}
+              >
+                Refund pending
+              </Badge>
+            )}
+            {refundFailed && (
+              <Badge variant="destructive" className="no-default-hover-elevate no-default-active-elevate" data-testid={`badge-refund-failed-${r.id}`}>
+                Refund failed
               </Badge>
             )}
           </div>
@@ -2722,6 +2803,19 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
           )}
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
+          {isZiina && r.ziinaPaymentIntentId && showAction && !isRefunded && !refundPending && (
+            <Button
+              size="sm"
+              onClick={() => setConfirmRefund(r)}
+              disabled={ziinaRefundMutation.isPending}
+              data-testid={`button-refund-ziina-${r.id}`}
+            >
+              {ziinaRefundMutation.isPending && ziinaRefundMutation.variables === r.id ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : null}
+              {`Refund AED ${(r.amountAed ?? 0).toFixed(2)} via Ziina`}
+            </Button>
+          )}
           {isZiina && r.ziinaPaymentIntentId ? (
             <Button
               variant="outline"
@@ -2814,6 +2908,42 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
           </div>
         </div>
       )}
+
+      <AlertDialog open={!!confirmRefund} onOpenChange={(open) => { if (!open) setConfirmRefund(null); }}>
+        <AlertDialogContent data-testid="dialog-confirm-refund">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Refund this booking via Ziina?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>This will issue a full refund to the player's card and email them a confirmation. The Ziina dashboard will also reflect the refund.</p>
+                {confirmRefund && (
+                  <div className="rounded-md border bg-muted/40 p-3 space-y-1 text-foreground">
+                    <p><span className="text-muted-foreground">Player:</span> <span className="font-medium" data-testid="text-confirm-player">{confirmRefund.playerName ?? 'Unknown'}</span></p>
+                    <p><span className="text-muted-foreground">Amount:</span> <span className="font-medium" data-testid="text-confirm-amount">AED {(confirmRefund.amountAed ?? 0).toFixed(2)}</span></p>
+                    <p className="break-all"><span className="text-muted-foreground">Intent:</span> <code className="font-mono text-xs" data-testid="text-confirm-intent">{confirmRefund.ziinaPaymentIntentId}</code></p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">Refunds typically settle within 3–5 working days on the card statement.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-refund">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (confirmRefund) ziinaRefundMutation.mutate(confirmRefund.id);
+              }}
+              disabled={ziinaRefundMutation.isPending}
+              data-testid="button-confirm-refund"
+            >
+              {ziinaRefundMutation.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Refunding…</>
+              ) : 'Confirm refund'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

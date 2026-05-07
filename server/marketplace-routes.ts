@@ -13,6 +13,7 @@ import {
   sendBookingConfirmationEmail,
   sendWaitlistPromotionEmail,
   sendCancellationEmail,
+  sendRefundProcessedEmail,
   sendDisputeResolutionEmail,
   sendGuestBookingEmail,
   sendPlayerLinkOtpEmail,
@@ -32,7 +33,7 @@ import {
   hashPassword,
   verifyRefreshToken,
 } from "./auth/utils";
-import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage } from "./ziinaClient";
+import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage, createZiinaRefund, isZiinaRefundFailed, isZiinaRefundSuccessful } from "./ziinaClient";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { provisionAndEnqueueForBooking, enqueueBookingIfLive } from "./queueAutoAdd";
@@ -3397,6 +3398,132 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error) {
       console.error('Failed to resolve refund notification:', error);
       res.status(500).json({ error: "Failed to resolve refund" });
+    }
+  });
+
+  // Issue a Ziina refund for a Pending Refund row in one click. The route is
+  // idempotent on the notification id: if the linked payment row already
+  // shows a completed refund, we no-op and return success. Cash rows are
+  // rejected (cash settles in person). Failures keep the row pending so the
+  // admin can retry or fall back to the dashboard link.
+  app.post("/api/marketplace/admin/refunds/:notificationId/process", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { notificationId } = req.params;
+      const refund = await storage.getRefundNotification(notificationId);
+      if (!refund) return res.status(404).json({ error: "Refund notification not found" });
+
+      if ((refund.paymentMethod ?? '').toLowerCase() !== 'ziina' || !refund.ziinaPaymentIntentId) {
+        return res.status(400).json({ error: "Only Ziina-paid bookings can be refunded automatically." });
+      }
+      if (!refund.relatedBookingId) {
+        return res.status(400).json({ error: "Refund row has no linked booking." });
+      }
+      if (!refund.amountAed || refund.amountAed <= 0) {
+        return res.status(400).json({ error: "Refund row has no amount." });
+      }
+
+      // Idempotency: only short-circuit when the payment row shows a TERMINAL
+      // success (e.g. the admin double-clicked or a webhook landed first).
+      // A 'pending' status must NOT short-circuit — that refund is in flight
+      // and the unresolved-row guard / button-hide handles re-entry.
+      if (refund.refundStatus && isZiinaRefundSuccessful(refund.refundStatus)) {
+        await storage.resolveRefundNotification(notificationId);
+        return res.json({
+          success: true,
+          alreadyRefunded: true,
+          refundId: refund.ziinaRefundId,
+          refundedAmount: refund.refundedAmount,
+        });
+      }
+
+      // Unresolved-row guard: if the notification was already manually resolved
+      // (e.g. admin clicked "Mark resolved" earlier without an automated refund)
+      // we MUST NOT silently re-charge a Ziina refund — refuse and let the
+      // admin investigate.
+      if (refund.read) {
+        return res.status(409).json({
+          error: "This refund row was already resolved. If a refund is still owed, re-open it before processing via Ziina.",
+        });
+      }
+
+      const amountFils = Math.round(refund.amountAed * 100);
+      let ziinaResult: Awaited<ReturnType<typeof createZiinaRefund>>;
+      try {
+        ziinaResult = await createZiinaRefund({
+          intentId: refund.ziinaPaymentIntentId,
+          amountFils,
+          reason: 'event_cancelled_by_admin',
+          // Idempotency key per-notification so a double-submit can't double-refund
+          // even if our own short-circuit above raced.
+          idempotencyKey: `refund-${notificationId}`,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Ziina refund failed';
+        console.error('[Refund] Ziina API failed', { notificationId, intentId: refund.ziinaPaymentIntentId, error: message });
+        return res.status(502).json({ error: message });
+      }
+
+      // Ziina refunds may settle asynchronously. We only mark the row resolved
+      // and email the player when Ziina returns a TERMINAL success status. For
+      // pending statuses we persist the in-flight state and leave the row
+      // unresolved — the refund.* webhook will finalize it later.
+      const reportedStatus = (ziinaResult.status || '').toLowerCase();
+      const isTerminalSuccess = reportedStatus === '' || isZiinaRefundSuccessful(reportedStatus);
+      const isTerminalFailure = isZiinaRefundFailed(reportedStatus);
+      const persistedStatus = isTerminalSuccess
+        ? (reportedStatus || 'completed')
+        : (isTerminalFailure ? reportedStatus : 'pending');
+      const refundedAt = new Date();
+
+      await storage.recordZiinaRefund({
+        bookingId: refund.relatedBookingId,
+        intentId: refund.ziinaPaymentIntentId,
+        refundId: ziinaResult.id,
+        amountFils,
+        status: persistedStatus,
+        refundedAt: isTerminalSuccess ? refundedAt : null,
+      });
+
+      if (isTerminalFailure) {
+        // Ziina synchronously rejected — keep the row pending so the admin can
+        // retry; surface the upstream message.
+        return res.status(502).json({ error: `Ziina refund failed (${persistedStatus}).` });
+      }
+
+      if (isTerminalSuccess) {
+        await storage.resolveRefundNotification(notificationId);
+
+        // Fire-and-forget refund email — only on terminal success, never on
+        // pending. Never block the API response on Resend.
+        if (refund.playerEmail && refund.bookingSessionId) {
+          try {
+            const session = await storage.getBookableSession(refund.bookingSessionId);
+            if (session) {
+              sendRefundProcessedEmail(
+                refund.playerEmail,
+                refund.playerName ?? 'there',
+                session,
+                refund.amountAed,
+                ziinaResult.id,
+              ).catch(() => {});
+            }
+          } catch (err) {
+            console.error('[Refund] Lookup for email failed', { notificationId, error: err });
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        pending: !isTerminalSuccess,
+        refundId: ziinaResult.id,
+        refundedAmount: amountFils,
+        status: persistedStatus,
+        refundedAt: isTerminalSuccess ? refundedAt.toISOString() : null,
+      });
+    } catch (error) {
+      console.error('[Refund] Process failed:', error);
+      res.status(500).json({ error: "Failed to process refund" });
     }
   });
 

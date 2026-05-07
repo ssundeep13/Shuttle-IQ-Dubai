@@ -2,10 +2,11 @@ import crypto from "crypto";
 import type { Express } from "express";
 import express from "express";
 import { storage } from "./storage";
-import { isZiinaPaymentSuccessful } from "./ziinaClient";
+import { isZiinaPaymentSuccessful, isZiinaRefundSuccessful } from "./ziinaClient";
 import {
   sendBookingConfirmationEmail,
   sendGuestBookingEmail,
+  sendRefundProcessedEmail,
 } from "./emailClient";
 import { provisionAndEnqueueForBooking } from "./queueAutoAdd";
 
@@ -224,6 +225,63 @@ export function registerZiinaWebhookRoute(app: Express) {
       const eventType: string | undefined = payload.event;
 
       console.log(`[Ziina Webhook] Received event="${eventType}" intentId="${intentId}" status="${intentStatus}"`);
+
+      // Refund events: refund.completed | refund.failed. Update the matching
+      // payment row so the admin Refunds tab reflects asynchronous settlement.
+      if (eventType && eventType.startsWith("refund.")) {
+        const refundObj: any = payload.refund ?? paymentIntent;
+        const refundIntentId: string | undefined =
+          refundObj?.payment_intent_id ?? refundObj?.payment_intent ?? intentId;
+        const refundId: string | null = refundObj?.id ?? null;
+        const refundStatus: string =
+          refundObj?.status ?? (eventType === "refund.completed" ? "completed" : "failed");
+        const refundAmount: number | null =
+          typeof refundObj?.amount === "number" ? refundObj.amount : null;
+
+        if (refundIntentId) {
+          try {
+            const result = await storage.markZiinaRefundFromWebhook({
+              intentId: refundIntentId,
+              refundId,
+              status: refundStatus,
+              amountFils: refundAmount,
+              refundedAt: new Date(),
+            });
+            console.log(`[Ziina Webhook] refund event ${eventType} intent=${refundIntentId} →`, result);
+
+            // On refund.completed (or any terminal-success status Ziina sends),
+            // finalize the workflow: resolve the refund_required notification
+            // and email the player. We look up the unresolved notification for
+            // this booking so we don't double-resolve / double-email if the
+            // admin already handled it via the in-app button.
+            if (result.matched && result.bookingId && isZiinaRefundSuccessful(refundStatus)) {
+              try {
+                const notif = await storage.getUnresolvedRefundNotificationByBooking(result.bookingId);
+                if (notif) {
+                  await storage.resolveRefundNotification(notif.id);
+                  if (notif.playerEmail && notif.bookingSessionId && notif.amountAed) {
+                    const session = await storage.getBookableSession(notif.bookingSessionId);
+                    if (session) {
+                      sendRefundProcessedEmail(
+                        notif.playerEmail,
+                        notif.playerName ?? 'there',
+                        session,
+                        notif.amountAed,
+                        refundId ?? notif.ziinaRefundId ?? '',
+                      ).catch((err) => console.error('[Ziina Webhook] refund email failed', err));
+                    }
+                  }
+                }
+              } catch (err) {
+                console.error("[Ziina Webhook] Error finalizing refund notification:", err);
+              }
+            }
+          } catch (err) {
+            console.error("[Ziina Webhook] Error applying refund event:", err);
+          }
+        }
+        return res.status(200).json({ received: true });
+      }
 
       // Only process payment_intent.status.updated events (ignore everything else).
       if (eventType && eventType !== "payment_intent.status.updated") {

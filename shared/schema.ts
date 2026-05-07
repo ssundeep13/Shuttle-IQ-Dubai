@@ -429,6 +429,13 @@ export const payments = pgTable("payments", {
   status: text("status").notNull().default('pending'),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
+  // Refund tracking — populated when an admin issues a refund via Ziina.
+  // refundStatus: null (no refund) | 'pending' (request accepted, awaiting Ziina settlement)
+  // | 'completed' (Ziina confirmed) | 'failed' (Ziina rejected the refund).
+  ziinaRefundId: text("ziina_refund_id"),
+  refundedAmount: integer("refunded_amount"),
+  refundedAt: timestamp("refunded_at"),
+  refundStatus: text("refund_status"),
 });
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
@@ -811,4 +818,11 @@ export interface RefundNotificationWithDetails {
   sessionTitle: string | null;
   sessionDate: Date | null;
   sessionVenueName: string | null;
+  // Refund processing state — sourced from the linked payment row when one
+  // exists. Used to flip the row from "Pending" to "Refunded" in the admin
+  // Refunds tab and disable the "Refund via Ziina" button.
+  refundStatus: string | null;
+  refundedAt: Date | null;
+  refundedAmount: number | null;
+  ziinaRefundId: string | null;
 }
