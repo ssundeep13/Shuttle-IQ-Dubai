@@ -142,6 +142,12 @@ describe('RefundsTabContent — event-cancellation refund rows', () => {
 
     // The cancellation message context (refund amount + method) is shown.
     expect(screen.getByTestId(`text-refund-message-${ZIINA_REFUND.id}`).textContent).toMatch(/Full refund of AED 50\.00/);
+
+    // Order number is rendered alongside the Ziina intent so the admin can
+    // quote it back to the player when processing in Ziina.
+    const orderEl = screen.getByTestId(`text-refund-order-${ZIINA_REFUND.id}`);
+    expect(orderEl.textContent).toBe(`#${ZIINA_REFUND.relatedBookingId}`);
+    expect(screen.getByTestId(`button-copy-order-${ZIINA_REFUND.id}`)).toBeInTheDocument();
   });
 
   it('marks cash refunds with a "Cash refund owed" badge and in-person settlement guidance, no Ziina CTA', async () => {
@@ -158,5 +164,11 @@ describe('RefundsTabContent — event-cancellation refund rows', () => {
     expect(screen.getByTestId(`text-cash-instructions-${CASH_REFUND.id}`).textContent).toMatch(/Settle in person/);
     expect(screen.queryByTestId(`button-ziina-dashboard-${CASH_REFUND.id}`)).toBeNull();
     expect(screen.queryByTestId(`text-refund-intent-${CASH_REFUND.id}`)).toBeNull();
+
+    // Order number stays visible on cash rows so admins can reference it
+    // when settling in person.
+    const orderEl = screen.getByTestId(`text-refund-order-${CASH_REFUND.id}`);
+    expect(orderEl.textContent).toBe(`#${CASH_REFUND.relatedBookingId}`);
+    expect(screen.getByTestId(`button-copy-order-${CASH_REFUND.id}`)).toBeInTheDocument();
   });
 });

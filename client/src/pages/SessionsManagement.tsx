@@ -2676,10 +2676,26 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
               <span>{r.spotsBooked} spots</span>
             )}
             <span>Flagged {formatDate(r.createdAt)}</span>
-            {r.relatedBookingId && (
-              <span className="font-mono">#{r.relatedBookingId.slice(-8)}</span>
-            )}
           </div>
+          {r.relatedBookingId && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-xs text-muted-foreground">Order</span>
+              <code
+                className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded"
+                data-testid={`text-refund-order-${r.id}`}
+              >
+                #{r.relatedBookingId}
+              </code>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => copyToClipboard(r.relatedBookingId!, 'Order number')}
+                data-testid={`button-copy-order-${r.id}`}
+              >
+                Copy
+              </Button>
+            </div>
+          )}
           {isZiina && r.ziinaPaymentIntentId && (
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <span className="text-xs text-muted-foreground">Intent</span>
