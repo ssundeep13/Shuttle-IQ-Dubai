@@ -152,22 +152,26 @@ export async function registerZiinaWebhook(webhookUrl: string, secret: string): 
 
 // ─── Refunds ──────────────────────────────────────────────────────────────
 //
-// Discovery probe (2026-05-07) against api-v2.ziina.com:
-//   POST /api/refund    body { payment_intent_id, amount }
-//     → 400 PAYMENT_INTENT_NOT_FOUND for an unknown intent (endpoint exists,
-//        bearer auth is accepted, body shape validated)
-//     → 400 NOT_AUTHORISED when payment_intent_id is omitted (intent ID is
-//        required + checked before other fields)
+// Discovery probe (2026-05-07, refined after a live 400 from the admin UI):
+//   POST /api/refund    body { id, currency_code, amount }
+//     → 200 with refund object on success
+//     → 400 NOT_AUTHORISED when the intent UUID isn't owned by this account
+//     → 400 "id must be a UUID, currency_code must be longer than or equal
+//        to 3 characters" if either field is missing/wrong shape
+//   The earlier probe that suggested `{ payment_intent_id, amount }` was
+//   misleading: Ziina ignored the unknown `payment_intent_id` field and
+//   surfaced a NOT_AUTHORISED on the (missing) `id` instead of a clean
+//   validation error. Real shape requires `id` (the intent UUID),
+//   `currency_code` (e.g. "AED"), and `amount` in fils.
+//
 //   POST /api/refunds   → 404 (not the right path)
 //   POST /api/payment_intent/{id}/refund → 404 (not the right path)
 //   GET  /api/refund    → 404 (no list endpoint exposed)
 //   GET  /api/refund/{id} → 500 22P02 (probably exists but expects UUID)
 //
-// So the canonical endpoint is `POST /api/refund` with `{ payment_intent_id,
-// amount }` where `amount` is in fils (same convention as payment_intent
-// creation). Idempotency-Key header is accepted (no error) but Ziina's docs
-// don't confirm whether it's actually deduplicated server-side, so we ALSO
-// guard against double-refunds at the application layer (payments.refundStatus).
+// Idempotency-Key header is accepted (no error) but Ziina's docs don't
+// confirm whether it's actually deduplicated server-side, so we ALSO guard
+// against double-refunds at the application layer (payments.refundStatus).
 //
 // Refund webhook event names: Ziina docs list `refund.completed` and
 // `refund.failed` alongside `payment_intent.status.updated`. The webhook
@@ -184,6 +188,7 @@ export interface ZiinaRefund {
 export async function createZiinaRefund(input: {
   intentId: string;
   amountFils: number;
+  currencyCode?: string;
   reason?: string;
   idempotencyKey?: string;
 }): Promise<ZiinaRefund> {
@@ -195,7 +200,8 @@ export async function createZiinaRefund(input: {
   if (input.idempotencyKey) headers['Idempotency-Key'] = input.idempotencyKey;
 
   const body: Record<string, unknown> = {
-    payment_intent_id: input.intentId,
+    id: input.intentId,
+    currency_code: input.currencyCode || 'AED',
     amount: input.amountFils,
   };
   if (input.reason) body.reason = input.reason;
