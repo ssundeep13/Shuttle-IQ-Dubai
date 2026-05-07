@@ -936,12 +936,14 @@ function SessionCard({
           {onCancelEvent && !isEventCancelled && (
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={onCancelEvent}
               data-testid={`button-cancel-event-${session.id}`}
               title="Cancel event and refund bookers"
+              className="text-destructive hover:text-destructive"
             >
-              <XCircle className="w-4 h-4 text-destructive" />
+              <XCircle className="w-4 h-4 mr-1" />
+              Cancel event
             </Button>
           )}
           <Button 
