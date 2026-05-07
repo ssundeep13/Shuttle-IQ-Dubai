@@ -825,4 +825,9 @@ export interface RefundNotificationWithDetails {
   refundedAt: Date | null;
   refundedAmount: number | null;
   ziinaRefundId: string | null;
+  // Exact moment the payment cleared (sourced from payments.completedAt,
+  // falling back to payments.createdAt if the row was inserted but the
+  // webhook hadn't stamped completion yet). Lets the admin reconcile a
+  // refund row against the corresponding entry in the Ziina Business app.
+  paymentAt: Date | null;
 }

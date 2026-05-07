@@ -2678,6 +2678,13 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
     return format(new Date(d), 'dd MMM yyyy');
   };
 
+  // Refund reconciliation needs the *exact* moment the player paid so an
+  // admin can match this row to the corresponding line in the Ziina app.
+  const formatDateTime = (d: Date | string | null) => {
+    if (!d) return '—';
+    return format(new Date(d), 'dd MMM yyyy, HH:mm');
+  };
+
   const copyToClipboard = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -2755,6 +2762,11 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
             )}
             {r.spotsBooked != null && r.spotsBooked > 1 && (
               <span>{r.spotsBooked} spots</span>
+            )}
+            {isZiina && r.paymentAt && (
+              <span data-testid={`text-refund-paid-at-${r.id}`}>
+                Paid {formatDateTime(r.paymentAt)}
+              </span>
             )}
             <span>Flagged {formatDate(r.createdAt)}</span>
           </div>

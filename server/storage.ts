@@ -2315,6 +2315,8 @@ export class DatabaseStorage implements IStorage {
         refundedAt: payments.refundedAt,
         refundedAmount: payments.refundedAmount,
         ziinaRefundId: payments.ziinaRefundId,
+        paymentCompletedAt: payments.completedAt,
+        paymentCreatedAt: payments.createdAt,
       })
       .from(marketplaceNotifications)
       .leftJoin(bookings, eq(marketplaceNotifications.relatedBookingId, bookings.id))
@@ -2352,6 +2354,7 @@ export class DatabaseStorage implements IStorage {
       refundedAt: row.refundedAt ?? null,
       refundedAmount: row.refundedAmount ?? null,
       ziinaRefundId: row.ziinaRefundId ?? null,
+      paymentAt: row.paymentCompletedAt ?? row.paymentCreatedAt ?? null,
     }));
   }
 
