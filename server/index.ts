@@ -104,11 +104,13 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  // Task #237 — back-fill onboardingCompleted=true for every marketplace user
-  // that existed before this feature shipped, so production users are not
-  // re-prompted on their next login. Idempotent: only flips rows that are
-  // still at the default `false` AND were created before the feature cutoff.
-  // Safe to run on every boot.
+  // Task #237 — one-shot back-fill that flips every marketplace_users row
+  // existing at first boot to `onboardingCompleted=true`, so production
+  // users are never re-prompted. Tracked via a marker row in
+  // `system_one_shot_migrations`; subsequent boots are no-ops, so signups
+  // created after this point correctly stay at the default `false` and are
+  // routed into the quiz. Runs before `app.listen` so no signup can race
+  // it on the very first boot. Safe to call on every boot.
   try {
     await backfillOnboardingCompletedForLegacyUsers();
   } catch (e) {

@@ -3835,34 +3835,52 @@ export class DatabaseStorage implements IStorage {
 
 export const storage = new DatabaseStorage();
 
-// Task #237 — Idempotent boot-time back-fill. Marks every legacy
-// marketplace_users row as already-onboarded so existing production users
-// are not re-prompted to take the quiz. "Legacy" is defined deterministically
-// as ANY user that has already interacted with the system before the
-// onboarding feature shipped — i.e. has a linkedPlayerId set, or has at
-// least one row in `bookings`. Brand-new signups have neither and are
-// therefore correctly left in the default `onboarding_completed=false`
-// state so the quiz is shown to them.
+// Task #237 — One-shot legacy back-fill (spec line 19: "Existing players
+// (everyone in production today) are unaffected — onboardingCompleted is
+// back-filled to true for them"). On the *first* boot after this feature
+// ships, flip every existing marketplace_users row to
+// onboardingCompleted=true. We persist a marker row in a tiny tracker
+// table so subsequent boots are no-ops, which means brand-new signups
+// (created after the marker is set) correctly retain the default
+// `onboarding_completed=false` and are shown the quiz.
 //
-// This avoids the brittleness of a wall-clock cutoff (rows created during
-// the rollout window get classified deterministically by their data, not
-// by the second they were inserted). It is also fully idempotent — only
-// flips rows where the flag is still false.
+// This implementation is deterministic, idempotent, and does not rely on
+// wall-clock cutoffs or heuristics over user data — the marker row in
+// `system_one_shot_migrations` is the single source of truth for whether
+// the back-fill has already run.
 export async function backfillOnboardingCompletedForLegacyUsers(): Promise<number> {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS system_one_shot_migrations (
+      key text PRIMARY KEY,
+      ran_at timestamp NOT NULL DEFAULT now()
+    )
+  `);
+
+  const marker = await db.execute(sql`
+    SELECT 1 FROM system_one_shot_migrations
+     WHERE key = 'onboarding_completed_legacy_backfill_v1'
+     LIMIT 1
+  `);
+  const markerRows = (marker as { rows?: unknown[] }).rows ?? [];
+  if (markerRows.length > 0) {
+    return 0; // Already ran — every legacy user is flipped, new signups must take the quiz.
+  }
+
   const result = await db.execute(sql`
     UPDATE marketplace_users
        SET onboarding_completed = true
      WHERE onboarding_completed = false
-       AND (
-         linked_player_id IS NOT NULL
-         OR EXISTS (
-           SELECT 1 FROM bookings b WHERE b.user_id = marketplace_users.id
-         )
-       )
   `);
   const count = (result as { rowCount?: number | null }).rowCount ?? 0;
-  if (count > 0) {
-    console.log(`[Onboarding backfill] flipped ${count} legacy marketplace_users to onboarding_completed=true`);
-  }
+
+  await db.execute(sql`
+    INSERT INTO system_one_shot_migrations (key)
+    VALUES ('onboarding_completed_legacy_backfill_v1')
+    ON CONFLICT (key) DO NOTHING
+  `);
+
+  console.log(
+    `[Onboarding backfill] One-shot legacy backfill ran: flipped ${count} marketplace_users to onboarding_completed=true`,
+  );
   return count;
 }
