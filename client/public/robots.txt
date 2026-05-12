@@ -3,11 +3,21 @@ Allow: /
 Disallow: /admin/
 Disallow: /session/
 Disallow: /player/
+Disallow: /players
+Disallow: /login
 Disallow: /marketplace/checkout/
 Disallow: /marketplace/guest-cancel
 Disallow: /marketplace/guests/
 Disallow: /marketplace/auth/
+Disallow: /marketplace/dashboard
+Disallow: /marketplace/my-bookings
+Disallow: /marketplace/my-scores
+Disallow: /marketplace/game-history
+Disallow: /marketplace/profile
 Disallow: /carousel
+Disallow: /features-carousel
 Disallow: /instagram-leaderboard
+Disallow: /screenshot-harness
+Disallow: /welcome
 
 Sitemap: https://shuttleiq.org/sitemap.xml

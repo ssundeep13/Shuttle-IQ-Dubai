@@ -8,6 +8,7 @@ import { MarketplaceAuthProvider } from "@/contexts/MarketplaceAuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { MarketplaceProtectedRoute } from "@/components/MarketplaceProtectedRoute";
 import { RootRedirect } from "@/components/RootRedirect";
+import { RobotsMetaController } from "@/components/RobotsMetaController";
 import { MarketplaceLayout } from "@/pages/marketplace/MarketplaceLayout";
 import { Component, useEffect, useState } from "react";
 import type { ReactNode, ErrorInfo } from "react";
@@ -265,6 +266,7 @@ function App() {
         <MarketplaceAuthProvider>
           <TooltipProvider>
             <ConnectionBanner />
+            <RobotsMetaController />
             <Toaster />
             <Router />
           </TooltipProvider>

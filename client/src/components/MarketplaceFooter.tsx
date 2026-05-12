@@ -8,7 +8,7 @@ export function MarketplaceFooter() {
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-12">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-8">
           <div className="sm:col-span-2 md:col-span-1">
-            <Link href="/" className="inline-block mb-3">
+            <Link href="/" aria-label="ShuttleIQ home" className="inline-block mb-3">
               <span className="text-xl font-bold tracking-tight">
                 Shuttle<span className="text-secondary">IQ</span>
               </span>

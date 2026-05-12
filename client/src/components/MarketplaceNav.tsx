@@ -171,7 +171,7 @@ export function MarketplaceNav() {
       data-testid="marketplace-nav"
     >
       <div className="max-w-6xl mx-auto flex h-14 items-center gap-2 px-4 md:px-6">
-        <Link href="/" className="flex items-center gap-2 mr-6 shrink-0" data-testid="link-marketplace-home">
+        <Link href="/" aria-label="ShuttleIQ home" className="flex items-center gap-2 mr-6 shrink-0" data-testid="link-marketplace-home">
           <span className="text-xl font-bold tracking-tight text-white">
             Shuttle<span style={{ color: '#006B5F' }}>IQ</span>
           </span>

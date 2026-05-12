@@ -7,6 +7,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./scheduler";
 import { seedTags } from "./tagSeed";
 import { registerZiinaWebhookRoute } from "./webhookHandler";
+import { isNoindexPath } from "../shared/seo";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -47,6 +48,18 @@ app.use('/api/marketplace/auth/signup', authLimiter);
 // to keep the server warm and prevent cold-start delays for real users.
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, ts: Date.now() });
+});
+
+// Emit X-Robots-Tag: noindex on private routes so crawlers that don't
+// execute JS (and therefore can't see the per-page <meta name="robots">
+// override) still skip them. Path list is the single source of truth in
+// shared/seo.ts.
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/")) return next();
+  if (isNoindexPath(req.path)) {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  }
+  next();
 });
 
 // Warn at startup if ZIINA_WEBHOOK_SECRET is missing while Ziina is configured.
