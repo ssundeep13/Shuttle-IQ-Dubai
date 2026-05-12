@@ -92,6 +92,21 @@ export default function Onboarding() {
     ]);
   }, [allAnswered, experience, rallies, games]);
 
+  // Minimal shape of the cached /auth/me payload that this page mutates.
+  // Matches the fields read by guards in MarketplaceProtectedRoute and the
+  // MarketplaceAuthContext consumer (extra fields are preserved via spread).
+  type AuthMeCache = {
+    onboardingCompleted?: boolean;
+    onboardingAnswers?: { experience: number; rallies: number; games: number } | null;
+    canRetakeOnboarding?: boolean;
+    [key: string]: unknown;
+  };
+
+  // Server errors come through `apiRequest`'s rejection shape:
+  // `{ error: string; status?: number; code?: string }`. We accept the
+  // network-level `Error` shape too as a defensive fallback.
+  type ApiErrorShape = { error?: string; message?: string };
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       return apiRequest<{ score: number; tier: string }>('POST', '/api/marketplace/onboarding', {
@@ -108,19 +123,25 @@ export default function Onboarding() {
       // Optimistically flip onboardingCompleted in the cached /auth/me payload
       // so the protected-route guard does not bounce us back to onboarding
       // before the refetch lands. The invalidate then refreshes the rest.
-      queryClient.setQueryData<any>(['/api/marketplace/auth/me'], (prev: any) =>
-        prev
-          ? {
-              ...prev,
-              onboardingCompleted: true,
-              onboardingAnswers: { experience, rallies, games },
-            }
-          : prev,
+      queryClient.setQueryData<AuthMeCache | undefined>(
+        ['/api/marketplace/auth/me'],
+        (prev) =>
+          prev
+            ? {
+                ...prev,
+                onboardingCompleted: true,
+                onboardingAnswers: {
+                  experience: experience as number,
+                  rallies: rallies as number,
+                  games: games as number,
+                },
+              }
+            : prev,
       );
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
       setLocation(isRetake ? '/marketplace/profile' : '/marketplace/dashboard');
     },
-    onError: (err: any) => {
+    onError: (err: ApiErrorShape) => {
       const msg = err?.error || err?.message || 'Could not save your answers';
       if (msg === 'gameplay_score_locked') {
         toast({
@@ -144,13 +165,15 @@ export default function Onboarding() {
       toast({ title: 'Skipped — you can start exploring' });
       // Same optimistic flip as the submit path so the redirect guard does not
       // immediately bounce us back here on the next render.
-      queryClient.setQueryData<any>(['/api/marketplace/auth/me'], (prev: any) =>
-        prev ? { ...prev, onboardingCompleted: true, onboardingAnswers: null } : prev,
+      queryClient.setQueryData<AuthMeCache | undefined>(
+        ['/api/marketplace/auth/me'],
+        (prev) =>
+          prev ? { ...prev, onboardingCompleted: true, onboardingAnswers: null } : prev,
       );
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
       setLocation('/marketplace/dashboard');
     },
-    onError: (err: any) => {
+    onError: (err: ApiErrorShape) => {
       toast({
         title: 'Could not skip',
         description: err?.error || err?.message || 'Try again',
