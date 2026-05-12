@@ -246,6 +246,20 @@ export function estimateScoreFromLegacyLevel(legacyLevel: string): number {
 export type OnboardingAnswer = 1 | 2 | 3 | 4;
 export type OnboardingScore = 35 | 55 | 75 | 95;
 
+/**
+ * Implements the scoring rule from Task #237 spec:
+ *
+ *   avg = (a1 + a2 + a3) / 3, then snap to nearest tier midpoint:
+ *     1.0 ≤ avg < 1.5 → 35  (Novice)
+ *     1.5 ≤ avg < 2.5 → 55  (Beginner)
+ *     2.5 ≤ avg < 3.5 → 75  (lower_intermediate, displayed "Intermediate")
+ *     3.5 ≤ avg ≤ 4.0 → 95  (upper_intermediate, displayed "Competitive")
+ *
+ * Pure-tier answers ([1,1,1] / [2,2,2] / [3,3,3] / [4,4,4]) hit
+ * 35 / 55 / 75 / 95 exactly. Mixed answers snap to the nearest band.
+ * Maximum starting score is hard-capped at 95 — Advanced (110+) and
+ * Professional (160+) tiers can only ever be earned through gameplay.
+ */
 export function computeOnboardingScore(
   answers: [OnboardingAnswer, OnboardingAnswer, OnboardingAnswer],
 ): { score: OnboardingScore; tier: SkillTier } {

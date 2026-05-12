@@ -3834,3 +3834,24 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// Task #237 — Idempotent boot-time back-fill. Marks every marketplace_users
+// row that pre-dates the onboarding feature as already-completed so existing
+// production users are not re-prompted to take the quiz. Only touches rows
+// where onboarding_completed is still the column default (false). The
+// CUTOFF_ISO is set to just after the feature shipped — any row with a
+// created_at strictly before this is treated as legacy.
+const ONBOARDING_BACKFILL_CUTOFF_ISO = "2026-05-12T12:00:00.000Z";
+export async function backfillOnboardingCompletedForLegacyUsers(): Promise<number> {
+  const result = await db.execute(sql`
+    UPDATE marketplace_users
+       SET onboarding_completed = true
+     WHERE onboarding_completed = false
+       AND created_at < ${ONBOARDING_BACKFILL_CUTOFF_ISO}::timestamp
+  `);
+  const count = (result as any).rowCount ?? 0;
+  if (count > 0) {
+    console.log(`[Onboarding backfill] flipped ${count} legacy marketplace_users to onboarding_completed=true`);
+  }
+  return count;
+}

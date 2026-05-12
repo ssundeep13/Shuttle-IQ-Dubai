@@ -494,6 +494,12 @@ export function registerMarketplaceRoutes(app: Express) {
       const linkedPlayerGamesPlayed = linkedPlayer?.gamesPlayed ?? 0;
       const canRetakeOnboarding =
         user.onboardingCompleted && hasAnswers && linkedPlayerGamesPlayed === 0;
+      // Per spec: a user whose linked player already has prior gameplay must
+      // skip the quiz entirely (gameplay-driven score wins, never overwrite).
+      // Surface that as effectively-completed so the redirect guard does not
+      // funnel them through the onboarding screen.
+      const effectiveOnboardingCompleted =
+        user.onboardingCompleted || linkedPlayerGamesPlayed > 0;
 
       res.json({
         id: user.id,
@@ -506,7 +512,7 @@ export function registerMarketplaceRoutes(app: Express) {
         emailVerified: user.emailVerified,
         hasPassword: !!user.passwordHash,
         photoUrl: user.photoUrl,
-        onboardingCompleted: user.onboardingCompleted,
+        onboardingCompleted: effectiveOnboardingCompleted,
         onboardingAnswers: hasAnswers
           ? {
               experience: user.onboardingExperience,

@@ -6,6 +6,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./scheduler";
 import { seedTags } from "./tagSeed";
+import { backfillOnboardingCompletedForLegacyUsers } from "./storage";
 import { registerZiinaWebhookRoute } from "./webhookHandler";
 import { isNoindexPath } from "../shared/seo";
 
@@ -102,6 +103,17 @@ app.use((req, res, next) => {
 
 (async () => {
   const server = await registerRoutes(app);
+
+  // Task #237 — back-fill onboardingCompleted=true for every marketplace user
+  // that existed before this feature shipped, so production users are not
+  // re-prompted on their next login. Idempotent: only flips rows that are
+  // still at the default `false` AND were created before the feature cutoff.
+  // Safe to run on every boot.
+  try {
+    await backfillOnboardingCompletedForLegacyUsers();
+  } catch (e) {
+    console.error("[Onboarding backfill] failed (non-fatal):", e);
+  }
 
   await seedTags();
 
