@@ -89,6 +89,7 @@ import {
   type InsertPlayerLinkRequest,
   type PlayerLinkRequestWithDetails,
 } from "@shared/schema";
+import { computeOnboardingScore } from "@shared/utils/skillUtils";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -1609,13 +1610,42 @@ export class DatabaseStorage implements IStorage {
     }
 
     // No claimable match → create a fresh player row and link it.
+    // If the marketplace user has completed onboarding with concrete answers,
+    // seed their starting skillScore + level from the quiz instead of the flat
+    // default. A "skipped" onboarding (`onboardingCompleted=true` with null
+    // answers) falls back to the default 50 / Beginner so it behaves exactly
+    // like a pre-onboarding signup.
+    let seededScore = 50;
+    let seededLevel: string = 'Beginner';
+    if (
+      user.onboardingCompleted &&
+      user.onboardingExperience != null &&
+      user.onboardingRallies != null &&
+      user.onboardingGames != null
+    ) {
+      try {
+        const { score, tier } = computeOnboardingScore([
+          user.onboardingExperience as 1 | 2 | 3 | 4,
+          user.onboardingRallies as 1 | 2 | 3 | 4,
+          user.onboardingGames as 1 | 2 | 3 | 4,
+        ]);
+        seededScore = score;
+        seededLevel = tier;
+      } catch (err) {
+        console.warn(
+          `[ensurePlayerForMarketplaceUser] Invalid onboarding answers for user ${userId}; using defaults`,
+          err,
+        );
+      }
+    }
+
     const newPlayer = await this.createPlayer({
       name: user.name,
       email: user.email || null,
       phone: user.phone || null,
       gender: user.gender || 'Male',
-      level: 'Beginner',
-      skillScore: 50,
+      level: seededLevel,
+      skillScore: seededScore,
       gamesPlayed: 0,
       wins: 0,
       status: 'waiting',

@@ -12,6 +12,9 @@ interface MarketplaceUser {
   emailVerified: boolean;
   hasPassword: boolean;
   photoUrl?: string | null;
+  onboardingCompleted?: boolean;
+  onboardingAnswers?: { experience: number; rallies: number; games: number } | null;
+  canRetakeOnboarding?: boolean;
 }
 
 interface MarketplaceAuthContextType {

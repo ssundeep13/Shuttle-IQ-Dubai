@@ -230,6 +230,41 @@ export function estimateScoreFromLegacyLevel(legacyLevel: string): number {
   return DEFAULT_NEW_PLAYER_SCORE;
 }
 
+/**
+ * Onboarding skill quiz (Task #237).
+ * Maps three 1–4 self-assessment answers to a starting skill score + tier.
+ *
+ *   avg = (a1 + a2 + a3) / 3, snap to nearest tier midpoint:
+ *     1.0 ≤ avg < 1.5 → 35  Novice
+ *     1.5 ≤ avg < 2.5 → 55  Beginner
+ *     2.5 ≤ avg < 3.5 → 75  lower_intermediate (Intermediate)
+ *     3.5 ≤ avg ≤ 4.0 → 95  upper_intermediate (Competitive)
+ *
+ * Maximum starting score is hard-capped at 95 — Advanced (110+) and
+ * Professional (160+) tiers can only ever be earned through gameplay.
+ */
+export type OnboardingAnswer = 1 | 2 | 3 | 4;
+export type OnboardingScore = 35 | 55 | 75 | 95;
+
+export function computeOnboardingScore(
+  answers: [OnboardingAnswer, OnboardingAnswer, OnboardingAnswer],
+): { score: OnboardingScore; tier: SkillTier } {
+  for (const a of answers) {
+    if (!Number.isInteger(a) || a < 1 || a > 4) {
+      throw new Error(`Invalid onboarding answer: ${a}`);
+    }
+  }
+  const avg = (answers[0] + answers[1] + answers[2]) / 3;
+  let score: OnboardingScore;
+  if (avg < 1.5) score = 35;
+  else if (avg < 2.5) score = 55;
+  else if (avg < 3.5) score = 75;
+  else score = 95;
+  // Defensive cap — should be unreachable since 95 is the maximum band above.
+  if (score > 95) score = 95;
+  return { score, tier: getSkillTier(score) };
+}
+
 export function getSkillTierColor(tier: string): string {
   if (tier === 'Novice' || tier === 'Beginner') {
     return 'border-success/20 bg-success/10 text-success';

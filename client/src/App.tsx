@@ -44,6 +44,7 @@ import GameHistory from "@/pages/marketplace/GameHistory";
 import JoinTheCrew from "@/pages/marketplace/JoinTheCrew";
 import ScoringGuide from "@/pages/marketplace/ScoringGuide";
 import GoogleAuthCallback from "@/pages/marketplace/GoogleAuthCallback";
+import Onboarding from "@/pages/marketplace/Onboarding";
 import BlogList from "@/pages/marketplace/BlogList";
 import BlogPost from "@/pages/marketplace/BlogPost";
 import Welcome from "@/pages/marketplace/Welcome";
@@ -223,6 +224,9 @@ function Router() {
         </Route>
         <Route path="/marketplace/profile">
           <MarketplaceAuthRoute component={Profile} />
+        </Route>
+        <Route path="/marketplace/onboarding">
+          <MarketplaceAuthRoute component={Onboarding} />
         </Route>
         <Route path="/marketplace/players/:playerId/personality-card" component={PersonalityCard} />
         <Route path="/marketplace/players/:playerId">

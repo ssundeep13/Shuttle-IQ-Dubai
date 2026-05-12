@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex, unique, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, smallint, timestamp, boolean, uniqueIndex, unique, primaryKey } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -311,6 +311,15 @@ export const marketplaceUsers = pgTable("marketplace_users", {
   emailVerificationToken: text("email_verification_token"),
   emailVerificationTokenExpiry: timestamp("email_verification_token_expiry"),
   photoUrl: text("photo_url"),
+  // Onboarding skill quiz (Task #237). `onboardingCompleted` is back-filled to
+  // `true` for every existing row in the same migration so production users are
+  // never re-prompted. The three answer columns stay nullable: a "skip" submit
+  // sets the flag without storing answers (treated as "user opted out").
+  onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
+  onboardingExperience: smallint("onboarding_experience"),
+  onboardingRallies: smallint("onboarding_rallies"),
+  onboardingGames: smallint("onboarding_games"),
+  onboardingCompletedAt: timestamp("onboarding_completed_at"),
 });
 
 export const insertMarketplaceUserSchema = createInsertSchema(marketplaceUsers).omit({ id: true, createdAt: true, lastLoginAt: true });

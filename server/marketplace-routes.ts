@@ -26,6 +26,7 @@ import {
 import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
 import { createHash, randomInt } from "crypto";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
+import { computeOnboardingScore } from "@shared/utils/skillUtils";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -481,6 +482,19 @@ export function registerMarketplaceRoutes(app: Express) {
         linkedPlayer = await storage.getPlayer(user.linkedPlayerId);
       }
 
+      // Onboarding skill quiz (Task #237). `canRetakeOnboarding` is true iff
+      // the user previously submitted concrete answers AND their linked player
+      // has not played a real game yet (gamesPlayed === 0). A skipped or
+      // never-completed quiz is not "retakable" in this sense — completing the
+      // forced flow once consumes the entitlement.
+      const hasAnswers =
+        user.onboardingExperience != null &&
+        user.onboardingRallies != null &&
+        user.onboardingGames != null;
+      const linkedPlayerGamesPlayed = linkedPlayer?.gamesPlayed ?? 0;
+      const canRetakeOnboarding =
+        user.onboardingCompleted && hasAnswers && linkedPlayerGamesPlayed === 0;
+
       res.json({
         id: user.id,
         email: user.email,
@@ -492,11 +506,133 @@ export function registerMarketplaceRoutes(app: Express) {
         emailVerified: user.emailVerified,
         hasPassword: !!user.passwordHash,
         photoUrl: user.photoUrl,
+        onboardingCompleted: user.onboardingCompleted,
+        onboardingAnswers: hasAnswers
+          ? {
+              experience: user.onboardingExperience,
+              rallies: user.onboardingRallies,
+              games: user.onboardingGames,
+            }
+          : null,
+        canRetakeOnboarding,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get user" });
     }
   });
+
+  // ============================================================
+  // ONBOARDING SKILL QUIZ (Task #237)
+  // ============================================================
+  // POST /api/marketplace/onboarding
+  //   Body shape A (submit answers): { experience: 1-4, rallies: 1-4, games: 1-4 }
+  //   Body shape B (skip):            { skip: true }
+  // Validates, persists answers + onboardingCompleted=true, and (if the user
+  // already has a linked player with zero games) updates that player's
+  // skillScore + level. If the linked player has any games, the skill update
+  // is rejected with 409 `gameplay_score_locked` — gameplay-driven score is
+  // authoritative from then on.
+  app.post(
+    "/api/marketplace/onboarding",
+    requireAuth,
+    requireMarketplaceAuth,
+    async (req: AuthRequest, res) => {
+      try {
+        if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+        const skipSchema = z.object({ skip: z.literal(true) });
+        const answerSchema = z.object({
+          experience: z.number().int().min(1).max(4),
+          rallies: z.number().int().min(1).max(4),
+          games: z.number().int().min(1).max(4),
+        });
+
+        const user = await storage.getMarketplaceUser(req.user.userId);
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        const skipParse = skipSchema.safeParse(req.body);
+        if (skipParse.success) {
+          await storage.updateMarketplaceUser(user.id, {
+            onboardingCompleted: true,
+            onboardingExperience: null,
+            onboardingRallies: null,
+            onboardingGames: null,
+            onboardingCompletedAt: new Date(),
+          });
+          return res.json({ skipped: true });
+        }
+
+        const parsed = answerSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ error: parsed.error.errors[0].message });
+        }
+        const { experience, rallies, games } = parsed.data;
+        const { score, tier } = computeOnboardingScore([
+          experience as 1 | 2 | 3 | 4,
+          rallies as 1 | 2 | 3 | 4,
+          games as 1 | 2 | 3 | 4,
+        ]);
+
+        // Retake-eligibility gate. A user who already completed onboarding by
+        // *skipping* (no concrete answers stored) is not allowed to come back
+        // later and submit answers — completing the forced flow once consumes
+        // the quiz entitlement. Only the explicit retake path (completed +
+        // concrete answers stored + linked player has zero games) is allowed.
+        const previouslyHadAnswers =
+          user.onboardingExperience != null &&
+          user.onboardingRallies != null &&
+          user.onboardingGames != null;
+        if (user.onboardingCompleted && !previouslyHadAnswers) {
+          return res
+            .status(409)
+            .json({ error: "onboarding_already_skipped" });
+        }
+
+        // If the user is already linked to a player who has played a real game,
+        // gameplay score wins — refuse to overwrite.
+        if (user.linkedPlayerId) {
+          const linked = await storage.getPlayer(user.linkedPlayerId);
+          if (linked && (linked.gamesPlayed ?? 0) > 0) {
+            return res
+              .status(409)
+              .json({ error: "gameplay_score_locked" });
+          }
+        }
+
+        await storage.updateMarketplaceUser(user.id, {
+          onboardingCompleted: true,
+          onboardingExperience: experience,
+          onboardingRallies: rallies,
+          onboardingGames: games,
+          onboardingCompletedAt: new Date(),
+        });
+
+        // Apply the seeded score to the existing linked player (if any).
+        // Brand-new players get the same score injected when the row is
+        // first created via `ensurePlayerForMarketplaceUser`.
+        let appliedToPlayerId: string | null = null;
+        if (user.linkedPlayerId) {
+          const linked = await storage.getPlayer(user.linkedPlayerId);
+          if (linked && (linked.gamesPlayed ?? 0) === 0) {
+            await storage.updatePlayer(linked.id, {
+              skillScore: score,
+              level: tier,
+              skillScoreBaseline: score,
+            });
+            appliedToPlayerId = linked.id;
+          }
+        }
+
+        return res.json({
+          score,
+          tier,
+          appliedToPlayerId,
+        });
+      } catch (error) {
+        console.error("[Onboarding] Failed:", error);
+        res.status(500).json({ error: "Failed to save onboarding" });
+      }
+    },
+  );
 
   app.post("/api/marketplace/auth/logout", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {

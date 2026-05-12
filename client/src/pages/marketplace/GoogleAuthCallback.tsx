@@ -37,8 +37,27 @@ export default function GoogleAuthCallback() {
     }
 
     loginWithTokens(accessToken, refreshToken, remember)
-      .then(() => {
+      .then(async () => {
         toast({ title: 'Signed in with Google!' });
+        // If this Google sign-in is a brand-new account (or any account that
+        // hasn't completed the onboarding skill quiz yet), funnel them through
+        // /marketplace/onboarding before returning them to their original
+        // destination. The protected-route guard would catch this anyway, but
+        // doing it explicitly here keeps the post-sign-in URL clean.
+        try {
+          const res = await fetch('/api/marketplace/auth/me', {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (res.ok) {
+            const me = await res.json();
+            if (me?.onboardingCompleted === false) {
+              setLocation('/marketplace/onboarding');
+              return;
+            }
+          }
+        } catch {
+          // Non-fatal — fall through to the normal destination.
+        }
         setLocation(destination);
       })
       .catch(() => {

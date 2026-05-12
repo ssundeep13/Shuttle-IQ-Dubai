@@ -18,7 +18,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2 } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Trophy } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -453,6 +453,29 @@ export default function Profile() {
         </motion.div>
 
         <div className="space-y-6">
+          {user?.canRetakeOnboarding && (
+            <motion.div variants={fadeInUp}>
+              <Card data-testid="card-retake-onboarding">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Trophy className="h-4 w-4 text-secondary" /> Retake skill quiz
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    You haven't played a game yet — you can adjust the answers that set your starting skill score.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => setLocation('/marketplace/onboarding?retake=1')}
+                    data-testid="button-retake-onboarding"
+                  >
+                    Retake quiz
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
           <motion.div variants={fadeInUp}>
             <Card>
               <CardHeader>

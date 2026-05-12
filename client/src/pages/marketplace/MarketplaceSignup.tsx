@@ -79,7 +79,11 @@ export default function MarketplaceSignup() {
       }
       await signup(email, password, name, phone, code || undefined, promo || undefined, remember);
       toast({ title: 'Account created!' });
-      setLocation('/marketplace');
+      // New marketplace accounts always land on the onboarding skill quiz
+      // (Task #237). The protected-route guard would redirect them there
+      // anyway, but doing it explicitly here avoids a flash of /marketplace
+      // for a brand-new signup who hasn't completed onboarding yet.
+      setLocation('/marketplace/onboarding');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed';
       toast({ title: 'Signup failed', description: message, variant: 'destructive' });
