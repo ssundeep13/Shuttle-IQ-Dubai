@@ -218,7 +218,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
     setProcessing(true);
     setError(null);
 
-    const token = localStorage.getItem('mp_accessToken');
+    const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
     if (!token) {
       setError('Not authenticated. Please log in again.');
       setProcessing(false);

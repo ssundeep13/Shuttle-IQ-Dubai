@@ -13,10 +13,18 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 function getAuthToken(url: string): string | null {
   const isAdminPage = window.location.pathname.startsWith('/admin');
   if (isAdminPage) {
-    return localStorage.getItem('accessToken');
+    return readStorage('accessToken');
   }
 
   const isMarketplace = url.startsWith('/api/marketplace/') || url.startsWith('/api/tags/') || url.startsWith('/api/referrals/');
@@ -25,9 +33,9 @@ function getAuthToken(url: string): string | null {
     (url.includes('/api/marketplace/bookings/') && url.endsWith('/attend'));
   
   if (isMarketplace && !isAdminMarketplace) {
-    return localStorage.getItem('mp_accessToken');
+    return readStorage('mp_accessToken');
   }
-  return localStorage.getItem('accessToken');
+  return readStorage('accessToken');
 }
 
 export async function apiRequest<T = any>(
