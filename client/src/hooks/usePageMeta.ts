@@ -6,26 +6,21 @@ interface PageMetaOptions {
 
 export function usePageMeta({ noindex }: PageMetaOptions) {
   useEffect(() => {
-    if (!noindex) return;
-
-    const previous = document.querySelector<HTMLMetaElement>(
-      'meta[name="robots"]',
-    );
-    const previousContent = previous?.getAttribute('content') ?? null;
-
-    let tag = previous;
+    let tag = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    const created = !tag;
     if (!tag) {
       tag = document.createElement('meta');
       tag.setAttribute('name', 'robots');
       document.head.appendChild(tag);
     }
-    tag.setAttribute('content', 'noindex,nofollow');
+    const previous = created ? null : tag.getAttribute('content');
+    tag.setAttribute('content', noindex ? 'noindex,nofollow' : 'index,follow');
 
     return () => {
-      if (previousContent === null) {
+      if (previous === null) {
         tag?.parentNode?.removeChild(tag);
       } else {
-        tag?.setAttribute('content', previousContent);
+        tag?.setAttribute('content', previous);
       }
     };
   }, [noindex]);

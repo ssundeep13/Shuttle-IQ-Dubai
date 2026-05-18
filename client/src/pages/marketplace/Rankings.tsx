@@ -357,7 +357,7 @@ export default function Rankings() {
                         : `${entry.primaryStat}`;
                       return (
                         <motion.div key={entry.player.id} variants={fadeInUp}>
-                          <Link href={`/marketplace/players/${entry.player.id}`}>
+                          <Link href={`/marketplace/players/${entry.player.id}`} aria-label={`View profile for ${entry.player.name}`}>
                             <Card
                               className={`text-center ${colors.borderClass} ${podiumIdx === 0 ? 'md:-mt-4' : ''} hover-elevate cursor-pointer`}
                               data-testid={`card-podium-${entry.player.id}`}
@@ -417,7 +417,7 @@ export default function Rankings() {
                             ? `+${entry.primaryStat}`
                             : `${entry.primaryStat}`;
                           return (
-                            <Link key={entry.player.id} href={`/marketplace/players/${entry.player.id}`}>
+                            <Link key={entry.player.id} href={`/marketplace/players/${entry.player.id}`} aria-label={`View profile for ${entry.player.name}`}>
                               <motion.div
                                 variants={fadeInUp}
                                 className="flex items-center gap-3 px-4 py-3 hover-elevate cursor-pointer"

@@ -60,6 +60,7 @@ export default function BlogList() {
               key={post.id}
               href={`/marketplace/blog/${post.slug}`}
               className="block group"
+              aria-label={`Read post: ${post.title}`}
               data-testid={`link-blog-post-${post.slug}`}
             >
               <Card className="hover-elevate transition-shadow">

@@ -348,7 +348,7 @@ export default function MarketplaceHome() {
                 <p className="text-xs text-muted-foreground">Court Captain (Part-Time) · Dubai · AED 100/session</p>
               </div>
             </div>
-            <Link href="/marketplace/join-the-crew">
+            <Link href="/marketplace/join-the-crew" aria-label="Join the ShuttleIQ crew — Court Captain role">
               <Button size="sm" variant="secondary" className="gap-1.5 shrink-0" data-testid="button-hiring-banner">
                 Learn More <ArrowRight className="h-3.5 w-3.5" />
               </Button>
