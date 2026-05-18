@@ -3725,6 +3725,12 @@ Return ONLY valid JSON, no markdown, no other text:
           return { alreadyMerged: true };
         }
 
+        // Count game_participants rows for P305 before moving (to report skips)
+        const gpBefore = await tx.execute(sql`
+          SELECT COUNT(*) AS cnt FROM game_participants WHERE player_id = ${P305}
+        `);
+        const gpBeforeCount = Number((gpBefore.rows[0] as { cnt: string }).cnt);
+
         // 1. Re-point game_participants — skip games where P171 already appears (avoids PK conflict)
         const gpMoved = await tx.execute(sql`
           UPDATE game_participants
@@ -3734,6 +3740,8 @@ Return ONLY valid JSON, no markdown, no other text:
               SELECT game_id FROM game_participants WHERE player_id = ${P171}
             )
         `);
+        const gpMovedCount = gpMoved.rowCount ?? 0;
+        const gpSkipped = gpBeforeCount - gpMovedCount;
 
         // 2. Re-point queue_entries
         const qeMoved = await tx.execute(sql`
@@ -3752,7 +3760,7 @@ Return ONLY valid JSON, no markdown, no other text:
           WHERE id = ${MU_ID}
         `);
 
-        // 5. Update SIQ-00171 with merged stats and full name
+        // 5. Update SIQ-00171 with merged stats and full name (referral_code kept as-is)
         await tx.execute(sql`
           UPDATE players SET
             name              = 'Mohammad Abdul Muwahib',
@@ -3767,11 +3775,37 @@ Return ONLY valid JSON, no markdown, no other text:
         // 6. Delete SIQ-00305
         await tx.execute(sql`DELETE FROM players WHERE id = ${P305}`);
 
+        // Post-merge verification assertions
+        const [p305Check, p171Check, muCheck, gpCheck] = await Promise.all([
+          tx.execute(sql`SELECT id FROM players WHERE id = ${P305}`),
+          tx.execute(sql`SELECT id, name, games_played, wins, skill_score, level, linked_player_id
+            FROM players
+            LEFT JOIN marketplace_users ON marketplace_users.linked_player_id = players.id
+            WHERE players.id = ${P171}`),
+          tx.execute(sql`SELECT linked_player_id FROM marketplace_users WHERE id = ${MU_ID}`),
+          tx.execute(sql`SELECT COUNT(*) AS cnt FROM game_participants WHERE player_id = ${P305}`),
+        ]);
+
+        const muRow = muCheck.rows[0] as { linked_player_id: string } | undefined;
+        const p305StillExists = p305Check.rows.length > 0;
+        const muLinkedCorrectly = muRow?.linked_player_id === P171;
+        const residualGpRows = Number((gpCheck.rows[0] as { cnt: string }).cnt);
+
+        if (p305StillExists) throw new Error("Verification failed: SIQ-00305 was not deleted");
+        if (!muLinkedCorrectly) throw new Error("Verification failed: marketplace user not re-linked");
+        if (residualGpRows > 0) throw new Error(`Verification failed: ${residualGpRows} game_participants rows still point to SIQ-00305`);
+
         return {
           alreadyMerged: false,
-          gpMoved: gpMoved.rowCount ?? 0,
+          gpMoved: gpMovedCount,
+          gpSkipped,
           qeMoved: qeMoved.rowCount ?? 0,
           rrMoved: rrMoved.rowCount ?? 0,
+          verification: {
+            siq305Deleted: true,
+            marketplaceUserRelinked: true,
+            residualGpRows: 0,
+          },
         };
       });
 
