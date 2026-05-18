@@ -3709,6 +3709,79 @@ Return ONLY valid JSON, no markdown, no other text:
     }
   });
 
+  // ONE-TIME DATA MIGRATION — remove after running in production once
+  // Merges SIQ-00305 (Mohammad Abdul Muwahib, duplicate) into SIQ-00171 (Abdul, canonical)
+  app.post("/api/admin/temp/merge-player-305-to-171", requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    const P305 = "89c6abac-fdb3-4061-b466-dd55fab49874"; // SIQ-00305 (to be deleted)
+    const P171 = "5750d009-2354-4d22-bef7-778cd101d651"; // SIQ-00171 (canonical)
+    const MU_ID = "9f82f40a-56b8-410e-bbf8-5dd23379aee6"; // marketplace_user abdulmuwahib@gmail.com
+    try {
+      const result = await db.transaction(async (tx) => {
+        // Guard: abort if SIQ-00305 no longer exists (already merged)
+        const check = await tx.execute(
+          sql`SELECT id FROM players WHERE id = ${P305}`
+        );
+        if (check.rows.length === 0) {
+          return { alreadyMerged: true };
+        }
+
+        // 1. Re-point game_participants — skip games where P171 already appears (avoids PK conflict)
+        const gpMoved = await tx.execute(sql`
+          UPDATE game_participants
+          SET player_id = ${P171}
+          WHERE player_id = ${P305}
+            AND game_id NOT IN (
+              SELECT game_id FROM game_participants WHERE player_id = ${P171}
+            )
+        `);
+
+        // 2. Re-point queue_entries
+        const qeMoved = await tx.execute(sql`
+          UPDATE queue_entries SET player_id = ${P171} WHERE player_id = ${P305}
+        `);
+
+        // 3. Re-point session_rest_states
+        const rrMoved = await tx.execute(sql`
+          UPDATE session_rest_states SET player_id = ${P171} WHERE player_id = ${P305}
+        `);
+
+        // 4. Re-link marketplace user
+        await tx.execute(sql`
+          UPDATE marketplace_users
+          SET linked_player_id = ${P171}
+          WHERE id = ${MU_ID}
+        `);
+
+        // 5. Update SIQ-00171 with merged stats and full name
+        await tx.execute(sql`
+          UPDATE players SET
+            name              = 'Mohammad Abdul Muwahib',
+            games_played      = 80,
+            wins              = 55,
+            skill_score       = 113,
+            skill_score_baseline = 103,
+            level             = 'Advanced'
+          WHERE id = ${P171}
+        `);
+
+        // 6. Delete SIQ-00305
+        await tx.execute(sql`DELETE FROM players WHERE id = ${P305}`);
+
+        return {
+          alreadyMerged: false,
+          gpMoved: gpMoved.rowCount ?? 0,
+          qeMoved: qeMoved.rowCount ?? 0,
+          rrMoved: rrMoved.rowCount ?? 0,
+        };
+      });
+
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      console.error("[merge-player-305-to-171]", err);
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // Backfill referral codes on startup (idempotent — skips players who already have codes)
   storage.backfillReferralCodes().then(count => {
     if (count > 0) console.log(`[Referral] Backfilled ${count} referral codes`);
