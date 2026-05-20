@@ -10,16 +10,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trophy } from "lucide-react";
+import { Trophy, Loader2 } from "lucide-react";
 
 interface EndGameModalProps {
   court: CourtWithPlayers | null;
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => void;
+  isPending?: boolean;
 }
 
-export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalProps) {
+export function EndGameModal({ court, isOpen, onClose, onSubmit, isPending = false }: EndGameModalProps) {
   const [team1Score, setTeam1Score] = useState<string>("21");
   const [team2Score, setTeam2Score] = useState<string>("19");
 
@@ -42,6 +43,8 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isPending) return;
+
     const score1 = parseInt(team1Score);
     const score2 = parseInt(team2Score);
 
@@ -58,7 +61,7 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={isPending ? undefined : onClose}>
       <DialogContent className="sm:max-w-md" data-testid="dialog-end-game">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -91,6 +94,7 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
                 onChange={(e) => setTeam1Score(e.target.value)}
                 className="text-center text-lg font-bold min-h-12 sm:min-h-10"
                 data-testid="input-team1-score"
+                disabled={isPending}
               />
             </div>
 
@@ -113,6 +117,7 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
                 onChange={(e) => setTeam2Score(e.target.value)}
                 className="text-center text-lg font-bold min-h-12 sm:min-h-10"
                 data-testid="input-team2-score"
+                disabled={isPending}
               />
             </div>
           </div>
@@ -130,6 +135,7 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
               onClick={onClose}
               className="flex-1 min-h-12 sm:min-h-10"
               data-testid="button-cancel-end-game"
+              disabled={isPending}
             >
               Cancel
             </Button>
@@ -137,9 +143,19 @@ export function EndGameModal({ court, isOpen, onClose, onSubmit }: EndGameModalP
               type="submit"
               className="flex-1 min-h-12 sm:min-h-10"
               data-testid="button-confirm-end-game"
+              disabled={isPending}
             >
-              <Trophy className="w-4 h-4 mr-2" />
-              Record Result
+              {isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Trophy className="w-4 h-4 mr-2" />
+                  Record Result
+                </>
+              )}
             </Button>
           </div>
         </form>

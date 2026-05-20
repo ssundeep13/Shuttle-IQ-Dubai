@@ -3703,6 +3703,24 @@ export class DatabaseStorage implements IStorage {
     const gameId = randomUUID();
 
     return await db.transaction(async (tx) => {
+      // ── Atomic court occupancy claim (SELECT FOR UPDATE) ──────────────
+      // Acquire a row-level lock on the court before doing anything else.
+      // If two end-game requests race past the route-level status check,
+      // only one can hold this lock at a time. Once the first tx commits
+      // (with court status set to 'available' below), the second tx
+      // acquires the lock, re-reads status = 'available', and fails fast
+      // with a structured error — preventing the duplicate game record.
+      const [lockedCourt] = await tx
+        .select({ id: courts.id, status: courts.status })
+        .from(courts)
+        .where(eq(courts.id, args.courtId))
+        .for('update');
+      if (!lockedCourt || lockedCourt.status !== 'occupied') {
+        const err = new Error('Court is no longer occupied — possible duplicate submission');
+        (err as any).code = 'court_not_occupied';
+        throw err;
+      }
+
       // ── Idempotency on matchSuggestionId (fast-path pre-check) ────────
       // game_results.matchSuggestionId is UNIQUE. If a game has already
       // been recorded for this suggestion (retried submission), short
@@ -3833,6 +3851,16 @@ export class DatabaseStorage implements IStorage {
           .set({ status: 'completed' })
           .where(eq(matchSuggestions.id, args.matchSuggestionId));
       }
+
+      // ── Release the court claim atomically with the game insert ───────
+      // Setting status = 'available' here (inside the tx) ensures that
+      // any concurrent request waiting on the SELECT FOR UPDATE above will
+      // see 'available' after we commit and immediately fail the occupancy
+      // check — preventing a second game record from being inserted.
+      await tx
+        .update(courts)
+        .set({ status: 'available' })
+        .where(eq(courts.id, args.courtId));
 
       return {
         gameId,

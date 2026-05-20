@@ -2243,9 +2243,9 @@ Return ONLY valid JSON, no markdown, no other text:
       ];
       await storage.setQueue(activeSession.id, newQueue);
 
-      // Reset court
+      // Reset court — status was already set to 'available' atomically
+      // inside completeGameTransaction; only cosmetic fields need clearing here.
       await storage.updateCourt(court.id, {
-        status: 'available',
         timeRemaining: 0,
         winningTeam: null,
         startedAt: null,
@@ -2259,7 +2259,11 @@ Return ONLY valid JSON, no markdown, no other text:
       await persistRestStatesToDb(activeSession.id);
 
       res.json({ ...updatedCourt, players: [] });
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.code === 'court_not_occupied') {
+        console.warn(`[END-GAME] Duplicate submission rejected for court ${req.params.courtId}`);
+        return res.status(409).json({ error: 'Court is no longer occupied — possible duplicate submission' });
+      }
       console.error(`[END-GAME] Error ending game:`, error);
       res.status(500).json({ error: "Failed to end game" });
     }
