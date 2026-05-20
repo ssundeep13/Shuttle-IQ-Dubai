@@ -1,4 +1,4 @@
-import { Trophy, Trash2, Calendar, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, CalendarDays } from "lucide-react";
+import { Trophy, Trash2, Calendar, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, CalendarDays, RefreshCw } from "lucide-react";
 import { Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,8 @@ interface LeaderboardProps {
   players: Player[];
   onResetStats?: () => void;
   onClearAllPlayers?: () => void;
+  onRecalculateStats?: () => void;
+  isRecalculating?: boolean;
   showAdminActions?: boolean;
   showTodayTab?: boolean;
 }
@@ -42,7 +44,7 @@ type MonthFilter = 'all-time' | string; // string format: "YYYY-MM"
 type SortBy = 'skill' | 'wins' | 'games' | 'winRate' | 'name';
 type SortOrder = 'asc' | 'desc';
 
-export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdminActions = true, showTodayTab = true }: LeaderboardProps) {
+export function Leaderboard({ players, onResetStats, onClearAllPlayers, onRecalculateStats, isRecalculating = false, showAdminActions = true, showTodayTab = true }: LeaderboardProps) {
   const [activeTab, setActiveTab] = useState<'all-time' | 'today'>('all-time');
   const [sortBy, setSortBy] = useState<SortBy>('skill');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -249,7 +251,20 @@ export function Leaderboard({ players, onResetStats, onClearAllPlayers, showAdmi
           Leaderboard
         </h2>
         {showAdminActions && onResetStats && onClearAllPlayers && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {onRecalculateStats && (
+              <Button
+                onClick={onRecalculateStats}
+                variant="outline"
+                size="sm"
+                disabled={isRecalculating}
+                className="min-h-12 sm:min-h-9"
+                data-testid="button-recalculate-stats"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${isRecalculating ? 'animate-spin' : ''}`} />
+                {isRecalculating ? 'Recalculating...' : 'Recalculate from History'}
+              </Button>
+            )}
             <Button
               onClick={onResetStats}
               variant="outline"

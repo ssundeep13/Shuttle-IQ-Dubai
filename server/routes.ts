@@ -2684,6 +2684,78 @@ Return ONLY valid JSON, no markdown, no other text:
     }
   });
 
+  // POST /api/admin/recalculate-player-stats
+  // Recomputes games_played and wins for all players from game_participants + game_results history.
+  // Useful after deleting duplicate game records to restore accurate counts.
+  app.post("/api/admin/recalculate-player-stats", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      console.log('[RECALCULATE-STATS] Starting player stats recalculation from game history...');
+
+      // Single atomic transaction that:
+      // 1. Recomputes games_played and wins from game_participants for all players
+      // 2. Restores skill_score, skill_score_baseline, and level from each player's
+      //    most recent game_participants entry (same logic as the startup backfill)
+      const result = await db.execute(sql`
+        WITH
+        -- Step 1: aggregate games_played and wins per player (non-sandbox sessions only)
+        counts AS (
+          SELECT
+            gp.player_id,
+            COUNT(*)::int                                                   AS games_played,
+            COUNT(*) FILTER (WHERE gr.winning_team = gp.team)::int         AS wins
+          FROM game_participants gp
+          JOIN game_results gr ON gr.id = gp.game_id
+          JOIN sessions      s  ON s.id = gr.session_id
+          WHERE s.is_sandbox = false OR s.is_sandbox IS NULL
+          GROUP BY gp.player_id
+        ),
+        -- Step 2: most-recent game scores for skill restoration
+        last_game AS (
+          SELECT DISTINCT ON (gp.player_id)
+            gp.player_id,
+            gp.skill_score_after AS restored_score,
+            CASE
+              WHEN gp.skill_score_after < 40  THEN 'Novice'
+              WHEN gp.skill_score_after < 70  THEN 'Beginner'
+              WHEN gp.skill_score_after < 90  THEN 'lower_intermediate'
+              WHEN gp.skill_score_after < 110 THEN 'upper_intermediate'
+              WHEN gp.skill_score_after < 160 THEN 'Advanced'
+              ELSE 'Professional'
+            END AS restored_level
+          FROM game_participants gp
+          JOIN game_results gr ON gr.id = gp.game_id
+          ORDER BY gp.player_id, gr.created_at DESC, gp.game_id DESC
+        ),
+        -- Step 3: apply all corrections in one UPDATE
+        updated AS (
+          UPDATE players p
+          SET
+            games_played         = COALESCE(c.games_played, 0),
+            wins                 = COALESCE(c.wins, 0),
+            skill_score          = COALESCE(lg.restored_score, p.skill_score),
+            skill_score_baseline = COALESCE(lg.restored_score, p.skill_score_baseline),
+            level                = COALESCE(lg.restored_level, p.level)
+          FROM (SELECT id FROM players) sub
+          LEFT JOIN counts   c  ON c.player_id  = sub.id
+          LEFT JOIN last_game lg ON lg.player_id = sub.id
+          WHERE p.id = sub.id
+          RETURNING p.id
+        )
+        SELECT COUNT(*) AS updated_count FROM updated
+      `);
+
+      const updatedCount = Number((result.rows[0] as { updated_count: string }).updated_count);
+      console.log(`[RECALCULATE-STATS] Updated ${updatedCount} player records`);
+      res.json({
+        message: `Player stats (games played, wins, skill score) recalculated from game history`,
+        playersUpdated: updatedCount,
+      });
+    } catch (error) {
+      console.error('[RECALCULATE-STATS] Error:', error);
+      res.status(500).json({ error: "Failed to recalculate player stats" });
+    }
+  });
+
   // Game History endpoint
   app.get("/api/game-history/:sessionId?", async (req, res) => {
     try {

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { LogOut, Users, FileDown, FolderKanban, Trophy, Lightbulb, Check, X, ThumbsUp } from 'lucide-react';
+import { LogOut, Users, FileDown, FolderKanban, Trophy, Lightbulb, Check, X, ThumbsUp, RefreshCw } from 'lucide-react';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
 import { Leaderboard } from '@/components/Leaderboard';
@@ -183,6 +183,31 @@ export default function Admin() {
     },
   });
 
+  const recalculateStatsMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest<{ message: string; playersUpdated: number }>('POST', '/api/admin/recalculate-player-stats', null);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      toast({
+        title: 'Stats recalculated',
+        description: `Games played and wins recalculated for ${data.playersUpdated} players from game history.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: 'Recalculation failed',
+        description: 'Could not recalculate player stats. Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleRecalculateStats = () => {
+    recalculateStatsMutation.mutate();
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -310,6 +335,8 @@ export default function Admin() {
               players={players}
               onResetStats={handleResetStats}
               onClearAllPlayers={handleClearAllPlayers}
+              onRecalculateStats={handleRecalculateStats}
+              isRecalculating={recalculateStatsMutation.isPending}
             />
           </TabsContent>
 
