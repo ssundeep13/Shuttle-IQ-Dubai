@@ -96,28 +96,36 @@ export function sanitizeZiinaMessage(input: string | null | undefined): string {
  * is dropped in the fallback path. Sanitizer remains the final safety net
  * via createZiinaPaymentIntent.
  */
+function formatSessionDate(dateStr: string): string | null {
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const day = parseInt(match[3], 10);
+  const monthIndex = parseInt(match[2], 10) - 1;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[monthIndex];
+  if (!month || day < 1 || day > 31) return null;
+  const s = day % 100;
+  const suffix = s >= 11 && s <= 13 ? 'th'
+    : day % 10 === 1 ? 'st'
+    : day % 10 === 2 ? 'nd'
+    : day % 10 === 3 ? 'rd'
+    : 'th';
+  return `${day}${suffix} ${month}`;
+}
+
 export function buildZiinaBookingMessage(opts: {
-  title: string | null | undefined;
-  spots?: number;
-  extraSpot?: boolean;
+  playerName?: string | null;
+  sessionDate?: string | null;
 }): string {
-  const cleanedTitle = (opts.title ?? '').replace(/\s+/g, ' ').trim();
-  const count = opts.spots ?? 1;
-  const countSuffix = count > 1 ? ` x${count}` : '';
-  const prefix = opts.extraSpot ? 'ShuttleIQ extra spot' : 'ShuttleIQ';
-  if (cleanedTitle) {
-    const full = `${prefix} - ${cleanedTitle}${countSuffix}`;
-    if (
-      full.length <= ZIINA_MESSAGE_MAX &&
-      Buffer.byteLength(full, 'utf8') <= ZIINA_MESSAGE_MAX
-    ) {
-      return full;
+  const name = (opts.playerName ?? '').replace(/\s+/g, ' ').trim();
+  const formattedDate = opts.sessionDate ? formatSessionDate(opts.sessionDate) : null;
+  if (name && formattedDate) {
+    const msg = `${name} - ${formattedDate}`;
+    if (msg.length <= ZIINA_MESSAGE_MAX && Buffer.byteLength(msg, 'utf8') <= ZIINA_MESSAGE_MAX) {
+      return msg;
     }
   }
-  const fallback = opts.extraSpot
-    ? 'ShuttleIQ extra spot'
-    : `ShuttleIQ booking${countSuffix}`;
-  return fallback;
+  return 'ShuttleIQ booking';
 }
 
 export async function createZiinaPaymentIntent(input: ZiinaPaymentIntentInput): Promise<ZiinaPaymentIntent> {

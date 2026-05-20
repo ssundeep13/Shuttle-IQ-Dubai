@@ -2433,7 +2433,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: ziinaAmountAed,
-          message: buildZiinaBookingMessage({ title: bookableSession.title, spots: spotsBooked }),
+          message: buildZiinaBookingMessage({ playerName: req.user!.name, sessionDate: bookableSession.date }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
@@ -2570,7 +2570,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const resumeParam = await mintPaymentResumeParam(req.user.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: booking.amountAed,
-          message: buildZiinaBookingMessage({ title: bookableSession.title, spots: booking.spotsBooked ?? 1 }),
+          message: buildZiinaBookingMessage({ playerName: req.user.name, sessionDate: bookableSession.date }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
@@ -2903,7 +2903,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: bookableSession.priceAed,
-          message: buildZiinaBookingMessage({ title: bookableSession.title, extraSpot: true }),
+          message: buildZiinaBookingMessage({ playerName: req.user!.name, sessionDate: bookableSession.date }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}&extra_guest=1${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
