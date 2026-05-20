@@ -96,7 +96,16 @@ export function sanitizeZiinaMessage(input: string | null | undefined): string {
  * is dropped in the fallback path. Sanitizer remains the final safety net
  * via createZiinaPaymentIntent.
  */
-function formatSessionDate(dateStr: string): string | null {
+function formatSessionDate(dateInput: Date | string): string | null {
+  let dateStr: string;
+  if (dateInput instanceof Date) {
+    const y = dateInput.getFullYear();
+    const m = String(dateInput.getMonth() + 1).padStart(2, '0');
+    const d = String(dateInput.getDate()).padStart(2, '0');
+    dateStr = `${y}-${m}-${d}`;
+  } else {
+    dateStr = dateInput;
+  }
   const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   const day = parseInt(match[3], 10);
@@ -115,7 +124,7 @@ function formatSessionDate(dateStr: string): string | null {
 
 export function buildZiinaBookingMessage(opts: {
   playerName?: string | null;
-  sessionDate?: string | null;
+  sessionDate?: Date | string | null;
 }): string {
   const name = (opts.playerName ?? '').replace(/\s+/g, ' ').trim();
   const formattedDate = opts.sessionDate ? formatSessionDate(opts.sessionDate) : null;

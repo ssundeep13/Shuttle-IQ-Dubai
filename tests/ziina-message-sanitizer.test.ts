@@ -122,6 +122,15 @@ describe('buildZiinaBookingMessage', () => {
     expect(out.length).toBeLessThanOrEqual(CAP);
   });
 
+  it('accepts a Date object for sessionDate and formats it correctly', () => {
+    expect(buildZiinaBookingMessage({ playerName: 'Ali', sessionDate: new Date(2026, 4, 30) }))
+      .toBe('Ali - 30th May');
+    expect(buildZiinaBookingMessage({ playerName: 'Sara', sessionDate: new Date(2026, 5, 1) }))
+      .toBe('Sara - 1st Jun');
+    expect(buildZiinaBookingMessage({ playerName: 'Alex', sessionDate: new Date(2026, 6, 11) }))
+      .toBe('Alex - 11th Jul');
+  });
+
   it('always returns ASCII-only output within the cap', () => {
     const cases = [
       { playerName: 'Ali', sessionDate: '2026-05-30' },

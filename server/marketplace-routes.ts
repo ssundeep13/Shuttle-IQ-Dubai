@@ -2433,7 +2433,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: ziinaAmountAed,
-          message: buildZiinaBookingMessage({ playerName: req.user!.name, sessionDate: bookableSession.date }),
+          message: buildZiinaBookingMessage({ playerName: primaryUser?.name, sessionDate: bookableSession.date }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
@@ -2565,12 +2565,14 @@ export function registerMarketplaceRoutes(app: Express) {
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
         : 'http://localhost:5000';
 
+      const mpUser = await storage.getMarketplaceUser(req.user.userId);
+
       let paymentIntent;
       try {
         const resumeParam = await mintPaymentResumeParam(req.user.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: booking.amountAed,
-          message: buildZiinaBookingMessage({ playerName: req.user.name, sessionDate: bookableSession.date }),
+          message: buildZiinaBookingMessage({ playerName: mpUser?.name, sessionDate: bookableSession.date }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
@@ -2898,12 +2900,14 @@ export function registerMarketplaceRoutes(app: Express) {
         cancellationToken,
       });
 
+      const playerUser = await storage.getMarketplaceUser(req.user!.userId);
+
       let paymentIntent;
       try {
         const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: bookableSession.priceAed,
-          message: buildZiinaBookingMessage({ playerName: req.user!.name, sessionDate: bookableSession.date }),
+          message: buildZiinaBookingMessage({ playerName: playerUser?.name, sessionDate: bookableSession.date }),
           successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}&extra_guest=1${resumeParam}`,
           cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
           failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
