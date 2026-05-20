@@ -2360,7 +2360,9 @@ export function registerMarketplaceRoutes(app: Express) {
       const discountedTotal = Math.max(0, totalAmount - appliedDiscountAmountAed);
       const totalAmountFils = discountedTotal * 100;
 
-      // Create booking first (pending for Ziina, confirmed for full wallet coverage)
+      // Create booking with discount fields set atomically in the INSERT so the
+      // booking row always reflects the correct discounted amount even if the
+      // audit-trail step below fails.
       const booking = await storage.createBooking({
         userId: req.user.userId,
         sessionId,
@@ -2370,9 +2372,12 @@ export function registerMarketplaceRoutes(app: Express) {
         amountAed: discountedTotal,
         cashPaid: false,
         spotsBooked,
+        discountCodeId: appliedDiscountCodeId ?? undefined,
+        discountAmountAed: appliedDiscountAmountAed > 0 ? appliedDiscountAmountAed : undefined,
       });
 
-      // Record discount code usage immediately after booking creation
+      // Record discount code usage (inserts discount_code_uses row + increments usedCount).
+      // The booking already has the discount data — this is audit-trail only.
       if (appliedDiscountCodeId && appliedDiscountAmountAed > 0) {
         await storage.applyDiscountCode(booking.id, appliedDiscountCodeId, appliedDiscountAmountAed, req.user.userId);
       }
@@ -4102,6 +4107,8 @@ export function registerMarketplaceRoutes(app: Express) {
         valid: true,
         codeId: dc.id,
         code: dc.code,
+        discountType: dc.discountType,
+        discountValue: dc.discountValue,
         discountAmountAed: result.discountAmountAed,
         discountLabel: label,
       });

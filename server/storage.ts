@@ -3906,6 +3906,8 @@ export class DatabaseStorage implements IStorage {
     discountAmountAed: number,
     userId: string,
   ): Promise<void> {
+    // The booking row already has discountCodeId/discountAmountAed set in the
+    // createBooking INSERT, so this method only handles the audit-trail records.
     await db.transaction(async (tx) => {
       await tx.insert(discountCodeUses).values({
         id: randomUUID(),
@@ -3918,10 +3920,6 @@ export class DatabaseStorage implements IStorage {
         .update(discountCodes)
         .set({ usedCount: sql`${discountCodes.usedCount} + 1` })
         .where(eq(discountCodes.id, codeId));
-      await tx
-        .update(bookings)
-        .set({ discountCodeId: codeId, discountAmountAed })
-        .where(eq(bookings.id, bookingId));
     });
   }
 

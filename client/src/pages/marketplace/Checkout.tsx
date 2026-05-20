@@ -21,8 +21,18 @@ interface Guest {
 interface DiscountResult {
   codeId: string;
   code: string;
-  discountAmountAed: number;
+  discountType: 'percentage' | 'fixed_aed';
+  discountValue: number;
+  discountAmountAed: number; // amount at time of apply (single-spot); recomputed in UI
   discountLabel: string;
+}
+
+/** Recompute the actual saving from the discount rule for any booking total */
+function computeDiscountSaving(discount: DiscountResult, totalAed: number): number {
+  if (discount.discountType === 'percentage') {
+    return Math.min(Math.floor((totalAed * discount.discountValue) / 100), totalAed);
+  }
+  return Math.min(discount.discountValue, totalAed);
 }
 
 interface BookingData {
@@ -146,11 +156,12 @@ function GuestForm({ guests, onChange, maxGuests }: {
   );
 }
 
-function DiscountCodeField({ sessionId, onApply, onClear, appliedDiscount }: {
+function DiscountCodeField({ sessionId, onApply, onClear, appliedDiscount, currentSaving }: {
   sessionId: string;
   onApply: (result: DiscountResult) => void;
   onClear: () => void;
   appliedDiscount: DiscountResult | null;
+  currentSaving: number;
 }) {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -204,7 +215,7 @@ function DiscountCodeField({ sessionId, onApply, onClear, appliedDiscount }: {
               <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
               <div>
                 <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                  <span className="font-bold">{appliedDiscount.code}</span> applied — AED {appliedDiscount.discountAmountAed} off
+                  <span className="font-bold">{appliedDiscount.code}</span> applied — AED {currentSaving} off
                 </p>
                 <p className="text-xs text-green-700 dark:text-green-400">{appliedDiscount.discountLabel}</p>
               </div>
@@ -329,7 +340,8 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   const spotsBooked = 1 + guests.length;
   const rawTotal = pricePerSpot * spotsBooked;
-  const discountSaving = appliedDiscount ? Math.min(appliedDiscount.discountAmountAed, rawTotal) : 0;
+  // Recompute discount from the stored rule every time rawTotal changes (e.g. guests added)
+  const discountSaving = appliedDiscount ? computeDiscountSaving(appliedDiscount, rawTotal) : 0;
   const totalAmount = Math.max(0, rawTotal - discountSaving);
   const totalAmountFils = totalAmount * 100;
   const maxGuests = Math.min(3, availableSpots - 1);
@@ -450,6 +462,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         appliedDiscount={appliedDiscount}
         onApply={setAppliedDiscount}
         onClear={() => setAppliedDiscount(null)}
+        currentSaving={discountSaving}
       />
 
       {walletBalanceFils > 0 && (
