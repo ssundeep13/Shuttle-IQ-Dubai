@@ -2134,7 +2134,7 @@ export function registerMarketplaceRoutes(app: Express) {
   app.post("/api/marketplace/bookings", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const { sessionId, paymentMethod, guests: guestList, applyWallet } = req.body;
+      const { sessionId, paymentMethod, guests: guestList, applyWallet, discountCode } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
 
       // Validate guest list (optional array of { name, email?, marketplaceUserId?, siqPlayerId? })
@@ -2282,6 +2282,20 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
+      // Validate discount code if provided (Ziina-only — cash bookings excluded)
+      let appliedDiscountCodeId: string | null = null;
+      let appliedDiscountAmountAed = 0;
+
+      if (discountCode && typeof discountCode === 'string' && method !== 'cash') {
+        const baseTotal = bookableSession.priceAed * spotsBooked;
+        const dcResult = await storage.validateDiscountCode(discountCode, req.user.userId, baseTotal);
+        if (!dcResult.valid) {
+          return res.status(400).json({ error: `Discount code error: ${dcResult.error}` });
+        }
+        appliedDiscountCodeId = dcResult.discountCode.id;
+        appliedDiscountAmountAed = dcResult.discountAmountAed;
+      }
+
       if (method === 'cash') {
         const totalAmount = bookableSession.priceAed * spotsBooked;
         const booking = await storage.createBooking({
@@ -2342,7 +2356,9 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       const totalAmount = bookableSession.priceAed * spotsBooked;
-      const totalAmountFils = totalAmount * 100;
+      // Apply discount (reduces the total before wallet deduction)
+      const discountedTotal = Math.max(0, totalAmount - appliedDiscountAmountAed);
+      const totalAmountFils = discountedTotal * 100;
 
       // Create booking first (pending for Ziina, confirmed for full wallet coverage)
       const booking = await storage.createBooking({
@@ -2351,10 +2367,15 @@ export function registerMarketplaceRoutes(app: Express) {
         status: "pending",
         paymentMethod: "ziina",
         ziinaPaymentIntentId: null,
-        amountAed: totalAmount,
+        amountAed: discountedTotal,
         cashPaid: false,
         spotsBooked,
       });
+
+      // Record discount code usage immediately after booking creation
+      if (appliedDiscountCodeId && appliedDiscountAmountAed > 0) {
+        await storage.applyDiscountCode(booking.id, appliedDiscountCodeId, appliedDiscountAmountAed, req.user.userId);
+      }
 
       // Apply wallet credit if requested (uses shared deductWalletForBooking helper)
       let walletApplied = 0;
@@ -2395,7 +2416,7 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       // Ziina path: charge the remaining amount (after wallet deduction, if any)
-      const ziinaAmountAed = walletApplied > 0 ? Math.round(remainingFils / 100) : totalAmount;
+      const ziinaAmountAed = walletApplied > 0 ? Math.round(remainingFils / 100) : discountedTotal;
 
       let paymentIntent;
       try {
@@ -2435,7 +2456,9 @@ export function registerMarketplaceRoutes(app: Express) {
         paymentMethod: "ziina",
         paymentIntentId: paymentIntent.id,
         redirectUrl: paymentIntent.redirect_url,
-        amount: totalAmount,
+        amount: discountedTotal,
+        originalAmount: totalAmount,
+        discountAmountAed: appliedDiscountAmountAed || undefined,
         walletApplied,
         ziinaAmount: ziinaAmountAed,
         spotsBooked,
@@ -4046,6 +4069,98 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error) {
       console.error('[admin contact backfill] failed', error);
       res.status(500).json({ error: "Failed to backfill player contacts" });
+    }
+  });
+
+  // ============================================================
+  // DISCOUNT CODES
+  // ============================================================
+
+  // POST /api/marketplace/discount-codes/validate
+  // Validates a code for the authenticated user + session price. Returns the
+  // discount amount but does NOT record usage — usage is recorded at booking
+  // time so partial/abandoned checkouts don't consume the code.
+  app.post("/api/marketplace/discount-codes/validate", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const { code, sessionId } = req.body;
+      if (!code || typeof code !== 'string') return res.status(400).json({ error: "Code required" });
+      if (!sessionId) return res.status(400).json({ error: "Session ID required" });
+
+      const session = await storage.getBookableSession(sessionId);
+      if (!session) return res.status(404).json({ error: "Session not found" });
+
+      const result = await storage.validateDiscountCode(code, req.user.userId, session.priceAed);
+      if (!result.valid) return res.status(400).json({ error: result.error });
+
+      const dc = result.discountCode;
+      const label = dc.discountType === 'percentage'
+        ? `${dc.discountValue}% off`
+        : `AED ${dc.discountValue} off`;
+
+      return res.json({
+        valid: true,
+        codeId: dc.id,
+        code: dc.code,
+        discountAmountAed: result.discountAmountAed,
+        discountLabel: label,
+      });
+    } catch (err) {
+      console.error('[DiscountCode] validate error:', err);
+      res.status(500).json({ error: "Failed to validate code" });
+    }
+  });
+
+  // GET /api/marketplace/admin/discount-codes — list all codes
+  app.get("/api/marketplace/admin/discount-codes", requireAuth, requireAdmin, async (_req, res) => {
+    try {
+      const codes = await storage.listDiscountCodes();
+      res.json(codes);
+    } catch (err) {
+      console.error('[DiscountCode] list error:', err);
+      res.status(500).json({ error: "Failed to list discount codes" });
+    }
+  });
+
+  // POST /api/marketplace/admin/discount-codes — create a new code
+  app.post("/api/marketplace/admin/discount-codes", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const schema = z.object({
+        code: z.string().min(1).max(50),
+        description: z.string().optional().nullable(),
+        discountType: z.enum(["fixed_aed", "percentage"]),
+        discountValue: z.number().int().positive(),
+        firstTimeOnly: z.boolean().default(false),
+        maxUses: z.number().int().positive().nullable().optional(),
+        expiresAt: z.string().nullable().optional(),
+        isActive: z.boolean().default(true),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message });
+      const data = parsed.data;
+      const code = await storage.createDiscountCode({
+        ...data,
+        expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+      });
+      res.status(201).json(code);
+    } catch (err: any) {
+      console.error('[DiscountCode] create error:', err);
+      if (err?.code === '23505') return res.status(409).json({ error: "A code with that name already exists" });
+      res.status(500).json({ error: "Failed to create discount code" });
+    }
+  });
+
+  // PATCH /api/marketplace/admin/discount-codes/:id — toggle active
+  app.patch("/api/marketplace/admin/discount-codes/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { isActive } = req.body;
+      if (typeof isActive !== 'boolean') return res.status(400).json({ error: "isActive (boolean) required" });
+      const updated = await storage.toggleDiscountCodeActive(req.params.id, isActive);
+      if (!updated) return res.status(404).json({ error: "Code not found" });
+      res.json(updated);
+    } catch (err) {
+      console.error('[DiscountCode] toggle error:', err);
+      res.status(500).json({ error: "Failed to update discount code" });
     }
   });
 

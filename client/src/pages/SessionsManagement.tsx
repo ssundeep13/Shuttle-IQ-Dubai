@@ -21,7 +21,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check, Upload, ImageIcon, Loader2, Gift, Package } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check, Upload, ImageIcon, Loader2, Gift, Package, Tag } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import FinanceTab from '@/components/FinanceTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
@@ -331,6 +333,10 @@ export default function SessionsManagement() {
                 <Gift className="w-4 h-4" />
                 Referrals
               </TabsTrigger>
+              <TabsTrigger value="discount-codes" data-testid="tab-discount-codes" className="flex items-center gap-2">
+                <Tag className="w-4 h-4" />
+                Discount Codes
+              </TabsTrigger>
             </TabsList>
 
             {activeTab === 'sessions' && (
@@ -411,6 +417,9 @@ export default function SessionsManagement() {
 
           <TabsContent value="referrals" className="mt-6">
             <ReferralsTabContent />
+          </TabsContent>
+          <TabsContent value="discount-codes" className="mt-6">
+            <DiscountCodesTabContent />
           </TabsContent>
         </Tabs>
       </main>
@@ -3702,6 +3711,270 @@ function BlogPanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// ============================================================
+// DISCOUNT CODES TAB
+// ============================================================
+
+interface DiscountCode {
+  id: string;
+  code: string;
+  description: string | null;
+  discountType: 'fixed_aed' | 'percentage';
+  discountValue: number;
+  firstTimeOnly: boolean;
+  maxUses: number | null;
+  usedCount: number;
+  expiresAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+const BLANK_DC_FORM = {
+  code: '',
+  description: '',
+  discountType: 'percentage' as 'percentage' | 'fixed_aed',
+  discountValue: 10,
+  firstTimeOnly: false,
+  maxUses: null as number | null,
+  expiresAt: '',
+  isActive: true,
+};
+
+function DiscountCodesTabContent() {
+  const qcLocal = useQueryClient();
+  const { toast } = useToast();
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState(BLANK_DC_FORM);
+  const [creating, setCreating] = useState(false);
+
+  const { data: codes = [], isLoading } = useQuery<DiscountCode[]>({
+    queryKey: ['/api/marketplace/admin/discount-codes'],
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      apiRequest('PATCH', `/api/marketplace/admin/discount-codes/${id}`, { isActive }),
+    onSuccess: () => {
+      qcLocal.invalidateQueries({ queryKey: ['/api/marketplace/admin/discount-codes'] });
+    },
+    onError: () => toast({ title: 'Error', description: 'Failed to update code.', variant: 'destructive' }),
+  });
+
+  const handleCreate = async () => {
+    if (!form.code.trim()) {
+      toast({ title: 'Code required', description: 'Please enter a code.', variant: 'destructive' });
+      return;
+    }
+    if (!form.discountValue || form.discountValue <= 0) {
+      toast({ title: 'Invalid discount', description: 'Discount value must be positive.', variant: 'destructive' });
+      return;
+    }
+    if (form.discountType === 'percentage' && form.discountValue > 100) {
+      toast({ title: 'Invalid discount', description: 'Percentage cannot exceed 100.', variant: 'destructive' });
+      return;
+    }
+    setCreating(true);
+    try {
+      await apiRequest('POST', '/api/marketplace/admin/discount-codes', {
+        code: form.code.trim().toUpperCase(),
+        description: form.description || null,
+        discountType: form.discountType,
+        discountValue: form.discountValue,
+        firstTimeOnly: form.firstTimeOnly,
+        maxUses: form.maxUses || null,
+        expiresAt: form.expiresAt || null,
+        isActive: form.isActive,
+      });
+      qcLocal.invalidateQueries({ queryKey: ['/api/marketplace/admin/discount-codes'] });
+      toast({ title: 'Code created', description: `"${form.code.toUpperCase()}" is now active.` });
+      setShowCreate(false);
+      setForm(BLANK_DC_FORM);
+    } catch (err: any) {
+      const msg = String(err?.message ?? '').includes('already exists')
+        ? 'A code with that name already exists.'
+        : 'Failed to create discount code.';
+      toast({ title: 'Error', description: msg, variant: 'destructive' });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle>Discount Codes</CardTitle>
+              <CardDescription>Create and manage discount codes players can use at checkout.</CardDescription>
+            </div>
+            <Button onClick={() => setShowCreate(true)} data-testid="button-new-discount-code">
+              <Plus className="w-4 h-4 mr-2" />
+              New Code
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full" />)}
+            </div>
+          ) : codes.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8" data-testid="text-no-discount-codes">
+              No discount codes yet. Click "New Code" to create one.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {codes.map(dc => (
+                <div
+                  key={dc.id}
+                  className="flex items-center justify-between gap-3 p-3 rounded-md border"
+                  data-testid={`discount-code-row-${dc.id}`}
+                >
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <code className="font-mono text-sm font-bold" data-testid={`text-code-${dc.id}`}>
+                        {dc.code}
+                      </code>
+                      <Badge
+                        variant={dc.isActive ? 'default' : 'secondary'}
+                        className="text-xs no-default-hover-elevate no-default-active-elevate"
+                        data-testid={`badge-code-status-${dc.id}`}
+                      >
+                        {dc.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                      {dc.firstTimeOnly && (
+                        <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate">
+                          First-time only
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {dc.discountType === 'percentage' ? `${dc.discountValue}% off` : `AED ${dc.discountValue} off`}
+                      {' · '}
+                      {dc.usedCount} use{dc.usedCount !== 1 ? 's' : ''}
+                      {dc.maxUses !== null ? ` / ${dc.maxUses}` : ''}
+                      {dc.expiresAt ? ` · Expires ${format(new Date(dc.expiresAt), 'MMM d, yyyy')}` : ''}
+                      {dc.description ? ` · ${dc.description}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Switch
+                      checked={dc.isActive}
+                      onCheckedChange={(checked) => toggleMutation.mutate({ id: dc.id, isActive: checked })}
+                      data-testid={`switch-code-active-${dc.id}`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showCreate} onOpenChange={(open) => { if (!open) { setShowCreate(false); setForm(BLANK_DC_FORM); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Discount Code</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Code</Label>
+              <Input
+                placeholder="e.g. SUMMER25"
+                value={form.code}
+                onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
+                data-testid="input-new-code"
+              />
+              <p className="text-xs text-muted-foreground">Stored uppercase. Players enter this at checkout.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description (optional)</Label>
+              <Input
+                placeholder="e.g. Welcome discount for new members"
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                data-testid="input-new-description"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Discount type</Label>
+                <Select
+                  value={form.discountType}
+                  onValueChange={v => setForm(f => ({ ...f, discountType: v as 'percentage' | 'fixed_aed' }))}
+                >
+                  <SelectTrigger data-testid="select-discount-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="percentage">% off</SelectItem>
+                    <SelectItem value="fixed_aed">Fixed AED off</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{form.discountType === 'percentage' ? 'Percentage (1–100)' : 'AED Amount'}</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={form.discountType === 'percentage' ? 100 : undefined}
+                  value={form.discountValue}
+                  onChange={e => setForm(f => ({ ...f, discountValue: Number(e.target.value) }))}
+                  data-testid="input-discount-value"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Max uses (blank = unlimited)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="Unlimited"
+                  value={form.maxUses ?? ''}
+                  onChange={e => setForm(f => ({ ...f, maxUses: e.target.value ? Number(e.target.value) : null }))}
+                  data-testid="input-max-uses"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Expiry date (blank = no expiry)</Label>
+                <Input
+                  type="date"
+                  value={form.expiresAt}
+                  onChange={e => setForm(f => ({ ...f, expiresAt: e.target.value }))}
+                  data-testid="input-expires-at"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch
+                id="create-dc-first-time-only"
+                checked={form.firstTimeOnly}
+                onCheckedChange={checked => setForm(f => ({ ...f, firstTimeOnly: checked }))}
+                data-testid="switch-first-time-only"
+              />
+              <Label htmlFor="create-dc-first-time-only">First-time players only</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setShowCreate(false); setForm(BLANK_DC_FORM); }}
+              data-testid="button-cancel-create-code"
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCreate} disabled={creating} data-testid="button-confirm-create-code">
+              {creating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Creating...</> : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

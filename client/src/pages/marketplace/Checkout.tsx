@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet } from 'lucide-react';
+import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet, Tag, CheckCircle2 } from 'lucide-react';
 import { queryClient } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -18,11 +18,20 @@ interface Guest {
   email: string;
 }
 
+interface DiscountResult {
+  codeId: string;
+  code: string;
+  discountAmountAed: number;
+  discountLabel: string;
+}
+
 interface BookingData {
   bookingId: string;
   paymentMethod: 'ziina' | 'cash' | 'wallet';
   redirectUrl?: string;
   amount: number;
+  originalAmount?: number;
+  discountAmountAed?: number;
   walletApplied?: number;
   ziinaAmount?: number;
   spotsBooked?: number;
@@ -137,10 +146,125 @@ function GuestForm({ guests, onChange, maxGuests }: {
   );
 }
 
-function OrderSummary({ sessionInfo, amount, spotsBooked }: {
+function DiscountCodeField({ sessionId, onApply, onClear, appliedDiscount }: {
+  sessionId: string;
+  onApply: (result: DiscountResult) => void;
+  onClear: () => void;
+  appliedDiscount: DiscountResult | null;
+}) {
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleApply = async () => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return;
+    setLoading(true);
+    setError(null);
+
+    const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
+    if (!token) {
+      setError('Not authenticated. Please log in again.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/marketplace/discount-codes/validate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code: trimmed, sessionId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Invalid code');
+      onApply(data);
+      setError(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Invalid discount code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClear = () => {
+    setCode('');
+    setError(null);
+    onClear();
+  };
+
+  if (appliedDiscount) {
+    return (
+      <Card data-testid="card-discount-applied" className="border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-green-800 dark:text-green-300">
+                  <span className="font-bold">{appliedDiscount.code}</span> applied — AED {appliedDiscount.discountAmountAed} off
+                </p>
+                <p className="text-xs text-green-700 dark:text-green-400">{appliedDiscount.discountLabel}</p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={handleClear}
+              data-testid="button-remove-discount"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-2" data-testid="section-discount-code">
+      <div className="flex items-center gap-2">
+        <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="text-sm font-medium">Discount code</span>
+      </div>
+      <div className="flex gap-2">
+        <Input
+          placeholder="Enter code (e.g. NEWBIE)"
+          value={code}
+          onChange={e => setCode(e.target.value.toUpperCase())}
+          onKeyDown={e => e.key === 'Enter' && handleApply()}
+          data-testid="input-discount-code"
+          className="flex-1"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleApply}
+          disabled={loading || !code.trim()}
+          data-testid="button-apply-discount"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+        </Button>
+      </div>
+      {error && (
+        <p className="text-xs text-destructive flex items-center gap-1" data-testid="text-discount-error">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function OrderSummary({ sessionInfo, amount, spotsBooked, discountAmountAed, originalAmount }: {
   sessionInfo: BookingData['session'];
   amount: number;
   spotsBooked: number;
+  discountAmountAed?: number;
+  originalAmount?: number;
 }) {
   return (
     <Card>
@@ -166,6 +290,18 @@ function OrderSummary({ sessionInfo, amount, spotsBooked }: {
             <span>{spotsBooked} spots (you + {spotsBooked - 1} guest{spotsBooked > 2 ? 's' : ''})</span>
           </div>
         )}
+        {discountAmountAed && discountAmountAed > 0 && originalAmount !== undefined && (
+          <div className="border-t pt-2 space-y-1">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span className="line-through text-muted-foreground">AED {originalAmount}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm text-green-600 dark:text-green-400">
+              <span className="flex items-center gap-1"><Tag className="h-3 w-3" /> Discount</span>
+              <span data-testid="text-discount-amount">- AED {discountAmountAed}</span>
+            </div>
+          </div>
+        )}
         <div className="border-t pt-3 flex items-center justify-between gap-2">
           <span className="font-medium">Total</span>
           <span className="text-xl font-bold" data-testid="text-checkout-amount">AED {amount}</span>
@@ -188,10 +324,13 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const [error, setError] = useState<string | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [useWallet, setUseWallet] = useState(false);
+  const [appliedDiscount, setAppliedDiscount] = useState<DiscountResult | null>(null);
   const { toast } = useToast();
 
   const spotsBooked = 1 + guests.length;
-  const totalAmount = pricePerSpot * spotsBooked;
+  const rawTotal = pricePerSpot * spotsBooked;
+  const discountSaving = appliedDiscount ? Math.min(appliedDiscount.discountAmountAed, rawTotal) : 0;
+  const totalAmount = Math.max(0, rawTotal - discountSaving);
   const totalAmountFils = totalAmount * 100;
   const maxGuests = Math.min(3, availableSpots - 1);
 
@@ -237,6 +376,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
           paymentMethod: 'ziina',
           guests: guests.map(g => ({ name: g.name.trim(), email: g.email.trim() || null })),
           applyWallet: useWallet,
+          discountCode: appliedDiscount?.code ?? undefined,
         }),
       });
       const data = await res.json();
@@ -293,11 +433,24 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   return (
     <div className="space-y-6">
-      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} />
+      <OrderSummary
+        sessionInfo={sessionInfo}
+        amount={totalAmount}
+        spotsBooked={spotsBooked}
+        discountAmountAed={discountSaving > 0 ? discountSaving : undefined}
+        originalAmount={discountSaving > 0 ? rawTotal : undefined}
+      />
 
       {maxGuests > 0 && (
         <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />
       )}
+
+      <DiscountCodeField
+        sessionId={sessionId}
+        appliedDiscount={appliedDiscount}
+        onApply={setAppliedDiscount}
+        onClear={() => setAppliedDiscount(null)}
+      />
 
       {walletBalanceFils > 0 && (
         <Card data-testid="card-wallet-credit">

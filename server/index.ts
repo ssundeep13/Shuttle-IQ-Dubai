@@ -6,7 +6,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./scheduler";
 import { seedTags } from "./tagSeed";
-import { backfillOnboardingCompletedForLegacyUsers } from "./storage";
+import { backfillOnboardingCompletedForLegacyUsers, seedNewbieDiscountCode } from "./storage";
 import { registerZiinaWebhookRoute } from "./webhookHandler";
 import { isNoindexPath } from "../shared/seo";
 
@@ -115,6 +115,13 @@ app.use((req, res, next) => {
     await backfillOnboardingCompletedForLegacyUsers();
   } catch (e) {
     console.error("[Onboarding backfill] failed (non-fatal):", e);
+  }
+
+  // Task #245 — seed the NEWBIE discount code on fresh deployments
+  try {
+    await seedNewbieDiscountCode();
+  } catch (e) {
+    console.error("[DiscountCode] NEWBIE seed failed (non-fatal):", e);
   }
 
   await seedTags();

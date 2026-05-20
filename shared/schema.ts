@@ -399,6 +399,8 @@ export const bookings = pgTable("bookings", {
   promotedAt: timestamp("promoted_at"),
   walletAmountUsed: integer("wallet_amount_used").notNull().default(0), // fils of wallet credit applied to this booking
   cancellationReason: text("cancellation_reason"), // e.g. 'event_cancelled_by_admin', 'guest_self_cancel', 'late_cancel', 'admin_cancel'
+  discountCodeId: varchar("discount_code_id"), // nullable FK to discount_codes.id
+  discountAmountAed: integer("discount_amount_aed"), // AED saved by discount (null = no discount applied)
 }, (table) => [
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)
@@ -736,6 +738,36 @@ export const insertBlogPostSchema = createInsertSchema(blogPosts)
   .extend({ status: z.enum(["draft", "published"]).default("draft") });
 export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
 export type BlogPost = typeof blogPosts.$inferSelect;
+
+// ─── Discount Codes ────────────────────────────────────────────────────────────
+export const discountCodes = pgTable("discount_codes", {
+  id: varchar("id").primaryKey(),
+  code: text("code").notNull().unique(), // stored uppercase
+  description: text("description"),
+  discountType: text("discount_type").notNull(), // 'fixed_aed' | 'percentage'
+  discountValue: integer("discount_value").notNull(), // AED amount or percentage (e.g. 50 = 50%)
+  firstTimeOnly: boolean("first_time_only").notNull().default(false),
+  maxUses: integer("max_uses"), // null = unlimited
+  usedCount: integer("used_count").notNull().default(0),
+  expiresAt: timestamp("expires_at"), // null = no expiry
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export const insertDiscountCodeSchema = createInsertSchema(discountCodes)
+  .omit({ id: true, usedCount: true, createdAt: true })
+  .extend({ discountType: z.enum(["fixed_aed", "percentage"]) });
+export type InsertDiscountCode = z.infer<typeof insertDiscountCodeSchema>;
+export type DiscountCode = typeof discountCodes.$inferSelect;
+
+export const discountCodeUses = pgTable("discount_code_uses", {
+  id: varchar("id").primaryKey(),
+  codeId: varchar("code_id").notNull().references(() => discountCodes.id),
+  bookingId: varchar("booking_id").notNull().unique(), // one discount use per booking
+  userId: varchar("user_id").notNull(),
+  discountAmountAed: integer("discount_amount_aed").notNull(),
+  usedAt: timestamp("used_at").notNull().defaultNow(),
+});
+export type DiscountCodeUse = typeof discountCodeUses.$inferSelect;
 
 export interface ExpenseWithCategory extends Expense {
   categoryName: string;

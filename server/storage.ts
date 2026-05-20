@@ -88,6 +88,10 @@ import {
   type PlayerLinkRequest,
   type InsertPlayerLinkRequest,
   type PlayerLinkRequestWithDetails,
+  discountCodes,
+  discountCodeUses,
+  type DiscountCode,
+  type InsertDiscountCode,
 } from "@shared/schema";
 import { computeOnboardingScore } from "@shared/utils/skillUtils";
 import { db } from "./db";
@@ -495,6 +499,16 @@ export interface IStorage {
     gameId: string;
     participants: Array<{ playerId: string; team: number; skillBefore: number; skillAfter: number }>;
   }>;
+
+  // Discount code operations
+  validateDiscountCode(code: string, userId: string, sessionPriceAed: number): Promise<
+    | { valid: true; discountCode: DiscountCode; discountAmountAed: number }
+    | { valid: false; error: string }
+  >;
+  applyDiscountCode(bookingId: string, codeId: string, discountAmountAed: number, userId: string): Promise<void>;
+  createDiscountCode(data: InsertDiscountCode): Promise<DiscountCode>;
+  listDiscountCodes(): Promise<DiscountCode[]>;
+  toggleDiscountCodeActive(id: string, isActive: boolean): Promise<DiscountCode | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3831,9 +3845,152 @@ export class DatabaseStorage implements IStorage {
       };
     });
   }
+
+  // ── Discount code operations ────────────────────────────────────────────────
+
+  async validateDiscountCode(
+    code: string,
+    userId: string,
+    sessionPriceAed: number,
+  ): Promise<
+    | { valid: true; discountCode: DiscountCode; discountAmountAed: number }
+    | { valid: false; error: string }
+  > {
+    const normalised = code.trim().toUpperCase();
+    const [row] = await db
+      .select()
+      .from(discountCodes)
+      .where(eq(discountCodes.code, normalised))
+      .limit(1);
+
+    if (!row) return { valid: false, error: 'Invalid discount code' };
+    if (!row.isActive) return { valid: false, error: 'This discount code is no longer active' };
+    if (row.expiresAt && new Date() > row.expiresAt) {
+      return { valid: false, error: 'This discount code has expired' };
+    }
+    if (row.maxUses !== null && row.usedCount >= row.maxUses) {
+      return { valid: false, error: 'This discount code has reached its usage limit' };
+    }
+
+    // First-time-only check: count confirmed or attended bookings for this user
+    if (row.firstTimeOnly) {
+      const [countRow] = await db
+        .select({ cnt: sql<number>`COUNT(*)` })
+        .from(bookings)
+        .where(
+          and(
+            eq(bookings.userId, userId),
+            sql`${bookings.status} IN ('confirmed', 'attended')`,
+          ),
+        );
+      const priorBookings = Number(countRow?.cnt ?? 0);
+      if (priorBookings > 0) {
+        return { valid: false, error: 'This code is for first-time players only' };
+      }
+    }
+
+    // Calculate discount amount
+    let discountAmountAed: number;
+    if (row.discountType === 'percentage') {
+      discountAmountAed = Math.floor((sessionPriceAed * row.discountValue) / 100);
+    } else {
+      discountAmountAed = Math.min(row.discountValue, sessionPriceAed);
+    }
+
+    return { valid: true, discountCode: row, discountAmountAed };
+  }
+
+  async applyDiscountCode(
+    bookingId: string,
+    codeId: string,
+    discountAmountAed: number,
+    userId: string,
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.insert(discountCodeUses).values({
+        id: randomUUID(),
+        codeId,
+        bookingId,
+        userId,
+        discountAmountAed,
+      });
+      await tx
+        .update(discountCodes)
+        .set({ usedCount: sql`${discountCodes.usedCount} + 1` })
+        .where(eq(discountCodes.id, codeId));
+      await tx
+        .update(bookings)
+        .set({ discountCodeId: codeId, discountAmountAed })
+        .where(eq(bookings.id, bookingId));
+    });
+  }
+
+  async createDiscountCode(data: InsertDiscountCode): Promise<DiscountCode> {
+    const [row] = await db
+      .insert(discountCodes)
+      .values({ ...data, id: randomUUID(), code: data.code.trim().toUpperCase() })
+      .returning();
+    return row;
+  }
+
+  async listDiscountCodes(): Promise<DiscountCode[]> {
+    return db.select().from(discountCodes).orderBy(desc(discountCodes.createdAt));
+  }
+
+  async toggleDiscountCodeActive(id: string, isActive: boolean): Promise<DiscountCode | undefined> {
+    const [row] = await db
+      .update(discountCodes)
+      .set({ isActive })
+      .where(eq(discountCodes.id, id))
+      .returning();
+    return row ?? undefined;
+  }
 }
 
 export const storage = new DatabaseStorage();
+
+// ============================================================
+// One-shot seed — NEWBIE discount code (Task #245)
+// Ensures the NEWBIE code exists on every fresh deployment.
+// Uses system_one_shot_migrations for idempotency.
+// ============================================================
+export async function seedNewbieDiscountCode(): Promise<void> {
+  // Create migration tracker table if it doesn't exist
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS system_one_shot_migrations (
+      key text PRIMARY KEY,
+      ran_at timestamp NOT NULL DEFAULT now()
+    )
+  `);
+
+  // Check if already seeded
+  const marker = await db.execute(sql`
+    SELECT 1 FROM system_one_shot_migrations
+     WHERE key = 'discount_code_newbie_seed_v1'
+     LIMIT 1
+  `);
+  const markerRows = (marker as { rows?: unknown[] }).rows ?? [];
+  if (markerRows.length > 0) return; // Already ran
+
+  // Upsert the NEWBIE code (safe even if direct SQL was already run)
+  await db.execute(sql`
+    INSERT INTO discount_codes
+      (id, code, description, discount_type, discount_value, first_time_only,
+       max_uses, used_count, expires_at, is_active, created_at)
+    VALUES
+      ('seed-newbie-001', 'NEWBIE', '50% off for first-time players',
+       'percentage', 50, true, null, 0, null, true, now())
+    ON CONFLICT (id) DO NOTHING
+  `);
+
+  await db.execute(sql`
+    INSERT INTO system_one_shot_migrations (key)
+    VALUES ('discount_code_newbie_seed_v1')
+    ON CONFLICT (key) DO NOTHING
+  `);
+
+  console.log('[DiscountCode] NEWBIE seed ran — code is ready for use.');
+}
 
 // Task #237 — One-shot legacy back-fill (spec line 19: "Existing players
 // (everyone in production today) are unaffected — onboardingCompleted is
