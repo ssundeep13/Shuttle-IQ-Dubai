@@ -120,9 +120,14 @@ export function buildZiinaBookingMessage(opts: {
   const name = (opts.playerName ?? '').replace(/\s+/g, ' ').trim();
   const formattedDate = opts.sessionDate ? formatSessionDate(opts.sessionDate) : null;
   if (name && formattedDate) {
-    const msg = `${name} - ${formattedDate}`;
-    if (msg.length <= ZIINA_MESSAGE_MAX && Buffer.byteLength(msg, 'utf8') <= ZIINA_MESSAGE_MAX) {
-      return msg;
+    const fullMsg = `${name} - ${formattedDate}`;
+    if (fullMsg.length <= ZIINA_MESSAGE_MAX && Buffer.byteLength(fullMsg, 'utf8') <= ZIINA_MESSAGE_MAX) {
+      return fullMsg;
+    }
+    const firstName = name.split(' ')[0];
+    const firstNameMsg = `${firstName} - ${formattedDate}`;
+    if (firstNameMsg.length <= ZIINA_MESSAGE_MAX && Buffer.byteLength(firstNameMsg, 'utf8') <= ZIINA_MESSAGE_MAX) {
+      return firstNameMsg;
     }
   }
   return 'ShuttleIQ booking';

@@ -106,7 +106,16 @@ describe('buildZiinaBookingMessage', () => {
     expect(buildZiinaBookingMessage({})).toBe('ShuttleIQ booking');
   });
 
-  it('stays within the 50-char cap and returns the fallback for very long names', () => {
+  it('uses the first name when the full name would exceed the cap', () => {
+    const out = buildZiinaBookingMessage({
+      playerName: 'Mohammed Abdulrahman Al-Farsi Junior Senior',
+      sessionDate: '2026-05-30',
+    });
+    expect(out).toBe('Mohammed - 30th May');
+    expect(out.length).toBeLessThanOrEqual(CAP);
+  });
+
+  it('falls back to "ShuttleIQ booking" when even the first name exceeds the cap', () => {
     const longName = 'A'.repeat(60);
     const out = buildZiinaBookingMessage({ playerName: longName, sessionDate: '2026-05-30' });
     expect(out).toBe('ShuttleIQ booking');
