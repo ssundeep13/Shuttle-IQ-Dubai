@@ -696,9 +696,10 @@ export default function Checkout() {
   const [availableSpots, setAvailableSpots] = useState<number>(99);
   const [error, setError] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
-  // Discount code state lives at the top level so the field is always visible
-  // above payment method selection, not hidden inside the Ziina-only form.
+  // Discount code state lives at the top level so it is visible on the
+  // payment method selector step and carries over into the Ziina flow.
   const [appliedDiscount, setAppliedDiscount] = useState<DiscountResult | null>(null);
+  const [discountExpanded, setDiscountExpanded] = useState(false);
 
   interface WalletInfo {
     walletBalance: number;
@@ -873,13 +874,42 @@ export default function Checkout() {
               />
             );
           })()}
-          <DiscountCodeField
-            sessionId={sessionId!}
-            appliedDiscount={appliedDiscount}
-            onApply={setAppliedDiscount}
-            onClear={() => setAppliedDiscount(null)}
-            currentSaving={appliedDiscount ? computeDiscountSaving(appliedDiscount, pricePerSpot) : 0}
-          />
+
+          {appliedDiscount ? (
+            <DiscountCodeField
+              sessionId={sessionId!}
+              appliedDiscount={appliedDiscount}
+              onApply={setAppliedDiscount}
+              onClear={() => { setAppliedDiscount(null); setDiscountExpanded(false); }}
+              currentSaving={computeDiscountSaving(appliedDiscount, pricePerSpot)}
+            />
+          ) : (
+            <div data-testid="section-discount-toggle">
+              <button
+                type="button"
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setDiscountExpanded(v => !v)}
+                data-testid="button-toggle-discount"
+              >
+                <Tag className="h-4 w-4 shrink-0" />
+                <span>Have a discount code?</span>
+                <span className="ml-auto">{discountExpanded ? '−' : '+'}</span>
+              </button>
+              <div
+                className={discountExpanded ? 'mt-3' : 'hidden'}
+                data-testid="discount-code-panel"
+              >
+                <DiscountCodeField
+                  sessionId={sessionId!}
+                  appliedDiscount={null}
+                  onApply={(result) => { setAppliedDiscount(result); }}
+                  onClear={() => setAppliedDiscount(null)}
+                  currentSaving={0}
+                />
+              </div>
+            </div>
+          )}
+
           <CancellationPolicy />
           <PaymentMethodSelector onSelect={handlePaymentMethodSelect} />
         </div>
