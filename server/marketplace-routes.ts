@@ -2391,8 +2391,8 @@ export function registerMarketplaceRoutes(app: Express) {
         remainingFils = walletResult.remainingFils;
       }
 
-      // If wallet fully covers the cost, confirm booking without Ziina
-      if (walletApplied > 0 && remainingFils <= 0) {
+      // If remaining balance is zero (discount alone, or discount+wallet), confirm without Ziina
+      if (remainingFils <= 0) {
         await storage.updateBooking(booking.id, { status: 'confirmed', paymentMethod: 'wallet' });
         await createAllSlotsForBooking(booking.id, 'confirmed', true);
 

@@ -322,20 +322,22 @@ function OrderSummary({ sessionInfo, amount, spotsBooked, discountAmountAed, ori
   );
 }
 
-function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots, walletBalanceFils, onWalletSuccess }: {
+function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots, walletBalanceFils, onWalletSuccess, appliedDiscount, onDiscountApply, onDiscountClear }: {
   sessionId: string;
   pricePerSpot: number;
   sessionInfo: BookingData['session'];
   availableSpots: number;
   walletBalanceFils: number;
   onWalletSuccess: (data: BookingData) => void;
+  appliedDiscount: DiscountResult | null;
+  onDiscountApply: (result: DiscountResult) => void;
+  onDiscountClear: () => void;
 }) {
   const [processing, setProcessing] = useState(false);
   const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [useWallet, setUseWallet] = useState(false);
-  const [appliedDiscount, setAppliedDiscount] = useState<DiscountResult | null>(null);
   const { toast } = useToast();
 
   const spotsBooked = 1 + guests.length;
@@ -460,8 +462,8 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
       <DiscountCodeField
         sessionId={sessionId}
         appliedDiscount={appliedDiscount}
-        onApply={setAppliedDiscount}
-        onClear={() => setAppliedDiscount(null)}
+        onApply={onDiscountApply}
+        onClear={onDiscountClear}
         currentSaving={discountSaving}
       />
 
@@ -694,6 +696,9 @@ export default function Checkout() {
   const [availableSpots, setAvailableSpots] = useState<number>(99);
   const [error, setError] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
+  // Discount code state lives at the top level so the field is always visible
+  // above payment method selection, not hidden inside the Ziina-only form.
+  const [appliedDiscount, setAppliedDiscount] = useState<DiscountResult | null>(null);
 
   interface WalletInfo {
     walletBalance: number;
@@ -844,7 +849,25 @@ export default function Checkout() {
 
       {!paymentMethod && sessionInfo && (
         <div className="space-y-6">
-          <OrderSummary sessionInfo={sessionInfo} amount={pricePerSpot} spotsBooked={1} />
+          {(() => {
+            const previewSaving = appliedDiscount ? computeDiscountSaving(appliedDiscount, pricePerSpot) : 0;
+            return (
+              <OrderSummary
+                sessionInfo={sessionInfo}
+                amount={Math.max(0, pricePerSpot - previewSaving)}
+                spotsBooked={1}
+                discountAmountAed={previewSaving > 0 ? previewSaving : undefined}
+                originalAmount={previewSaving > 0 ? pricePerSpot : undefined}
+              />
+            );
+          })()}
+          <DiscountCodeField
+            sessionId={sessionId!}
+            appliedDiscount={appliedDiscount}
+            onApply={setAppliedDiscount}
+            onClear={() => setAppliedDiscount(null)}
+            currentSaving={appliedDiscount ? computeDiscountSaving(appliedDiscount, pricePerSpot) : 0}
+          />
           <CancellationPolicy />
           <PaymentMethodSelector onSelect={handlePaymentMethodSelect} />
         </div>
@@ -861,6 +884,9 @@ export default function Checkout() {
             setBookingData(data);
             setConfirmed(true);
           }}
+          appliedDiscount={appliedDiscount}
+          onDiscountApply={setAppliedDiscount}
+          onDiscountClear={() => setAppliedDiscount(null)}
         />
       )}
 
