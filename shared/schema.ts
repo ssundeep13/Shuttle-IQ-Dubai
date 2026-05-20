@@ -742,7 +742,7 @@ export type BlogPost = typeof blogPosts.$inferSelect;
 // ─── Discount Codes ────────────────────────────────────────────────────────────
 export const discountCodes = pgTable("discount_codes", {
   id: varchar("id").primaryKey(),
-  code: text("code").notNull().unique(), // stored uppercase
+  code: text("code").notNull().unique(), // stored uppercase (normalized at app layer)
   description: text("description"),
   discountType: text("discount_type").notNull(), // 'fixed_aed' | 'percentage'
   discountValue: integer("discount_value").notNull(), // AED amount or percentage (e.g. 50 = 50%)

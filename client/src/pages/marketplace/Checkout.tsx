@@ -37,7 +37,7 @@ function computeDiscountSaving(discount: DiscountResult, totalAed: number): numb
 
 interface BookingData {
   bookingId: string;
-  paymentMethod: 'ziina' | 'cash' | 'wallet';
+  paymentMethod: 'ziina' | 'cash' | 'wallet' | 'discount';
   redirectUrl?: string;
   amount: number;
   originalAmount?: number;
@@ -781,6 +781,18 @@ export default function Checkout() {
                   <Banknote className="h-4 w-4" />
                   Pay AED {bookingData?.amount || pricePerSpot * spots} in cash at the venue
                 </div>
+              </div>
+            ) : bookingData?.paymentMethod === 'discount' ? (
+              <div className="space-y-1 text-sm">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400">
+                  <Tag className="h-4 w-4" />
+                  Covered by discount code
+                </div>
+                {bookingData.discountAmountAed && bookingData.discountAmountAed > 0 && (
+                  <p className="text-muted-foreground" data-testid="text-wallet-breakdown">
+                    Discount applied: AED {bookingData.discountAmountAed}
+                  </p>
+                )}
               </div>
             ) : bookingData?.paymentMethod === 'wallet' ? (
               <div className="space-y-1 text-sm">

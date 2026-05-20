@@ -2391,22 +2391,27 @@ export function registerMarketplaceRoutes(app: Express) {
         remainingFils = walletResult.remainingFils;
       }
 
-      // If remaining balance is zero (discount alone, or discount+wallet), confirm without Ziina
+      // If remaining balance is zero (discount alone, or discount+wallet), confirm without Ziina.
+      // Payment method: 'wallet' when wallet credit was also used; 'discount' when discount alone covers it.
       if (remainingFils <= 0) {
-        await storage.updateBooking(booking.id, { status: 'confirmed', paymentMethod: 'wallet' });
+        const confirmedPaymentMethod = walletApplied > 0 ? 'wallet' : 'discount';
+        await storage.updateBooking(booking.id, { status: 'confirmed', paymentMethod: confirmedPaymentMethod });
         await createAllSlotsForBooking(booking.id, 'confirmed', true);
 
         try {
           if (primaryUser) {
-            sendBookingConfirmationEmail(primaryUser.email, primaryUser.name, bookableSession, 'wallet', totalAmount).catch(() => {});
+            // Email amount = what the player actually paid (discounted total, not original)
+            sendBookingConfirmationEmail(primaryUser.email, primaryUser.name, bookableSession, confirmedPaymentMethod as 'wallet' | 'ziina' | 'cash', discountedTotal).catch(() => {});
           }
-        } catch (emailErr) { console.error('[Email] wallet booking confirm failed:', emailErr); }
+        } catch (emailErr) { console.error('[Email] free/discount booking confirm failed:', emailErr); }
 
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
         return res.json({
           bookingId: booking.id,
-          paymentMethod: "wallet",
-          amount: totalAmount,
+          paymentMethod: confirmedPaymentMethod,
+          amount: discountedTotal,
+          originalAmount: totalAmount,
+          discountAmountAed: appliedDiscountAmountAed > 0 ? appliedDiscountAmountAed : undefined,
           walletApplied,
           spotsBooked,
           booking: bookingWithDetails,
