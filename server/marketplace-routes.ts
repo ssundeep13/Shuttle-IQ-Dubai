@@ -2296,6 +2296,19 @@ export function registerMarketplaceRoutes(app: Express) {
         appliedDiscountAmountAed = dcResult.discountAmountAed;
       }
 
+      // Referral first-game discount (Ziina-only, no manual code): auto-apply 50%
+      // if the user signed up via referral AND has no prior non-cancelled bookings.
+      if (method !== 'cash' && !discountCode) {
+        const referralRow = await storage.getReferralByRefereeUserId(req.user.userId);
+        if (referralRow) {
+          const priorCount = await storage.countConfirmedBookingsForUser(req.user.userId);
+          if (priorCount === 0) {
+            const baseTotal = bookableSession.priceAed * spotsBooked;
+            appliedDiscountAmountAed = Math.floor(baseTotal * 0.5);
+          }
+        }
+      }
+
       if (method === 'cash') {
         const totalAmount = bookableSession.priceAed * spotsBooked;
         const booking = await storage.createBooking({
@@ -4083,6 +4096,27 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error) {
       console.error('[admin contact backfill] failed', error);
       res.status(500).json({ error: "Failed to backfill player contacts" });
+    }
+  });
+
+  // ============================================================
+  // REFERRAL DISCOUNT ELIGIBILITY
+  // ============================================================
+
+  // GET /api/marketplace/referral-discount-eligibility
+  // Returns { eligible: boolean } — true when the authenticated user signed up
+  // via a referral code AND has no prior non-cancelled bookings, making them
+  // eligible for the automatic 50% first-game discount on Ziina payments.
+  app.get("/api/marketplace/referral-discount-eligibility", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const referralRow = await storage.getReferralByRefereeUserId(req.user.userId);
+      if (!referralRow) return res.json({ eligible: false });
+      const priorBookings = await storage.countConfirmedBookingsForUser(req.user.userId);
+      return res.json({ eligible: priorBookings === 0 });
+    } catch (err) {
+      console.error('[Referral discount eligibility] error:', err);
+      return res.status(500).json({ error: 'Failed to check eligibility' });
     }
   });
 

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight, Users2, Flame, Timer } from 'lucide-react';
+import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight, Users2, Flame, Timer, Gift } from 'lucide-react';
 import { SiWhatsapp } from 'react-icons/si';
 import { motion } from 'framer-motion';
 import type { CommunitySpotlightEntry } from '@shared/schema';
@@ -86,14 +86,20 @@ export default function MarketplaceHome() {
             )}
           </motion.div>
 
-          <motion.div variants={fadeInUp} className="mt-8 flex justify-center" data-testid="banner-first-session-promo">
+          <motion.div variants={fadeInUp} className="mt-8 flex flex-col items-center gap-3" data-testid="banner-first-session-promo">
             <div className="relative inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold backdrop-blur-sm">
               <span className="absolute -inset-px rounded-full animate-pulse bg-amber-400/10" />
               <Flame className="h-4 w-4 text-amber-400 shrink-0 relative" />
               <span className="relative">
-                Limited-time offer — <span className="text-amber-300 font-bold">50% off</span> your first session. Book before it&apos;s gone!
+                Limited-time offer — sign up with a referral code &amp; get <span className="text-amber-300 font-bold">50% off</span> your first game online. Don&apos;t miss out!
               </span>
               <Timer className="h-4 w-4 text-amber-400/70 shrink-0 relative" />
+            </div>
+            <div className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-secondary/10 border border-secondary/30 text-primary-foreground/80 text-sm font-medium backdrop-blur-sm" data-testid="banner-referrer-reward">
+              <Gift className="h-4 w-4 text-secondary shrink-0" />
+              <span>
+                Refer a friend &amp; earn <span className="text-secondary font-semibold">AED 15</span> wallet credit every time they play.
+              </span>
             </div>
           </motion.div>
         </motion.div>

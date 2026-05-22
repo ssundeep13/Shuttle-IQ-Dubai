@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet, Tag, CheckCircle2 } from 'lucide-react';
+import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet, Tag, CheckCircle2, Gift } from 'lucide-react';
 import { queryClient } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -270,12 +270,13 @@ function DiscountCodeField({ sessionId, onApply, onClear, appliedDiscount, curre
   );
 }
 
-function OrderSummary({ sessionInfo, amount, spotsBooked, discountAmountAed, originalAmount }: {
+function OrderSummary({ sessionInfo, amount, spotsBooked, discountAmountAed, originalAmount, discountLabel }: {
   sessionInfo: BookingData['session'];
   amount: number;
   spotsBooked: number;
   discountAmountAed?: number;
   originalAmount?: number;
+  discountLabel?: string;
 }) {
   return (
     <Card>
@@ -308,7 +309,7 @@ function OrderSummary({ sessionInfo, amount, spotsBooked, discountAmountAed, ori
               <span className="line-through text-muted-foreground">AED {originalAmount}</span>
             </div>
             <div className="flex items-center justify-between text-sm text-green-600 dark:text-green-400">
-              <span className="flex items-center gap-1"><Tag className="h-3 w-3" /> Discount</span>
+              <span className="flex items-center gap-1"><Tag className="h-3 w-3" /> {discountLabel ?? 'Discount'}</span>
               <span data-testid="text-discount-amount">- AED {discountAmountAed}</span>
             </div>
           </div>
@@ -322,7 +323,7 @@ function OrderSummary({ sessionInfo, amount, spotsBooked, discountAmountAed, ori
   );
 }
 
-function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots, walletBalanceFils, onWalletSuccess, appliedDiscount, onDiscountApply, onDiscountClear }: {
+function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots, walletBalanceFils, onWalletSuccess, appliedDiscount, onDiscountApply, onDiscountClear, referralDiscountEligible }: {
   sessionId: string;
   pricePerSpot: number;
   sessionInfo: BookingData['session'];
@@ -332,6 +333,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   appliedDiscount: DiscountResult | null;
   onDiscountApply: (result: DiscountResult) => void;
   onDiscountClear: () => void;
+  referralDiscountEligible?: boolean;
 }) {
   const [processing, setProcessing] = useState(false);
   const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
@@ -342,8 +344,11 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   const spotsBooked = 1 + guests.length;
   const rawTotal = pricePerSpot * spotsBooked;
-  // Recompute discount from the stored rule every time rawTotal changes (e.g. guests added)
-  const discountSaving = appliedDiscount ? computeDiscountSaving(appliedDiscount, rawTotal) : 0;
+  // Referral discount takes precedence over manual discount codes
+  const referralSaving = referralDiscountEligible ? Math.floor(rawTotal * 0.5) : 0;
+  const discountSaving = referralDiscountEligible
+    ? referralSaving
+    : (appliedDiscount ? computeDiscountSaving(appliedDiscount, rawTotal) : 0);
   const totalAmount = Math.max(0, rawTotal - discountSaving);
   const totalAmountFils = totalAmount * 100;
   const maxGuests = Math.min(3, availableSpots - 1);
@@ -390,7 +395,8 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
           paymentMethod: 'ziina',
           guests: guests.map(g => ({ name: g.name.trim(), email: g.email.trim() || null })),
           applyWallet: useWallet,
-          discountCode: appliedDiscount?.code ?? undefined,
+          // Don't send discountCode when referral discount is auto-applied by server
+          discountCode: referralDiscountEligible ? undefined : (appliedDiscount?.code ?? undefined),
         }),
       });
       const data = await res.json();
@@ -453,19 +459,22 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         spotsBooked={spotsBooked}
         discountAmountAed={discountSaving > 0 ? discountSaving : undefined}
         originalAmount={discountSaving > 0 ? rawTotal : undefined}
+        discountLabel={referralDiscountEligible ? 'Referral welcome — 50% off' : undefined}
       />
 
       {maxGuests > 0 && (
         <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />
       )}
 
-      <DiscountCodeField
-        sessionId={sessionId}
-        appliedDiscount={appliedDiscount}
-        onApply={onDiscountApply}
-        onClear={onDiscountClear}
-        currentSaving={discountSaving}
-      />
+      {!referralDiscountEligible && (
+        <DiscountCodeField
+          sessionId={sessionId}
+          appliedDiscount={appliedDiscount}
+          onApply={onDiscountApply}
+          onClear={onDiscountClear}
+          currentSaving={discountSaving}
+        />
+      )}
 
       {walletBalanceFils > 0 && (
         <Card data-testid="card-wallet-credit">
@@ -711,6 +720,13 @@ export default function Checkout() {
   });
   const walletBalanceFils = walletData?.walletBalance ?? 0;
 
+  const { data: eligibilityData } = useQuery<{ eligible: boolean }>({
+    queryKey: ['/api/marketplace/referral-discount-eligibility'],
+    enabled: isAuthenticated,
+    staleTime: 60_000,
+  });
+  const referralDiscountEligible = eligibilityData?.eligible ?? false;
+
   useEffect(() => {
     if (!isAuthenticated) {
       setLocation('/marketplace/login');
@@ -863,7 +879,10 @@ export default function Checkout() {
       {!paymentMethod && sessionInfo && (
         <div className="space-y-6">
           {(() => {
-            const previewSaving = appliedDiscount ? computeDiscountSaving(appliedDiscount, pricePerSpot) : 0;
+            const referralPreviewSaving = referralDiscountEligible ? Math.floor(pricePerSpot * 0.5) : 0;
+            const previewSaving = referralDiscountEligible
+              ? referralPreviewSaving
+              : (appliedDiscount ? computeDiscountSaving(appliedDiscount, pricePerSpot) : 0);
             return (
               <OrderSummary
                 sessionInfo={sessionInfo}
@@ -871,43 +890,56 @@ export default function Checkout() {
                 spotsBooked={1}
                 discountAmountAed={previewSaving > 0 ? previewSaving : undefined}
                 originalAmount={previewSaving > 0 ? pricePerSpot : undefined}
+                discountLabel={referralDiscountEligible ? 'Referral welcome — 50% off' : undefined}
               />
             );
           })()}
 
-          {appliedDiscount ? (
-            <DiscountCodeField
-              sessionId={sessionId!}
-              appliedDiscount={appliedDiscount}
-              onApply={setAppliedDiscount}
-              onClear={() => { setAppliedDiscount(null); setDiscountExpanded(false); }}
-              currentSaving={computeDiscountSaving(appliedDiscount, pricePerSpot)}
-            />
-          ) : (
-            <div data-testid="section-discount-toggle">
-              <button
-                type="button"
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setDiscountExpanded(v => !v)}
-                data-testid="button-toggle-discount"
-              >
-                <Tag className="h-4 w-4 shrink-0" />
-                <span>Have a discount code?</span>
-                <span className="ml-auto">{discountExpanded ? '−' : '+'}</span>
-              </button>
-              <div
-                className={discountExpanded ? 'mt-3' : 'hidden'}
-                data-testid="discount-code-panel"
-              >
-                <DiscountCodeField
-                  sessionId={sessionId!}
-                  appliedDiscount={null}
-                  onApply={(result) => { setAppliedDiscount(result); }}
-                  onClear={() => setAppliedDiscount(null)}
-                  currentSaving={0}
-                />
+          {referralDiscountEligible && (
+            <div className="flex items-start gap-3 p-4 rounded-md bg-secondary/10 border border-secondary/30" data-testid="banner-referral-discount-callout">
+              <Gift className="h-5 w-5 text-secondary shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">Your referral welcome discount is ready</p>
+                <p className="text-sm text-muted-foreground">Pay by card and <span className="font-semibold text-foreground">50% off</span> will be applied automatically. This offer is not available for cash payments.</p>
               </div>
             </div>
+          )}
+
+          {!referralDiscountEligible && (
+            appliedDiscount ? (
+              <DiscountCodeField
+                sessionId={sessionId!}
+                appliedDiscount={appliedDiscount}
+                onApply={setAppliedDiscount}
+                onClear={() => { setAppliedDiscount(null); setDiscountExpanded(false); }}
+                currentSaving={computeDiscountSaving(appliedDiscount, pricePerSpot)}
+              />
+            ) : (
+              <div data-testid="section-discount-toggle">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setDiscountExpanded(v => !v)}
+                  data-testid="button-toggle-discount"
+                >
+                  <Tag className="h-4 w-4 shrink-0" />
+                  <span>Have a discount code?</span>
+                  <span className="ml-auto">{discountExpanded ? '−' : '+'}</span>
+                </button>
+                <div
+                  className={discountExpanded ? 'mt-3' : 'hidden'}
+                  data-testid="discount-code-panel"
+                >
+                  <DiscountCodeField
+                    sessionId={sessionId!}
+                    appliedDiscount={null}
+                    onApply={(result) => { setAppliedDiscount(result); }}
+                    onClear={() => setAppliedDiscount(null)}
+                    currentSaving={0}
+                  />
+                </div>
+              </div>
+            )
           )}
 
           <CancellationPolicy />
@@ -929,6 +961,7 @@ export default function Checkout() {
           appliedDiscount={appliedDiscount}
           onDiscountApply={setAppliedDiscount}
           onDiscountClear={() => setAppliedDiscount(null)}
+          referralDiscountEligible={referralDiscountEligible}
         />
       )}
 

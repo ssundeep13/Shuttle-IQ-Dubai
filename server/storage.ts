@@ -95,7 +95,7 @@ import {
 } from "@shared/schema";
 import { computeOnboardingScore } from "@shared/utils/skillUtils";
 import { db } from "./db";
-import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
+import { eq, and, ne, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -499,6 +499,8 @@ export interface IStorage {
     gameId: string;
     participants: Array<{ playerId: string; team: number; skillBefore: number; skillAfter: number }>;
   }>;
+
+  countConfirmedBookingsForUser(userId: string): Promise<number>;
 
   // Discount code operations
   validateDiscountCode(code: string, userId: string, sessionPriceAed: number): Promise<
@@ -3387,6 +3389,14 @@ export class DatabaseStorage implements IStorage {
       .from(referrals)
       .where(eq(referrals.refereeUserId, refereeUserId));
     return row ?? undefined;
+  }
+
+  async countConfirmedBookingsForUser(userId: string): Promise<number> {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(bookings)
+      .where(and(eq(bookings.userId, userId), ne(bookings.status, 'cancelled')));
+    return row?.count ?? 0;
   }
 
   async getReferralByRefereePlayerId(refereePlayerId: string): Promise<Referral | undefined> {
