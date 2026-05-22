@@ -7,6 +7,9 @@ import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./scheduler";
 import { seedTags } from "./tagSeed";
 import { backfillOnboardingCompletedForLegacyUsers, seedNewbieDiscountCode } from "./storage";
+import { db } from "./db";
+import { tags, playerTags } from "../shared/schema";
+import { eq } from "drizzle-orm";
 import { registerZiinaWebhookRoute } from "./webhookHandler";
 import { isNoindexPath } from "../shared/seo";
 
@@ -138,6 +141,19 @@ app.use((req, res, next) => {
     await setupVite(app, server);
   } else {
     serveStatic(app);
+  }
+
+  // One-time cleanup: remove the "Court Asshole" tag and all its assignments
+  try {
+    const COURT_ASSHOLE_TAG_ID = '8f10a9cf-bf6e-4a5a-af2f-974759b7e92a';
+    const tagRow = await db.select({ id: tags.id }).from(tags).where(eq(tags.id, COURT_ASSHOLE_TAG_ID));
+    if (tagRow.length > 0) {
+      const deletedAssignments = await db.delete(playerTags).where(eq(playerTags.tagId, COURT_ASSHOLE_TAG_ID)).returning();
+      await db.delete(tags).where(eq(tags.id, COURT_ASSHOLE_TAG_ID));
+      log(`[Cleanup] Removed "Court Asshole" tag and ${deletedAssignments.length} assignment(s)`);
+    }
+  } catch (err) {
+    log(`[Cleanup] Court Asshole tag cleanup skipped: ${err}`);
   }
 
   const port = parseInt(process.env.PORT || '5000', 10);

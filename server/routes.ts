@@ -3024,6 +3024,33 @@ Return ONLY valid JSON, no markdown, no other text:
     }
   });
 
+  // DELETE /api/admin/player-tags/:id – remove a specific player tag assignment (admin only)
+  app.delete("/api/admin/player-tags/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await db.delete(playerTags).where(eq(playerTags.id, id)).returning();
+      if (deleted.length === 0) return res.status(404).json({ error: "Player tag not found" });
+      res.json({ deleted: deleted[0] });
+    } catch (err) {
+      console.error("Delete player tag error:", err);
+      res.status(500).json({ error: "Failed to delete player tag" });
+    }
+  });
+
+  // DELETE /api/admin/tags/:id – remove a tag definition and all its assignments (admin only)
+  app.delete("/api/admin/tags/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const deletedAssignments = await db.delete(playerTags).where(eq(playerTags.tagId, id)).returning();
+      const deletedTag = await db.delete(tags).where(eq(tags.id, id)).returning();
+      if (deletedTag.length === 0) return res.status(404).json({ error: "Tag not found" });
+      res.json({ deletedTag: deletedTag[0], deletedAssignments: deletedAssignments.length });
+    } catch (err) {
+      console.error("Delete tag error:", err);
+      res.status(500).json({ error: "Failed to delete tag" });
+    }
+  });
+
   // ============================================================
   // TAG SUGGESTIONS
   // ============================================================
