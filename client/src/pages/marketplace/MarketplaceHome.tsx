@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight, Users2 } from 'lucide-react';
+import { Calendar, Trophy, Users, Zap, MapPin, Star, ArrowRight, ChevronRight, Users2, Flame, Timer } from 'lucide-react';
 import { SiWhatsapp } from 'react-icons/si';
 import { motion } from 'framer-motion';
 import type { CommunitySpotlightEntry } from '@shared/schema';
@@ -84,6 +84,17 @@ export default function MarketplaceHome() {
                 </Button>
               </Link>
             )}
+          </motion.div>
+
+          <motion.div variants={fadeInUp} className="mt-8 flex justify-center" data-testid="banner-first-session-promo">
+            <div className="relative inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold backdrop-blur-sm">
+              <span className="absolute -inset-px rounded-full animate-pulse bg-amber-400/10" />
+              <Flame className="h-4 w-4 text-amber-400 shrink-0 relative" />
+              <span className="relative">
+                Limited-time offer — <span className="text-amber-300 font-bold">50% off</span> your first session. Book before it&apos;s gone!
+              </span>
+              <Timer className="h-4 w-4 text-amber-400/70 shrink-0 relative" />
+            </div>
           </motion.div>
         </motion.div>
       </section>
