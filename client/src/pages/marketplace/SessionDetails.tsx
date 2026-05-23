@@ -12,7 +12,7 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import {
   Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info,
   Banknote, ShieldCheck, ListOrdered, CheckCircle2, X, Loader2,
-  AlertCircle, Minus, Plus, Search, UserCheck, User,
+  AlertCircle, Minus, Plus, Search, UserCheck, User, Gift,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
@@ -305,6 +305,110 @@ function GuestRow({
       >
         <X className="h-4 w-4" />
       </Button>
+    </div>
+  );
+}
+
+function ReferralDiscountBanner() {
+  const { isAuthenticated } = useMarketplaceAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showInput, setShowInput] = useState(false);
+  const [codeInput, setCodeInput] = useState('');
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [applied, setApplied] = useState(false);
+
+  const { data: eligibility } = useQuery<{ eligible: boolean; canApplyCode: boolean }>({
+    queryKey: ['/api/marketplace/referral-discount-eligibility'],
+    enabled: !!isAuthenticated,
+    staleTime: 60_000,
+  });
+
+  const handleApply = async () => {
+    if (!codeInput.trim()) return;
+    setApplying(true);
+    setApplyError(null);
+    try {
+      const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
+      const res = await fetch('/api/marketplace/referrals/apply-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ referralCode: codeInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Invalid referral code');
+      setApplied(true);
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/referral-discount-eligibility'] });
+      toast({ title: 'Referral code applied!', description: 'Your 50% discount will apply automatically at checkout.' });
+    } catch (err: any) {
+      setApplyError(err.message || 'Invalid referral code');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  if (!isAuthenticated || !eligibility) return null;
+
+  if (eligibility.eligible || applied) {
+    return (
+      <div className="flex gap-3 p-4 rounded-md border border-teal-500/20 bg-teal-500/5" data-testid="banner-referral-discount-session">
+        <Gift className="h-5 w-5 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
+        <div className="text-sm">
+          <p className="font-medium text-teal-700 dark:text-teal-400 mb-0.5">50% first-booking discount ready!</p>
+          <p className="text-xs text-muted-foreground">Your referral discount will apply automatically at checkout.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!eligibility.canApplyCode) return null;
+
+  return (
+    <div className="flex gap-3 p-4 rounded-md border border-teal-500/20 bg-teal-500/5" data-testid="banner-referral-code-session">
+      <Gift className="h-5 w-5 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
+      <div className="text-sm flex-1 min-w-0">
+        <p className="font-medium text-teal-700 dark:text-teal-400 mb-0.5">First time booking? Get 50% off</p>
+        <p className="text-xs text-muted-foreground mb-2">
+          Enter a referral code before booking and save 50% on your first session.
+        </p>
+        {!showInput ? (
+          <button
+            type="button"
+            className="text-xs font-medium text-teal-700 dark:text-teal-400 underline underline-offset-2"
+            onClick={() => setShowInput(true)}
+            data-testid="button-show-referral-input-session"
+          >
+            Enter referral code
+          </button>
+        ) : (
+          <div className="space-y-1.5">
+            <div className="flex gap-2">
+              <Input
+                value={codeInput}
+                onChange={e => { setCodeInput(e.target.value.toUpperCase()); setApplyError(null); }}
+                placeholder="e.g. SIQ-AHMED0-00001"
+                className="h-8 text-xs"
+                data-testid="input-referral-code-session"
+              />
+              <Button
+                size="sm"
+                onClick={handleApply}
+                disabled={applying || !codeInput.trim()}
+                data-testid="button-apply-referral-code-session"
+              >
+                {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Apply'}
+              </Button>
+            </div>
+            {applyError && (
+              <p className="text-xs text-destructive" data-testid="text-referral-code-error-session">{applyError}</p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -912,6 +1016,8 @@ export default function SessionDetails() {
               )}
 
               {isAuthenticated && id && <WhosPlaying sessionId={id} />}
+
+              <ReferralDiscountBanner />
 
               <div className="flex gap-3 p-4 rounded-md border border-orange-500/20 bg-orange-500/5">
                 <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
