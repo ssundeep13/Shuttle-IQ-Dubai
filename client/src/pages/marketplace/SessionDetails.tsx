@@ -503,11 +503,26 @@ function InlineBookingPanel({
   onBooked: () => void;
 }) {
   const { toast } = useToast();
+  const { isAuthenticated } = useMarketplaceAuth();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number } | null>(null);
+  const [referralEntryExpanded, setReferralEntryExpanded] = useState(false);
+  const [referralCodeInput, setReferralCodeInput] = useState('');
+  const [referralApplying, setReferralApplying] = useState(false);
+  const [referralApplyError, setReferralApplyError] = useState<string | null>(null);
+  const [referralAppliedName, setReferralAppliedName] = useState<string | null>(null);
+
+  const { data: eligibilityData } = useQuery<{ eligible: boolean; canApplyCode?: boolean }>({
+    queryKey: ['/api/marketplace/referral-discount-eligibility'],
+    enabled: !!isAuthenticated,
+    staleTime: 60_000,
+  });
+  const referralDiscountEligible = eligibilityData?.eligible ?? false;
+  const canApplyReferralCode = eligibilityData?.canApplyCode ?? false;
 
   const maxGuests = Math.min(3, session.spotsRemaining - 1);
   const spotsBooked = 1 + guests.length;
@@ -531,6 +546,35 @@ function InlineBookingPanel({
       if (g.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) return 'Invalid guest email address';
     }
     return null;
+  };
+
+  const handleApplyReferralCode = async () => {
+    if (!referralCodeInput.trim()) return;
+    setReferralApplying(true);
+    setReferralApplyError(null);
+    try {
+      const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
+      const res = await fetch('/api/marketplace/referrals/apply-code', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ referralCode: referralCodeInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReferralApplyError(data.error || 'Failed to apply code');
+      } else {
+        setReferralAppliedName(data.referrerName);
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/referral-discount-eligibility'] });
+        toast({ title: 'Referral code applied!', description: '50% off your first game will apply automatically when you pay by card.' });
+      }
+    } catch {
+      setReferralApplyError('Something went wrong. Please try again.');
+    } finally {
+      setReferralApplying(false);
+    }
   };
 
   const makeBooking = async (method: 'cash' | 'ziina') => {
@@ -699,6 +743,62 @@ function InlineBookingPanel({
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
+      )}
+
+      {/* Referral discount section */}
+      {referralDiscountEligible && (
+        <div className="flex items-start gap-3 p-3 rounded-md bg-secondary/10 border border-secondary/30" data-testid="banner-referral-ready-panel">
+          <Gift className="h-4 w-4 text-secondary shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="text-sm font-semibold">Your referral welcome discount is ready</p>
+            <p className="text-xs text-muted-foreground">Pay by card and <span className="font-semibold text-foreground">50% off</span> will be applied automatically.</p>
+          </div>
+        </div>
+      )}
+
+      {canApplyReferralCode && !referralDiscountEligible && (
+        referralAppliedName ? (
+          <div className="flex items-center gap-2 p-3 rounded-md bg-secondary/10 border border-secondary/30" data-testid="banner-referral-applied-panel">
+            <CheckCircle2 className="h-4 w-4 text-secondary shrink-0" />
+            <p className="text-sm font-medium">
+              Referral from <span className="font-semibold">{referralAppliedName}</span> applied — 50% off when paying by card
+            </p>
+          </div>
+        ) : (
+          <div data-testid="section-referral-panel">
+            <button
+              type="button"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full"
+              onClick={() => setReferralEntryExpanded(v => !v)}
+              data-testid="button-toggle-referral-panel"
+            >
+              <Gift className="h-4 w-4 shrink-0" />
+              <span>Have a referral code? Get 50% off your first game</span>
+              <span className="ml-auto">{referralEntryExpanded ? '−' : '+'}</span>
+            </button>
+            <div className={referralEntryExpanded ? 'mt-3 space-y-2' : 'hidden'} data-testid="referral-panel-input">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. SIQ-AHMED0-00123"
+                  value={referralCodeInput}
+                  onChange={e => { setReferralCodeInput(e.target.value); setReferralApplyError(null); }}
+                  disabled={referralApplying}
+                  data-testid="input-referral-code-panel"
+                />
+                <Button
+                  onClick={handleApplyReferralCode}
+                  disabled={referralApplying || !referralCodeInput.trim()}
+                  data-testid="button-apply-referral-code-panel"
+                >
+                  {referralApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+                </Button>
+              </div>
+              {referralApplyError && (
+                <p className="text-sm text-destructive" data-testid="text-referral-error-panel">{referralApplyError}</p>
+              )}
+            </div>
+          </div>
+        )
       )}
 
       {/* Payment method buttons */}
