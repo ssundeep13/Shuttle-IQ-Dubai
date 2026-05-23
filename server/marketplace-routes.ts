@@ -896,6 +896,8 @@ export function registerMarketplaceRoutes(app: Express) {
         if (returnPath) qs.set('returnPath', returnPath);
         const promo = (req.query.promo as string) || '';
         if (promo) qs.set('promo', promo);
+        const refParam = (req.query.ref as string) || '';
+        if (refParam) qs.set('ref', refParam);
         return res.redirect(`https://${canonicalDomain}/api/marketplace/auth/google?${qs.toString()}`);
       }
 
@@ -923,6 +925,13 @@ export function registerMarketplaceRoutes(app: Express) {
       const promo = req.query.promo as string | undefined;
       if (promo && /^[a-z0-9_-]{1,32}$/i.test(promo)) {
         res.cookie('oauth_promo', promo, cookieOpts);
+      }
+
+      // Carry referral code through OAuth so users who click "Continue with
+      // Google" from a pre-filled signup URL still get their referral linked.
+      const ref = req.query.ref as string | undefined;
+      if (ref && /^SIQ-[A-Z0-9]+-\d+$/i.test(ref) && ref.length < 64) {
+        res.cookie('oauth_ref', ref, cookieOpts);
       }
 
       const url = client.generateAuthUrl({
@@ -962,9 +971,11 @@ export function registerMarketplaceRoutes(app: Express) {
       const returnDomain: string | undefined = req.cookies?.oauth_return_domain;
       const returnPath: string | undefined = req.cookies?.oauth_return_path;
       const promo: string | undefined = req.cookies?.oauth_promo;
+      const oauthRef: string | undefined = req.cookies?.oauth_ref;
       res.clearCookie('oauth_return_domain', clearOpts);
       res.clearCookie('oauth_return_path', clearOpts);
       res.clearCookie('oauth_promo', clearOpts);
+      res.clearCookie('oauth_ref', clearOpts);
 
       const { client } = getGoogleOAuthClient();
       const { tokens } = await client.getToken(code);
@@ -1030,6 +1041,21 @@ export function registerMarketplaceRoutes(app: Express) {
           sendWelcomeEmail(user.email, user.name, marketplaceUrl).catch(() => {});
           // Retroactive guest linking
           storage.linkGuestsByEmail(user.email, user.id).catch(() => {});
+          // Apply referral code threaded through OAuth state (new accounts only).
+          // Silently swallow any error so a bad/expired code never breaks login.
+          if (oauthRef) {
+            (async () => {
+              try {
+                const existingRef = await storage.getReferralByRefereeUserId(user!.id);
+                if (!existingRef) {
+                  const referralPlayer = await storage.getPlayerByReferralCode(oauthRef);
+                  if (referralPlayer) {
+                    await storage.createReferral({ referrerPlayerId: referralPlayer.id, refereeUserId: user!.id });
+                  }
+                }
+              } catch { /* silent */ }
+            })();
+          }
         }
       } else {
         // Returning Google user. Backfill emailVerified (for accounts that
@@ -4104,19 +4130,56 @@ export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
 
   // GET /api/marketplace/referral-discount-eligibility
-  // Returns { eligible: boolean } — true when the authenticated user signed up
-  // via a referral code AND has no prior non-cancelled bookings, making them
-  // eligible for the automatic 50% first-game discount on Ziina payments.
+  // Returns { eligible: boolean, canApplyCode: boolean }
+  // eligible     — true when the user has a referral row AND 0 prior bookings
+  //                (automatic 50% first-game discount applies on Ziina payments)
+  // canApplyCode — true when the user has NO referral row but still 0 prior
+  //                bookings (they can still link a referral code at checkout)
   app.get("/api/marketplace/referral-discount-eligibility", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
       const referralRow = await storage.getReferralByRefereeUserId(req.user.userId);
-      if (!referralRow) return res.json({ eligible: false });
       const priorBookings = await storage.countConfirmedBookingsForUser(req.user.userId);
-      return res.json({ eligible: priorBookings === 0 });
+      const eligible = !!referralRow && priorBookings === 0;
+      const canApplyCode = !referralRow && priorBookings === 0;
+      return res.json({ eligible, canApplyCode });
     } catch (err) {
       console.error('[Referral discount eligibility] error:', err);
       return res.status(500).json({ error: 'Failed to check eligibility' });
+    }
+  });
+
+  // POST /api/marketplace/referrals/apply-code
+  // Lets a first-time user (0 prior bookings, no existing referral row) link a
+  // referral code to their account so the 50% Ziina discount auto-applies.
+  app.post("/api/marketplace/referrals/apply-code", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const { referralCode } = req.body;
+      if (!referralCode || typeof referralCode !== 'string') {
+        return res.status(400).json({ error: "Referral code required" });
+      }
+      // Guard: must not already have a referral row
+      const existing = await storage.getReferralByRefereeUserId(req.user.userId);
+      if (existing) {
+        return res.status(409).json({ error: "Already used a referral code" });
+      }
+      // Guard: must have 0 prior confirmed bookings
+      const priorBookings = await storage.countConfirmedBookingsForUser(req.user.userId);
+      if (priorBookings > 0) {
+        return res.status(409).json({ error: "Only available before your first booking" });
+      }
+      // Validate the code against the players table
+      const referralPlayer = await storage.getPlayerByReferralCode(referralCode.trim());
+      if (!referralPlayer) {
+        return res.status(404).json({ error: "Invalid referral code" });
+      }
+      // Create the referral row
+      await storage.createReferral({ referrerPlayerId: referralPlayer.id, refereeUserId: req.user.userId });
+      return res.json({ success: true, referrerName: referralPlayer.name });
+    } catch (err) {
+      console.error('[Apply referral code] error:', err);
+      return res.status(500).json({ error: 'Failed to apply referral code' });
     }
   });
 

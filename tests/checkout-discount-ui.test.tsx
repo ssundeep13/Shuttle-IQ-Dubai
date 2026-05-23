@@ -186,6 +186,107 @@ describe('Checkout — discount code UI', () => {
 });
 
 // ============================================================
+// Referral code entry section — UI tests
+// ============================================================
+
+describe('Checkout — referral code entry section', () => {
+  let originalFetch: typeof fetch;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    toastMock.mockReset();
+    (useMarketplaceAuth as unknown as Mock).mockReturnValue({
+      isAuthenticated: true,
+      user: { id: 'user-2', name: 'New Player', linkedPlayerId: null },
+    });
+    localStorage.setItem('mp_accessToken', 'test-token');
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    localStorage.removeItem('mp_accessToken');
+    vi.restoreAllMocks();
+  });
+
+  function makeReferralFetch(opts: {
+    canApplyCode?: boolean;
+    eligible?: boolean;
+    applySuccess?: boolean;
+    applyError?: string;
+  } = {}) {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const method = init?.method ?? 'GET';
+
+      if (url.includes(`/api/marketplace/sessions/${SESSION_ID}`)) {
+        return new Response(JSON.stringify(makeSession()), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/referrals/player')) {
+        return new Response(JSON.stringify({ walletBalance: 0 }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/marketplace/referral-discount-eligibility')) {
+        return new Response(
+          JSON.stringify({ eligible: opts.eligible ?? false, canApplyCode: opts.canApplyCode ?? false }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (method === 'POST' && url.endsWith('/api/marketplace/referrals/apply-code')) {
+        if (opts.applySuccess === false) {
+          return new Response(
+            JSON.stringify({ error: opts.applyError ?? 'Invalid referral code' }),
+            { status: 404, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+        return new Response(
+          JSON.stringify({ success: true, referrerName: 'Ahmed' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+  }
+
+  it('renders the referral code entry section when canApplyCode is true', async () => {
+    renderCheckout(makeReferralFetch({ canApplyCode: true }) as unknown as typeof fetch);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('section-referral-code-toggle')).toBeInTheDocument();
+    }, { timeout: 3000 });
+    // Discount code section must NOT appear when canApplyCode is true
+    expect(screen.queryByTestId('section-discount-toggle')).not.toBeInTheDocument();
+  });
+
+  it('shows the confirmed banner after successfully applying a referral code', async () => {
+    renderCheckout(makeReferralFetch({ canApplyCode: true, applySuccess: true }) as unknown as typeof fetch);
+
+    await waitFor(() => screen.getByTestId('section-referral-code-toggle'), { timeout: 3000 });
+    fireEvent.click(screen.getByTestId('button-toggle-referral-entry'));
+
+    await waitFor(() => screen.getByTestId('input-referral-code'), { timeout: 3000 });
+    fireEvent.change(screen.getByTestId('input-referral-code'), { target: { value: 'SIQ-AHMED0-00001' } });
+    fireEvent.click(screen.getByTestId('button-apply-referral-code'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('banner-referral-code-applied')).toBeInTheDocument();
+    }, { timeout: 3000 });
+    expect(screen.queryByTestId('section-referral-code-toggle')).not.toBeInTheDocument();
+  });
+
+  it('does not show the referral entry section when the user is already discount-eligible', async () => {
+    renderCheckout(makeReferralFetch({ eligible: true, canApplyCode: false }) as unknown as typeof fetch);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('banner-referral-discount-callout')).toBeInTheDocument();
+    }, { timeout: 3000 });
+    expect(screen.queryByTestId('section-referral-code-toggle')).not.toBeInTheDocument();
+  });
+});
+
+// ============================================================
 // Route-level booking with discount — pure logic tests
 // ============================================================
 

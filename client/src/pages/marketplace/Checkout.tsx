@@ -709,6 +709,12 @@ export default function Checkout() {
   // payment method selector step and carries over into the Ziina flow.
   const [appliedDiscount, setAppliedDiscount] = useState<DiscountResult | null>(null);
   const [discountExpanded, setDiscountExpanded] = useState(false);
+  // Referral code entry state (for users with 0 bookings and no referral yet)
+  const [referralEntryExpanded, setReferralEntryExpanded] = useState(false);
+  const [referralCodeInput, setReferralCodeInput] = useState('');
+  const [referralApplying, setReferralApplying] = useState(false);
+  const [referralApplyError, setReferralApplyError] = useState<string | null>(null);
+  const [referralAppliedName, setReferralAppliedName] = useState<string | null>(null);
 
   interface WalletInfo {
     walletBalance: number;
@@ -720,12 +726,13 @@ export default function Checkout() {
   });
   const walletBalanceFils = walletData?.walletBalance ?? 0;
 
-  const { data: eligibilityData } = useQuery<{ eligible: boolean }>({
+  const { data: eligibilityData } = useQuery<{ eligible: boolean; canApplyCode?: boolean }>({
     queryKey: ['/api/marketplace/referral-discount-eligibility'],
     enabled: isAuthenticated,
     staleTime: 60_000,
   });
   const referralDiscountEligible = eligibilityData?.eligible ?? false;
+  const canApplyReferralCode = eligibilityData?.canApplyCode ?? false;
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -760,6 +767,32 @@ export default function Checkout() {
 
   const handlePaymentMethodSelect = (method: 'ziina' | 'cash') => {
     setPaymentMethod(method);
+  };
+
+  const handleApplyReferralCode = async () => {
+    if (!referralCodeInput.trim()) return;
+    setReferralApplying(true);
+    setReferralApplyError(null);
+    try {
+      const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
+      const res = await fetch('/api/marketplace/referrals/apply-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ referralCode: referralCodeInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReferralApplyError(data.error || 'Failed to apply code');
+      } else {
+        setReferralAppliedName(data.referrerName);
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/referral-discount-eligibility'] });
+        toast({ title: 'Referral code applied', description: '50% off your first game has been unlocked — pay by card to redeem it.' });
+      }
+    } catch {
+      setReferralApplyError('Something went wrong. Please try again.');
+    } finally {
+      setReferralApplying(false);
+    }
   };
 
   if (sessionLoading) {
@@ -905,7 +938,53 @@ export default function Checkout() {
             </div>
           )}
 
-          {!referralDiscountEligible && (
+          {canApplyReferralCode && !referralDiscountEligible && (
+            referralAppliedName ? (
+              <div className="flex items-center gap-2 p-3 rounded-md bg-secondary/10 border border-secondary/30" data-testid="banner-referral-code-applied">
+                <CheckCircle2 className="h-4 w-4 text-secondary shrink-0" />
+                <p className="text-sm font-medium">Referral code applied — 50% off your first game is now unlocked when paying by card</p>
+              </div>
+            ) : (
+              <div data-testid="section-referral-code-toggle">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setReferralEntryExpanded(v => !v)}
+                  data-testid="button-toggle-referral-entry"
+                >
+                  <Gift className="h-4 w-4 shrink-0" />
+                  <span>Have a referral code? Get 50% off your first game when paying by card</span>
+                  <span className="ml-auto">{referralEntryExpanded ? '−' : '+'}</span>
+                </button>
+                <div
+                  className={referralEntryExpanded ? 'mt-3 space-y-2' : 'hidden'}
+                  data-testid="referral-code-panel"
+                >
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="e.g. SIQ-AHMED0-00123"
+                      value={referralCodeInput}
+                      onChange={e => { setReferralCodeInput(e.target.value); setReferralApplyError(null); }}
+                      disabled={referralApplying}
+                      data-testid="input-referral-code"
+                    />
+                    <Button
+                      onClick={handleApplyReferralCode}
+                      disabled={referralApplying || !referralCodeInput.trim()}
+                      data-testid="button-apply-referral-code"
+                    >
+                      {referralApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
+                    </Button>
+                  </div>
+                  {referralApplyError && (
+                    <p className="text-sm text-destructive" data-testid="text-referral-apply-error">{referralApplyError}</p>
+                  )}
+                </div>
+              </div>
+            )
+          )}
+
+          {!referralDiscountEligible && !canApplyReferralCode && (
             appliedDiscount ? (
               <DiscountCodeField
                 sessionId={sessionId!}

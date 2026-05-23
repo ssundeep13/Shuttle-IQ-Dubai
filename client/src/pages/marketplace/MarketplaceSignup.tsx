@@ -181,10 +181,11 @@ export default function MarketplaceSignup() {
             variant="outline"
             className="w-full gap-2 mb-2"
             onClick={() => {
-              const url = promo
-                ? `/api/marketplace/auth/google?promo=${encodeURIComponent(promo)}`
-                : '/api/marketplace/auth/google';
-              window.location.href = url;
+              const params = new URLSearchParams();
+              if (promo) params.set('promo', promo);
+              if (referralCode.trim()) params.set('ref', referralCode.trim());
+              const qs = params.toString();
+              window.location.href = `/api/marketplace/auth/google${qs ? '?' + qs : ''}`;
             }}
             data-testid="button-google-signup"
           >
