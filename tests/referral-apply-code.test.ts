@@ -52,6 +52,16 @@ function makeRes() {
   };
 }
 
+/** A user created 1 day ago (well within the 30-day window). */
+function freshUser() {
+  return { id: 'u1', createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000) } as any;
+}
+
+/** A user created 31 days ago (outside the 30-day window). */
+function staleUser() {
+  return { id: 'u1', createdAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) } as any;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // GET /api/marketplace/referral-discount-eligibility — extended shape
 // ────────────────────────────────────────────────────────────────────────────
@@ -73,6 +83,7 @@ describe('GET /api/marketplace/referral-discount-eligibility', () => {
     const { storage } = await import('../server/storage');
     vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'r1' } as any);
     vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
 
     const captured = makeRes();
     await handler({ user: { userId: 'u1' } }, captured.res);
@@ -81,11 +92,12 @@ describe('GET /api/marketplace/referral-discount-eligibility', () => {
     expect(captured.body).toMatchObject({ eligible: true, canApplyCode: false });
   });
 
-  it('returns eligible=false, canApplyCode=true when user has NO referral row and 0 bookings', async () => {
+  it('returns eligible=false, canApplyCode=true when user has NO referral row, 0 bookings, and fresh account', async () => {
     const handler = await load();
     const { storage } = await import('../server/storage');
     vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
     vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
 
     const captured = makeRes();
     await handler({ user: { userId: 'u1' } }, captured.res);
@@ -99,6 +111,7 @@ describe('GET /api/marketplace/referral-discount-eligibility', () => {
     const { storage } = await import('../server/storage');
     vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
     vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(2);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
 
     const captured = makeRes();
     await handler({ user: { userId: 'u1' } }, captured.res);
@@ -112,6 +125,21 @@ describe('GET /api/marketplace/referral-discount-eligibility', () => {
     const { storage } = await import('../server/storage');
     vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'r1' } as any);
     vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(1);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' } }, captured.res);
+
+    expect(captured.statusCode).toBe(200);
+    expect(captured.body).toMatchObject({ eligible: false, canApplyCode: false });
+  });
+
+  it('returns canApplyCode=false when the account is older than 30 days (window expired)', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(staleUser());
 
     const captured = makeRes();
     await handler({ user: { userId: 'u1' } }, captured.res);
@@ -169,11 +197,40 @@ describe('POST /api/marketplace/referrals/apply-code', () => {
     expect(captured.body?.error).toMatch(/first booking/i);
   });
 
+  it('returns 409 with window-expired message when account is older than 30 days', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(staleUser());
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' }, body: { referralCode: 'SIQ-TEST00-00001' } }, captured.res);
+
+    expect(captured.statusCode).toBe(409);
+    expect(captured.body?.error).toMatch(/30 days/i);
+  });
+
+  it('returns 409 with window-expired message when user record is not found', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(undefined);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' }, body: { referralCode: 'SIQ-TEST00-00001' } }, captured.res);
+
+    expect(captured.statusCode).toBe(409);
+    expect(captured.body?.error).toMatch(/30 days/i);
+  });
+
   it('returns 404 when the referral code does not match any player', async () => {
     const handler = await load();
     const { storage } = await import('../server/storage');
     vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
     vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
     vi.spyOn(storage, 'getPlayerByReferralCode').mockResolvedValue(undefined);
 
     const captured = makeRes();
@@ -188,6 +245,7 @@ describe('POST /api/marketplace/referrals/apply-code', () => {
     const { storage } = await import('../server/storage');
     vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
     vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
     vi.spyOn(storage, 'getPlayerByReferralCode').mockResolvedValue({ id: 'p1', name: 'Ahmed' } as any);
     const createSpy = vi.spyOn(storage, 'createReferral').mockResolvedValue({} as any);
 
@@ -204,6 +262,7 @@ describe('POST /api/marketplace/referrals/apply-code', () => {
     const { storage } = await import('../server/storage');
     vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
     vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
     const lookupSpy = vi.spyOn(storage, 'getPlayerByReferralCode').mockResolvedValue(undefined);
 
     const captured = makeRes();
@@ -217,6 +276,7 @@ describe('POST /api/marketplace/referrals/apply-code', () => {
     const { storage } = await import('../server/storage');
     vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
     vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
     vi.spyOn(storage, 'getPlayerByReferralCode').mockResolvedValue(undefined);
     const createSpy = vi.spyOn(storage, 'createReferral');
 

@@ -27,6 +27,7 @@ import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
 import { createHash, randomInt } from "crypto";
 import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import { computeOnboardingScore } from "@shared/utils/skillUtils";
+import { canApplyReferralCode, REFERRAL_WINDOW_EXPIRED_MESSAGE } from "./referralPolicy";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -4138,10 +4139,14 @@ export function registerMarketplaceRoutes(app: Express) {
   app.get("/api/marketplace/referral-discount-eligibility", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const referralRow = await storage.getReferralByRefereeUserId(req.user.userId);
-      const priorBookings = await storage.countConfirmedBookingsForUser(req.user.userId);
+      const [referralRow, priorBookings, user] = await Promise.all([
+        storage.getReferralByRefereeUserId(req.user.userId),
+        storage.countConfirmedBookingsForUser(req.user.userId),
+        storage.getMarketplaceUser(req.user.userId),
+      ]);
+      const withinWindow = user ? canApplyReferralCode(user.createdAt) : false;
       const eligible = !!referralRow && priorBookings === 0;
-      const canApplyCode = !referralRow && priorBookings === 0;
+      const canApplyCode = !referralRow && priorBookings === 0 && withinWindow;
       return res.json({ eligible, canApplyCode });
     } catch (err) {
       console.error('[Referral discount eligibility] error:', err);
@@ -4168,6 +4173,11 @@ export function registerMarketplaceRoutes(app: Express) {
       const priorBookings = await storage.countConfirmedBookingsForUser(req.user.userId);
       if (priorBookings > 0) {
         return res.status(409).json({ error: "Only available before your first booking" });
+      }
+      // Guard: must be within the 30-day post-signup window
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (!user || !canApplyReferralCode(user.createdAt)) {
+        return res.status(409).json({ error: REFERRAL_WINDOW_EXPIRED_MESSAGE });
       }
       // Validate the code against the players table
       const referralPlayer = await storage.getPlayerByReferralCode(referralCode.trim());
