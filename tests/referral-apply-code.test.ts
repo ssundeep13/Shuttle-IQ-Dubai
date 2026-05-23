@@ -1,150 +1,229 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ============================================================
-// Pure-logic tests for the POST /api/marketplace/referrals/apply-code
-// guard rules and the GET /api/marketplace/referral-discount-eligibility
-// extended response shape (eligible + canApplyCode).
+// Route-level tests for:
+//   GET  /api/marketplace/referral-discount-eligibility  (extended shape)
+//   POST /api/marketplace/referrals/apply-code           (new endpoint)
 //
-// These mirror the exact guard checks in marketplace-routes.ts so that
-// any future logic change in the route is caught by a failing test here.
-// ============================================================
+// Pattern: mock auth middleware so it passes through, capture the route
+// handler from a fakeApp proxy, mock storage, call the handler directly.
 
-// Mirror of the apply-code guard logic from the route handler
-function validateApplyCode(
-  hasExistingReferral: boolean,
-  priorBookings: number,
-  codeFoundInDb: boolean,
-): { success: true } | { error: string; status: 400 | 404 | 409 } {
-  if (hasExistingReferral) {
-    return { error: 'Already used a referral code', status: 409 };
-  }
-  if (priorBookings > 0) {
-    return { error: 'Only available before your first booking', status: 409 };
-  }
-  if (!codeFoundInDb) {
-    return { error: 'Invalid referral code', status: 404 };
-  }
-  return { success: true };
+vi.mock('../server/auth/middleware', () => ({
+  requireAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireMarketplaceAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
+type Handler = (req: any, res: any) => Promise<void> | void;
+
+/** Capture handlers for multiple (method, path) pairs in one registration call. */
+async function loadHandlers(pairs: Array<{ method: 'get' | 'post'; path: string }>) {
+  const { registerMarketplaceRoutes } = await import('../server/marketplace-routes');
+  const captured = new Map<string, Handler>();
+  const noop = () => {};
+  const fakeApp = new Proxy({} as Record<string, unknown>, {
+    get: (_t, prop) => {
+      const method = String(prop);
+      if (['get', 'post', 'put', 'patch', 'delete'].includes(method)) {
+        return (path: string, ...handlers: Handler[]) => {
+          const key = `${method.toUpperCase()} ${path}`;
+          if (pairs.some(p => p.method === method && p.path === path)) {
+            captured.set(key, handlers[handlers.length - 1]);
+          }
+        };
+      }
+      return noop;
+    },
+  });
+  registerMarketplaceRoutes(fakeApp as unknown as Parameters<typeof registerMarketplaceRoutes>[0]);
+  return captured;
 }
 
-// Mirror of the eligibility endpoint logic from the route handler
-function computeEligibility(
-  hasReferralRow: boolean,
-  priorBookings: number,
-): { eligible: boolean; canApplyCode: boolean } {
+function makeRes() {
+  let statusCode = 200;
+  let body: Record<string, unknown> | undefined;
+  const res = {
+    status: (c: number) => { statusCode = c; return res; },
+    json: (b: Record<string, unknown>) => { body = b; return res; },
+  };
   return {
-    eligible: hasReferralRow && priorBookings === 0,
-    canApplyCode: !hasReferralRow && priorBookings === 0,
+    res,
+    get statusCode() { return statusCode; },
+    get body() { return body; },
   };
 }
 
-// ────────────────────────────────────────────────────────────
-// apply-code guard logic
-// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// GET /api/marketplace/referral-discount-eligibility — extended shape
+// ────────────────────────────────────────────────────────────────────────────
 
-describe('POST /api/marketplace/referrals/apply-code — guard logic', () => {
-  it('rejects with 409 when the user already has a referral row', () => {
-    const result = validateApplyCode(true, 0, true);
-    expect('error' in result).toBe(true);
-    if ('error' in result) {
-      expect(result.status).toBe(409);
-      expect(result.error).toMatch(/already used/i);
-    }
+describe('GET /api/marketplace/referral-discount-eligibility', () => {
+  const PATH = '/api/marketplace/referral-discount-eligibility';
+
+  beforeEach(() => vi.restoreAllMocks());
+
+  async function load() {
+    const handlers = await loadHandlers([{ method: 'get', path: PATH }]);
+    const handler = handlers.get(`GET ${PATH}`);
+    if (!handler) throw new Error('handler not captured');
+    return handler;
+  }
+
+  it('returns eligible=true, canApplyCode=false when user has a referral row and 0 bookings', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'r1' } as any);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' } }, captured.res);
+
+    expect(captured.statusCode).toBe(200);
+    expect(captured.body).toMatchObject({ eligible: true, canApplyCode: false });
   });
 
-  it('rejects with 409 when the user has at least 1 confirmed booking', () => {
-    const result = validateApplyCode(false, 1, true);
-    expect('error' in result).toBe(true);
-    if ('error' in result) {
-      expect(result.status).toBe(409);
-      expect(result.error).toMatch(/first booking/i);
-    }
+  it('returns eligible=false, canApplyCode=true when user has NO referral row and 0 bookings', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' } }, captured.res);
+
+    expect(captured.statusCode).toBe(200);
+    expect(captured.body).toMatchObject({ eligible: false, canApplyCode: true });
   });
 
-  it('rejects even with many prior bookings (not just exactly 1)', () => {
-    const result = validateApplyCode(false, 7, true);
-    expect('error' in result).toBe(true);
-    if ('error' in result) {
-      expect(result.status).toBe(409);
-    }
+  it('returns eligible=false, canApplyCode=false when user has prior bookings (no referral)', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(2);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' } }, captured.res);
+
+    expect(captured.statusCode).toBe(200);
+    expect(captured.body).toMatchObject({ eligible: false, canApplyCode: false });
   });
 
-  it('rejects with 404 when the referral code does not match any player', () => {
-    const result = validateApplyCode(false, 0, false);
-    expect('error' in result).toBe(true);
-    if ('error' in result) {
-      expect(result.status).toBe(404);
-      expect(result.error).toMatch(/invalid referral code/i);
-    }
-  });
+  it('returns eligible=false, canApplyCode=false when user has referral row but also has prior bookings', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'r1' } as any);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(1);
 
-  it('returns success when no referral row, 0 bookings, and code is valid', () => {
-    const result = validateApplyCode(false, 0, true);
-    expect('success' in result).toBe(true);
-  });
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' } }, captured.res);
 
-  it('the "already has referral" guard fires before the "has prior bookings" guard', () => {
-    // Both conditions are true — the order-of-checks determines the error message.
-    const result = validateApplyCode(true, 5, true);
-    expect('error' in result).toBe(true);
-    if ('error' in result) {
-      expect(result.error).toMatch(/already used/i);
-    }
+    expect(captured.statusCode).toBe(200);
+    expect(captured.body).toMatchObject({ eligible: false, canApplyCode: false });
   });
 });
 
-// ────────────────────────────────────────────────────────────
-// Extended eligibility response shape
-// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// POST /api/marketplace/referrals/apply-code
+// ────────────────────────────────────────────────────────────────────────────
 
-describe('GET /api/marketplace/referral-discount-eligibility — eligibility shape', () => {
-  it('eligible=true and canApplyCode=false when user has referral row + 0 bookings', () => {
-    const result = computeEligibility(true, 0);
-    expect(result.eligible).toBe(true);
-    expect(result.canApplyCode).toBe(false);
+describe('POST /api/marketplace/referrals/apply-code', () => {
+  const PATH = '/api/marketplace/referrals/apply-code';
+
+  beforeEach(() => vi.restoreAllMocks());
+
+  async function load() {
+    const handlers = await loadHandlers([{ method: 'post', path: PATH }]);
+    const handler = handlers.get(`POST ${PATH}`);
+    if (!handler) throw new Error('handler not captured');
+    return handler;
+  }
+
+  it('returns 400 when referralCode is missing from the body', async () => {
+    const handler = await load();
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' }, body: {} }, captured.res);
+    expect(captured.statusCode).toBe(400);
   });
 
-  it('eligible=false and canApplyCode=true when user has NO referral row + 0 bookings', () => {
-    const result = computeEligibility(false, 0);
-    expect(result.eligible).toBe(false);
-    expect(result.canApplyCode).toBe(true);
+  it('returns 409 when the user already has a referral row', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'r1' } as any);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' }, body: { referralCode: 'SIQ-TEST00-00001' } }, captured.res);
+
+    expect(captured.statusCode).toBe(409);
+    expect(captured.body?.error).toMatch(/already used/i);
   });
 
-  it('eligible=false and canApplyCode=false when user has a referral row but prior bookings', () => {
-    // Discount has already been used (or timed out)
-    const result = computeEligibility(true, 1);
-    expect(result.eligible).toBe(false);
-    expect(result.canApplyCode).toBe(false);
+  it('returns 409 when the user has 1 or more prior confirmed bookings', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(1);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' }, body: { referralCode: 'SIQ-TEST00-00001' } }, captured.res);
+
+    expect(captured.statusCode).toBe(409);
+    expect(captured.body?.error).toMatch(/first booking/i);
   });
 
-  it('eligible=false and canApplyCode=false when user has NO referral + prior bookings', () => {
-    // Too late to apply — already booked before referring anyone
-    const result = computeEligibility(false, 3);
-    expect(result.eligible).toBe(false);
-    expect(result.canApplyCode).toBe(false);
+  it('returns 404 when the referral code does not match any player', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getPlayerByReferralCode').mockResolvedValue(undefined);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' }, body: { referralCode: 'SIQ-NOBODY-99999' } }, captured.res);
+
+    expect(captured.statusCode).toBe(404);
+    expect(captured.body?.error).toMatch(/invalid referral code/i);
   });
 
-  it('canApplyCode is only ever true when priorBookings === 0', () => {
-    for (const bookings of [0, 1, 2, 10]) {
-      const result = computeEligibility(false, bookings);
-      if (bookings === 0) {
-        expect(result.canApplyCode).toBe(true);
-      } else {
-        expect(result.canApplyCode).toBe(false);
-      }
-    }
+  it('creates the referral row and returns success + referrerName for a valid code', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getPlayerByReferralCode').mockResolvedValue({ id: 'p1', name: 'Ahmed' } as any);
+    const createSpy = vi.spyOn(storage, 'createReferral').mockResolvedValue({} as any);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u2' }, body: { referralCode: 'SIQ-AHMED0-00001' } }, captured.res);
+
+    expect(captured.statusCode).toBe(200);
+    expect(captured.body).toMatchObject({ success: true, referrerName: 'Ahmed' });
+    expect(createSpy).toHaveBeenCalledWith({ referrerPlayerId: 'p1', refereeUserId: 'u2' });
   });
 
-  it('eligible and canApplyCode are mutually exclusive', () => {
-    // They cannot both be true at the same time
-    const combinations = [
-      computeEligibility(true, 0),
-      computeEligibility(false, 0),
-      computeEligibility(true, 1),
-      computeEligibility(false, 1),
-    ];
-    for (const r of combinations) {
-      expect(r.eligible && r.canApplyCode).toBe(false);
-    }
+  it('trims whitespace from the referral code before looking it up', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    const lookupSpy = vi.spyOn(storage, 'getPlayerByReferralCode').mockResolvedValue(undefined);
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' }, body: { referralCode: '  SIQ-AHMED0-00001  ' } }, captured.res);
+
+    expect(lookupSpy).toHaveBeenCalledWith('SIQ-AHMED0-00001');
+  });
+
+  it('does not create a referral row when the code is invalid (404 path)', async () => {
+    const handler = await load();
+    const { storage } = await import('../server/storage');
+    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
+    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
+    vi.spyOn(storage, 'getPlayerByReferralCode').mockResolvedValue(undefined);
+    const createSpy = vi.spyOn(storage, 'createReferral');
+
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' }, body: { referralCode: 'SIQ-NOBODY-99999' } }, captured.res);
+
+    expect(captured.statusCode).toBe(404);
+    expect(createSpy).not.toHaveBeenCalled();
   });
 });

@@ -942,7 +942,9 @@ export default function Checkout() {
             referralAppliedName ? (
               <div className="flex items-center gap-2 p-3 rounded-md bg-secondary/10 border border-secondary/30" data-testid="banner-referral-code-applied">
                 <CheckCircle2 className="h-4 w-4 text-secondary shrink-0" />
-                <p className="text-sm font-medium">Referral code applied — 50% off your first game is now unlocked when paying by card</p>
+                <p className="text-sm font-medium">
+                  Referral from <span className="font-semibold">{referralAppliedName}</span> applied — 50% off your first game is now unlocked when paying by card
+                </p>
               </div>
             ) : (
               <div data-testid="section-referral-code-toggle">
@@ -984,7 +986,7 @@ export default function Checkout() {
             )
           )}
 
-          {!referralDiscountEligible && !canApplyReferralCode && (
+          {!referralDiscountEligible && (
             appliedDiscount ? (
               <DiscountCodeField
                 sessionId={sessionId!}

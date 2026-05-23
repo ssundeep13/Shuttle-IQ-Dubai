@@ -250,14 +250,14 @@ describe('Checkout — referral code entry section', () => {
     });
   }
 
-  it('renders the referral code entry section when canApplyCode is true', async () => {
+  it('renders the referral code entry section when canApplyCode is true, alongside the discount code toggle', async () => {
     renderCheckout(makeReferralFetch({ canApplyCode: true }) as unknown as typeof fetch);
 
     await waitFor(() => {
       expect(screen.getByTestId('section-referral-code-toggle')).toBeInTheDocument();
     }, { timeout: 3000 });
-    // Discount code section must NOT appear when canApplyCode is true
-    expect(screen.queryByTestId('section-discount-toggle')).not.toBeInTheDocument();
+    // Discount code section also remains visible alongside the referral entry
+    expect(screen.getByTestId('section-discount-toggle')).toBeInTheDocument();
   });
 
   it('shows the confirmed banner after successfully applying a referral code', async () => {
