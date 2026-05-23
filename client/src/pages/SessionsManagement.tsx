@@ -3126,11 +3126,14 @@ interface AdminReferral {
   referralCode: string | null;
   ambassadorStatus: boolean;
   jerseyDispatched: boolean;
+  firstSessionTitle: string | null;
+  firstSessionDate: string | null;
 }
 
 function ReferralsTabContent() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [awardTarget, setAwardTarget] = useState<AdminReferral | null>(null);
 
   const { data: referrals = [], isLoading } = useQuery<AdminReferral[]>({
     queryKey: ['/api/referrals/all'],
@@ -3147,6 +3150,20 @@ function ReferralsTabContent() {
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : 'Failed to mark jersey dispatched';
       toast({ title: 'Error', description: message, variant: 'destructive' });
+    },
+  });
+
+  const awardCreditMutation = useMutation({
+    mutationFn: async (referralId: string) => apiRequest('POST', `/api/referrals/${referralId}/complete`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/referrals/all'] });
+      toast({ title: `AED 15 credited to ${awardTarget?.referrerName ?? 'referrer'}` });
+      setAwardTarget(null);
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Failed to award credit';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+      setAwardTarget(null);
     },
   });
 
@@ -3217,8 +3234,9 @@ function ReferralsTabContent() {
                   <tr className="border-b text-left">
                     <th className="py-2 pr-4 font-medium text-muted-foreground">Referrer</th>
                     <th className="py-2 pr-4 font-medium text-muted-foreground">Referee</th>
+                    <th className="py-2 pr-4 font-medium text-muted-foreground">First Session</th>
                     <th className="py-2 pr-4 font-medium text-muted-foreground">Status</th>
-                    <th className="py-2 pr-4 font-medium text-muted-foreground">Date</th>
+                    <th className="py-2 pr-4 font-medium text-muted-foreground">Signed Up</th>
                     <th className="py-2 font-medium text-muted-foreground">AED Credited</th>
                   </tr>
                 </thead>
@@ -3231,6 +3249,11 @@ function ReferralsTabContent() {
                     >
                       <td className="py-2.5 pr-4">{ref.referrerName}</td>
                       <td className="py-2.5 pr-4">{ref.refereeEmail}</td>
+                      <td className="py-2.5 pr-4 text-muted-foreground" data-testid={`text-first-session-${ref.id}`}>
+                        {ref.firstSessionTitle
+                          ? <span>{ref.firstSessionTitle}{ref.firstSessionDate ? <span className="block text-xs">{format(new Date(ref.firstSessionDate), 'MMM d, yyyy')}</span> : null}</span>
+                          : '—'}
+                      </td>
                       <td className="py-2.5 pr-4">
                         <Badge
                           variant={ref.status === 'completed' ? 'default' : 'secondary'}
@@ -3243,12 +3266,44 @@ function ReferralsTabContent() {
                         {ref.createdAt ? format(new Date(ref.createdAt), 'MMM d, yyyy') : '—'}
                       </td>
                       <td className="py-2.5">
-                        {ref.status === 'completed' ? 'AED 15' : '—'}
+                        {ref.status === 'completed' ? (
+                          <span>AED 15</span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setAwardTarget(ref)}
+                            data-testid={`button-award-credit-${ref.id}`}
+                          >
+                            Award Credit
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+
+              <AlertDialog open={!!awardTarget} onOpenChange={(open) => { if (!open) setAwardTarget(null); }}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Award AED 15 to {awardTarget?.referrerName}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will manually credit AED 15 to {awardTarget?.referrerName}'s wallet and mark the referral of {awardTarget?.refereeEmail} as completed. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel data-testid="button-cancel-award-credit">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => awardTarget && awardCreditMutation.mutate(awardTarget.id)}
+                      disabled={awardCreditMutation.isPending}
+                      data-testid="button-confirm-award-credit"
+                    >
+                      {awardCreditMutation.isPending ? 'Awarding…' : 'Award AED 15'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           )}
         </CardContent>

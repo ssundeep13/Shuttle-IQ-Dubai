@@ -95,7 +95,7 @@ import {
 } from "@shared/schema";
 import { computeOnboardingScore } from "@shared/utils/skillUtils";
 import { db } from "./db";
-import { eq, and, ne, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL } from "drizzle-orm";
+import { eq, and, ne, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL, alias } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -3434,7 +3434,22 @@ export class DatabaseStorage implements IStorage {
     return result?.count ?? 0;
   }
 
-  async getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string; referralCode: string | null; ambassadorStatus: boolean; jerseyDispatched: boolean })[]> {
+  async getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string; referralCode: string | null; ambassadorStatus: boolean; jerseyDispatched: boolean; firstSessionTitle: string | null; firstSessionDate: string | null })[]> {
+    // Subquery: earliest confirmed/attended booking per user
+    const firstBookingSub = db
+      .select({
+        userId: bookings.userId,
+        sessionId: sql<string>`min(${bookings.sessionId})`.as('session_id'),
+        minCreatedAt: sql<Date>`min(${bookings.createdAt})`.as('min_created_at'),
+      })
+      .from(bookings)
+      .where(inArray(bookings.status, ['confirmed', 'attended']))
+      .groupBy(bookings.userId)
+      .as('first_booking');
+
+    // Alias bookable_sessions for the join
+    const bs = alias(bookableSessions, 'bs');
+
     const rows = await db
       .select({
         id: referrals.id,
@@ -3449,10 +3464,14 @@ export class DatabaseStorage implements IStorage {
         referralCode: players.referralCode,
         ambassadorStatus: players.ambassadorStatus,
         jerseyDispatched: players.jerseyDispatched,
+        firstSessionTitle: bs.title,
+        firstSessionDate: bs.date,
       })
       .from(referrals)
       .leftJoin(players, eq(referrals.referrerId, players.id))
       .leftJoin(marketplaceUsers, eq(referrals.refereeUserId, marketplaceUsers.id))
+      .leftJoin(firstBookingSub, eq(firstBookingSub.userId, referrals.refereeUserId))
+      .leftJoin(bs, eq(bs.id, firstBookingSub.sessionId))
       .orderBy(desc(referrals.createdAt));
     return rows.map(r => ({
       ...r,
@@ -3461,6 +3480,8 @@ export class DatabaseStorage implements IStorage {
       referralCode: r.referralCode ?? null,
       ambassadorStatus: r.ambassadorStatus ?? false,
       jerseyDispatched: r.jerseyDispatched ?? false,
+      firstSessionTitle: r.firstSessionTitle ?? null,
+      firstSessionDate: r.firstSessionDate ? r.firstSessionDate.toISOString() : null,
     }));
   }
 
