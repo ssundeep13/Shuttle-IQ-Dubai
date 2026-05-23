@@ -1051,7 +1051,7 @@ export function registerMarketplaceRoutes(app: Express) {
                 if (!existingRef) {
                   const referralPlayer = await storage.getPlayerByReferralCode(oauthRef);
                   if (referralPlayer) {
-                    await storage.createReferral({ referrerPlayerId: referralPlayer.id, refereeUserId: user!.id });
+                    await storage.createReferral({ referrerId: referralPlayer.id, refereeUserId: user!.id });
                   }
                 }
               } catch { /* silent */ }
@@ -4185,7 +4185,7 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(404).json({ error: "Invalid referral code" });
       }
       // Create the referral row
-      await storage.createReferral({ referrerPlayerId: referralPlayer.id, refereeUserId: req.user.userId });
+      await storage.createReferral({ referrerId: referralPlayer.id, refereeUserId: req.user.userId });
       return res.json({ success: true, referrerName: referralPlayer.name });
     } catch (err) {
       console.error('[Apply referral code] error:', err);

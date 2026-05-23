@@ -254,7 +254,7 @@ describe('POST /api/marketplace/referrals/apply-code', () => {
 
     expect(captured.statusCode).toBe(200);
     expect(captured.body).toMatchObject({ success: true, referrerName: 'Ahmed' });
-    expect(createSpy).toHaveBeenCalledWith({ referrerPlayerId: 'p1', refereeUserId: 'u2' });
+    expect(createSpy).toHaveBeenCalledWith({ referrerId: 'p1', refereeUserId: 'u2' });
   });
 
   it('trims whitespace from the referral code before looking it up', async () => {
