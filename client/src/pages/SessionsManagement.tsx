@@ -3154,10 +3154,11 @@ function ReferralsTabContent() {
   });
 
   const awardCreditMutation = useMutation({
-    mutationFn: async (referralId: string) => apiRequest('POST', `/api/referrals/${referralId}/complete`),
-    onSuccess: () => {
+    mutationFn: async ({ referralId }: { referralId: string; referrerName: string }) =>
+      apiRequest('POST', `/api/referrals/${referralId}/complete`),
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['/api/referrals/all'] });
-      toast({ title: `AED 15 credited to ${awardTarget?.referrerName ?? 'referrer'}` });
+      toast({ title: `AED 15 credited to ${variables.referrerName}` });
       setAwardTarget(null);
     },
     onError: (error: unknown) => {
@@ -3295,7 +3296,7 @@ function ReferralsTabContent() {
                   <AlertDialogFooter>
                     <AlertDialogCancel data-testid="button-cancel-award-credit">Cancel</AlertDialogCancel>
                     <AlertDialogAction
-                      onClick={() => awardTarget && awardCreditMutation.mutate(awardTarget.id)}
+                      onClick={() => awardTarget && awardCreditMutation.mutate({ referralId: awardTarget.id, referrerName: awardTarget.referrerName })}
                       disabled={awardCreditMutation.isPending}
                       data-testid="button-confirm-award-credit"
                     >

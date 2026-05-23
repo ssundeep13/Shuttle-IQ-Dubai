@@ -95,7 +95,7 @@ import {
 } from "@shared/schema";
 import { computeOnboardingScore } from "@shared/utils/skillUtils";
 import { db } from "./db";
-import { eq, and, ne, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL, alias } from "drizzle-orm";
+import { eq, and, ne, inArray, desc, sql, asc, like, gte, lt, isNotNull, SQL, aliasedTable } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 
@@ -3435,20 +3435,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string; referralCode: string | null; ambassadorStatus: boolean; jerseyDispatched: boolean; firstSessionTitle: string | null; firstSessionDate: string | null })[]> {
-    // Subquery: earliest confirmed/attended booking per user
-    const firstBookingSub = db
+    // Step 1: find the minimum createdAt timestamp per user (confirmed/attended only)
+    const minTimeSub = db
       .select({
         userId: bookings.userId,
-        sessionId: sql<string>`min(${bookings.sessionId})`.as('session_id'),
         minCreatedAt: sql<Date>`min(${bookings.createdAt})`.as('min_created_at'),
       })
       .from(bookings)
       .where(inArray(bookings.status, ['confirmed', 'attended']))
       .groupBy(bookings.userId)
+      .as('min_time');
+
+    // Step 2: join back to bookings to get the sessionId that corresponds to that earliest timestamp
+    const firstBookingSub = db
+      .select({
+        userId: bookings.userId,
+        sessionId: bookings.sessionId,
+      })
+      .from(bookings)
+      .innerJoin(
+        minTimeSub,
+        and(
+          eq(bookings.userId, minTimeSub.userId),
+          eq(bookings.createdAt, minTimeSub.minCreatedAt),
+        ),
+      )
+      .where(inArray(bookings.status, ['confirmed', 'attended']))
       .as('first_booking');
 
     // Alias bookable_sessions for the join
-    const bs = alias(bookableSessions, 'bs');
+    const bs = aliasedTable(bookableSessions, 'bs');
 
     const rows = await db
       .select({
