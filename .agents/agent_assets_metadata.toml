@@ -17,3 +17,9 @@ id = "fp2ReOF8v7qbOWSrA3Yvs"
 uri = "file://attached_assets/jersey-qr.png"
 type = "image"
 title = "Jersey QR code (1500×1500 PNG, links to /welcome)"
+
+[[outputs]]
+id = "deK__NxPS0GG95hSCUBDJ"
+uri = "file://shuttleiq-backup-2026-05-24.dump.gz"
+type = "unspecified"
+title = "ShuttleIQ DB Backup — 2026-05-24 (.dump.gz)"
