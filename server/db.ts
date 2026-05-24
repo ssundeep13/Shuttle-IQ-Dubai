@@ -1,9 +1,8 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
+import pkg from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@shared/schema";
 
-neonConfig.webSocketConstructor = ws;
+const { Pool } = pkg;
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -11,10 +10,16 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const connectionString = process.env.DATABASE_URL;
+const needsSsl = !/localhost|127\.0\.0\.1|\.railway\.internal/.test(connectionString);
 
-pool.on('error', (err) => {
-  console.error('[DB Pool] Idle client error (non-fatal):', err.message);
+export const pool = new Pool({
+  connectionString,
+  ssl: needsSsl ? { rejectUnauthorized: false } : false,
 });
 
-export const db = drizzle({ client: pool, schema });
+pool.on("error", (err) => {
+  console.error("[DB Pool] Idle client error (non-fatal):", err.message);
+});
+
+export const db = drizzle(pool, { schema });
