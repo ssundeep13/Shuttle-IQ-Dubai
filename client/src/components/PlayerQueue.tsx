@@ -38,18 +38,18 @@ export function PlayerQueue({
   onClearQueue,
   sessionId,
 }: PlayerQueueProps) {
-  const [sortBy, setSortBy] = useState<'skill' | 'games'>('skill');
+  const [sortBy, setSortBy] = useState<"skill" | "games">("skill");
 
   const { data: todayPlayers = [] } = useQuery<TodayPlayer[]>({
-    queryKey: ['/api/stats/today'],
+    queryKey: ["/api/stats/today"],
   });
 
   const { data: sittingOutData } = useQuery<{ sittingOut: string[] }>({
-    queryKey: ['/api/sessions', sessionId, 'queue', 'sitting-out'],
+    queryKey: ["/api/sessions", sessionId, "queue", "sitting-out"],
     queryFn: async () => {
       const res = await fetch(`/api/sessions/${sessionId}/queue/sitting-out`, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
+          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
         },
       });
       if (!res.ok) return { sittingOut: [] };
@@ -62,11 +62,16 @@ export function PlayerQueue({
   const sittingOutSet = new Set(sittingOutData?.sittingOut ?? []);
 
   const toggleSitOutMutation = useMutation({
-    mutationFn: async (playerId: string) => {
-      return await apiRequest('POST', `/api/sessions/${sessionId}/queue/players/${playerId}/sit-out`, null);
-    },
+    mutationFn: async (playerId: string) =>
+      apiRequest(
+        "POST",
+        `/api/sessions/${sessionId}/queue/players/${playerId}/sit-out`,
+        null,
+      ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/sessions', sessionId, 'queue', 'sitting-out'] });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/sessions", sessionId, "queue", "sitting-out"],
+      });
     },
   });
 
@@ -83,113 +88,154 @@ export function PlayerQueue({
     })
     .filter((p): p is TodayPlayer => p !== undefined);
 
-  const sortedQueuePlayers = [...queuePlayers].sort((a, b) => {
-    if (sortBy === 'skill') {
-      return (b.skillScore || 90) - (a.skillScore || 90);
-    } else {
-      return (b.gamesPlayedToday || 0) - (a.gamesPlayedToday || 0);
-    }
-  });
+  const sortedQueuePlayers = [...queuePlayers].sort((a, b) =>
+    sortBy === "skill"
+      ? (b.skillScore || 90) - (a.skillScore || 90)
+      : (b.gamesPlayedToday || 0) - (a.gamesPlayedToday || 0),
+  );
 
   return (
-    <div className="bg-card rounded-lg shadow-md p-4 sm:p-6 border border-card-border">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-4">
-        <h2 className="text-xl sm:text-2xl font-bold text-primary">Player Queue</h2>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <Button onClick={onAddPlayer} size="sm" className="flex-1 sm:flex-initial min-h-12 sm:min-h-9" data-testid="button-add-player-queue">
-            <Plus className="w-4 h-4 mr-1" />
+    <div className="bg-card rounded-xl border border-border p-4 sm:p-6">
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-lg font-semibold text-foreground">
+          Player Queue
+          {queuePlayers.length > 0 && (
+            <span
+              className="ml-2 text-sm font-normal text-muted-foreground"
+              data-testid="text-queue-player-count"
+            >
+              {queuePlayers.length}{" "}
+              {queuePlayers.length === 1 ? "player" : "players"}
+              {sittingOutSet.size > 0 && ` · ${sittingOutSet.size} sitting out`}
+            </span>
+          )}
+        </h2>
+        <div className="flex gap-2">
+          <Button
+            onClick={onAddPlayer}
+            size="sm"
+            className="min-h-10"
+            data-testid="button-add-player-queue"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
             Add
           </Button>
           {queuePlayers.length > 0 && (
-            <Button onClick={onClearQueue} variant="outline" size="sm" className="flex-1 sm:flex-initial min-h-12 sm:min-h-9" data-testid="button-clear-queue">
-              <RefreshCw className="w-4 h-4 mr-1" />
+            <Button
+              onClick={onClearQueue}
+              variant="outline"
+              size="sm"
+              className="min-h-10"
+              data-testid="button-clear-queue"
+            >
+              <RefreshCw className="w-4 h-4 mr-1.5" />
               Clear
             </Button>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
-        <p className="text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground" data-testid="text-queue-player-count">{queuePlayers.length}</span> player
-          {queuePlayers.length !== 1 ? 's' : ''} waiting
-          {sittingOutSet.size > 0 && (
-            <span className="ml-1 text-muted-foreground">
-              · <span className="font-medium">{sittingOutSet.size}</span> sitting out
-            </span>
-          )}
-        </p>
+      {/* Sort row */}
+      {queuePlayers.length > 0 && (
+        <div className="flex items-center gap-2 mb-3">
+          <ArrowUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
+          <Select
+            value={sortBy}
+            onValueChange={(v: "skill" | "games") => setSortBy(v)}
+          >
+            <SelectTrigger
+              className="w-[180px] h-9"
+              data-testid="select-queue-sort"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="skill" data-testid="option-sort-skill">
+                Sort by Skill Level
+              </SelectItem>
+              <SelectItem value="games" data-testid="option-sort-games">
+                Sort by Games Played
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
-        {queuePlayers.length > 0 && (
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <ArrowUpDown className="w-4 h-4 text-muted-foreground hidden sm:block" />
-            <Select value={sortBy} onValueChange={(value: 'skill' | 'games') => setSortBy(value)}>
-              <SelectTrigger className="w-full sm:w-[180px] min-h-12 sm:min-h-9" data-testid="select-queue-sort">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="skill" data-testid="option-sort-skill">Sort by Skill Level</SelectItem>
-                <SelectItem value="games" data-testid="option-sort-games">Sort by Games Played</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-      </div>
-
+      {/* Player list */}
       {queuePlayers.length > 0 ? (
-        <div className="space-y-2 max-h-[600px] overflow-y-auto">
+        <div className="space-y-1.5 max-h-[600px] overflow-y-auto -mx-1 px-1">
           {sortedQueuePlayers.map((player, index) => {
             const isSittingOut = sittingOutSet.has(player.id);
             return (
               <div
                 key={player.id}
                 className={cn(
-                  "flex items-center justify-between p-3 sm:p-3 rounded-md border border-transparent hover:border-border transition-all hover-elevate min-h-[4rem]",
+                  "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors min-h-[60px]",
                   isSittingOut
-                    ? "bg-muted/40 opacity-60"
-                    : "bg-muted"
+                    ? "bg-muted/40 border-border opacity-60"
+                    : "bg-card border-border hover-elevate",
                 )}
                 data-testid={`queue-player-${player.id}`}
               >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={cn(
-                    "flex items-center justify-center w-8 h-8 sm:w-8 sm:h-8 rounded-full font-bold text-sm flex-shrink-0",
-                    isSittingOut ? "bg-muted-foreground/20 text-muted-foreground" : "bg-primary/10 text-primary"
-                  )}>
-                    {index + 1}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className={cn("font-semibold truncate", isSittingOut ? "text-muted-foreground" : "text-foreground")}>
-                        {player.name}
-                      </p>
-                      {player.shuttleIqId && (
-                        <Badge variant="outline" className="text-xs">
-                          {player.shuttleIqId}
-                        </Badge>
+                {/* Position badge */}
+                <div
+                  className={cn(
+                    "flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold shrink-0",
+                    isSittingOut
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-primary/10 text-primary",
+                  )}
+                >
+                  {index + 1}
+                </div>
+
+                {/* Player info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p
+                      className={cn(
+                        "font-semibold text-sm truncate",
+                        isSittingOut ? "text-muted-foreground" : "text-foreground",
                       )}
-                      {isSittingOut && (
-                        <Badge variant="outline" className="text-xs text-muted-foreground">
-                          Sitting out
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
-                        {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
+                    >
+                      {player.name}
+                    </p>
+                    {player.shuttleIqId && (
+                      <Badge variant="outline" className="text-xs shrink-0">
+                        {player.shuttleIqId}
                       </Badge>
-                      {player.tierCandidate && (
-                        <span className="text-xs text-muted-foreground">
-                          → {getTierDisplayName(player.tierCandidate)} {player.tierCandidateGames}/3
-                        </span>
-                      )}
+                    )}
+                    {isSittingOut && (
+                      <Badge
+                        variant="outline"
+                        className="text-xs text-amber-600 border-amber-300 shrink-0"
+                      >
+                        Sitting out
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                    <Badge
+                      className={cn("text-xs", getSkillTierColor(player.level))}
+                    >
+                      {player.gender === "Male" ? "M" : "F"}{" "}
+                      {formatSkillLevel(player.skillScore || 90)}
+                    </Badge>
+                    {player.tierCandidate && (
                       <span className="text-xs text-muted-foreground">
-                        {player.gamesPlayedToday || 0} games · {player.winsToday || 0} wins
+                        → {getTierDisplayName(player.tierCandidate)}{" "}
+                        {player.tierCandidateGames}/3
                       </span>
-                    </div>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {player.gamesPlayedToday || 0}g · {player.winsToday || 0}W
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+
+                {/* Actions */}
+                <div className="flex items-center gap-1 shrink-0">
                   {sessionId && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -199,10 +245,10 @@ export function PlayerQueue({
                           size="icon"
                           disabled={toggleSitOutMutation.isPending}
                           className={cn(
-                            "min-w-12 min-h-12 sm:min-w-9 sm:min-h-9",
+                            "h-10 w-10",
                             isSittingOut
-                              ? "text-amber-500"
-                              : "text-muted-foreground"
+                              ? "text-amber-500 hover:text-amber-600"
+                              : "text-muted-foreground hover:text-amber-500",
                           )}
                           data-testid={`button-sit-out-${player.id}`}
                         >
@@ -210,7 +256,9 @@ export function PlayerQueue({
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {isSittingOut ? "Resume — player will be eligible again" : "Sit out next round"}
+                        {isSittingOut
+                          ? "Resume — player will be eligible again"
+                          : "Sit out next round"}
                       </TooltipContent>
                     </Tooltip>
                   )}
@@ -218,7 +266,7 @@ export function PlayerQueue({
                     onClick={() => onRemoveFromQueue(player.id)}
                     variant="ghost"
                     size="icon"
-                    className="text-muted-foreground hover:text-destructive min-w-12 min-h-12 sm:min-w-9 sm:min-h-9"
+                    className="h-10 w-10 text-muted-foreground hover:text-destructive"
                     data-testid={`button-remove-queue-${player.id}`}
                   >
                     <Trash2 className="w-4 h-4" />
@@ -229,9 +277,14 @@ export function PlayerQueue({
           })}
         </div>
       ) : (
-        <div className="text-center py-12 bg-muted rounded-md">
-          <p className="text-muted-foreground mb-4">Queue is empty</p>
-          <Button onClick={onAddPlayer} className="min-h-12 sm:min-h-10" data-testid="button-add-player-empty">
+        <div className="flex flex-col items-center justify-center py-14 rounded-xl bg-muted/40 border border-dashed border-border">
+          <p className="text-sm text-muted-foreground mb-4">Queue is empty</p>
+          <Button
+            onClick={onAddPlayer}
+            size="sm"
+            className="min-h-10"
+            data-testid="button-add-player-empty"
+          >
             <Plus className="w-4 h-4 mr-2" />
             Add First Player
           </Button>
