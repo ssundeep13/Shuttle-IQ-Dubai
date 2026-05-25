@@ -23,3 +23,9 @@ id = "deK__NxPS0GG95hSCUBDJ"
 uri = "file://shuttleiq-backup-2026-05-24.dump.gz"
 type = "unspecified"
 title = "ShuttleIQ Full DB Backup — 2026-05-24 (latest)"
+
+[[outputs]]
+id = "l0H4En3Qga7ZqbCWkLHDt"
+uri = "file://shuttleiq-prod-backup-2026-05-24.sql.gz"
+type = "unspecified"
+title = "ShuttleIQ PRODUCTION Backup — 2026-05-24 (full data)"
