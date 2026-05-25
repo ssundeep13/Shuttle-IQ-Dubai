@@ -2346,12 +2346,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sessionId = activeSession.id;
       }
 
-      const courts = await storage.getCourtsBySession(sessionId);
-      const queue = await storage.getQueue(sessionId);
-      
+      // Fire all three independent queries in parallel — each was previously
+      // sequential, costing an extra ~233 ms per hop to the Railway DB.
+      const [courts, queue, allPlayers] = await Promise.all([
+        storage.getCourtsBySession(sessionId),
+        storage.getQueue(sessionId),
+        storage.getAllPlayers(),
+      ]);
+
       // Get session-specific players (those in the queue for this session)
       // Note: queue is already an array of player IDs
-      const allPlayers = await storage.getAllPlayers();
       const sessionPlayers = allPlayers.filter(p => queue.includes(p.id));
 
       const stats = {
@@ -2372,17 +2376,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Today's stats endpoint for leaderboard
   app.get("/api/stats/today", async (req, res) => {
     try {
-      const players = await storage.getAllPlayers();
-      
       // Get start of today (midnight)
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
-      // Get all games from today (excluding sandbox sessions)
-      const todaysGames = await db
-        .select()
-        .from(gameResults)
-        .where(sql`${gameResults.createdAt} >= ${today} AND ${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`);
+
+      // Fire players and today's games in parallel — they are independent,
+      // so there's no reason to await one before starting the other.
+      const [players, todaysGames] = await Promise.all([
+        storage.getAllPlayers(),
+        db
+          .select()
+          .from(gameResults)
+          .where(sql`${gameResults.createdAt} >= ${today} AND ${gameResults.sessionId} IN (SELECT id FROM sessions WHERE is_sandbox = false)`),
+      ]);
       
       const gameIds = todaysGames.map(g => g.id);
       
