@@ -21,7 +21,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check, Upload, ImageIcon, Loader2, Gift, Package } from 'lucide-react';
+import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check, Upload, ImageIcon, Loader2, Gift, Package, Menu, MoreVertical } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import FinanceTab from '@/components/FinanceTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
@@ -210,10 +217,28 @@ export default function SessionsManagement() {
   const totalBookings = bookableSessions.reduce((sum, s) => sum + s.totalBookings, 0);
   const totalRevenue = bookableSessions.reduce((sum, s) => sum + (s.totalBookings * s.priceAed), 0);
 
+  // ── Mobile nav ───────────────────────────────────────────────────────────────
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  type TabEntry = { value: string; label: string; Icon: React.ElementType; badge?: number };
+  const tabConfig: TabEntry[] = [
+    { value: 'sessions',          label: 'Sessions',           Icon: LayoutGrid  },
+    { value: 'players',           label: 'Players',            Icon: Users       },
+    { value: 'marketplace-users', label: 'Marketplace Users',  Icon: ShoppingBag },
+    { value: 'disputes',          label: 'Disputes',           Icon: Flag,        badge: openDisputeCount > 0 ? openDisputeCount : undefined },
+    { value: 'refunds',           label: 'Refunds',            Icon: ReceiptText, badge: pendingRefundCount > 0 ? pendingRefundCount : undefined },
+    ...(isSuperAdmin ? [{ value: 'finance', label: 'Finance', Icon: DollarSign }] : []),
+    { value: 'tag-suggestions',   label: 'Tag Ideas',          Icon: Lightbulb   },
+    { value: 'blog',              label: 'Blog',               Icon: FileText    },
+    { value: 'referrals',         label: 'Referrals',          Icon: Gift        },
+  ];
+  const currentTabLabel = tabConfig.find(t => t.value === activeTab)?.label ?? 'Admin';
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-2">
+        {/* ── Main bar ──────────────────────────────────────────────────────── */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-foreground">
               <span className="text-primary">Shuttle</span>
@@ -223,87 +248,157 @@ export default function SessionsManagement() {
               {user?.email}
             </Badge>
           </div>
+
+          {/* Mobile: current section label, centred between logo and hamburger */}
+          <span className="md:hidden flex-1 text-center text-sm font-medium text-muted-foreground truncate px-2">
+            {currentTabLabel}
+          </span>
+
           <div className="flex items-center gap-2">
-            <Button 
-              variant="ghost" 
+            {/* Desktop logout (hidden on mobile — it lives in the slide-down) */}
+            <Button
+              variant="ghost"
               size="sm"
               onClick={handleLogout}
+              className="hidden md:flex"
               data-testid="button-logout"
             >
               <LogOut className="w-4 h-4 mr-2" />
               Logout
             </Button>
+
+            {/* Mobile hamburger / close toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden h-9 w-9"
+              onClick={() => setMobileNavOpen(prev => !prev)}
+              aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+              data-testid="button-mobile-nav-toggle"
+            >
+              {mobileNavOpen
+                ? <X className="w-5 h-5" />
+                : <Menu className="w-5 h-5" />}
+            </Button>
           </div>
         </div>
+
+        {/* ── Mobile slide-down nav ──────────────────────────────────────────── */}
+        {mobileNavOpen && (
+          <div className="md:hidden border-t bg-card shadow-lg">
+            <nav className="max-w-7xl mx-auto py-1">
+              {tabConfig.map(({ value, label, Icon, badge }) => (
+                <button
+                  key={value}
+                  onClick={() => { setActiveTab(value); setMobileNavOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-medium transition-colors ${
+                    activeTab === value
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-foreground hover:bg-muted'
+                  }`}
+                  data-testid={`mobile-nav-${value}`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {label}
+                  {badge !== undefined && (
+                    <Badge
+                      className={`ml-auto h-5 min-w-5 px-1 text-xs no-default-hover-elevate no-default-active-elevate ${
+                        value === 'disputes'
+                          ? 'bg-amber-500 text-white border-0'
+                          : 'bg-destructive text-destructive-foreground border-0'
+                      }`}
+                    >
+                      {badge}
+                    </Badge>
+                  )}
+                </button>
+              ))}
+              {/* Logout row */}
+              <div className="border-t mt-1 pt-1">
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-5 py-3 text-sm font-medium text-destructive hover:bg-muted/50 transition-colors"
+                  data-testid="button-mobile-logout"
+                >
+                  <LogOut className="w-4 h-4 shrink-0" />
+                  Logout
+                </button>
+              </div>
+            </nav>
+          </div>
+        )}
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <TabsList data-testid="tabs-admin-dashboard">
-              <TabsTrigger value="sessions" data-testid="tab-sessions">
-                <LayoutGrid className="w-4 h-4 mr-2" />
-                Sessions
-              </TabsTrigger>
-              <TabsTrigger value="players" data-testid="tab-players">
-                <Users className="w-4 h-4 mr-2" />
-                Players
-              </TabsTrigger>
-              <TabsTrigger value="marketplace-users" data-testid="tab-marketplace-users">
-                <ShoppingBag className="w-4 h-4 mr-2" />
-                Marketplace Users
-              </TabsTrigger>
-              <TabsTrigger value="disputes" data-testid="tab-disputes" className="flex items-center gap-2">
-                <Flag className="w-4 h-4" />
-                Disputes
-                {openDisputeCount > 0 && (
-                  <Badge className="ml-1 h-5 min-w-5 px-1 text-xs bg-amber-500 text-white border-0 no-default-hover-elevate no-default-active-elevate">
-                    {openDisputeCount}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="refunds" data-testid="tab-refunds" className="flex items-center gap-2">
-                <ReceiptText className="w-4 h-4" />
-                Refunds
-                {pendingRefundCount > 0 && (
-                  <Badge className="ml-1 h-5 min-w-5 px-1 text-xs bg-destructive text-destructive-foreground border-0 no-default-hover-elevate no-default-active-elevate">
-                    {pendingRefundCount}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              {isSuperAdmin && (
-                <TabsTrigger value="finance" data-testid="tab-finance" className="flex items-center gap-2">
-                  <DollarSign className="w-4 h-4" />
-                  Finance
+          {/* Desktop tab bar — hidden on mobile, replaced by hamburger nav */}
+          <div className="hidden md:block">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <TabsList data-testid="tabs-admin-dashboard">
+                <TabsTrigger value="sessions" data-testid="tab-sessions">
+                  <LayoutGrid className="w-4 h-4 mr-2" />
+                  Sessions
                 </TabsTrigger>
-              )}
-              <TabsTrigger value="tag-suggestions" data-testid="tab-tag-suggestions" className="flex items-center gap-2">
-                <Lightbulb className="w-4 h-4" />
-                Tag Ideas
-              </TabsTrigger>
-              <TabsTrigger value="blog" data-testid="tab-blog" className="flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Blog
-              </TabsTrigger>
-              <TabsTrigger value="referrals" data-testid="tab-referrals" className="flex items-center gap-2">
-                <Gift className="w-4 h-4" />
-                Referrals
-              </TabsTrigger>
-            </TabsList>
+                <TabsTrigger value="players" data-testid="tab-players">
+                  <Users className="w-4 h-4 mr-2" />
+                  Players
+                </TabsTrigger>
+                <TabsTrigger value="marketplace-users" data-testid="tab-marketplace-users">
+                  <ShoppingBag className="w-4 h-4 mr-2" />
+                  Marketplace Users
+                </TabsTrigger>
+                <TabsTrigger value="disputes" data-testid="tab-disputes" className="flex items-center gap-2">
+                  <Flag className="w-4 h-4" />
+                  Disputes
+                  {openDisputeCount > 0 && (
+                    <Badge className="ml-1 h-5 min-w-5 px-1 text-xs bg-amber-500 text-white border-0 no-default-hover-elevate no-default-active-elevate">
+                      {openDisputeCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="refunds" data-testid="tab-refunds" className="flex items-center gap-2">
+                  <ReceiptText className="w-4 h-4" />
+                  Refunds
+                  {pendingRefundCount > 0 && (
+                    <Badge className="ml-1 h-5 min-w-5 px-1 text-xs bg-destructive text-destructive-foreground border-0 no-default-hover-elevate no-default-active-elevate">
+                      {pendingRefundCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                {isSuperAdmin && (
+                  <TabsTrigger value="finance" data-testid="tab-finance" className="flex items-center gap-2">
+                    <DollarSign className="w-4 h-4" />
+                    Finance
+                  </TabsTrigger>
+                )}
+                <TabsTrigger value="tag-suggestions" data-testid="tab-tag-suggestions" className="flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4" />
+                  Tag Ideas
+                </TabsTrigger>
+                <TabsTrigger value="blog" data-testid="tab-blog" className="flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Blog
+                </TabsTrigger>
+                <TabsTrigger value="referrals" data-testid="tab-referrals" className="flex items-center gap-2">
+                  <Gift className="w-4 h-4" />
+                  Referrals
+                </TabsTrigger>
+              </TabsList>
 
-            {activeTab === 'sessions' && (
-              <Button 
-                onClick={() => setShowCreateSession(true)}
-                data-testid="button-create-session"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                New Session
-              </Button>
-            )}
+              {activeTab === 'sessions' && (
+                <Button
+                  onClick={() => setShowCreateSession(true)}
+                  data-testid="button-create-session"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Session
+                </Button>
+              )}
+            </div>
           </div>
 
           <TabsContent value="sessions" className="mt-6 space-y-6">
-            <SessionsTabContent 
+            <SessionsTabContent
               sessions={sessions}
               activeSessions={activeSessions}
               upcomingSessions={upcomingSessions}
@@ -319,6 +414,7 @@ export default function SessionsManagement() {
               onEdit={(session) => setEditingSession(session)}
               totalBookings={totalBookings}
               totalRevenue={totalRevenue}
+              onCreateSession={() => setShowCreateSession(true)}
             />
           </TabsContent>
 
@@ -474,10 +570,11 @@ export default function SessionsManagement() {
   );
 }
 
-function SessionsTabContent({ 
+function SessionsTabContent({
   sessions, activeSessions, upcomingSessions, endedSessions, sandboxSessions, bookableSessions,
-  isLoading, onView, onDelete, onDeleteSandbox, onViewBookings, onActivate, onEdit, totalBookings, totalRevenue
-}: { 
+  isLoading, onView, onDelete, onDeleteSandbox, onViewBookings, onActivate, onEdit, totalBookings, totalRevenue,
+  onCreateSession,
+}: {
   sessions: Session[];
   activeSessions: Session[];
   upcomingSessions: Session[];
@@ -493,6 +590,7 @@ function SessionsTabContent({
   onEdit: (session: Session) => void;
   totalBookings: number;
   totalRevenue: number;
+  onCreateSession?: () => void;
 }) {
   const getLinkedBookableSession = (sessionId: string) => {
     return bookableSessions.find(bs => bs.linkedSessionId === sessionId);
@@ -500,51 +598,63 @@ function SessionsTabContent({
 
   return (
     <>
+      {/* Mobile-only "+ New Session" CTA — desktop uses the button next to the tab bar */}
+      {onCreateSession && (
+        <Button
+          className="w-full md:hidden"
+          onClick={onCreateSession}
+          data-testid="button-create-session-mobile"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          New Session
+        </Button>
+      )}
+
       {!isLoading && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-total-sessions">
-            <div className="p-2 rounded-md bg-accent/10">
-              <LayoutGrid className="w-5 h-5 text-accent" />
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-4">
+          <div className="flex items-center gap-3 p-3 sm:p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-total-sessions">
+            <div className="p-2 rounded-md bg-accent/10 shrink-0">
+              <LayoutGrid className="w-4 h-4 sm:w-5 sm:h-5 text-accent" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Total</p>
-              <p className="text-2xl font-bold" data-testid="count-total-sessions">{sessions.length}</p>
+              <p className="text-xl sm:text-2xl font-bold" data-testid="count-total-sessions">{sessions.length}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-active-sessions">
-            <div className="p-2 rounded-md bg-primary/10">
-              <Activity className="w-5 h-5 text-primary" />
+          <div className="flex items-center gap-3 p-3 sm:p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-active-sessions">
+            <div className="p-2 rounded-md bg-primary/10 shrink-0">
+              <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Active</p>
-              <p className="text-2xl font-bold" data-testid="count-active-sessions">{activeSessions.length}</p>
+              <p className="text-xl sm:text-2xl font-bold" data-testid="count-active-sessions">{activeSessions.length}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-upcoming-sessions">
-            <div className="p-2 rounded-md bg-chart-2/10">
-              <Clock className="w-5 h-5 text-chart-2" />
+          <div className="flex items-center gap-3 p-3 sm:p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-upcoming-sessions">
+            <div className="p-2 rounded-md bg-chart-2/10 shrink-0">
+              <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-chart-2" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Upcoming</p>
-              <p className="text-2xl font-bold" data-testid="count-upcoming-sessions">{upcomingSessions.length}</p>
+              <p className="text-xl sm:text-2xl font-bold" data-testid="count-upcoming-sessions">{upcomingSessions.length}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-total-bookings">
-            <div className="p-2 rounded-md bg-chart-2/10">
-              <Users className="w-5 h-5 text-chart-2" />
+          <div className="flex items-center gap-3 p-3 sm:p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-total-bookings">
+            <div className="p-2 rounded-md bg-chart-2/10 shrink-0">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5 text-chart-2" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Bookings</p>
-              <p className="text-2xl font-bold" data-testid="count-total-bookings">{totalBookings}</p>
+              <p className="text-xl sm:text-2xl font-bold" data-testid="count-total-bookings">{totalBookings}</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-total-revenue">
-            <div className="p-2 rounded-md bg-success/10">
-              <DollarSign className="w-5 h-5 text-success" />
+          <div className="flex items-center gap-3 p-3 sm:p-4 rounded-lg border bg-card hover-elevate" data-testid="kpi-total-revenue">
+            <div className="p-2 rounded-md bg-success/10 shrink-0">
+              <DollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-success" />
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Revenue</p>
-              <p className="text-2xl font-bold" data-testid="count-total-revenue">AED {totalRevenue}</p>
+              <p className="text-xl sm:text-2xl font-bold" data-testid="count-total-revenue">AED {totalRevenue}</p>
             </div>
           </div>
         </div>
@@ -776,8 +886,8 @@ function SessionCard({
         </div>
         
         <div className="flex gap-2 pt-2 border-t flex-wrap">
-          <Button 
-            size="sm" 
+          <Button
+            size="sm"
             variant="default"
             className="flex-1"
             onClick={onView}
@@ -808,8 +918,8 @@ function SessionCard({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span>
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       variant="outline"
                       disabled
                       data-testid={`button-activate-${session.id}`}
@@ -825,8 +935,8 @@ function SessionCard({
                 </TooltipContent>
               </Tooltip>
             ) : (
-              <Button 
-                size="sm" 
+              <Button
+                size="sm"
                 variant="outline"
                 onClick={onActivate}
                 data-testid={`button-activate-${session.id}`}
@@ -836,24 +946,60 @@ function SessionCard({
               </Button>
             );
           })()}
+
+          {/* Desktop: individual icon buttons for Edit and Delete */}
           {(session.status === 'draft' || session.status === 'upcoming') && onEdit && (
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="ghost"
               onClick={onEdit}
+              className="hidden sm:inline-flex"
               data-testid={`button-edit-${session.id}`}
             >
               <Pencil className="w-4 h-4" />
             </Button>
           )}
-          <Button 
-            size="sm" 
+          <Button
+            size="sm"
             variant="ghost"
             onClick={onDelete}
+            className="hidden sm:inline-flex"
             data-testid={`button-delete-${session.id}`}
           >
             <Trash2 className="w-4 h-4" />
           </Button>
+
+          {/* Mobile: three-dots menu containing Edit and Delete */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="sm:hidden px-2"
+                data-testid={`button-more-${session.id}`}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {(session.status === 'draft' || session.status === 'upcoming') && onEdit && (
+                <DropdownMenuItem onClick={onEdit}>
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Edit
+                </DropdownMenuItem>
+              )}
+              {(session.status === 'draft' || session.status === 'upcoming') && onEdit && (
+                <DropdownMenuSeparator />
+              )}
+              <DropdownMenuItem
+                onClick={onDelete}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </CardContent>
     </Card>
