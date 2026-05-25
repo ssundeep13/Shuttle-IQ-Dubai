@@ -1,4 +1,4 @@
-import { Trophy, TrendingUp, ArrowUp, ArrowDown } from "lucide-react";
+import { Trophy, TrendingUp, ArrowUp, ArrowDown, Medal } from "lucide-react";
 import { Player } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatSkillLevel, getSkillTierColor, getTierDisplayName } from "@shared/utils/skillUtils";
+import {
+  formatSkillLevel,
+  getSkillTierColor,
+  getTierDisplayName,
+} from "@shared/utils/skillUtils";
 
 interface SessionLeaderboardProps {
   sessionId: string;
@@ -23,89 +27,98 @@ interface SessionPlayer extends Player {
   winsInSession: number;
 }
 
-// Using getSkillTierColor from skillUtils instead of local function
+type SortBy = "skill" | "wins" | "games" | "winRate" | "name";
+type SortOrder = "asc" | "desc";
 
-type SortBy = 'skill' | 'wins' | 'games' | 'winRate' | 'name';
-type SortOrder = 'asc' | 'desc';
+// ─── rank decoration ─────────────────────────────────────────────────────────
+
+function RankBadge({ rank }: { rank: number }) {
+  // Rank is 1-based (first place = 1)
+  if (rank === 1) {
+    return (
+      <div className="flex items-center justify-center w-9 h-9 rounded-full bg-amber-100 shrink-0">
+        <Trophy className="w-4 h-4 text-amber-600" />
+      </div>
+    );
+  }
+  if (rank === 2) {
+    return (
+      <div className="flex items-center justify-center w-9 h-9 rounded-full bg-slate-100 shrink-0">
+        <Medal className="w-4 h-4 text-slate-500" />
+      </div>
+    );
+  }
+  if (rank === 3) {
+    return (
+      <div className="flex items-center justify-center w-9 h-9 rounded-full bg-orange-100 shrink-0">
+        <Medal className="w-4 h-4 text-orange-600" />
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center justify-center w-9 h-9 rounded-full bg-muted shrink-0">
+      <span className="text-sm font-bold text-muted-foreground">{rank}</span>
+    </div>
+  );
+}
+
+// ─── main ─────────────────────────────────────────────────────────────────────
 
 export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
-  const [sortBy, setSortBy] = useState<SortBy>('games');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  
-  // Fetch session-specific stats
+  const [sortBy, setSortBy] = useState<SortBy>("games");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+
   const { data: players = [], isLoading } = useQuery<SessionPlayer[]>({
-    queryKey: ['/api/stats/session', sessionId],
+    queryKey: ["/api/stats/session", sessionId],
     enabled: !!sessionId,
   });
-  
-  const toggleSortOrder = () => {
-    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-  };
-  
-  const sortPlayers = (playersToSort: SessionPlayer[]) => {
-    return [...playersToSort].sort((a, b) => {
-      const gamesA = a.gamesPlayedInSession || 0;
-      const gamesB = b.gamesPlayedInSession || 0;
-      const winsA = a.winsInSession || 0;
-      const winsB = b.winsInSession || 0;
-      const skillA = a.skillScore || 90;
-      const skillB = b.skillScore || 90;
-      const winRateA = gamesA === 0 ? 0 : (winsA / gamesA) * 100;
-      const winRateB = gamesB === 0 ? 0 : (winsB / gamesB) * 100;
-      
-      let comparison = 0;
-      
-      switch (sortBy) {
-        case 'skill':
-          comparison = skillB - skillA;
-          break;
-        case 'wins':
-          comparison = winsB - winsA;
-          break;
-        case 'games':
-          comparison = gamesB - gamesA;
-          break;
-        case 'winRate':
-          comparison = winRateB - winRateA;
-          break;
-        case 'name':
-          comparison = a.name.localeCompare(b.name);
-          break;
-      }
-      
-      // Apply sort order
-      const result = sortOrder === 'desc' ? comparison : -comparison;
-      
-      // If equal, use name as tiebreaker
-      if (result === 0) {
-        return a.name.localeCompare(b.name);
-      }
-      
-      return result;
-    });
-  };
 
-  const getWinRate = (player: SessionPlayer) => {
-    const games = player.gamesPlayedInSession || 0;
-    if (games === 0) return 0;
-    return Math.round(((player.winsInSession || 0) / games) * 100);
+  const toggleSortOrder = () =>
+    setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+
+  const sortPlayers = (list: SessionPlayer[]) =>
+    [...list].sort((a, b) => {
+      const gA = a.gamesPlayedInSession || 0;
+      const gB = b.gamesPlayedInSession || 0;
+      const wA = a.winsInSession || 0;
+      const wB = b.winsInSession || 0;
+      const sA = a.skillScore || 90;
+      const sB = b.skillScore || 90;
+      const wrA = gA === 0 ? 0 : (wA / gA) * 100;
+      const wrB = gB === 0 ? 0 : (wB / gB) * 100;
+
+      let cmp = 0;
+      switch (sortBy) {
+        case "skill":    cmp = sB - sA; break;
+        case "wins":     cmp = wB - wA; break;
+        case "games":    cmp = gB - gA; break;
+        case "winRate":  cmp = wrB - wrA; break;
+        case "name":     cmp = a.name.localeCompare(b.name); break;
+      }
+      const result = sortOrder === "desc" ? cmp : -cmp;
+      return result === 0 ? a.name.localeCompare(b.name) : result;
+    });
+
+  const getWinRate = (p: SessionPlayer) => {
+    const g = p.gamesPlayedInSession || 0;
+    return g === 0 ? 0 : Math.round(((p.winsInSession || 0) / g) * 100);
   };
 
   if (isLoading) {
     return (
-      <div className="text-center py-12 bg-muted rounded-md">
-        <p className="text-muted-foreground">Loading session leaderboard...</p>
+      <div className="flex items-center justify-center py-14 rounded-xl bg-muted/40 border border-dashed border-border">
+        <p className="text-sm text-muted-foreground">Loading session leaderboard…</p>
       </div>
     );
   }
 
   const sortedPlayers = sortPlayers(players);
-  
+
   if (sortedPlayers.length === 0) {
     return (
-      <div className="text-center py-12 bg-muted rounded-md">
-        <p className="text-muted-foreground">
-          No players in this session yet. Add players to see the leaderboard.
+      <div className="flex items-center justify-center py-14 rounded-xl bg-muted/40 border border-dashed border-border">
+        <p className="text-sm text-muted-foreground">
+          No players in this session yet.
         </p>
       </div>
     );
@@ -113,93 +126,118 @@ export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
 
   return (
     <div className="space-y-4" data-testid="session-leaderboard">
-      <div className="flex items-center gap-2 mb-4">
-        <Trophy className="w-5 h-5 text-primary" />
-        <h3 className="text-lg font-semibold text-foreground">Session Leaderboard</h3>
-        <Badge variant="outline" className="ml-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Trophy className="w-5 h-5 text-primary" />
+          <h3 className="text-lg font-semibold text-foreground">Session Leaderboard</h3>
+        </div>
+        <Badge variant="outline">
           <TrendingUp className="w-3 h-3 mr-1" />
           {sortedPlayers.length} Players
         </Badge>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 mb-4">
-        <div className="flex items-center gap-2 flex-1">
-          <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">Sort by:</label>
-          <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortBy)}>
-            <SelectTrigger className="w-full sm:w-[180px]" data-testid="select-session-sort-by">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="skill">Skill Score</SelectItem>
-              <SelectItem value="wins">Wins</SelectItem>
-              <SelectItem value="games">Games Played</SelectItem>
-              <SelectItem value="winRate">Win Rate</SelectItem>
-              <SelectItem value="name">Name</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={toggleSortOrder}
-            className="flex-shrink-0"
-            data-testid="button-session-toggle-sort"
-          >
-            {sortOrder === 'desc' ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />}
-          </Button>
-        </div>
+      {/* Sort controls */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground shrink-0">Sort by</span>
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortBy)}>
+          <SelectTrigger className="w-[160px] h-9" data-testid="select-session-sort-by">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="skill">Skill Score</SelectItem>
+            <SelectItem value="wins">Wins</SelectItem>
+            <SelectItem value="games">Games Played</SelectItem>
+            <SelectItem value="winRate">Win Rate</SelectItem>
+            <SelectItem value="name">Name</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={toggleSortOrder}
+          className="h-9 w-9 shrink-0"
+          data-testid="button-session-toggle-sort"
+        >
+          {sortOrder === "desc" ? (
+            <ArrowDown className="w-4 h-4" />
+          ) : (
+            <ArrowUp className="w-4 h-4" />
+          )}
+        </Button>
       </div>
 
-      <div className="space-y-3">
+      {/* Player rows */}
+      <div className="space-y-2">
         {sortedPlayers.map((player, index) => {
+          const rank = index + 1;
           const gamesCount = player.gamesPlayedInSession || 0;
           const winsCount = player.winsInSession || 0;
-          
+          const isTopThree = rank <= 3;
+
           return (
             <div
               key={player.id}
               className={cn(
-                "flex items-center justify-between p-3 sm:p-4 rounded-md border transition-all hover-elevate min-h-[5rem]",
-                index < 3 ? "bg-muted border-border" : "bg-card border-card-border"
+                "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors hover-elevate min-h-[64px]",
+                rank === 1
+                  ? "bg-amber-50 border-amber-200"
+                  : rank === 2
+                    ? "bg-slate-50 border-slate-200"
+                    : rank === 3
+                      ? "bg-orange-50 border-orange-200"
+                      : "bg-card border-border",
               )}
               data-testid={`session-leaderboard-player-${player.id}`}
             >
-              <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                <div
-                  className={cn(
-                    "flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full font-bold flex-shrink-0",
-                    index === 0 && "bg-warning/20 text-warning",
-                    index === 1 && "bg-muted-foreground/20 text-muted-foreground",
-                    index === 2 && "bg-destructive/20 text-destructive",
-                    index > 2 && "bg-muted text-muted-foreground"
-                  )}
-                >
-                  {index < 3 ? "🏆" : index + 1}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <p className="font-semibold text-foreground text-base sm:text-lg truncate">{player.name}</p>
-                    {player.shuttleIqId && (
-                      <Badge variant="outline" className="text-xs">
-                        {player.shuttleIqId}
-                      </Badge>
-                    )}
-                    <Badge className={cn("text-xs", getSkillTierColor(player.level))}>
-                      {player.gender && player.gender === 'Male' ? 'M' : 'F'} {formatSkillLevel(player.skillScore || 90)}
+              {/* Rank badge */}
+              <RankBadge rank={rank} />
+
+              {/* Player info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                  <p className="font-semibold text-foreground truncate">{player.name}</p>
+                  {player.shuttleIqId && (
+                    <Badge variant="outline" className="text-xs shrink-0">
+                      {player.shuttleIqId}
                     </Badge>
-                    {player.tierCandidate && (
-                      <span className="text-xs text-muted-foreground">
-                        → {getTierDisplayName(player.tierCandidate)} {player.tierCandidateGames}/3
-                      </span>
-                    )}
-                    {player.status === 'playing' && (
-                      <Badge className="bg-info/10 text-info border-info/20">Playing</Badge>
-                    )}
-                  </div>
-                  <div className="flex gap-4 text-sm text-muted-foreground">
-                    <span>Games: <span className="font-semibold text-foreground">{gamesCount}</span></span>
-                    <span>Wins: <span className="font-semibold text-success">{winsCount}</span></span>
-                    <span>Win Rate: <span className="font-semibold text-foreground">{getWinRate(player)}%</span></span>
-                  </div>
+                  )}
+                  <Badge
+                    className={cn("text-xs shrink-0", getSkillTierColor(player.level))}
+                  >
+                    {player.gender === "Male" ? "M" : "F"}{" "}
+                    {formatSkillLevel(player.skillScore || 90)}
+                  </Badge>
+                  {player.tierCandidate && (
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      → {getTierDisplayName(player.tierCandidate)}{" "}
+                      {player.tierCandidateGames}/3
+                    </span>
+                  )}
+                  {player.status === "playing" && (
+                    <Badge className="bg-info/10 text-info border-info/20 text-xs shrink-0">
+                      Playing
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Stats row */}
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span>
+                    Games{" "}
+                    <span className="font-semibold text-foreground">{gamesCount}</span>
+                  </span>
+                  <span>
+                    Wins{" "}
+                    <span className="font-semibold text-emerald-600">{winsCount}</span>
+                  </span>
+                  <span>
+                    Win rate{" "}
+                    <span className="font-semibold text-foreground">
+                      {getWinRate(player)}%
+                    </span>
+                  </span>
                 </div>
               </div>
             </div>
