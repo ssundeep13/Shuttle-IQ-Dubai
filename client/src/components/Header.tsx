@@ -1,4 +1,4 @@
-import { UserPlus, Activity, Download, Calendar, MapPin, Building2, LogOut, Shield, Users, Trophy, LayoutGrid, ChevronDown } from "lucide-react";
+import { UserPlus, Activity, Calendar, MapPin, Building2, LogOut, Shield, Users, Trophy, LayoutGrid, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AppStats, Session } from "@shared/schema";
@@ -14,8 +14,6 @@ interface HeaderProps {
   stats: AppStats;
   session: Session | null;
   onAddPlayer: () => void;
-  onAutoAssign: () => void;
-  onImportPlayers: () => void;
   onEndSession: () => void;
   authState: "guest" | "admin";
   onLogin: () => void;
@@ -23,10 +21,10 @@ interface HeaderProps {
   onLogout: () => void;
 }
 
-function KPIChip({ icon: Icon, label, value, color, testId }: { 
-  icon: any; 
-  label: string; 
-  value: string | number; 
+function KPIChip({ icon: Icon, label, value, color, testId }: {
+  icon: any;
+  label: string;
+  value: string | number;
   color: string;
   testId?: string;
 }) {
@@ -43,12 +41,21 @@ function KPIChip({ icon: Icon, label, value, color, testId }: {
   );
 }
 
-export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlayers, onEndSession, authState, onLogin, onAdmin, onLogout }: HeaderProps) {
+export function Header({
+  stats,
+  session,
+  onAddPlayer,
+  onEndSession,
+  authState,
+  onLogin,
+  onAdmin,
+  onLogout,
+}: HeaderProps) {
   const [sessionDetailsOpen, setSessionDetailsOpen] = useState(false);
 
   return (
     <div className="space-y-4">
-      {/* Top Bar - Logo + Session Status + Auth */}
+      {/* Top Bar — Logo + Session Status + Auth */}
       <div className="flex items-center justify-between py-3 px-4 bg-card rounded-lg border border-border">
         <div className="flex items-center gap-4">
           <h1 className="text-2xl font-bold">
@@ -65,8 +72,8 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
         {/* Auth Controls */}
         <div className="flex items-center gap-2">
           {authState === "guest" ? (
-            <Button 
-              onClick={onLogin} 
+            <Button
+              onClick={onLogin}
               variant="outline"
               size="sm"
               data-testid="button-login-nav"
@@ -76,8 +83,8 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
             </Button>
           ) : (
             <>
-              <Button 
-                onClick={onAdmin} 
+              <Button
+                onClick={onAdmin}
                 variant="ghost"
                 size="sm"
                 data-testid="button-admin-nav"
@@ -85,8 +92,8 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
                 <Shield className="w-4 h-4 mr-2" />
                 Admin
               </Button>
-              <Button 
-                onClick={onLogout} 
+              <Button
+                onClick={onLogout}
                 variant="ghost"
                 size="sm"
                 data-testid="button-logout-nav"
@@ -98,7 +105,7 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
         </div>
       </div>
 
-      {/* Session Info - Collapsible */}
+      {/* Session Info Strip — collapsible */}
       {session && (
         <Collapsible open={sessionDetailsOpen} onOpenChange={setSessionDetailsOpen}>
           <div className="bg-card rounded-lg border border-border px-4 py-2">
@@ -110,7 +117,7 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
                     {format(new Date(session.date), 'MMM dd, yyyy')}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground">{session.venueName}</span>
                 </div>
@@ -118,7 +125,11 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" size="sm">
                   Details
-                  <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${sessionDetailsOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown
+                    className={`h-4 w-4 ml-2 transition-transform ${
+                      sessionDetailsOpen ? "rotate-180" : ""
+                    }`}
+                  />
                 </Button>
               </CollapsibleTrigger>
             </div>
@@ -134,43 +145,30 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
                   <LayoutGrid className="h-4 w-4" />
                   <span>{session.courtCount} Courts Available</span>
                 </div>
+                {/* Venue name shown here on mobile since it's hidden in the strip above */}
+                <div className="flex items-center gap-2 sm:hidden">
+                  <Building2 className="h-4 w-4" />
+                  <span>{session.venueName}</span>
+                </div>
               </div>
             </CollapsibleContent>
           </div>
         </Collapsible>
       )}
 
-      {/* Action Strip */}
+      {/* Action Strip — Add Player on left, End Session on right.
+          Auto Assign and Import are intentionally removed; the server-side
+          auto-matchmaking engine runs automatically after each game. */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 bg-card rounded-lg border border-border">
-        <div className="flex items-center gap-2">
-          <Button 
-            onClick={onAddPlayer}
-            size="sm"
-            data-testid="button-add-player"
-          >
-            <UserPlus className="w-4 h-4 mr-2" />
-            Add Player
-          </Button>
-          <Button 
-            onClick={onImportPlayers} 
-            variant="outline"
-            size="sm"
-            data-testid="button-import-players"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Import
-          </Button>
-          <Button 
-            onClick={onAutoAssign} 
-            variant="secondary"
-            size="sm"
-            className="bg-chart-2 hover:bg-chart-2/90 text-white border-none"
-            data-testid="button-auto-assign"
-          >
-            <Activity className="w-4 h-4 mr-2" />
-            Auto Assign
-          </Button>
-        </div>
+        <Button
+          onClick={onAddPlayer}
+          size="sm"
+          data-testid="button-add-player"
+        >
+          <UserPlus className="w-4 h-4 mr-2" />
+          Add Player
+        </Button>
+
         {session && (
           <Button
             variant="destructive"
@@ -184,39 +182,40 @@ export function Header({ stats, session, onAddPlayer, onAutoAssign, onImportPlay
         )}
       </div>
 
-      {/* Stats Ribbon */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <KPIChip 
-          icon={Users} 
-          label="Playing" 
+      {/* Stats Ribbon — tablet and up only (md+).
+          On phone the tabs + court cards carry all the live info. */}
+      <div className="hidden md:grid md:grid-cols-5 gap-3">
+        <KPIChip
+          icon={Users}
+          label="Playing"
           value={stats.activePlayers}
           color="bg-primary/10 text-primary"
           testId="text-active-players"
         />
-        <KPIChip 
-          icon={Users} 
-          label="In Queue" 
+        <KPIChip
+          icon={Users}
+          label="In Queue"
           value={stats.inQueue}
           color="bg-chart-2/10 text-chart-2"
           testId="text-queue-count"
         />
-        <KPIChip 
-          icon={LayoutGrid} 
-          label="Available" 
+        <KPIChip
+          icon={LayoutGrid}
+          label="Available"
           value={`${stats.availableCourts}/${stats.totalCourts}`}
           color="bg-success/10 text-success"
           testId="text-available-courts"
         />
-        <KPIChip 
-          icon={Activity} 
-          label="In Progress" 
+        <KPIChip
+          icon={Activity}
+          label="In Progress"
           value={stats.occupiedCourts}
           color="bg-warning/10 text-warning"
           testId="text-occupied-courts"
         />
-        <KPIChip 
-          icon={Trophy} 
-          label="Total Players" 
+        <KPIChip
+          icon={Trophy}
+          label="Total Players"
           value={stats.totalPlayers}
           color="bg-accent/10 text-accent"
           testId="text-total-players"

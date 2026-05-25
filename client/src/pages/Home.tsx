@@ -867,12 +867,10 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto p-6 space-y-6">
-        <Header 
+        <Header
           stats={stats || defaultStats}
           session={session}
-          onAddPlayer={() => setShowAddPlayer(true)} 
-          onAutoAssign={handleAutoAssign}
-          onImportPlayers={() => setShowImportPlayers(true)}
+          onAddPlayer={() => setShowAddPlayer(true)}
           onEndSession={handleEndSession}
           authState={isAuthenticated ? "admin" : "guest"}
           onLogin={() => navigate('/admin/login')}
