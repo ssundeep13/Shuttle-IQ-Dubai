@@ -1,0 +1,22 @@
+I need a complete, factual rundown of the admin side of this app for documentation purposes — I'm planning a UI redesign and need to know exactly what every part does. This is READ-ONLY: do NOT change, build, or run anything, and do NOT touch the database. Just explore the code and explain.
+
+PART 1 — THE ADMIN DASHBOARD (every section)
+Go through each admin area and, for each one, tell me in plain English: what the page is for; every feature, button and action and what each does; the behind-the-scenes rules and logic; what data it shows and where that data comes from; and how it connects to other parts of the app. Cover all of these:
+Sessions, Players, Marketplace, Users, Disputes, Refunds, Finance, Community Tags (Tag Ideas), Ideas, Blog, Referrals, Discount Codes.
+Also list any admin pages or features that exist but AREN'T in that list, so I have the complete picture.
+
+PART 2 — THE COURT CAPTAIN / ACTIVE SESSION PAGE (deep dive)
+This is the live page used to run a session in real time (reached via "Manage Queue" / "Activate" on a session). Give me extra detail here. Cover:
+- The overall layout and every tab/section (e.g. Courts, Queue, History, Leaderboard, and anything else).
+- The header and session info, and the live stats shown (Playing, In Queue, Available, In Progress, Total Players, etc.) — and how each number is calculated.
+- Court cards: every state (available/occupied), what's shown, and every action — Start Game, Cancel Game, End Game & Record Result, add/remove court — and exactly what happens when each is used.
+- The game timer: how it works and any target/threshold behaviour.
+- Auto Assign / smart matchmaking: explain the algorithm step by step in plain English — how it picks players from the queue, how it balances teams, how the "gap"/balance is calculated, how alternatives/shuffle work, what the rest warning is, and any AI involvement (e.g. Anthropic API) plus the fallback.
+- The "Smart Suggestions" / suggested-lineups feature and any look-ahead logic for upcoming games.
+- The Queue: how it's ordered/prioritised, the Sit Out toggle, remove, and how check-in / auto-queue works.
+- Recording a result: how scores are entered, how the ELO-style skill scoring updates players, the tier system (Novice → Professional) and thresholds, and how this feeds back into matchmaking.
+- How ending a session works (CSV export, clearing courts/queue, etc.).
+- Score disputes: how a flagged score flows from here to the Disputes section, and the Court Captain's attendance-confirmation / approval role.
+- Any other behaviour or rules I haven't asked about but should know.
+
+Write it all as a clear reference document in plain, non-technical language, organised with headings per section. Remember: read and explain only — change nothing.

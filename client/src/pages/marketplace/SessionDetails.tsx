@@ -196,7 +196,7 @@ function GuestRow({
                 className="pl-8"
                 placeholder={`Search guest ${idx + 1} by name…`}
                 value={searchInput}
-                onChange={e => { setSearchInput(e.target.value); setDropdownOpen(true); }}
+                onChange={e => { setSearchInput(e.target.value); onChange({ ...guest, name: e.target.value, linkedFromSearch: false }); setDropdownOpen(true); }}
                 onFocus={() => setDropdownOpen(true)}
                 data-testid={`input-guest-search-${idx}`}
               />
