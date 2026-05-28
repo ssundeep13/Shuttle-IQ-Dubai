@@ -222,7 +222,7 @@ export default function MarketplaceHome() {
             }}
           >
             <span style={{ flex: 'none', width: 38, height: 38, borderRadius: 10, background: `${MKT.amber}22`, color: MKT.amber, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-              <MIcon name="sparkle" size={18} color={MKT.amber} sw={2.2} />
+              <MIcon name="heart" size={18} color={MKT.amber} sw={2.2} />
             </span>
             <div style={{ flex: 1, minWidth: 240 }}>
               <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MKT.amber, marginBottom: 3 }}>
