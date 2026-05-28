@@ -9,6 +9,7 @@ import {
 import { format } from 'date-fns';
 import { motion, useReducedMotion } from 'framer-motion';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
+import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
