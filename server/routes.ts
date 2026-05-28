@@ -891,20 +891,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/players/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.status(400).json({ error: "No active session" });
-      }
-
       const deleted = await storage.deletePlayer(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Player not found" });
       }
-      await storage.removeFromQueue(activeSession.id, req.params.id);
-      
-      // Clear rest state when player is removed
-      clearPlayerRestState(activeSession.id, req.params.id);
-      
+
+      // Clean up queue / rest state if a session is active — safe to skip when none exists
+      const activeSession = await storage.getActiveSession();
+      if (activeSession) {
+        await storage.removeFromQueue(activeSession.id, req.params.id);
+        clearPlayerRestState(activeSession.id, req.params.id);
+      }
+
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete player" });
