@@ -13,6 +13,7 @@ import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import { useToast } from '@/hooks/use-toast';
 import TagTrendingModal from '@/components/TagTrendingModal';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
 const TAG_MILESTONES = [5, 10, 25, 50];
@@ -481,37 +482,64 @@ export default function Dashboard() {
     .filter(s => s.status === 'upcoming' && new Date(s.date) >= todayStart)
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0] ?? null;
 
-  const greeting = () => {
-    const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
-  };
+  // ── Real-data-derived display values (graceful omission when unavailable) ──
+  // Skill-point change over the player's last (up to) 10 games, from recentGames'
+  // skillScoreBefore/After. null when the data isn't present.
+  const last10Delta = useMemo<number | null>(() => {
+    const games = [...(stats?.recentGames ?? [])]
+      .filter(g => g.date)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 10);
+    if (games.length === 0) return null;
+    const newest = games[0];
+    const oldest = games[games.length - 1];
+    if (newest.skillScoreAfter == null || oldest.skillScoreBefore == null) return null;
+    return newest.skillScoreAfter - oldest.skillScoreBefore;
+  }, [stats?.recentGames]);
+
+  const totalLosses = stats ? Math.max(0, stats.totalGames - stats.totalWins) : 0;
+  const tierLabel = stats ? getTierDisplayName(stats.player.level) : null;
+
+  // Greeting value line — assemble only the clauses backed by real data.
+  const greetingClauses: string[] = [];
+  if (stats?.currentStreak?.type === 'win' && stats.currentStreak.count > 0) {
+    greetingClauses.push(`On a ${stats.currentStreak.count}-win streak`);
+  }
+  if (last10Delta != null && last10Delta !== 0) {
+    greetingClauses.push(`${last10Delta > 0 ? '+' : ''}${last10Delta} skill pts over your last 10`);
+  }
+  if (nextBooking) {
+    const rel = getRelativeTimeLabel(nextBooking.session.date as unknown as string, nextBooking.session.startTime);
+    if (rel) greetingClauses.push(`Next match ${rel}`);
+  }
+  const greetingValueLine = greetingClauses.length > 0 ? greetingClauses.join('  ·  ') : "Here's your ShuttleIQ overview";
 
   const bannerEntrance = reduce ? {} : { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.45, ease: [0.2, 0.7, 0.2, 1] as const } };
 
   return (
     <>
     <div style={{ background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY, minHeight: '100%' }}>
-      <div className="max-w-5xl mx-auto" style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 24px) clamp(48px, 6vw, 64px)' }}>
-        {/* Greeting */}
+      <div className="max-w-6xl mx-auto" style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 24px) clamp(48px, 6vw, 64px)' }}>
+        {/* Greeting hero */}
         <Reveal>
-          <div className="flex items-center gap-4" style={{ marginBottom: 24 }}>
+          <div className="flex items-center gap-4 sm:gap-5" style={{ marginBottom: 28 }}>
             <Link href="/marketplace/profile" data-testid="link-profile-avatar" className="shrink-0 cursor-pointer md:pointer-events-none md:cursor-default">
-              <Avatar className="h-12 w-12">
+              <Avatar className="h-14 w-14 sm:h-16 sm:w-16">
                 {user?.photoUrl ? (
                   <AvatarImage src={user.photoUrl} alt={user.name} data-testid="img-dashboard-avatar" />
                 ) : null}
-                <AvatarFallback style={{ background: MKT.teal, color: '#fff', fontWeight: 700, fontSize: 18 }}>
+                <AvatarFallback style={{ background: MKT.teal, color: '#fff', fontWeight: 700, fontSize: 22 }}>
                   {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                 </AvatarFallback>
               </Avatar>
             </Link>
-            <div>
-              <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(24px, 3vw, 30px)', color: MKT.navy, letterSpacing: '-0.025em' }} data-testid="text-dashboard-greeting">
-                {greeting()}, {user?.name?.split(' ')[0]}
+            <div className="min-w-0">
+              <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(30px, 5vw, 48px)', color: MKT.navy, letterSpacing: '-0.035em', lineHeight: 1.02 }} data-testid="text-dashboard-greeting">
+                Welcome back, {user?.name?.split(' ')[0]}
               </h1>
-              <p style={{ color: MKT.inkSub, fontSize: 14, marginTop: 2 }}>Here's your ShuttleIQ overview</p>
+              <p style={{ color: MKT.inkSub, fontSize: 'clamp(14px, 1.6vw, 16px)', marginTop: 6, letterSpacing: '-0.005em' }}>
+                {greetingValueLine}
+              </p>
             </div>
           </div>
         </Reveal>
@@ -582,21 +610,20 @@ export default function Dashboard() {
           </motion.div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            {user && (
-              <Reveal>
-                <GettingStartedCard
-                  bookings={bookings}
-                  linkedPlayerId={linkedPlayerId ?? null}
-                  bookingsLoading={bookingsLoading}
-                  userId={user.id}
-                />
-              </Reveal>
-            )}
+        {/* Getting Started + tag nudge — full width, contextual */}
+        {user && (
+          <Reveal style={{ marginBottom: 20 }}>
+            <GettingStartedCard
+              bookings={bookings}
+              linkedPlayerId={linkedPlayerId ?? null}
+              bookingsLoading={bookingsLoading}
+              userId={user.id}
+            />
+          </Reveal>
+        )}
 
-            {linkedPlayerId && untaggedCount > 0 && (
-              <Reveal>
+        {linkedPlayerId && untaggedCount > 0 && (
+          <Reveal style={{ marginBottom: 20 }}>
                 <Link href="/marketplace/my-scores">
                   <div style={{ ...cardStyle, borderColor: `${MKT.teal}55`, background: MKT.tealMist, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} data-testid="card-tag-nudge">
                     <div style={{ flex: 'none', width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,107,95,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -611,10 +638,11 @@ export default function Dashboard() {
                     <ChevronRight className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
                   </div>
                 </Link>
-              </Reveal>
-            )}
+          </Reveal>
+        )}
 
-            <Reveal>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <Reveal className="lg:col-span-2">
               <UnifiedSessionCard
                 todayBooking={todayBooking}
                 todayCheckedIn={todayCheckedIn}
@@ -625,30 +653,57 @@ export default function Dashboard() {
             </Reveal>
 
             {stats ? (
-              <Reveal>
+              <Reveal className="lg:col-span-2">
                 <DashCard testid="card-stats">
                   <DashHeader
                     icon={<BarChart3 className="h-4 w-4" />}
                     title="Your Stats"
                     action={<Link href="/marketplace/my-scores" style={seeAllLink} data-testid="link-view-all-stats">View All <ChevronRight className="h-3 w-3" /></Link>}
                   />
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[
-                      { v: stats.player.skillScore, l: 'Skill Score', testid: 'text-stat-score' },
-                      { v: `#${stats.rankBySkillScore}`, l: 'Rank' },
-                      { v: stats.totalWins, l: 'Wins' },
-                      { v: `${stats.winRate}%`, l: 'Win Rate' },
-                    ].map((s, i) => (
-                      <div key={i} style={{ textAlign: 'center', padding: 12, borderRadius: 12, background: MKT.cream }}>
-                        <div style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid={s.testid}>{s.v}</div>
-                        <div style={{ fontSize: 12, color: MKT.inkSub, marginTop: 2 }}>{s.l}</div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {/* Skill score + tier chip + last-10 delta */}
+                    <div style={{ padding: '14px 16px', borderRadius: 12, background: MKT.cream }}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Skill score</div>
+                        {tierLabel && (
+                          <span style={{ fontFamily: FF_MONO, fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999, background: MKT.tealMist, color: MKT.tealD, whiteSpace: 'nowrap' }}>{tierLabel}</span>
+                        )}
                       </div>
-                    ))}
+                      <div style={{ marginTop: 8, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 3vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', lineHeight: 1 }} data-testid="text-stat-score">{stats.player.skillScore}</div>
+                      {last10Delta != null && (
+                        <div style={{ marginTop: 6, fontFamily: FF_MONO, fontSize: 11, fontWeight: 600, color: last10Delta >= 0 ? MKT.green : MKT.red }}>
+                          {last10Delta > 0 ? '+' : ''}{last10Delta} pts · last 10
+                        </div>
+                      )}
+                    </div>
+                    {/* Win rate + W/L */}
+                    <div style={{ padding: '14px 16px', borderRadius: 12, background: MKT.cream }}>
+                      <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Win rate</div>
+                      <div style={{ marginTop: 8, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 3vw, 40px)', color: MKT.green, letterSpacing: '-0.03em', lineHeight: 1 }}>{stats.winRate}%</div>
+                      <div style={{ marginTop: 6, fontFamily: FF_MONO, fontSize: 11, fontWeight: 600, color: MKT.inkSub }}>{stats.totalWins}W · {totalLosses}L</div>
+                    </div>
+                    {/* Games played + streak */}
+                    <div style={{ padding: '14px 16px', borderRadius: 12, background: MKT.cream }}>
+                      <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Games played</div>
+                      <div style={{ marginTop: 8, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 3vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', lineHeight: 1 }}>{stats.totalGames}</div>
+                      {stats.currentStreak?.type === 'win' && stats.currentStreak.count > 0 && (
+                        <div style={{ marginTop: 6, fontFamily: FF_MONO, fontSize: 11, fontWeight: 600, color: MKT.tealD }}>{stats.currentStreak.count}-win streak</div>
+                      )}
+                    </div>
+                    {/* Skill rank + total + View Leaderboard */}
+                    <div style={{ padding: '14px 16px', borderRadius: 12, background: MKT.cream, display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Skill rank</div>
+                      <div style={{ marginTop: 8, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 3vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', lineHeight: 1 }}>#{stats.rankBySkillScore}</div>
+                      <div style={{ marginTop: 6, fontSize: 11, color: MKT.inkSub }}>of {stats.totalPlayersRanked} players</div>
+                      <Link href="/marketplace/rankings" style={{ marginTop: 10, fontFamily: FF_BODY, fontWeight: 600, fontSize: 12, color: MKT.tealD, display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' }} data-testid="link-stats-leaderboard">
+                        View Leaderboard <ChevronRight className="h-3 w-3" />
+                      </Link>
+                    </div>
                   </div>
                 </DashCard>
               </Reveal>
             ) : (
-              <Reveal>
+              <Reveal className="lg:col-span-2">
                 <DashCard>
                   <div className="text-center" style={{ padding: '8px 0' }}>
                     <Target className="h-8 w-8 mx-auto mb-2" style={{ color: MKT.inkSub }} />
@@ -665,10 +720,25 @@ export default function Dashboard() {
                 <DashCard testid="card-my-referrals">
                   <DashHeader icon={<Gift className="h-4 w-4" />} title="My Referrals" />
                   <div className="space-y-4">
-                    <div className="flex items-center gap-2" style={{ padding: 12, borderRadius: 12, background: MKT.cream }}>
+                    {/* Wallet balance + friends played */}
+                    <div className="flex items-end gap-4" style={{ padding: 14, borderRadius: 12, background: MKT.cream }}>
                       <div className="flex-1 min-w-0">
-                        <p style={{ fontSize: 12, color: MKT.inkSub, marginBottom: 2 }}>Your referral code</p>
-                        <p style={{ fontFamily: FF_MONO, fontWeight: 700, fontSize: 14, color: MKT.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid="text-referral-code">{referralData.referralCode}</p>
+                        <p style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Wallet balance</p>
+                        <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 30, color: MKT.navy, letterSpacing: '-0.025em', lineHeight: 1, marginTop: 4 }} data-testid="text-wallet-balance">
+                          AED {(referralData.walletBalance / 100).toFixed(2)}
+                        </p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <p style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Friends played</p>
+                        <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 30, color: MKT.teal, letterSpacing: '-0.025em', lineHeight: 1, marginTop: 4 }}>{referralData.completedCount}</p>
+                      </div>
+                    </div>
+
+                    {/* Code + copy */}
+                    <div className="flex items-center justify-between gap-2" style={{ padding: '12px 14px', borderRadius: 10, background: MKT.cream, border: `1px dashed ${MKT.navy}33` }}>
+                      <div className="min-w-0">
+                        <p style={{ fontFamily: FF_MONO, fontSize: 9, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Your code</p>
+                        <p style={{ fontFamily: FF_MONO, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '0.02em', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid="text-referral-code">{referralData.referralCode}</p>
                       </div>
                       <button
                         type="button"
@@ -678,34 +748,42 @@ export default function Dashboard() {
                         }}
                         data-testid="button-copy-referral"
                         aria-label="Copy referral code"
-                        style={{ flex: 'none', width: 38, height: 38, borderRadius: 10, border: 'none', background: 'transparent', color: MKT.navy, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        style={{ flex: 'none', padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${MKT.navy}33`, background: '#fff', color: MKT.navy, cursor: 'pointer', fontFamily: FF_BODY, fontWeight: 600, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                       >
-                        <Copy className="h-4 w-4" />
+                        <Copy className="h-3.5 w-3.5" /> Copy
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2" style={{ padding: 12, borderRadius: 12, background: MKT.cream }}>
-                      <Wallet className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
-                      <div className="flex-1">
-                        <p style={{ fontSize: 12, color: MKT.inkSub }}>Wallet Balance</p>
-                        <p style={{ fontWeight: 700, color: MKT.navy }} data-testid="text-wallet-balance">
-                          AED {(referralData.walletBalance / 100).toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
+                    {/* Share Your Code — real signup ?ref= link */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}/marketplace/signup?ref=${encodeURIComponent(referralData.referralCode)}`;
+                        const nav = navigator as Navigator & { share?: (data: { title?: string; text?: string; url?: string }) => Promise<void> };
+                        if (typeof nav.share === 'function') {
+                          nav.share({ title: 'Join me on ShuttleIQ', text: 'Book badminton sessions in Dubai with me on ShuttleIQ.', url }).catch(() => {});
+                        } else {
+                          navigator.clipboard.writeText(url);
+                          toast({ title: 'Link copied!', description: 'Your referral link is on the clipboard' });
+                        }
+                      }}
+                      data-testid="button-share-referral"
+                      style={{ ...navyBtn('md'), width: '100%' }}
+                    >
+                      Share Your Code <ArrowRight className="h-4 w-4" />
+                    </button>
 
+                    {/* Next-reward progress (until Ambassador) */}
                     {!referralData.ambassadorStatus && (
                       <div>
-                        <div className="flex items-center justify-between" style={{ fontSize: 12, marginBottom: 4 }}>
+                        <div className="flex items-center justify-between" style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
                           <span style={{ color: MKT.inkSub }}>
                             {referralData.completedCount < 5
-                              ? `${referralData.completedCount}/5 to Leaderboard`
-                              : `${referralData.completedCount}/10 to Ambassador + Jersey`}
+                              ? `Next reward · ${5 - referralData.completedCount} more`
+                              : `Next reward · ${10 - referralData.completedCount} more`}
                           </span>
-                          <span style={{ fontWeight: 600, color: MKT.ink }}>
-                            {referralData.completedCount < 5
-                              ? `${5 - referralData.completedCount} to go`
-                              : `${10 - referralData.completedCount} to go`}
+                          <span style={{ color: MKT.tealD }}>
+                            {referralData.completedCount}/{referralData.completedCount < 5 ? 5 : 10}
                           </span>
                         </div>
                         <div style={{ height: 8, borderRadius: 999, background: 'rgba(0,30,70,0.08)', overflow: 'hidden' }}>
@@ -719,6 +797,26 @@ export default function Dashboard() {
                         </div>
                       </div>
                     )}
+
+                    {/* Reward ladder — both rungs */}
+                    <div className="space-y-2">
+                      {[
+                        { at: 5, label: 'Featured on the leaderboard' },
+                        { at: 10, label: 'Ambassador status + ShuttleIQ jersey' },
+                      ].map((m) => {
+                        const reached = referralData.completedCount >= m.at;
+                        return (
+                          <div key={m.at} className="flex items-center gap-2" style={{ fontSize: 13, color: reached ? MKT.ink : MKT.inkSub }}>
+                            {reached ? (
+                              <Check className="h-4 w-4 shrink-0" style={{ color: MKT.green }} />
+                            ) : (
+                              <span style={{ width: 16, height: 16, borderRadius: '50%', border: `1.5px solid ${MKT.line}`, background: '#fff', flex: 'none' }} />
+                            )}
+                            <span><b style={{ color: MKT.navy, fontWeight: 600 }}>{m.at}</b> referrals — {m.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
 
                     {(referralData.leaderboardMention || referralData.ambassadorStatus || referralData.jerseyDispatched) && (
                       <div className="flex flex-wrap gap-1.5">
@@ -819,9 +917,7 @@ export default function Dashboard() {
                 </DashCard>
               </Reveal>
             )}
-          </div>
 
-          <div className="space-y-6">
             <Reveal>
               <DashCard testid="card-player-personalities">
                 <DashHeader
@@ -924,7 +1020,6 @@ export default function Dashboard() {
                 </DashCard>
               </Reveal>
             )}
-          </div>
         </div>
       </div>
     </div>
