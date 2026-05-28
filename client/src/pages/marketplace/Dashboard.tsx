@@ -1,21 +1,19 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink, Lightbulb, Gift, Copy, Wallet } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry, TagSuggestion, BookableSessionWithAvailability } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import { useToast } from '@/hooks/use-toast';
 import TagTrendingModal from '@/components/TagTrendingModal';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
 const TAG_MILESTONES = [5, 10, 25, 50];
 
@@ -25,15 +23,62 @@ const CATEGORY_BG: Record<string, string> = {
   reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
   _default: 'bg-muted text-muted-foreground border-border',
 };
-
-const fadeInUp = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+const CATEGORY_COLOR: Record<string, string> = {
+  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
+  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
 };
 
-const stagger = {
-  visible: { transition: { staggerChildren: 0.06 } },
-};
+// ── Shared styled primitives (look only) ─────────────────────────────────────
+const cardStyle: CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${MKT.navy}12` };
+
+function DashCard({ children, testid, style }: { children: ReactNode; testid?: string; style?: CSSProperties }) {
+  return <div data-testid={testid} style={{ ...cardStyle, padding: '20px 22px', ...style }}>{children}</div>;
+}
+
+function DashHeader({ icon, title, action }: { icon: ReactNode; title: string; action?: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2" style={{ marginBottom: 14 }}>
+      <div className="flex items-center gap-2" style={{ color: MKT.navy }}>
+        <span style={{ color: MKT.teal, display: 'flex' }}>{icon}</span>
+        <h3 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em' }}>{title}</h3>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function navyBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
+    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: '1.5px solid transparent',
+    background: MKT.navy, color: '#fff', borderColor: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
+  };
+}
+function ghostBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
+    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: `1.5px solid ${MKT.navy}55`,
+    background: '#fff', color: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
+  };
+}
+const seeAllLink: CSSProperties = { fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, color: MKT.tealD, display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none', cursor: 'pointer' };
+
+type Tone = { band: string; soft: string; fg: string; label: string; hasLevel: boolean };
+function levelTone(title: string): Tone {
+  const t = (title || '').toLowerCase();
+  const P = { band: '#7A4FBF', soft: '#EEE6F8', fg: '#4A2B85' };
+  const B = { band: '#2A6FDB', soft: '#E3ECF8', fg: '#1B4A99' };
+  const G = { band: '#1F8A5B', soft: '#DDEEE2', fg: '#1A6A45' };
+  if (t.includes('advanced')) return { ...P, label: 'Advanced', hasLevel: true };
+  if (t.includes('pro')) return { ...P, label: 'Pro', hasLevel: true };
+  if (t.includes('intermediate')) return { ...B, label: 'Intermediate', hasLevel: true };
+  if (t.includes('beginner')) return { ...G, label: 'Beginner', hasLevel: true };
+  if (t.includes('novice')) return { ...G, label: 'Novice', hasLevel: true };
+  return { band: MKT.teal, soft: MKT.tealMist, fg: MKT.tealD, label: 'General', hasLevel: false };
+}
 
 function GettingStartedCard({
   bookings,
@@ -102,37 +147,34 @@ function GettingStartedCard({
   ];
 
   return (
-    <Card data-testid="card-getting-started">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-secondary" />
-            Getting Started
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground" data-testid="text-onboarding-progress">
-              {completedCount} of 3 complete
-            </span>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={handleDismiss}
-              data-testid="button-dismiss-onboarding"
-              aria-label="Dismiss getting started"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+    <DashCard testid="card-getting-started">
+      <div className="flex items-center justify-between gap-2 flex-wrap" style={{ marginBottom: 10 }}>
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4" style={{ color: MKT.teal }} />
+          <h3 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em' }}>Getting Started</h3>
         </div>
-        <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full bg-secondary rounded-full transition-all duration-500"
-            style={{ width: `${(completedCount / 3) * 100}%` }}
-            data-testid="progress-onboarding"
-          />
+        <div className="flex items-center gap-2">
+          <span style={{ fontFamily: FF_MONO, fontSize: 11, color: MKT.inkSub, letterSpacing: '0.04em' }} data-testid="text-onboarding-progress">
+            {completedCount} of 3 complete
+          </span>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            data-testid="button-dismiss-onboarding"
+            aria-label="Dismiss getting started"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, padding: 4, display: 'inline-flex' }}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+      </div>
+      <div style={{ height: 6, borderRadius: 999, background: 'rgba(0,30,70,0.08)', overflow: 'hidden', marginBottom: 16 }}>
+        <div
+          style={{ height: '100%', borderRadius: 999, background: MKT.teal, width: `${(completedCount / 3) * 100}%`, transition: 'width 0.5s cubic-bezier(.2,.7,.2,1)' }}
+          data-testid="progress-onboarding"
+        />
+      </div>
+      <div className="space-y-4">
         {steps.map((step, i) => (
           <div
             key={i}
@@ -140,51 +182,164 @@ function GettingStartedCard({
             data-testid={`step-onboarding-${i + 1}`}
           >
             <div
-              className={`flex-shrink-0 flex items-center justify-center h-7 w-7 rounded-full border-2 mt-0.5 transition-colors ${
-                step.done
-                  ? 'bg-secondary border-secondary'
-                  : 'border-border bg-background'
-              }`}
+              style={{
+                flex: 'none', width: 28, height: 28, borderRadius: '50%', marginTop: 2,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: step.done ? MKT.teal : '#fff', border: `1.5px solid ${step.done ? MKT.teal : MKT.navy + '33'}`,
+              }}
             >
               {step.done ? (
-                <Check className="h-3.5 w-3.5 text-secondary-foreground" />
+                <Check className="h-3.5 w-3.5" style={{ color: '#fff' }} />
               ) : (
-                <span className="text-xs font-bold text-muted-foreground">{i + 1}</span>
+                <span style={{ fontFamily: FF_MONO, fontWeight: 700, fontSize: 12, color: MKT.inkSub }}>{i + 1}</span>
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <p className={`text-sm font-medium leading-snug ${step.done ? 'line-through text-muted-foreground' : ''}`}>
+              <p style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.3, color: MKT.ink, textDecoration: step.done ? 'line-through' : 'none' }}>
                 {step.label}
               </p>
               {!step.done && (
                 <>
-                  <p className="text-xs text-muted-foreground mt-0.5">{step.desc}</p>
-                  <Link href={step.href} onClick={step.onClick}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-2 h-7 text-xs gap-1"
-                      data-testid={`button-onboarding-step-${i + 1}`}
-                    >
-                      {step.btnLabel}
-                      <ArrowRight className="h-3 w-3" />
-                    </Button>
+                  <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 2 }}>{step.desc}</p>
+                  <Link href={step.href} onClick={step.onClick} style={{ ...ghostBtn('sm'), marginTop: 8, padding: '6px 12px', fontSize: 12, textDecoration: 'none' }} data-testid={`button-onboarding-step-${i + 1}`}>
+                    {step.btnLabel}
+                    <ArrowRight className="h-3 w-3" />
                   </Link>
                 </>
               )}
             </div>
           </div>
         ))}
-      </CardContent>
-    </Card>
+      </div>
+    </DashCard>
   );
 }
 
-const CATEGORY_COLOR: Record<string, string> = {
-  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
-  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
-  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
-};
+// ── Unified session card (merge of Today's banner + Your Next Session) ───────
+function UnifiedSessionCard({
+  todayBooking,
+  todayCheckedIn,
+  nextBooking,
+  nextAvailableSession,
+  bookingsLoading,
+}: {
+  todayBooking: BookingWithDetails | undefined;
+  todayCheckedIn: boolean;
+  nextBooking: BookingWithDetails | undefined;
+  nextAvailableSession: BookableSessionWithAvailability | null;
+  bookingsLoading: boolean;
+}) {
+  // TODAY MODE — navy hero with level accent band + manual-check-in-aware footer.
+  if (todayBooking) {
+    const tone = levelTone(todayBooking.session.title);
+    return (
+      <div data-testid="card-next-session" style={{ background: MKT.navy, color: '#fff', borderRadius: 16, overflow: 'hidden', display: 'grid', gridTemplateColumns: '8px 1fr' }}>
+        <div style={{ background: tone.band }} />
+        <div style={{ padding: '22px 26px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div
+            data-testid="text-today-session-eyebrow"
+            style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, color: MKT.tealL, letterSpacing: '0.14em', textTransform: 'uppercase', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#C7E5D3', boxShadow: '0 0 0 4px rgba(199,229,211,0.2)', animation: 'siq-pulse 1.6s ease-in-out infinite' }} />
+            {todayCheckedIn ? "You're checked in" : "Today's session"}
+          </div>
+          <h2 data-testid="text-today-session-title" style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(26px, 3.5vw, 36px)', color: '#fff', letterSpacing: '-0.03em', lineHeight: 1.05 }}>
+            {todayBooking.session.title}
+          </h2>
+          <div className="flex flex-wrap items-center" style={{ gap: '8px 24px', fontSize: 14, color: 'rgba(255,255,255,0.85)' }}>
+            <span data-testid="text-today-session-time" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Clock className="h-4 w-4" style={{ color: 'rgba(255,255,255,0.6)' }} />
+              <span style={{ fontFamily: FF_MONO, fontWeight: 700, fontSize: 15, color: '#fff' }}>
+                {todayBooking.session.startTime}{todayBooking.session.endTime ? ` — ${todayBooking.session.endTime}` : ''}
+              </span>
+            </span>
+            <span data-testid="text-today-session-venue" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <MapPin className="h-4 w-4" style={{ color: 'rgba(255,255,255,0.6)' }} />
+              <b style={{ color: '#fff', fontWeight: 600 }}>{todayBooking.session.venueName}</b>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Users className="h-4 w-4" style={{ color: 'rgba(255,255,255,0.6)' }} />
+              <span style={{ fontFamily: FF_MONO, fontSize: 12, color: 'rgba(255,255,255,0.8)', letterSpacing: '0.06em' }}>{todayBooking.session.courtCount} courts</span>
+            </span>
+          </div>
+          <div style={{ marginTop: 4, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+            {/* Manual check-in: play link only once the Court Captain checks the player in */}
+            {todayCheckedIn ? (
+              <Link href="/marketplace/play" style={{ ...navyBtn('md'), background: '#fff', color: MKT.navy, borderColor: '#fff', textDecoration: 'none' }} data-testid="button-go-to-play">
+                Go to play screen <ArrowRight className="h-4 w-4" />
+              </Link>
+            ) : (
+              <span style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                Your Court Captain will check you in at the venue
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // FUTURE / EMPTY MODE — white card
+  return (
+    <DashCard testid="card-next-session">
+      <DashHeader icon={<Calendar className="h-4 w-4" />} title="Your Next Session" />
+      {bookingsLoading ? (
+        <Skeleton className="h-20 w-full" />
+      ) : nextBooking ? (
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="space-y-1.5">
+            <p style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em' }} data-testid="text-next-session-title">{nextBooking.session.title}</p>
+            {(() => {
+              const rel = getRelativeTimeLabel(nextBooking.session.date as unknown as string, nextBooking.session.startTime);
+              return rel ? (
+                <div className="flex items-center gap-1.5" style={{ fontSize: 14, fontWeight: 600, color: MKT.tealD }} data-testid="text-next-session-relative">
+                  <Timer className="h-3.5 w-3.5 shrink-0" />
+                  {rel}
+                </div>
+              ) : null;
+            })()}
+            <div className="flex items-center gap-4 flex-wrap" style={{ fontSize: 14, color: MKT.inkSub }}>
+              <span className="flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" />
+                {format(new Date(nextBooking.session.date), 'EEE, MMM d')}
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" />
+                {nextBooking.session.startTime}
+                {nextBooking.session.endTime ? ` – ${nextBooking.session.endTime}` : ''}
+              </span>
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3.5 w-3.5" />
+                {nextBooking.session.venueName}
+              </span>
+            </div>
+          </div>
+          <span data-testid="badge-next-status" style={{ fontFamily: FF_MONO, fontWeight: 700, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', padding: '5px 10px', borderRadius: 999, background: MKT.tealMist, color: MKT.tealD }}>
+            {nextBooking.status === 'confirmed' ? 'Confirmed' : nextBooking.status}
+          </span>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center text-center py-5 gap-3" data-testid="empty-next-session">
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: MKT.tealMist, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Calendar className="h-5 w-5" style={{ color: MKT.tealD }} />
+          </div>
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 500, color: MKT.inkSub }}>No upcoming sessions booked</p>
+            {nextAvailableSession && (
+              <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 4 }}>
+                Next up: <span style={{ fontWeight: 600, color: MKT.tealD }}>{nextAvailableSession.venueName}</span>
+                {' · '}{format(new Date(nextAvailableSession.date), 'EEE, MMM d')}
+              </p>
+            )}
+          </div>
+          <Link href="/marketplace/book" style={{ ...navyBtn('sm'), textDecoration: 'none' }} data-testid="button-book-session-cta">
+            Book a session <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      )}
+    </DashCard>
+  );
+}
 
 export default function Dashboard() {
   usePageTitle('Dashboard');
@@ -192,6 +347,7 @@ export default function Dashboard() {
   const linkedPlayerId = user?.linkedPlayerId;
   const { canInstall, install } = useInstallPrompt();
   const { toast } = useToast();
+  const reduce = useReducedMotion();
   const [showTrendingModal, setShowTrendingModal] = useState(false);
   const [milestoneDismissed, setMilestoneDismissed] = useState(false);
 
@@ -275,7 +431,6 @@ export default function Dashboard() {
     if (!linkedPlayerId) return null;
     const lastCheckKey = `siq_tag_check_${linkedPlayerId}`;
     const lastCheck = typeof window !== 'undefined' ? Number(localStorage.getItem(lastCheckKey) ?? '0') : 0;
-    // Find suggestions promoted since the last time we checked
     const newlyPromoted = mySuggestions
       .filter(s => s.status === 'approved' && s.promotedAt && new Date(s.promotedAt).getTime() > lastCheck)
       .sort((a, b) => new Date(b.promotedAt!).getTime() - new Date(a.promotedAt!).getTime());
@@ -296,7 +451,6 @@ export default function Dashboard() {
     return { milestone: highest, tag: firstTopTag.tag, count, storageKey };
   }, [firstTopTag, linkedPlayerId]);
 
-  // Auto-mark milestone as seen as soon as it is displayed (once per milestone)
   useEffect(() => {
     if (milestoneBanner) {
       localStorage.setItem(milestoneBanner.storageKey, 'seen');
@@ -311,10 +465,6 @@ export default function Dashboard() {
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
 
-  // Today's active session — surfaces the day-of banner at the top of the
-  // Dashboard (with a "Go to play screen" link once the Court Captain has
-  // checked the player in). Picks the earliest booking whose session date
-  // falls on today AND is either confirmed or already attended.
   const todayEnd = new Date();
   todayEnd.setHours(23, 59, 59, 999);
   const todayBooking = (bookings || [])
@@ -338,110 +488,48 @@ export default function Dashboard() {
     return 'Good evening';
   };
 
+  const bannerEntrance = reduce ? {} : { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.45, ease: [0.2, 0.7, 0.2, 1] as const } };
+
   return (
     <>
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      <motion.div initial="hidden" animate="visible" variants={stagger}>
-        {todayBooking && (
-          <motion.div variants={fadeInUp} className="mb-6">
-            <div
-              className="rounded-xl px-5 py-5 sm:px-6 sm:py-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
-              style={{ backgroundColor: '#003E8C', color: '#F5EFE0' }}
-              data-testid="card-today-session-banner"
-            >
-              <div className="flex-1 min-w-0">
-                <div
-                  className="text-[11px] font-semibold uppercase tracking-wider mb-1"
-                  style={{ color: '#F5EFE0', opacity: 0.7 }}
-                  data-testid="text-today-session-eyebrow"
-                >
-                  {todayCheckedIn ? "You're checked in" : "Today's session"}
-                </div>
-                <h2
-                  className="text-xl sm:text-2xl font-bold leading-tight truncate"
-                  data-testid="text-today-session-title"
-                >
-                  {todayBooking.session.title}
-                </h2>
-                <div
-                  className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"
-                  style={{ color: '#F5EFE0', opacity: 0.85 }}
-                >
-                  <span
-                    className="flex items-center gap-1.5"
-                    data-testid="text-today-session-venue"
-                  >
-                    <MapPin className="h-4 w-4 shrink-0" />
-                    {todayBooking.session.venueName}
-                  </span>
-                  <span
-                    className="flex items-center gap-1.5"
-                    data-testid="text-today-session-time"
-                  >
-                    <Clock className="h-4 w-4 shrink-0" />
-                    {todayBooking.session.startTime}
-                    {todayBooking.session.endTime ? ` – ${todayBooking.session.endTime}` : ''}
-                  </span>
-                </div>
-              </div>
-              {/* Check-in is handled manually by the Court Captain on the admin
-                  side — players can't self-check-in. Only show the play-screen
-                  link once the Court Captain has checked the player in. */}
-              {todayCheckedIn && (
-                <Link href="/marketplace/play" className="shrink-0">
-                  <Button
-                    size="lg"
-                    className="w-full sm:w-auto gap-2 font-semibold"
-                    style={{ backgroundColor: '#F5EFE0', color: '#003E8C' }}
-                    data-testid="button-go-to-play"
-                  >
-                    Go to play screen
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </Link>
-              )}
-            </div>
-          </motion.div>
-        )}
-        <motion.div variants={fadeInUp} className="mb-8">
-          <div className="flex items-center gap-4">
+    <div style={{ background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY, minHeight: '100%' }}>
+      <div className="max-w-5xl mx-auto" style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 24px) clamp(48px, 6vw, 64px)' }}>
+        {/* Greeting */}
+        <Reveal>
+          <div className="flex items-center gap-4" style={{ marginBottom: 24 }}>
             <Link href="/marketplace/profile" data-testid="link-profile-avatar" className="shrink-0 cursor-pointer md:pointer-events-none md:cursor-default">
               <Avatar className="h-12 w-12">
                 {user?.photoUrl ? (
                   <AvatarImage src={user.photoUrl} alt={user.name} data-testid="img-dashboard-avatar" />
                 ) : null}
-                <AvatarFallback className="bg-secondary text-secondary-foreground font-bold text-lg">
+                <AvatarFallback style={{ background: MKT.teal, color: '#fff', fontWeight: 700, fontSize: 18 }}>
                   {user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                 </AvatarFallback>
               </Avatar>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold" data-testid="text-dashboard-greeting">
+              <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(24px, 3vw, 30px)', color: MKT.navy, letterSpacing: '-0.025em' }} data-testid="text-dashboard-greeting">
                 {greeting()}, {user?.name?.split(' ')[0]}
               </h1>
-              <p className="text-muted-foreground text-sm">Here's your ShuttleIQ overview</p>
+              <p style={{ color: MKT.inkSub, fontSize: 14, marginTop: 2 }}>Here's your ShuttleIQ overview</p>
             </div>
           </div>
-        </motion.div>
+        </Reveal>
 
+        {/* Approved-suggestion banner */}
         {approvedSuggestionBanner && !approvedSuggestionDismissed && (
-          <motion.div variants={fadeInUp} className="mb-6">
-            <div
-              className="rounded-xl border border-secondary/30 bg-secondary/10 px-5 py-4 flex items-start gap-4"
-              data-testid="card-suggestion-approved-banner"
-            >
-              <div className="text-3xl shrink-0 mt-0.5">{approvedSuggestionBanner.suggestion.emoji}</div>
+          <motion.div {...bannerEntrance} style={{ marginBottom: 20 }}>
+            <div style={{ borderRadius: 14, border: `1px solid ${MKT.teal}33`, background: MKT.tealMist, padding: '16px 18px', display: 'flex', alignItems: 'flex-start', gap: 14 }} data-testid="card-suggestion-approved-banner">
+              <div style={{ fontSize: 28, lineHeight: 1, marginTop: 2 }} className="shrink-0">{approvedSuggestionBanner.suggestion.emoji}</div>
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-base leading-tight">
-                  Your tag suggestion was approved!
+                <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '-0.01em' }}>Your tag suggestion was approved!</p>
+                <p style={{ fontSize: 14, color: MKT.inkSub, marginTop: 2 }}>
+                  <span style={{ fontWeight: 600, color: MKT.ink }}>{approvedSuggestionBanner.suggestion.emoji} {approvedSuggestionBanner.suggestion.label}</span> is now live in the community tag catalog!
                 </p>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  <span className="font-semibold text-foreground">{approvedSuggestionBanner.suggestion.emoji} {approvedSuggestionBanner.suggestion.label}</span> is now live in the community tag catalog!
-                </p>
-                <div className="flex items-center gap-3 mt-3 flex-wrap">
+                <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 12 }}>
                   <Link
                     to="/marketplace/rankings"
-                    className="text-xs text-secondary font-medium hover:underline"
+                    style={{ fontSize: 13, color: MKT.tealD, fontWeight: 600, textDecoration: 'none' }}
                     data-testid="link-view-active-tag"
                     onClick={() => {
                       localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
@@ -451,7 +539,7 @@ export default function Dashboard() {
                     View in Rankings
                   </Link>
                   <button
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    style={{ fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer' }}
                     onClick={() => {
                       localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
                       setApprovedSuggestionDismissed(true);
@@ -462,33 +550,27 @@ export default function Dashboard() {
                   </button>
                 </div>
               </div>
-              <Lightbulb className="h-5 w-5 text-secondary shrink-0 mt-0.5" />
+              <Lightbulb className="h-5 w-5 shrink-0" style={{ color: MKT.teal, marginTop: 2 }} />
             </div>
           </motion.div>
         )}
 
+        {/* Milestone banner */}
         {milestoneBanner && !milestoneDismissed && (
-          <motion.div variants={fadeInUp} className="mb-6">
-            <div
-              className="rounded-xl border border-secondary/30 bg-secondary/10 px-5 py-4 flex items-start gap-4"
-              data-testid="card-milestone-banner"
-            >
-              <div className="text-3xl shrink-0 mt-0.5">{milestoneBanner.tag.emoji}</div>
+          <motion.div {...bannerEntrance} style={{ marginBottom: 20 }}>
+            <div style={{ borderRadius: 14, border: `1px solid ${MKT.amber}33`, background: '#F6E6CC55', padding: '16px 18px', display: 'flex', alignItems: 'flex-start', gap: 14 }} data-testid="card-milestone-banner">
+              <div style={{ fontSize: 28, lineHeight: 1, marginTop: 2 }} className="shrink-0">{milestoneBanner.tag.emoji}</div>
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-base leading-tight">
-                  You've been celebrated!
+                <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '-0.01em' }}>You've been celebrated!</p>
+                <p style={{ fontSize: 14, color: MKT.inkSub, marginTop: 2 }}>
+                  You're officially a <span style={{ fontWeight: 600, color: MKT.ink }}>{milestoneBanner.tag.label}</span> — tagged {milestoneBanner.milestone}× by your community!
                 </p>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  You're officially a <span className="font-semibold text-foreground">{milestoneBanner.tag.label}</span> — tagged {milestoneBanner.milestone}× by your community!
-                </p>
-                <div className="flex items-center gap-2 mt-3 flex-wrap">
-                  <Link href={`/marketplace/players/${linkedPlayerId}/personality-card`}>
-                    <Button size="sm" variant="secondary" className="gap-1.5 text-xs" data-testid="button-share-milestone">
-                      <ExternalLink className="h-3 w-3" /> Share your personality card
-                    </Button>
+                <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 12 }}>
+                  <Link href={`/marketplace/players/${linkedPlayerId}/personality-card`} style={{ ...navyBtn('sm'), background: MKT.teal, borderColor: MKT.teal, textDecoration: 'none' }} data-testid="button-share-milestone">
+                    <ExternalLink className="h-3 w-3" /> Share your personality card
                   </Link>
                   <button
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    style={{ fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer' }}
                     onClick={() => setMilestoneDismissed(true)}
                     data-testid="button-dismiss-milestone"
                   >
@@ -503,197 +585,110 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             {user && (
-              <motion.div variants={fadeInUp}>
+              <Reveal>
                 <GettingStartedCard
                   bookings={bookings}
-                  linkedPlayerId={linkedPlayerId}
+                  linkedPlayerId={linkedPlayerId ?? null}
                   bookingsLoading={bookingsLoading}
                   userId={user.id}
                 />
-              </motion.div>
+              </Reveal>
             )}
 
             {linkedPlayerId && untaggedCount > 0 && (
-              <motion.div variants={fadeInUp}>
+              <Reveal>
                 <Link href="/marketplace/my-scores">
-                  <div
-                    className="flex items-center gap-3 rounded-lg border border-secondary/40 bg-secondary/10 px-4 py-3 hover-elevate cursor-pointer"
-                    data-testid="card-tag-nudge"
-                  >
-                    <div className="flex-shrink-0 flex items-center justify-center h-9 w-9 rounded-full bg-secondary/20">
-                      <TagIcon className="h-4 w-4 text-secondary" />
+                  <div style={{ ...cardStyle, borderColor: `${MKT.teal}55`, background: MKT.tealMist, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} data-testid="card-tag-nudge">
+                    <div style={{ flex: 'none', width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,107,95,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <TagIcon className="h-4 w-4" style={{ color: MKT.tealD }} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold leading-snug">
-                        {untaggedCount === 1
-                          ? '1 game waiting — tag your teammates!'
-                          : `${untaggedCount} games waiting — tag your teammates!`}
+                      <p style={{ fontSize: 14, fontWeight: 600, color: MKT.navy, lineHeight: 1.3 }}>
+                        {untaggedCount === 1 ? '1 game waiting — tag your teammates!' : `${untaggedCount} games waiting — tag your teammates!`}
                       </p>
-                      <p className="text-xs text-muted-foreground">Recognise great play from your recent games</p>
+                      <p style={{ fontSize: 12, color: MKT.inkSub }}>Recognise great play from your recent games</p>
                     </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <ChevronRight className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
                   </div>
                 </Link>
-              </motion.div>
+              </Reveal>
             )}
 
-            <motion.div variants={fadeInUp}>
-              <Card data-testid="card-next-session">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-secondary" />
-                    Your Next Session
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {bookingsLoading ? (
-                    <Skeleton className="h-20 w-full" />
-                  ) : nextBooking ? (
-                    <div className="flex items-center justify-between gap-4 flex-wrap">
-                      <div className="space-y-1.5">
-                        <p className="font-semibold" data-testid="text-next-session-title">{nextBooking.session.title}</p>
-                        {(() => {
-                          const rel = getRelativeTimeLabel(nextBooking.session.date as unknown as string, nextBooking.session.startTime);
-                          return rel ? (
-                            <div className="flex items-center gap-1.5 text-sm font-medium text-secondary" data-testid="text-next-session-relative">
-                              <Timer className="h-3.5 w-3.5 shrink-0" />
-                              {rel}
-                            </div>
-                          ) : null;
-                        })()}
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3.5 w-3.5" />
-                            {format(new Date(nextBooking.session.date), 'EEE, MMM d')}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3.5 w-3.5" />
-                            {nextBooking.session.startTime}
-                            {nextBooking.session.endTime ? ` – ${nextBooking.session.endTime}` : ''}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3.5 w-3.5" />
-                            {nextBooking.session.venueName}
-                          </span>
-                        </div>
-                      </div>
-                      <Badge variant="default" data-testid="badge-next-status">
-                        {nextBooking.status === 'confirmed' ? 'Confirmed' : nextBooking.status}
-                      </Badge>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center text-center py-5 gap-3" data-testid="empty-next-session">
-                      <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center">
-                        <Calendar className="h-5 w-5 text-secondary" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">No upcoming sessions booked</p>
-                        {nextAvailableSession && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Next up: <span className="font-semibold text-secondary">{nextAvailableSession.venueName}</span>
-                            {' · '}{format(new Date(nextAvailableSession.date), 'EEE, MMM d')}
-                          </p>
-                        )}
-                      </div>
-                      <Link href="/marketplace/book">
-                        <Button size="sm" variant="default" className="gap-1.5" data-testid="button-book-session-cta">
-                          Book a session <ArrowRight className="h-3.5 w-3.5" />
-                        </Button>
-                      </Link>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </motion.div>
+            <Reveal>
+              <UnifiedSessionCard
+                todayBooking={todayBooking}
+                todayCheckedIn={todayCheckedIn}
+                nextBooking={nextBooking}
+                nextAvailableSession={nextAvailableSession}
+                bookingsLoading={bookingsLoading}
+              />
+            </Reveal>
 
             {stats ? (
-              <motion.div variants={fadeInUp}>
-                <Card data-testid="card-stats">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <BarChart3 className="h-4 w-4 text-secondary" />
-                        Your Stats
-                      </CardTitle>
-                      <Link href="/marketplace/my-scores">
-                        <Button variant="ghost" size="sm" className="gap-1 text-xs" data-testid="link-view-all-stats">
-                          View All <ChevronRight className="h-3 w-3" />
-                        </Button>
-                      </Link>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <div className="text-2xl font-bold" data-testid="text-stat-score">{stats.player.skillScore}</div>
-                        <div className="text-xs text-muted-foreground">Skill Score</div>
+              <Reveal>
+                <DashCard testid="card-stats">
+                  <DashHeader
+                    icon={<BarChart3 className="h-4 w-4" />}
+                    title="Your Stats"
+                    action={<Link href="/marketplace/my-scores" style={seeAllLink} data-testid="link-view-all-stats">View All <ChevronRight className="h-3 w-3" /></Link>}
+                  />
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { v: stats.player.skillScore, l: 'Skill Score', testid: 'text-stat-score' },
+                      { v: `#${stats.rankBySkillScore}`, l: 'Rank' },
+                      { v: stats.totalWins, l: 'Wins' },
+                      { v: `${stats.winRate}%`, l: 'Win Rate' },
+                    ].map((s, i) => (
+                      <div key={i} style={{ textAlign: 'center', padding: 12, borderRadius: 12, background: MKT.cream }}>
+                        <div style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid={s.testid}>{s.v}</div>
+                        <div style={{ fontSize: 12, color: MKT.inkSub, marginTop: 2 }}>{s.l}</div>
                       </div>
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <div className="text-2xl font-bold">#{stats.rankBySkillScore}</div>
-                        <div className="text-xs text-muted-foreground">Rank</div>
-                      </div>
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <div className="text-2xl font-bold">{stats.totalWins}</div>
-                        <div className="text-xs text-muted-foreground">Wins</div>
-                      </div>
-                      <div className="text-center p-3 rounded-lg bg-muted/50">
-                        <div className="text-2xl font-bold">{stats.winRate}%</div>
-                        <div className="text-xs text-muted-foreground">Win Rate</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
+                    ))}
+                  </div>
+                </DashCard>
+              </Reveal>
             ) : (
-              <motion.div variants={fadeInUp}>
-                <Card>
-                  <CardContent className="p-6 text-center">
-                    <Target className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="font-medium mb-1">Link your player profile</p>
-                    <p className="text-sm text-muted-foreground mb-3">Connect your account to see your stats, rankings, and match history.</p>
-                    <Link href="/marketplace/profile">
-                      <Button size="sm" variant="outline" data-testid="button-link-profile">Go to Profile</Button>
-                    </Link>
-                  </CardContent>
-                </Card>
-              </motion.div>
+              <Reveal>
+                <DashCard>
+                  <div className="text-center" style={{ padding: '8px 0' }}>
+                    <Target className="h-8 w-8 mx-auto mb-2" style={{ color: MKT.inkSub }} />
+                    <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 4 }}>Link your player profile</p>
+                    <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 12 }}>Connect your account to see your stats, rankings, and match history.</p>
+                    <Link href="/marketplace/profile" style={{ ...ghostBtn('sm'), textDecoration: 'none' }} data-testid="button-link-profile">Go to Profile</Link>
+                  </div>
+                </DashCard>
+              </Reveal>
             )}
 
             {referralData && linkedPlayerId && (
-              <motion.div variants={fadeInUp}>
-                <Card data-testid="card-my-referrals">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Gift className="h-4 w-4 text-secondary" />
-                        My Referrals
-                      </CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
+              <Reveal>
+                <DashCard testid="card-my-referrals">
+                  <DashHeader icon={<Gift className="h-4 w-4" />} title="My Referrals" />
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2" style={{ padding: 12, borderRadius: 12, background: MKT.cream }}>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs text-muted-foreground mb-0.5">Your referral code</p>
-                        <p className="font-mono font-semibold text-sm truncate" data-testid="text-referral-code">{referralData.referralCode}</p>
+                        <p style={{ fontSize: 12, color: MKT.inkSub, marginBottom: 2 }}>Your referral code</p>
+                        <p style={{ fontFamily: FF_MONO, fontWeight: 700, fontSize: 14, color: MKT.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid="text-referral-code">{referralData.referralCode}</p>
                       </div>
-                      <Button
-                        size="icon"
-                        variant="ghost"
+                      <button
+                        type="button"
                         onClick={() => {
                           navigator.clipboard.writeText(referralData.referralCode);
                           toast({ title: 'Copied!', description: 'Referral code copied to clipboard' });
                         }}
                         data-testid="button-copy-referral"
+                        aria-label="Copy referral code"
+                        style={{ flex: 'none', width: 38, height: 38, borderRadius: 10, border: 'none', background: 'transparent', color: MKT.navy, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                       >
                         <Copy className="h-4 w-4" />
-                      </Button>
+                      </button>
                     </div>
 
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
-                      <Wallet className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="flex items-center gap-2" style={{ padding: 12, borderRadius: 12, background: MKT.cream }}>
+                      <Wallet className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
                       <div className="flex-1">
-                        <p className="text-xs text-muted-foreground">Wallet Balance</p>
-                        <p className="font-semibold" data-testid="text-wallet-balance">
+                        <p style={{ fontSize: 12, color: MKT.inkSub }}>Wallet Balance</p>
+                        <p style={{ fontWeight: 700, color: MKT.navy }} data-testid="text-wallet-balance">
                           AED {(referralData.walletBalance / 100).toFixed(2)}
                         </p>
                       </div>
@@ -701,22 +696,22 @@ export default function Dashboard() {
 
                     {!referralData.ambassadorStatus && (
                       <div>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span className="text-muted-foreground">
+                        <div className="flex items-center justify-between" style={{ fontSize: 12, marginBottom: 4 }}>
+                          <span style={{ color: MKT.inkSub }}>
                             {referralData.completedCount < 5
                               ? `${referralData.completedCount}/5 to Leaderboard`
                               : `${referralData.completedCount}/10 to Ambassador + Jersey`}
                           </span>
-                          <span className="font-medium">
+                          <span style={{ fontWeight: 600, color: MKT.ink }}>
                             {referralData.completedCount < 5
                               ? `${5 - referralData.completedCount} to go`
                               : `${10 - referralData.completedCount} to go`}
                           </span>
                         </div>
-                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div style={{ height: 8, borderRadius: 999, background: 'rgba(0,30,70,0.08)', overflow: 'hidden' }}>
                           <div
-                            className="h-full bg-secondary rounded-full transition-all duration-500"
                             style={{
+                              height: '100%', borderRadius: 999, background: MKT.teal, transition: 'width 0.5s cubic-bezier(.2,.7,.2,1)',
                               width: `${Math.min(100, (referralData.completedCount / (referralData.completedCount < 5 ? 5 : 10)) * 100)}%`,
                             }}
                             data-testid="progress-referral-milestone"
@@ -728,167 +723,141 @@ export default function Dashboard() {
                     {(referralData.leaderboardMention || referralData.ambassadorStatus || referralData.jerseyDispatched) && (
                       <div className="flex flex-wrap gap-1.5">
                         {referralData.leaderboardMention && (
-                          <Badge className="bg-[#006B5F] text-white border-0 text-xs no-default-hover-elevate no-default-active-elevate" data-testid="badge-leaderboard-mention">
+                          <span style={{ background: MKT.teal, color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999 }} data-testid="badge-leaderboard-mention">
                             Leaderboard Member
-                          </Badge>
+                          </span>
                         )}
                         {referralData.ambassadorStatus && (
-                          <Badge className="bg-[#003E8C] text-white border-0 text-xs no-default-hover-elevate no-default-active-elevate" data-testid="badge-ambassador">
+                          <span style={{ background: MKT.navy, color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999 }} data-testid="badge-ambassador">
                             Ambassador
-                          </Badge>
+                          </span>
                         )}
                         {referralData.jerseyDispatched && (
-                          <Badge variant="secondary" className="text-xs no-default-hover-elevate no-default-active-elevate" data-testid="badge-jersey">
+                          <span style={{ background: MKT.tealMist, color: MKT.tealD, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999 }} data-testid="badge-jersey">
                             Jersey Dispatched
-                          </Badge>
+                          </span>
                         )}
                       </div>
                     )}
 
                     {referralData.referrals.length > 0 && (
                       <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Referred Players</p>
+                        <p style={{ fontSize: 11, color: MKT.inkSub, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Referred Players</p>
                         {referralData.referrals.map((ref) => (
-                          <div key={ref.id} className="flex items-center justify-between gap-2 py-1.5 border-b last:border-0" data-testid={`row-referral-${ref.id}`}>
-                            <span className="text-sm truncate">{ref.refereeName || 'Pending link'}</span>
+                          <div key={ref.id} className="flex items-center justify-between gap-2" style={{ padding: '6px 0', borderBottom: `1px solid ${MKT.line}` }} data-testid={`row-referral-${ref.id}`}>
+                            <span style={{ fontSize: 14, color: MKT.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ref.refereeName || 'Pending link'}</span>
                             <div className="flex items-center gap-2 shrink-0">
                               {ref.status === 'completed' && (
-                                <span className="text-xs text-muted-foreground">AED 15</span>
+                                <span style={{ fontSize: 12, color: MKT.inkSub }}>AED 15</span>
                               )}
-                              <Badge
-                                variant={ref.status === 'completed' ? 'default' : 'secondary'}
-                                className="text-xs no-default-hover-elevate no-default-active-elevate"
-                              >
+                              <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: ref.status === 'completed' ? MKT.navy : 'rgba(0,30,70,0.08)', color: ref.status === 'completed' ? '#fff' : MKT.inkSub }}>
                                 {ref.status === 'completed' ? 'Completed' : 'Pending'}
-                              </Badge>
+                              </span>
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-              </motion.div>
+                  </div>
+                </DashCard>
+              </Reveal>
             )}
 
             {upcomingBookings.length > 1 && (
-              <motion.div variants={fadeInUp}>
-                <Card data-testid="card-upcoming-bookings">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Bookmark className="h-4 w-4 text-secondary" />
-                        Upcoming Bookings
-                      </CardTitle>
-                      <Link href="/marketplace/my-bookings">
-                        <Button variant="ghost" size="sm" className="gap-1 text-xs" data-testid="link-view-all-bookings">
-                          View All <ChevronRight className="h-3 w-3" />
-                        </Button>
-                      </Link>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
+              <Reveal>
+                <DashCard testid="card-upcoming-bookings">
+                  <DashHeader
+                    icon={<Bookmark className="h-4 w-4" />}
+                    title="Upcoming Bookings"
+                    action={<Link href="/marketplace/my-bookings" style={seeAllLink} data-testid="link-view-all-bookings">View All <ChevronRight className="h-3 w-3" /></Link>}
+                  />
+                  <div className="space-y-3">
                     {upcomingBookings.slice(1, 4).map(b => (
-                      <div key={b.id} className="flex items-center justify-between gap-3 py-2 border-b last:border-0" data-testid={`row-booking-${b.id}`}>
+                      <div key={b.id} className="flex items-center justify-between gap-3" style={{ padding: '8px 0', borderBottom: `1px solid ${MKT.line}` }} data-testid={`row-booking-${b.id}`}>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{b.session.title}</p>
-                          <p className="text-xs text-muted-foreground">
+                          <p style={{ fontSize: 14, fontWeight: 500, color: MKT.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.session.title}</p>
+                          <p style={{ fontSize: 12, color: MKT.inkSub }}>
                             {format(new Date(b.session.date), 'EEE, MMM d')} at {b.session.startTime}
                           </p>
                         </div>
-                        <Badge variant="secondary" className="shrink-0 text-xs">
+                        <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: MKT.tealMist, color: MKT.tealD }}>
                           {b.status === 'confirmed' ? 'Confirmed' : b.status}
-                        </Badge>
+                        </span>
                       </div>
                     ))}
-                  </CardContent>
-                </Card>
-              </motion.div>
+                  </div>
+                </DashCard>
+              </Reveal>
             )}
 
             {linkedPlayerId && receivedTags.length > 0 && (
-              <motion.div variants={fadeInUp}>
-                <Card data-testid="card-received-tags">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Star className="h-4 w-4 text-secondary" />
-                      You've Been Tagged
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2.5">
+              <Reveal>
+                <DashCard testid="card-received-tags">
+                  <DashHeader icon={<Star className="h-4 w-4" />} title="You've Been Tagged" />
+                  <div className="space-y-2.5">
                     {receivedTags.map((entry, i) => {
                       const cls = CATEGORY_BG[entry.tag.category] ?? CATEGORY_BG._default;
                       return (
-                        <div key={i} className="flex items-center gap-3" data-testid={`row-received-tag-${i}`}>
-                          <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0 text-muted-foreground">
-                            {entry.taggerInitial}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
-                                {entry.tag.emoji} {entry.tag.label}
-                              </span>
+                        <Reveal key={i} delay={reduce ? 0 : i * 0.05}>
+                          <div className="flex items-center gap-3" data-testid={`row-received-tag-${i}`}>
+                            <div style={{ width: 28, height: 28, borderRadius: '50%', background: MKT.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: MKT.inkSub, flex: 'none' }}>
+                              {entry.taggerInitial}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5 truncate">at {entry.sessionName}</p>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
+                                  {entry.tag.emoji} {entry.tag.label}
+                                </span>
+                              </div>
+                              <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>at {entry.sessionName}</p>
+                            </div>
                           </div>
-                        </div>
+                        </Reveal>
                       );
                     })}
-                  </CardContent>
-                </Card>
-              </motion.div>
+                  </div>
+                </DashCard>
+              </Reveal>
             )}
           </div>
 
           <div className="space-y-6">
-            <motion.div variants={fadeInUp}>
-              <Card data-testid="card-player-personalities">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Users className="h-4 w-4 text-secondary" />
-                      Player Personalities
-                    </CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="gap-1 text-xs"
-                      onClick={() => setShowTrendingModal(true)}
-                      data-testid="button-explore-personalities"
-                    >
-                      Explore <ChevronRight className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
+            <Reveal>
+              <DashCard testid="card-player-personalities">
+                <DashHeader
+                  icon={<Users className="h-4 w-4" />}
+                  title="Player Personalities"
+                  action={<button type="button" onClick={() => setShowTrendingModal(true)} style={{ ...seeAllLink, background: 'transparent', border: 'none' }} data-testid="button-explore-personalities">Explore <ChevronRight className="h-3 w-3" /></button>}
+                />
+                <div className="space-y-4">
                   {firstTopTag && (
-                    <div className="rounded-lg border p-3 bg-muted/30">
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">Your Top Tag</p>
-                      <div className="flex items-center gap-2">
+                    <div style={{ borderRadius: 12, border: `1px solid ${MKT.navy}10`, padding: 12, background: MKT.cream }}>
+                      <p style={{ fontFamily: FF_MONO, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: MKT.inkSub, marginBottom: 6, fontWeight: 600 }}>Your Top Tag</p>
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className={`px-2.5 py-1 rounded-full text-sm font-medium border ${CATEGORY_COLOR[firstTopTag.tag.category]}`}>
                           {firstTopTag.tag.emoji} {firstTopTag.tag.label}
                         </span>
-                        <span className="text-xs text-muted-foreground">
+                        <span style={{ fontSize: 12, color: MKT.inkSub }}>
                           Community Tag &middot; {firstTopTag.count}×
                         </span>
                       </div>
                     </div>
                   )}
                   <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2.5 font-medium">Trending This Week</p>
+                    <p style={{ fontFamily: FF_MONO, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: MKT.inkSub, marginBottom: 10, fontWeight: 600 }}>Trending This Week</p>
                     {trendingLoading ? (
                       <div className="flex flex-wrap gap-2">
                         {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-7 w-24 rounded-full" />)}
                       </div>
                     ) : trending.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No tags yet. Tag players after your games!</p>
+                      <p style={{ fontSize: 14, color: MKT.inkSub }}>No tags yet. Tag players after your games!</p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {trending.slice(0, 5).map(({ tag, count }) => (
                           <button
                             key={tag.id}
                             onClick={() => setShowTrendingModal(true)}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border hover-elevate cursor-pointer ${CATEGORY_COLOR[tag.category]}`}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border cursor-pointer ${CATEGORY_COLOR[tag.category]}`}
                             data-testid={`btn-personality-tag-${tag.id}`}
                           >
                             {tag.emoji} {tag.label}
@@ -899,76 +868,65 @@ export default function Dashboard() {
                     )}
                   </div>
                   {!linkedPlayerId && (
-                    <div className="text-center pt-1">
-                      <Link href="/marketplace/profile">
-                        <Button variant="outline" size="sm" className="gap-1 text-xs" data-testid="button-link-for-tags">
-                          Link profile to earn tags <ArrowRight className="h-3 w-3" />
-                        </Button>
+                    <div className="text-center" style={{ paddingTop: 4 }}>
+                      <Link href="/marketplace/profile" style={{ ...ghostBtn('sm'), textDecoration: 'none', fontSize: 12, padding: '6px 12px' }} data-testid="button-link-for-tags">
+                        Link profile to earn tags <ArrowRight className="h-3 w-3" />
                       </Link>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </motion.div>
+                </div>
+              </DashCard>
+            </Reveal>
 
-            <motion.div variants={fadeInUp}>
-              <Card data-testid="card-leaderboard">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Trophy className="h-4 w-4 text-secondary" />
-                    Leaderboard
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="text-center">
+            <Reveal>
+              <DashCard testid="card-leaderboard">
+                <DashHeader icon={<Trophy className="h-4 w-4" />} title="Leaderboard" />
+                <div className="text-center">
                   {stats ? (
-                    <div className="mb-4">
-                      <div className="text-3xl font-bold" data-testid="text-leaderboard-rank">#{stats.rankBySkillScore}</div>
-                      <div className="text-xs text-muted-foreground">Your current rank</div>
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 32, color: MKT.navy, letterSpacing: '-0.025em' }} data-testid="text-leaderboard-rank">#{stats.rankBySkillScore}</div>
+                      <div style={{ fontSize: 12, color: MKT.inkSub }}>Your current rank</div>
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground mb-4">See how you stack up against all ShuttleIQ players.</p>
+                    <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 16 }}>See how you stack up against all ShuttleIQ players.</p>
                   )}
-                  <Link href="/marketplace/rankings">
-                    <Button size="sm" className="gap-1 w-full" data-testid="button-view-rankings">
-                      View Rankings <ArrowRight className="h-3.5 w-3.5" />
-                    </Button>
+                  <Link href="/marketplace/rankings" style={{ ...navyBtn('sm'), width: '100%', textDecoration: 'none' }} data-testid="button-view-rankings">
+                    View Rankings <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
-                </CardContent>
-              </Card>
-            </motion.div>
+                </div>
+              </DashCard>
+            </Reveal>
 
-            <motion.div variants={fadeInUp}>
-              <Card>
-                <CardContent className="p-6 text-center">
-                  <TrendingUp className="h-8 w-8 text-secondary mx-auto mb-2" />
-                  <p className="font-medium mb-1">Find your next game</p>
-                  <p className="text-sm text-muted-foreground mb-4">Book sessions across Dubai venues</p>
-                  <Link href="/marketplace/book">
-                    <Button size="sm" className="gap-1 w-full" data-testid="button-find-session">
-                      Browse Sessions <ArrowRight className="h-3.5 w-3.5" />
-                    </Button>
+            <Reveal>
+              <DashCard>
+                <div className="text-center" style={{ padding: '8px 0' }}>
+                  <TrendingUp className="h-8 w-8 mx-auto mb-2" style={{ color: MKT.teal }} />
+                  <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 4 }}>Find your next game</p>
+                  <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 16 }}>Book sessions across Dubai venues</p>
+                  <Link href="/marketplace/book" style={{ ...navyBtn('sm'), width: '100%', textDecoration: 'none' }} data-testid="button-find-session">
+                    Browse Sessions <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
-                </CardContent>
-              </Card>
-            </motion.div>
+                </div>
+              </DashCard>
+            </Reveal>
 
             {canInstall && (
-              <motion.div variants={fadeInUp}>
-                <Card data-testid="card-install-app">
-                  <CardContent className="p-6 text-center">
-                    <Download className="h-8 w-8 text-secondary mx-auto mb-2" />
-                    <p className="font-medium mb-1">Get the App</p>
-                    <p className="text-sm text-muted-foreground mb-4">Install ShuttleIQ on your home screen for quick access</p>
-                    <Button size="sm" className="gap-1 w-full" onClick={install} data-testid="button-install-app-dashboard">
+              <Reveal>
+                <DashCard testid="card-install-app">
+                  <div className="text-center" style={{ padding: '8px 0' }}>
+                    <Download className="h-8 w-8 mx-auto mb-2" style={{ color: MKT.teal }} />
+                    <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 4 }}>Get the App</p>
+                    <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 16 }}>Install ShuttleIQ on your home screen for quick access</p>
+                    <button type="button" onClick={install} style={{ ...navyBtn('sm'), width: '100%' }} data-testid="button-install-app-dashboard">
                       Install Now <Download className="h-3.5 w-3.5" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              </motion.div>
+                    </button>
+                  </div>
+                </DashCard>
+              </Reveal>
             )}
           </div>
         </div>
-      </motion.div>
+      </div>
     </div>
 
     <TagTrendingModal
