@@ -107,11 +107,13 @@ app.use((req, res, next) => {
   }
 
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+  // Windows does not support reusePort / 0.0.0.0 binding via this options form
+  // (throws ENOTSUP). Use a platform-aware listen config so local dev works.
+  const isWindows = process.platform === "win32";
+  const listenOptions = isWindows
+    ? { port, host: "127.0.0.1" }
+    : { port, host: "0.0.0.0", reusePort: true };
+  server.listen(listenOptions, () => {
     log(`serving on port ${port}`);
     startScheduler();
   });
