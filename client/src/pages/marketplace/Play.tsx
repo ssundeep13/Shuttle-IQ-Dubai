@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useLocation } from 'wouter';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -58,12 +58,14 @@ const TEAL = '#006B5F';
 export default function Play() {
   usePageTitle('Play');
   const [, setLocation] = useLocation();
-  const queryClient = useQueryClient();
 
   const bookingsQuery = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
     staleTime: 0,
     refetchOnMount: true,
+    // Check-in is performed manually by the Court Captain. Poll so this screen
+    // advances automatically once they mark the player as attended.
+    refetchInterval: 15000,
   });
 
   const activeSessionQuery = useQuery<ActiveSessionResponse>({
@@ -101,14 +103,7 @@ export default function Play() {
   if (!isCheckedIn) {
     return (
       <PageShell>
-        <CheckInScreen
-          booking={todaysBooking}
-          onCheckedIn={() => {
-            // Refetch the bookings list — attendedAt becomes set, which flips
-            // the page into the waiting state on the next render.
-            queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
-          }}
-        />
+        <AwaitingCheckIn booking={todaysBooking} />
       </PageShell>
     );
   }
@@ -158,42 +153,22 @@ function NoSessionToday({ onBook }: { onBook: () => void }) {
   );
 }
 
-function CheckInScreen({
-  booking,
-  onCheckedIn,
-}: {
-  booking: BookingWithDetails;
-  onCheckedIn: () => void;
-}) {
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const checkInMutation = useMutation({
-    mutationFn: async () => {
-      return apiRequest('POST', `/api/marketplace/sessions/${booking.session.id}/checkin`);
-    },
-    onSuccess: () => {
-      setErrorMessage(null);
-      onCheckedIn();
-    },
-    onError: (err: unknown) => {
-      const fallback = "Couldn't check you in — please ask the Court Captain for help.";
-      const maybeApi = err as { error?: string } | null | undefined;
-      const fromMessage = err instanceof Error ? err.message : undefined;
-      setErrorMessage(maybeApi?.error || fromMessage || fallback);
-    },
-  });
-
+// Check-in is performed manually by the Court Captain on the admin side —
+// players cannot self-check-in. This screen just confirms the player is set
+// for today and waits; once the Court Captain marks them attended, the
+// bookings poll flips Play() into the WaitingScreen automatically.
+function AwaitingCheckIn({ booking }: { booking: BookingWithDetails }) {
   const sessionDate = booking.session.date ? new Date(booking.session.date) : null;
   const dateLabel = sessionDate ? format(sessionDate, 'EEEE, MMMM d') : '';
 
   return (
-    <div className="space-y-6" data-testid="state-checkin">
+    <div className="space-y-6" data-testid="state-awaiting-checkin">
       <div className="space-y-1">
         <p className="text-xs uppercase tracking-wider" style={{ color: TEAL }}>
           Today
         </p>
-        <h1 className="text-2xl font-semibold" style={{ color: NAVY }} data-testid="text-checkin-heading">
-          Ready to check in?
+        <h1 className="text-2xl font-semibold" style={{ color: NAVY }} data-testid="text-awaiting-checkin-heading">
+          You're all set for today
         </h1>
       </div>
 
@@ -221,32 +196,12 @@ function CheckInScreen({
         </CardContent>
       </Card>
 
-      {errorMessage ? (
-        <div
-          role="alert"
-          className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-          data-testid="text-checkin-error"
-        >
-          {errorMessage}
-        </div>
-      ) : null}
-
-      <Button
-        size="lg"
-        className="w-full text-base h-14"
-        onClick={() => checkInMutation.mutate()}
-        disabled={checkInMutation.isPending}
-        data-testid="button-checkin"
+      <div
+        className="rounded-md border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+        data-testid="text-awaiting-checkin-note"
       >
-        {checkInMutation.isPending ? (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Checking you in…
-          </>
-        ) : (
-          'Check in'
-        )}
-      </Button>
+        Your Court Captain will check you in when you arrive at the venue. This screen updates automatically once you're checked in.
+      </div>
     </div>
   );
 }

@@ -311,9 +311,10 @@ export default function Dashboard() {
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
 
-  // Today's active session — surfaces the day-of "Check in / Go to play"
-  // banner at the top of the Dashboard. Picks the earliest booking whose
-  // session date falls on today AND is either confirmed or already attended.
+  // Today's active session — surfaces the day-of banner at the top of the
+  // Dashboard (with a "Go to play screen" link once the Court Captain has
+  // checked the player in). Picks the earliest booking whose session date
+  // falls on today AND is either confirmed or already attended.
   const todayEnd = new Date();
   todayEnd.setHours(23, 59, 59, 999);
   const todayBooking = (bookings || [])
@@ -383,17 +384,22 @@ export default function Dashboard() {
                   </span>
                 </div>
               </div>
-              <Link href="/marketplace/play" className="shrink-0">
-                <Button
-                  size="lg"
-                  className="w-full sm:w-auto gap-2 font-semibold"
-                  style={{ backgroundColor: '#F5EFE0', color: '#003E8C' }}
-                  data-testid={todayCheckedIn ? 'button-go-to-play' : 'button-check-in-now'}
-                >
-                  {todayCheckedIn ? 'Go to play screen' : 'Check in now'}
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
+              {/* Check-in is handled manually by the Court Captain on the admin
+                  side — players can't self-check-in. Only show the play-screen
+                  link once the Court Captain has checked the player in. */}
+              {todayCheckedIn && (
+                <Link href="/marketplace/play" className="shrink-0">
+                  <Button
+                    size="lg"
+                    className="w-full sm:w-auto gap-2 font-semibold"
+                    style={{ backgroundColor: '#F5EFE0', color: '#003E8C' }}
+                    data-testid="button-go-to-play"
+                  >
+                    Go to play screen
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+              )}
             </div>
           </motion.div>
         )}
