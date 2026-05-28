@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { CheckCircle, Loader2, AlertCircle, ListOrdered, Wallet } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
+import { motion, useReducedMotion } from 'framer-motion';
 import { queryClient } from '@/lib/queryClient';
 import type { BookingWithDetails } from '@shared/schema';
 import { InstallAppBar } from '@/components/InstallAppBar';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
+import { MKT, FF_DISPLAY, FF_BODY } from './LandingComponents';
 
 const MAX_ATTEMPTS = 10;
 const RETRY_DELAY_MS = 3000;
@@ -15,6 +15,31 @@ const REDIRECT_DELAY_S = 3;
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function navyBtnStyle(): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
+    padding: '12px 20px', borderRadius: 10, border: '1.5px solid transparent',
+    background: MKT.navy, color: '#fff', borderColor: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',
+  };
+}
+function ghostBtnStyle(): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
+    padding: '12px 20px', borderRadius: 10, border: `1.5px solid ${MKT.navy}55`,
+    background: '#fff', color: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',
+  };
+}
+
+function IconCircle({ tone, ring, children }: { tone: string; ring: string; children: ReactNode }) {
+  return (
+    <div style={{ width: 72, height: 72, borderRadius: '50%', background: ring, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
+      <div style={{ color: tone, display: 'flex' }}>{children}</div>
+    </div>
+  );
 }
 
 export default function CheckoutSuccess() {
@@ -27,6 +52,7 @@ export default function CheckoutSuccess() {
   const [sessionLost, setSessionLost] = useState(false);
   const [, setLocation] = useLocation();
   const { loginWithTokens, isAuthenticated } = useMarketplaceAuth();
+  const reduce = useReducedMotion();
   const isExtraGuest = new URLSearchParams(window.location.search).get('extra_guest') === '1';
 
   useEffect(() => {
@@ -172,93 +198,113 @@ export default function CheckoutSuccess() {
     ? `Checking with payment provider… (attempt ${attempt + 1} of ${MAX_ATTEMPTS})`
     : 'Verifying your payment… This may take up to 30 seconds';
 
+  // Gentle on-mount / on-state-change entrance for the header — restrained, no confetti.
+  const headerMotion = reduce
+    ? {}
+    : { initial: { opacity: 0, scale: 0.9 }, animate: { opacity: 1, scale: 1 }, transition: { duration: 0.45, ease: [0.2, 0.7, 0.2, 1] as const } };
+  const bodyMotion = reduce
+    ? {}
+    : { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.45, ease: [0.2, 0.7, 0.2, 1] as const, delay: 0.08 } };
+
   return (
     <>
-    <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
+    <div style={{ minHeight: '100vh', background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY }} className="flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-lg">
-        <Card>
-          <CardHeader className="text-center">
+        <div style={{ background: '#fff', borderRadius: 16, border: `1px solid ${MKT.navy}14`, overflow: 'hidden' }}>
+          {/* Header */}
+          <motion.div key={status} {...headerMotion} className="text-center" style={{ padding: '36px 28px 8px' }}>
             {status === 'verifying' && (
               <>
-                <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary mb-4" />
-                <CardTitle>{verifyingLabel}</CardTitle>
+                <IconCircle tone={MKT.navy} ring={`${MKT.navy}0F`}>
+                  <Loader2 className="h-9 w-9 animate-spin" />
+                </IconCircle>
+                <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: MKT.navy, letterSpacing: '-0.02em', lineHeight: 1.2 }}>{verifyingLabel}</h1>
               </>
             )}
             {status === 'success' && (
               <>
-                <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                <CardTitle data-testid="text-booking-confirmed">
+                <IconCircle tone={MKT.green} ring="#DDEEE2">
+                  <CheckCircle className="h-10 w-10" />
+                </IconCircle>
+                <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 30, color: MKT.navy, letterSpacing: '-0.025em' }} data-testid="text-booking-confirmed">
                   {isExtraGuest ? 'Guest Added!' : 'Booking Confirmed!'}
-                </CardTitle>
+                </h1>
               </>
             )}
             {status === 'waitlisted' && (
               <>
-                <ListOrdered className="h-12 w-12 mx-auto text-amber-500 mb-4" />
-                <CardTitle data-testid="text-waitlisted-title">Added to Waitlist</CardTitle>
+                <IconCircle tone={MKT.amber} ring="#F6E6CC">
+                  <ListOrdered className="h-9 w-9" />
+                </IconCircle>
+                <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 26, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-waitlisted-title">Added to Waitlist</h1>
               </>
             )}
             {status === 'error' && (
               <>
-                <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
-                <CardTitle data-testid="text-error-title">Something went wrong</CardTitle>
+                <IconCircle tone={MKT.red} ring="#F1D7D2">
+                  <AlertCircle className="h-9 w-9" />
+                </IconCircle>
+                <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 26, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-error-title">Something went wrong</h1>
               </>
             )}
-          </CardHeader>
-          <CardContent className="text-center space-y-4">
+          </motion.div>
+
+          {/* Body */}
+          <motion.div {...bodyMotion} className="text-center space-y-4" style={{ padding: '8px 28px 32px' }}>
             {status === 'success' && booking && (
               <>
-                <p className="text-muted-foreground" data-testid="text-success-message">
+                <p style={{ color: MKT.inkSub, lineHeight: 1.55 }} data-testid="text-success-message">
                   {isExtraGuest
-                    ? <>The extra spot has been confirmed for <span className="font-semibold text-foreground">{booking.session?.title}</span>.</>
-                    : <>Your spot for <span className="font-semibold text-foreground">{booking.session?.title}</span> has been reserved.</>
+                    ? <>The extra spot has been confirmed for <span style={{ fontWeight: 600, color: MKT.ink }}>{booking.session?.title}</span>.</>
+                    : <>Your spot for <span style={{ fontWeight: 600, color: MKT.ink }}>{booking.session?.title}</span> has been reserved.</>
                   }
                 </p>
                 {booking.walletAmountUsed > 0 ? (
-                  <div className="space-y-1 text-sm text-muted-foreground">
+                  <div className="space-y-1 text-sm" style={{ color: MKT.inkSub }}>
                     {booking.paymentMethod === 'wallet' ? (
                       <p className="flex items-center justify-center gap-1.5">
-                        <Wallet className="h-3.5 w-3.5 text-[#006B5F]" />
+                        <Wallet className="h-3.5 w-3.5" style={{ color: MKT.teal }} />
                         Paid with wallet credit: AED {(booking.walletAmountUsed / 100).toFixed(2)}
                       </p>
                     ) : (
                       <>
                         <p>Total: AED {booking.amountAed}</p>
-                        <p className="text-[#006B5F]">Wallet credit: AED {(booking.walletAmountUsed / 100).toFixed(2)}</p>
+                        <p style={{ color: MKT.tealD }}>Wallet credit: AED {(booking.walletAmountUsed / 100).toFixed(2)}</p>
                         <p>Card payment: AED {(booking.amountAed - booking.walletAmountUsed / 100).toFixed(2)}</p>
                       </>
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm" style={{ color: MKT.inkSub }}>
                     Amount paid: AED {booking.amountAed}
                   </p>
                 )}
               </>
             )}
             {status === 'success' && !booking && (
-              <p className="text-muted-foreground" data-testid="text-success-message">
+              <p style={{ color: MKT.inkSub, lineHeight: 1.55 }} data-testid="text-success-message">
                 {isExtraGuest
                   ? 'The extra spot has been confirmed.'
                   : 'Your payment is confirmed. Your booking has been reserved.'}
               </p>
             )}
             {status === 'waitlisted' && (
-              <p className="text-muted-foreground" data-testid="text-waitlisted-message">
+              <p style={{ color: MKT.inkSub, lineHeight: 1.55 }} data-testid="text-waitlisted-message">
                 Your payment went through, but the session filled up just as you completed it. You have been added to the waitlist and will be confirmed if a spot opens up.
               </p>
             )}
             {status === 'error' && (
-              <p className="text-muted-foreground" data-testid="text-error-message">{errorMessage}</p>
+              <p style={{ color: MKT.inkSub, lineHeight: 1.55 }} data-testid="text-error-message">{errorMessage}</p>
             )}
             {status === 'success' && !showSignInNotice && (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm" style={{ color: MKT.inkMute }}>
                 Redirecting to your bookings in {countdown}s…
               </p>
             )}
             {showSignInNotice && (
               <div
-                className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground text-left"
+                className="rounded-md p-3 text-sm text-left"
+                style={{ background: MKT.cream, border: `1px solid ${MKT.navy}12`, color: MKT.inkSub }}
                 data-testid="notice-signin-required"
               >
                 Your booking is confirmed. Please sign in again to view your bookings.
@@ -268,20 +314,20 @@ export default function CheckoutSuccess() {
               <div className="flex gap-3 justify-center flex-wrap pt-2">
                 {showSignInNotice ? (
                   <Link href={`/marketplace/login?from=${encodeURIComponent('/marketplace/my-bookings')}`}>
-                    <Button data-testid="button-signin-required">Sign In</Button>
+                    <button type="button" style={navyBtnStyle()} data-testid="button-signin-required">Sign In</button>
                   </Link>
                 ) : (
                   <Link href="/marketplace/my-bookings">
-                    <Button data-testid="button-view-bookings">View My Bookings</Button>
+                    <button type="button" style={navyBtnStyle()} data-testid="button-view-bookings">View My Bookings</button>
                   </Link>
                 )}
                 <Link href="/marketplace/book">
-                  <Button variant="outline" data-testid="button-browse-sessions">Browse Sessions</Button>
+                  <button type="button" style={ghostBtnStyle()} data-testid="button-browse-sessions">Browse Sessions</button>
                 </Link>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </motion.div>
+        </div>
       </div>
     </div>
     <InstallAppBar />
