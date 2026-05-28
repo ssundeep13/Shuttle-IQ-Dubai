@@ -1,9 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams, useLocation, Link } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
@@ -12,6 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet } from 'lucide-react';
 import { queryClient, getMarketplaceAccessToken } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
 interface Guest {
   name: string;
@@ -35,22 +34,43 @@ interface BookingData {
   };
 }
 
+// ── Shared styled primitives (look only) ─────────────────────────────────────
+const cardShell: CSSProperties = {
+  background: '#fff', borderRadius: 16, border: `1px solid ${MKT.navy}14`, overflow: 'hidden',
+};
+
+function navyBtnStyle(disabled = false): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: 15, letterSpacing: '-0.005em',
+    padding: '15px 22px', borderRadius: 10, border: '1.5px solid transparent',
+    background: disabled ? 'rgba(0,30,70,0.12)' : MKT.navy, color: disabled ? MKT.inkMute : '#fff',
+    borderColor: disabled ? 'transparent' : MKT.navy, cursor: disabled ? 'not-allowed' : 'pointer',
+    width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',
+  };
+}
+function ghostBtnStyle(): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
+    padding: '12px 18px', borderRadius: 10, border: `1.5px solid ${MKT.navy}55`,
+    background: '#fff', color: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',
+  };
+}
+
 function CancellationPolicy() {
   return (
-    <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
-      <CardContent className="p-4 space-y-2">
-        <div className="flex items-start gap-2">
-          <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-          <div className="space-y-1.5">
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Cancellation Policy</p>
-            <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-1 list-disc pl-4">
-              <li>Cancellations within <span className="font-medium">5 hours</span> of the session are subject to full payment</li>
-              <li><span className="font-medium">No-shows</span> may be charged the full session price</li>
-            </ul>
-          </div>
+    <div style={{ borderRadius: 14, background: '#F6E6CC55', border: '1px solid #C97B1733', padding: 16 }}>
+      <div className="flex items-start gap-2">
+        <Info className="h-4 w-4 mt-0.5 shrink-0" style={{ color: MKT.amber }} />
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium" style={{ color: '#7A4A0E' }}>Cancellation Policy</p>
+          <ul className="text-xs space-y-1 list-disc pl-4" style={{ color: MKT.inkSub }}>
+            <li>Cancellations within <span className="font-medium">5 hours</span> of the session are subject to full payment</li>
+            <li><span className="font-medium">No-shows</span> may be charged the full session price</li>
+          </ul>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -78,35 +98,34 @@ function GuestForm({ guests, onChange, maxGuests }: {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-secondary" />
-          <span className="text-sm font-medium">Additional Guests</span>
+          <Users className="h-4 w-4" style={{ color: MKT.teal }} />
+          <span className="text-sm font-medium" style={{ color: MKT.ink }}>Additional Guests</span>
           {guests.length > 0 && (
-            <span className="text-xs text-muted-foreground">({guests.length} added)</span>
+            <span className="text-xs" style={{ color: MKT.inkSub }}>({guests.length} added)</span>
           )}
         </div>
         {guests.length < maxGuests && (
-          <Button
+          <button
             type="button"
-            variant="outline"
-            size="sm"
             className="gap-1"
             onClick={addGuest}
             data-testid="button-add-guest"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: `1px solid ${MKT.navy}1F`, background: '#fff', color: MKT.navy, fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
           >
             <UserPlus className="h-3.5 w-3.5" />
             Add Guest
-          </Button>
+          </button>
         )}
       </div>
 
       {guests.length === 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs" style={{ color: MKT.inkSub }}>
           Bringing friends? Add their names so they show up in the player list.
         </p>
       )}
 
       {guests.map((guest, idx) => (
-        <div key={idx} className="flex items-start gap-2 p-3 rounded-md bg-muted/40">
+        <div key={idx} className="flex items-start gap-2 p-3 rounded-xl" style={{ background: MKT.cream, border: `1px solid ${MKT.navy}12` }}>
           <div className="flex-1 space-y-2">
             <Input
               placeholder="Guest name *"
@@ -122,15 +141,14 @@ function GuestForm({ guests, onChange, maxGuests }: {
               data-testid={`input-guest-email-${idx}`}
             />
           </div>
-          <Button
+          <button
             type="button"
-            variant="ghost"
-            size="icon"
             onClick={() => removeGuest(idx)}
             data-testid={`button-remove-guest-${idx}`}
+            style={{ flex: 'none', width: 38, height: 38, borderRadius: 10, border: 'none', background: 'transparent', color: MKT.inkSub, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <X className="h-4 w-4" />
-          </Button>
+          </button>
         </div>
       ))}
     </div>
@@ -143,35 +161,35 @@ function OrderSummary({ sessionInfo, amount, spotsBooked }: {
   spotsBooked: number;
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-lg">Order Summary</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center gap-2 text-sm">
-          <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+    <div style={cardShell}>
+      <div style={{ padding: '18px 20px 0' }}>
+        <h2 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 20, color: MKT.navy, letterSpacing: '-0.02em' }}>Order Summary</h2>
+      </div>
+      <div className="space-y-3" style={{ padding: '14px 20px 20px' }}>
+        <div className="flex items-center gap-2 text-sm" style={{ color: MKT.ink }}>
+          <Calendar className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
           <span>{sessionInfo.date ? format(new Date(sessionInfo.date), 'MMM d, yyyy') : '—'}</span>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-2 text-sm" style={{ color: MKT.ink }}>
+          <Clock className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
           <span>{sessionInfo.startTime} - {sessionInfo.endTime}</span>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-2 text-sm" style={{ color: MKT.ink }}>
+          <MapPin className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
           <span>{sessionInfo.venueName}</span>
         </div>
         {spotsBooked > 1 && (
-          <div className="flex items-center gap-2 text-sm">
-            <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex items-center gap-2 text-sm" style={{ color: MKT.ink }}>
+            <Users className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
             <span>{spotsBooked} spots (you + {spotsBooked - 1} guest{spotsBooked > 2 ? 's' : ''})</span>
           </div>
         )}
-        <div className="border-t pt-3 flex items-center justify-between gap-2">
-          <span className="font-medium">Total</span>
-          <span className="text-xl font-bold" data-testid="text-checkout-amount">AED {amount}</span>
+        <div className="flex items-center justify-between gap-2" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 12 }}>
+          <span className="font-medium" style={{ color: MKT.ink }}>Total</span>
+          <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-checkout-amount">AED {amount}</span>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -271,21 +289,19 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
     return (
       <div className="space-y-6">
         <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} />
-        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <ListOrdered className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                Session filled up — you're on the waitlist!
-              </p>
-            </div>
-            <p className="text-xs text-amber-700 dark:text-amber-400">
-              The last spot was taken just before your booking. You've been added to the waitlist at position #{waitlisted.position}. No payment is required — we'll notify you if a spot opens up.
+        <div style={{ borderRadius: 14, background: '#F6E6CC55', border: '1px solid #C97B1733', padding: 16 }} className="space-y-3">
+          <div className="flex items-center gap-2">
+            <ListOrdered className="h-5 w-5 shrink-0" style={{ color: MKT.amber }} />
+            <p className="text-sm font-medium" style={{ color: '#7A4A0E' }}>
+              Session filled up — you're on the waitlist!
             </p>
-          </CardContent>
-        </Card>
+          </div>
+          <p className="text-xs" style={{ color: MKT.inkSub }}>
+            The last spot was taken just before your booking. You've been added to the waitlist at position #{waitlisted.position}. No payment is required — we'll notify you if a spot opens up.
+          </p>
+        </div>
         <Link href="/marketplace/my-bookings">
-          <Button className="w-full" data-testid="button-view-waitlist">View My Bookings</Button>
+          <button type="button" style={navyBtnStyle()} data-testid="button-view-waitlist">View My Bookings</button>
         </Link>
       </div>
     );
@@ -300,12 +316,12 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
       )}
 
       {walletBalanceFils > 0 && (
-        <Card data-testid="card-wallet-credit">
-          <CardContent className="p-4 space-y-3">
+        <div style={cardShell} data-testid="card-wallet-credit">
+          <div className="space-y-3" style={{ padding: 16 }}>
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-[#006B5F]" />
-                <span className="text-sm font-medium">Use wallet credit</span>
+                <Wallet className="h-4 w-4" style={{ color: MKT.teal }} />
+                <span className="text-sm font-medium" style={{ color: MKT.ink }}>Use wallet credit</span>
               </div>
               <Switch
                 checked={useWallet}
@@ -313,44 +329,44 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
                 data-testid="switch-use-wallet"
               />
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs" style={{ color: MKT.inkSub }}>
               Available: AED {(walletBalanceFils / 100).toFixed(2)}
             </p>
             {useWallet && (
-              <div className="space-y-1 border-t pt-2">
+              <div className="space-y-1" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 8 }}>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Session cost</span>
-                  <span>AED {totalAmount.toFixed(2)}</span>
+                  <span style={{ color: MKT.inkSub }}>Session cost</span>
+                  <span style={{ color: MKT.ink }}>AED {totalAmount.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-sm text-[#006B5F]">
+                <div className="flex justify-between text-sm" style={{ color: MKT.tealD }}>
                   <span>Wallet credit</span>
                   <span data-testid="text-wallet-deduction">- AED {walletApplicableAed.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-sm font-semibold border-t pt-1">
+                <div className="flex justify-between text-sm font-semibold" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 4, color: MKT.ink }}>
                   <span>{walletCoversAll ? 'Amount due' : 'Pay via Ziina'}</span>
                   <span data-testid="text-remaining-amount">AED {Math.max(0, remainingAfterWallet).toFixed(2)}</span>
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       <CancellationPolicy />
 
       {error && (
-        <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-payment-error">
+        <div className="flex items-center gap-2 text-sm" style={{ color: MKT.red }} data-testid="text-payment-error">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
       )}
 
-      <Button
-        size="lg"
-        className="w-full gap-2"
+      <button
+        type="button"
         disabled={processing}
         onClick={handlePay}
         data-testid="button-confirm-payment"
+        style={navyBtnStyle(processing)}
       >
         {processing ? (
           <><Loader2 className="h-5 w-5 animate-spin" /> {walletCoversAll ? 'Confirming booking...' : 'Preparing payment...'}</>
@@ -361,10 +377,10 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         ) : (
           <><ShieldCheck className="h-5 w-5" /> Pay AED {totalAmount} — Secure Checkout</>
         )}
-      </Button>
+      </button>
 
       {!walletCoversAll && (
-        <p className="text-xs text-muted-foreground text-center">
+        <p className="text-xs text-center" style={{ color: MKT.inkSub }}>
           Payments are securely processed by Ziina. You'll be redirected to complete payment and brought back automatically.
         </p>
       )}
@@ -375,39 +391,39 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'ziina' | 'cash') => void }) {
   return (
     <div className="space-y-3">
-      <h3 className="text-lg font-semibold">How would you like to pay?</h3>
+      <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 20, color: MKT.navy, letterSpacing: '-0.02em' }}>How would you like to pay?</h3>
       <div className="grid grid-cols-1 gap-3">
-        <Card
-          className="hover-elevate cursor-pointer"
+        <button
+          type="button"
+          className="text-left"
           onClick={() => onSelect('ziina')}
           data-testid="button-pay-card"
+          style={{ ...cardShell, padding: 16, display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
         >
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-3 rounded-md bg-primary/10">
-              <CreditCard className="h-6 w-6 text-primary" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium">Pay by Card</p>
-              <p className="text-sm text-muted-foreground">Secure card payment via Ziina</p>
-            </div>
-          </CardContent>
-        </Card>
+          <div style={{ padding: 12, borderRadius: 10, background: `${MKT.navy}14` }}>
+            <CreditCard className="h-6 w-6" style={{ color: MKT.navy }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium" style={{ color: MKT.ink }}>Pay by Card</p>
+            <p className="text-sm" style={{ color: MKT.inkSub }}>Secure card payment via Ziina</p>
+          </div>
+        </button>
 
-        <Card
-          className="hover-elevate cursor-pointer"
+        <button
+          type="button"
+          className="text-left"
           onClick={() => onSelect('cash')}
           data-testid="button-pay-cash"
+          style={{ ...cardShell, padding: 16, display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
         >
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="p-3 rounded-md bg-chart-2/10">
-              <Banknote className="h-6 w-6 text-chart-2" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium">Pay at Venue</p>
-              <p className="text-sm text-muted-foreground">Pay in cash when you arrive</p>
-            </div>
-          </CardContent>
-        </Card>
+          <div style={{ padding: 12, borderRadius: 10, background: '#DDEEE2' }}>
+            <Banknote className="h-6 w-6" style={{ color: MKT.green }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium" style={{ color: MKT.ink }}>Pay at Venue</p>
+            <p className="text-sm" style={{ color: MKT.inkSub }}>Pay in cash when you arrive</p>
+          </div>
+        </button>
       </div>
     </div>
   );
@@ -492,25 +508,25 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
       <CancellationPolicy />
 
       {error && (
-        <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-payment-error">
+        <div className="flex items-center gap-2 text-sm" style={{ color: MKT.red }} data-testid="text-payment-error">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
       )}
 
-      <Button
-        size="lg"
-        className="w-full gap-2"
+      <button
+        type="button"
         disabled={loading}
         onClick={handleConfirm}
         data-testid="button-confirm-cash"
+        style={navyBtnStyle(loading)}
       >
         {loading ? (
           <><Loader2 className="h-5 w-5 animate-spin" /> Confirming...</>
         ) : (
           <><Banknote className="h-5 w-5" /> Confirm Booking — Pay AED {totalAmount} at Venue</>
         )}
-      </Button>
+      </button>
     </div>
   );
 }
@@ -574,8 +590,14 @@ export default function Checkout() {
     setPaymentMethod(method);
   };
 
+  const pageWrap = (children: React.ReactNode) => (
+    <div style={{ background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY, minHeight: '100%' }}>
+      {children}
+    </div>
+  );
+
   if (sessionLoading) {
-    return (
+    return pageWrap(
       <div className="max-w-lg mx-auto px-4 py-8">
         <Skeleton className="h-8 w-1/2 mb-6" />
         <Skeleton className="h-48 w-full mb-4" />
@@ -587,94 +609,96 @@ export default function Checkout() {
   if (confirmed) {
     const isCash = bookingData?.paymentMethod === 'cash';
     const spots = bookingData?.spotsBooked ?? 1;
-    return (
+    return pageWrap(
       <div className="max-w-lg mx-auto px-4 py-12">
-        <Card>
-          <CardHeader className="text-center">
-            <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-            <CardTitle data-testid="text-booking-confirmed">Booking Confirmed!</CardTitle>
-          </CardHeader>
-          <CardContent className="text-center space-y-4">
-            <p className="text-muted-foreground">
-              Your spot{spots > 1 ? 's' : ''} for <span className="font-semibold text-foreground">{sessionInfo?.title || bookingData?.session.title}</span> {spots > 1 ? 'have' : 'has'} been reserved.
-            </p>
-            {spots > 1 && (
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-secondary/10 text-secondary text-sm">
-                <Users className="h-4 w-4" />
-                {spots} spots booked (you + {spots - 1} guest{spots > 2 ? 's' : ''})
-              </div>
-            )}
-            {isCash ? (
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 text-sm">
-                  <Banknote className="h-4 w-4" />
-                  Pay AED {bookingData?.amount || pricePerSpot * spots} in cash at the venue
-                </div>
-              </div>
-            ) : bookingData?.paymentMethod === 'wallet' ? (
-              <div className="space-y-1 text-sm">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[rgba(0,107,95,0.1)] text-[#006B5F] dark:text-teal-400">
-                  <Wallet className="h-4 w-4" />
-                  Paid with wallet credit
-                </div>
-                {bookingData.walletApplied && (
-                  <p className="text-muted-foreground" data-testid="text-wallet-breakdown">
-                    Wallet credit: AED {(bookingData.walletApplied / 100).toFixed(2)}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-1 text-sm">
-                <p className="text-muted-foreground">Amount paid: AED {bookingData?.amount || pricePerSpot * spots}</p>
-                {bookingData?.walletApplied && bookingData.walletApplied > 0 && (
-                  <p className="text-muted-foreground" data-testid="text-wallet-breakdown">
-                    (Wallet credit: AED {(bookingData.walletApplied / 100).toFixed(2)}, Card: AED {((bookingData.ziinaAmount || 0)).toFixed(2)})
-                  </p>
-                )}
-              </div>
-            )}
-            <div className="flex gap-3 justify-center flex-wrap pt-2">
-              <Link href="/marketplace/my-bookings">
-                <Button data-testid="button-view-bookings">View My Bookings</Button>
-              </Link>
-              <Link href="/marketplace/book">
-                <Button variant="outline" data-testid="button-browse-sessions">Browse Sessions</Button>
-              </Link>
+        <Reveal>
+          <div style={cardShell}>
+            <div className="text-center" style={{ padding: '28px 24px 8px' }}>
+              <CheckCircle className="h-12 w-12 mx-auto mb-4" style={{ color: MKT.green }} />
+              <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-booking-confirmed">Booking Confirmed!</h1>
             </div>
-          </CardContent>
-        </Card>
+            <div className="text-center space-y-4" style={{ padding: '8px 24px 28px' }}>
+              <p style={{ color: MKT.inkSub }}>
+                Your spot{spots > 1 ? 's' : ''} for <span className="font-semibold" style={{ color: MKT.ink }}>{sessionInfo?.title || bookingData?.session.title}</span> {spots > 1 ? 'have' : 'has'} been reserved.
+              </p>
+              {spots > 1 && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm" style={{ background: MKT.tealMist, color: MKT.tealD }}>
+                  <Users className="h-4 w-4" />
+                  {spots} spots booked (you + {spots - 1} guest{spots > 2 ? 's' : ''})
+                </div>
+              )}
+              {isCash ? (
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm" style={{ background: '#F6E6CC', color: '#7A4A0E' }}>
+                    <Banknote className="h-4 w-4" />
+                    Pay AED {bookingData?.amount || pricePerSpot * spots} in cash at the venue
+                  </div>
+                </div>
+              ) : bookingData?.paymentMethod === 'wallet' ? (
+                <div className="space-y-1 text-sm">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md" style={{ background: 'rgba(0,107,95,0.1)', color: MKT.tealD }}>
+                    <Wallet className="h-4 w-4" />
+                    Paid with wallet credit
+                  </div>
+                  {bookingData.walletApplied && (
+                    <p style={{ color: MKT.inkSub }} data-testid="text-wallet-breakdown">
+                      Wallet credit: AED {(bookingData.walletApplied / 100).toFixed(2)}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1 text-sm">
+                  <p style={{ color: MKT.inkSub }}>Amount paid: AED {bookingData?.amount || pricePerSpot * spots}</p>
+                  {bookingData?.walletApplied && bookingData.walletApplied > 0 && (
+                    <p style={{ color: MKT.inkSub }} data-testid="text-wallet-breakdown">
+                      (Wallet credit: AED {(bookingData.walletApplied / 100).toFixed(2)}, Card: AED {((bookingData.ziinaAmount || 0)).toFixed(2)})
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="flex gap-3 justify-center flex-wrap pt-2">
+                <Link href="/marketplace/my-bookings">
+                  <button type="button" style={navyBtnStyle()} data-testid="button-view-bookings">View My Bookings</button>
+                </Link>
+                <Link href="/marketplace/book">
+                  <button type="button" style={ghostBtnStyle()} data-testid="button-browse-sessions">Browse Sessions</button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </Reveal>
       </div>
     );
   }
 
   if (error && !paymentMethod) {
-    return (
+    return pageWrap(
       <div className="max-w-lg mx-auto px-4 py-12">
-        <Card>
-          <CardHeader className="text-center">
-            <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
-            <CardTitle>Unable to proceed</CardTitle>
-          </CardHeader>
-          <CardContent className="text-center space-y-4">
-            <p className="text-muted-foreground" data-testid="text-checkout-error">{error}</p>
+        <div style={cardShell}>
+          <div className="text-center" style={{ padding: '28px 24px 8px' }}>
+            <AlertCircle className="h-12 w-12 mx-auto mb-4" style={{ color: MKT.red }} />
+            <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: MKT.navy, letterSpacing: '-0.02em' }}>Unable to proceed</h1>
+          </div>
+          <div className="text-center space-y-4" style={{ padding: '8px 24px 28px' }}>
+            <p style={{ color: MKT.inkSub }} data-testid="text-checkout-error">{error}</p>
             <Link href={`/marketplace/sessions/${sessionId}`}>
-              <Button data-testid="button-back-to-session">Back to Session</Button>
+              <button type="button" style={navyBtnStyle()} data-testid="button-back-to-session">Back to Session</button>
             </Link>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     );
   }
 
-  return (
+  return pageWrap(
     <div className="max-w-lg mx-auto px-4 py-8">
       <Link href={`/marketplace/sessions/${sessionId}`}>
-        <Button variant="ghost" size="sm" className="mb-4 gap-1" data-testid="button-back">
+        <button type="button" data-testid="button-back" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, marginBottom: 16, padding: 0 }}>
           <ArrowLeft className="h-4 w-4" /> Back to session
-        </Button>
+        </button>
       </Link>
 
-      <h1 className="text-2xl font-bold mb-6" data-testid="text-checkout-title">Complete your booking</h1>
+      <h1 style={{ margin: '0 0 24px', fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(26px, 4vw, 34px)', color: MKT.navy, letterSpacing: '-0.03em', lineHeight: 1.05 }} data-testid="text-checkout-title">Complete your booking</h1>
 
       {!paymentMethod && sessionInfo && (
         <div className="space-y-6">
