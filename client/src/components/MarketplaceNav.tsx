@@ -168,40 +168,35 @@ export function MarketplaceNav() {
   return (
     <header
       className="sticky top-0 z-50"
-      style={{ backgroundColor: '#003E8C' }}
+      style={{ backgroundColor: '#003E8C', borderBottom: '1px solid rgba(255,255,255,0.10)' }}
       data-testid="marketplace-nav"
     >
       <div className="max-w-6xl mx-auto flex h-14 items-center gap-2 px-4 md:px-6">
-        <Link href="/" className="flex items-center gap-2 mr-6 shrink-0" data-testid="link-marketplace-home">
-          <span className="text-xl font-bold tracking-tight text-white">
+        <Link href="/" className="flex items-center gap-2 mr-8 shrink-0" data-testid="link-marketplace-home">
+          <span className="text-xl font-bold text-white" style={{ letterSpacing: '-0.03em' }}>
             Shuttle<span style={{ color: '#006B5F' }}>IQ</span>
           </span>
         </Link>
 
-        <nav className="hidden md:flex items-center flex-1">
+        <nav className="hidden md:flex items-center flex-1 gap-1">
           {activeLinks.map((link) => {
             const active = isActive(link.href);
             return (
-              <Link key={link.href} href={link.href}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2 rounded-none"
-                  style={{
-                    height: '56px',
-                    color: active ? '#ffffff' : 'rgba(255,255,255,0.45)',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    borderRadius: 0,
-                    borderBottom: active ? '2px solid #006B5F' : '2px solid transparent',
-                  }}
-                  data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
-                >
-                  <link.icon className="h-4 w-4 shrink-0" />
-                  {link.label}
-                </Button>
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`inline-flex items-center px-3 transition-colors ${active ? 'text-white' : 'text-white/55 hover:text-white'}`}
+                style={{
+                  height: '56px',
+                  fontSize: '14px',
+                  fontWeight: active ? 600 : 500,
+                  letterSpacing: '-0.005em',
+                  borderBottom: active ? '2px solid #006B5F' : '2px solid transparent',
+                  textDecoration: 'none',
+                }}
+                data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
+              >
+                {link.label}
               </Link>
             );
           })}
@@ -262,7 +257,7 @@ export function MarketplaceNav() {
               <Link href="/marketplace/signup">
                 <Button
                   size="sm"
-                  className="font-semibold"
+                  className="font-semibold rounded-full px-5"
                   style={{ backgroundColor: '#006B5F', color: '#ffffff', borderColor: '#006B5F' }}
                   data-testid="button-signup"
                 >
