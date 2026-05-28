@@ -2008,6 +2008,23 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Admin: directly set a marketplace user's password (admin override — no email sent)
+  app.post("/api/marketplace/admin/users/:id/set-password", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { password } = req.body;
+      if (!password || password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+      const user = await storage.getMarketplaceUser(req.params.id);
+      if (!user) return res.status(404).json({ error: "Marketplace user not found" });
+      const passwordHash = await hashPassword(password);
+      await storage.updateMarketplaceUser(user.id, { passwordHash, resetToken: null, resetTokenExpiry: null });
+      console.info(`[audit] admin/set-password by adminId=${req.user?.userId}: reset password for marketplaceUser ${user.id} (${user.email})`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("admin/set-password error:", error);
+      res.status(500).json({ error: "Failed to set password" });
+    }
+  });
+
   // Admin endpoint — returns ALL bookable sessions including past ones (for admin management)
   app.get("/api/marketplace/admin/sessions", requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
     try {
