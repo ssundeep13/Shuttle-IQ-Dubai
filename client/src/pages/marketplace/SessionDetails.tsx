@@ -1,40 +1,33 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link } from 'wouter';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import {
   Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info,
   Banknote, ShieldCheck, ListOrdered, CheckCircle2, X, Loader2,
-  AlertCircle, Minus, Plus, Search, UserCheck, User,
+  AlertCircle, Minus, Plus, Search, UserCheck, User, ArrowRight,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { motion } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 import { apiRequest, getMarketplaceAccessToken } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
 interface SessionInfoItem {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ style?: CSSProperties }>;
   label: string;
   value: string;
   sub?: string | null;
   mapUrl?: string | null;
 }
-
-const fadeInUp = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
-};
-const stagger = { visible: { transition: { staggerChildren: 0.06 } } };
 
 interface SessionPlayer {
   name: string;
@@ -72,6 +65,31 @@ const LEVEL_COLORS: Record<string, string> = {
   professional: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
 };
 
+// Left/top accent band colour by title keyword — same logic as Browse Sessions.
+// No fabricated "General": neutral teal band + tag only when a keyword is present.
+type Tone = { band: string; soft: string; fg: string; label: string; hasLevel: boolean };
+function levelTone(title: string): Tone {
+  const t = (title || '').toLowerCase();
+  const P = { band: '#7A4FBF', soft: '#EEE6F8', fg: '#4A2B85' };
+  const B = { band: '#2A6FDB', soft: '#E3ECF8', fg: '#1B4A99' };
+  const G = { band: '#1F8A5B', soft: '#DDEEE2', fg: '#1A6A45' };
+  if (t.includes('advanced')) return { ...P, label: 'Advanced', hasLevel: true };
+  if (t.includes('pro')) return { ...P, label: 'Pro', hasLevel: true };
+  if (t.includes('intermediate')) return { ...B, label: 'Intermediate', hasLevel: true };
+  if (t.includes('beginner')) return { ...G, label: 'Beginner', hasLevel: true };
+  if (t.includes('novice')) return { ...G, label: 'Novice', hasLevel: true };
+  return { band: MKT.teal, soft: MKT.tealMist, fg: MKT.tealD, label: 'General', hasLevel: false };
+}
+
+function LevelTag({ tone }: { tone: Tone }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: tone.soft, color: tone.fg, fontFamily: FF_MONO, fontWeight: 700, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: tone.band }} />
+      {tone.label}
+    </span>
+  );
+}
+
 function getInitials(name: string): string {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 }
@@ -83,6 +101,37 @@ function useDebounce<T>(value: T, delay: number): T {
     return () => clearTimeout(t);
   }, [value, delay]);
   return debounced;
+}
+
+// Styled design buttons (preserve behaviour; just the look).
+function navyBtnStyle(size: 'sm' | 'md' | 'lg' = 'md', disabled = false): CSSProperties {
+  const pad = size === 'lg' ? '14px 22px' : size === 'sm' ? '9px 14px' : '12px 18px';
+  const fs = size === 'lg' ? 16 : size === 'sm' ? 13 : 14;
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: fs, letterSpacing: '-0.005em',
+    padding: pad, borderRadius: 10, border: '1.5px solid transparent',
+    background: disabled ? 'rgba(0,30,70,0.05)' : MKT.navy, color: disabled ? MKT.inkMute : '#fff',
+    borderColor: disabled ? 'transparent' : MKT.navy, cursor: disabled ? 'not-allowed' : 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',
+  };
+}
+function ghostBtnStyle(size: 'sm' | 'md' | 'lg' = 'md'): CSSProperties {
+  const pad = size === 'lg' ? '14px 22px' : size === 'sm' ? '9px 14px' : '12px 18px';
+  const fs = size === 'lg' ? 16 : size === 'sm' ? 13 : 14;
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: fs, letterSpacing: '-0.005em',
+    padding: pad, borderRadius: 10, border: `1.5px solid ${MKT.navy}55`,
+    background: '#fff', color: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',
+  };
+}
+function PriceLabel({ amount, large }: { amount: number; large?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: MKT.inkSub }}>Price per player</div>
+      <div data-testid="text-session-price" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: large ? 34 : 28, color: MKT.navy, letterSpacing: '-0.025em', lineHeight: 1 }}>AED {amount}</div>
+    </div>
+  );
 }
 
 function GuestRow({
@@ -149,13 +198,11 @@ function GuestRow({
     setDropdownOpen(false);
   };
 
-  // Show email input for manual entries and SIQ-only linked guests (marketplace users have email auto-filled)
   const needsEmail = !(guest.linkedFromSearch && !!guest.marketplaceUserId);
 
   return (
-    <div className="flex items-start gap-2 p-3 rounded-md bg-muted/40" ref={containerRef}>
+    <div className="flex items-start gap-2 p-3 rounded-xl" style={{ background: MKT.cream, border: `1px solid ${MKT.navy}12` }} ref={containerRef}>
       <div className="flex-1 space-y-2">
-        {/* Name / search field */}
         {guest.linkedFromSearch ? (
           <div className="flex items-center gap-2 px-3 py-2 rounded-md border bg-background">
             {guest.marketplaceUserId ? (
@@ -272,7 +319,6 @@ function GuestRow({
           </div>
         )}
 
-        {/* Marketplace user: email is authoritative — show read-only */}
         {guest.linkedFromSearch && guest.marketplaceUserId && guest.email ? (
           <div className="relative">
             <UserCheck className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-secondary pointer-events-none" />
@@ -285,7 +331,6 @@ function GuestRow({
             />
           </div>
         ) : needsEmail ? (
-          /* Manual / SIQ-only: show editable email field */
           <Input
             placeholder="Email (optional — for cancellation link)"
             type="email"
@@ -320,18 +365,18 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
 
   return (
     <div data-testid="section-whos-playing">
-      <h3 className="font-semibold mb-3 flex items-center gap-2">
-        <Users className="h-4 w-4 text-secondary" />
+      <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 20, color: MKT.navy, letterSpacing: '-0.02em' }} className="mb-3 flex items-center gap-2">
+        <Users style={{ width: 18, height: 18, color: MKT.teal }} />
         Who's Playing
         {players && players.length > 0 && (
-          <Badge variant="secondary" className="text-xs">{players.length}</Badge>
+          <span style={{ fontFamily: FF_MONO, fontSize: 12, fontWeight: 700, color: MKT.tealD, background: MKT.tealMist, padding: '2px 8px', borderRadius: 999 }}>{players.length}</span>
         )}
       </h3>
 
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
+            <div key={i} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: MKT.cream }}>
               <Skeleton className="h-8 w-8 rounded-full shrink-0" />
               <div className="min-w-0 flex-1 space-y-1">
                 <Skeleton className="h-3 w-20" />
@@ -369,22 +414,22 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
             );
             return player.linkedPlayerId ? (
               <Link key={idx} href={`/marketplace/players/${player.linkedPlayerId}`}>
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50 hover-elevate cursor-pointer" data-testid={`card-player-${idx}`}>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg cursor-pointer" style={{ background: MKT.cream, border: `1px solid ${MKT.navy}10` }} data-testid={`card-player-${idx}`}>
                   {cardContent}
                 </div>
               </Link>
             ) : (
-              <div key={idx} className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/50" data-testid={`card-player-${idx}`}>
+              <div key={idx} className="flex items-center gap-2 p-2.5 rounded-lg" style={{ background: MKT.cream, border: `1px solid ${MKT.navy}10` }} data-testid={`card-player-${idx}`}>
                 {cardContent}
               </div>
             );
           })}
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-2 py-6 text-center rounded-lg bg-muted/30">
-          <ShieldCheck className="h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm font-medium text-muted-foreground">Be the first to book!</p>
-          <p className="text-xs text-muted-foreground/70">No players have joined this session yet.</p>
+        <div className="flex flex-col items-center gap-2 py-6 text-center rounded-lg" style={{ background: MKT.cream }}>
+          <ShieldCheck className="h-8 w-8" style={{ color: MKT.inkMute }} />
+          <p className="text-sm font-medium" style={{ color: MKT.inkSub }}>Be the first to book!</p>
+          <p className="text-xs" style={{ color: MKT.inkMute }}>No players have joined this session yet.</p>
         </div>
       )}
     </div>
@@ -487,14 +532,14 @@ function InlineBookingPanel({
 
   if (cashConfirmed) {
     return (
-      <div className="border-t pt-6 space-y-4" data-testid="section-cash-confirmed">
-        <div className="flex flex-col items-center gap-3 py-6 text-center rounded-lg bg-green-500/5 border border-green-500/20">
-          <CheckCircle2 className="h-10 w-10 text-green-500" />
+      <div style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 24 }} className="space-y-4" data-testid="section-cash-confirmed">
+        <div className="flex flex-col items-center gap-3 py-6 text-center rounded-xl" style={{ background: '#DDEEE2', border: '1px solid #1F8A5B33' }}>
+          <CheckCircle2 className="h-10 w-10" style={{ color: MKT.green }} />
           <div>
-            <p className="font-semibold text-green-700 dark:text-green-400" data-testid="text-cash-confirmed">
+            <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: '#1A6A45' }} data-testid="text-cash-confirmed">
               Booking Confirmed!
             </p>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-sm mt-1" style={{ color: MKT.inkSub }}>
               {cashConfirmed.spots > 1
                 ? `${cashConfirmed.spots} spots reserved — pay AED ${cashConfirmed.total} in cash at the venue.`
                 : `Your spot is reserved — pay AED ${cashConfirmed.total} in cash at the venue.`}
@@ -502,9 +547,9 @@ function InlineBookingPanel({
           </div>
         </div>
         <Link href="/marketplace/my-bookings">
-          <Button variant="outline" className="w-full" data-testid="button-view-my-bookings">
+          <button type="button" style={{ ...ghostBtnStyle('md'), width: '100%' }} data-testid="button-view-my-bookings">
             View My Bookings
-          </Button>
+          </button>
         </Link>
       </div>
     );
@@ -512,69 +557,64 @@ function InlineBookingPanel({
 
   if (!open) {
     return (
-      <div className="border-t pt-6">
+      <div style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 24 }}>
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-xs text-muted-foreground">Price per player</div>
-            <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
-          </div>
-          <Button size="lg" className="gap-2" onClick={() => setOpen(true)} data-testid="button-book-now">
-            <Users className="h-5 w-5" />
+          <PriceLabel amount={session.priceAed} large />
+          <button type="button" style={navyBtnStyle('lg')} onClick={() => setOpen(true)} data-testid="button-book-now">
+            <Users style={{ width: 18, height: 18 }} />
             Book Now
-          </Button>
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="border-t pt-6 space-y-5" data-testid="section-booking-panel">
+    <div style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 24 }} className="space-y-5" data-testid="section-booking-panel">
       {/* Spots selector */}
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <p className="font-semibold">How many spots?</p>
-            <p className="text-xs text-muted-foreground mt-0.5">AED {session.priceAed} per player</p>
+            <p style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 18, color: MKT.navy }}>How many spots?</p>
+            <p className="text-xs mt-0.5" style={{ color: MKT.inkSub }}>AED {session.priceAed} per player</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button
+            <button
               type="button"
-              size="icon"
-              variant="outline"
               disabled={guests.length === 0}
               onClick={() => removeGuest(guests.length - 1)}
               data-testid="button-decrease-spots"
+              style={{ width: 38, height: 38, borderRadius: 10, border: `1.5px solid ${MKT.navy}33`, background: '#fff', color: guests.length === 0 ? MKT.inkMute : MKT.navy, cursor: guests.length === 0 ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <Minus className="h-4 w-4" />
-            </Button>
-            <span className="text-xl font-bold w-6 text-center" data-testid="text-spots-count">{spotsBooked}</span>
-            <Button
+            </button>
+            <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: MKT.navy, width: 24, textAlign: 'center' }} data-testid="text-spots-count">{spotsBooked}</span>
+            <button
               type="button"
-              size="icon"
-              variant="outline"
               disabled={guests.length >= maxGuests}
               onClick={addGuest}
               data-testid="button-increase-spots"
+              style={{ width: 38, height: 38, borderRadius: 10, border: `1.5px solid ${MKT.navy}33`, background: '#fff', color: guests.length >= maxGuests ? MKT.inkMute : MKT.navy, cursor: guests.length >= maxGuests ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <Plus className="h-4 w-4" />
-            </Button>
+            </button>
           </div>
         </div>
 
         {/* Live total */}
-        <div className="flex items-center justify-between px-3 py-2 rounded-md bg-muted/50 text-sm">
-          <span className="text-muted-foreground">
+        <div className="flex items-center justify-between px-3 py-2.5 rounded-lg text-sm" style={{ background: MKT.cream }}>
+          <span style={{ color: MKT.inkSub }}>
             {spotsBooked === 1 ? 'Just you' : `You + ${guests.length} guest${guests.length > 1 ? 's' : ''}`}
           </span>
-          <span className="font-bold text-base" data-testid="text-inline-total">AED {totalAmount}</span>
+          <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy }} data-testid="text-inline-total">AED {totalAmount}</span>
         </div>
       </div>
 
       {/* Guest rows */}
       {guests.length > 0 && (
         <div className="space-y-2">
-          <p className="text-sm font-medium flex items-center gap-1.5">
-            <Users className="h-4 w-4 text-secondary" />
+          <p className="text-sm font-medium flex items-center gap-1.5" style={{ color: MKT.ink }}>
+            <Users style={{ width: 16, height: 16, color: MKT.teal }} />
             Guest details
           </p>
           {guests.map((guest, idx) => (
@@ -591,7 +631,7 @@ function InlineBookingPanel({
 
       {/* Error */}
       {error && (
-        <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-booking-error">
+        <div className="flex items-center gap-2 text-sm" style={{ color: MKT.red }} data-testid="text-booking-error">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -599,54 +639,54 @@ function InlineBookingPanel({
 
       {/* Payment method buttons */}
       <div className="space-y-2">
-        <p className="text-sm font-medium">How would you like to pay?</p>
+        <p className="text-sm font-medium" style={{ color: MKT.ink }}>How would you like to pay?</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Card
-            className="hover-elevate cursor-pointer"
+          <button
+            type="button"
+            className="text-left"
+            style={{ background: '#fff', border: `1px solid ${MKT.navy}1F`, borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: processing ? 'wait' : 'pointer' }}
             onClick={() => !processing && makeBooking('cash')}
             data-testid="button-pay-cash"
           >
-            <CardContent className="p-4 flex items-center gap-3">
-              {processing ? (
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
-              ) : (
-                <Banknote className="h-5 w-5 text-chart-2 shrink-0" />
-              )}
-              <div className="min-w-0">
-                <p className="font-medium text-sm">Pay at Venue</p>
-                <p className="text-xs text-muted-foreground">Pay cash when you arrive</p>
-              </div>
-            </CardContent>
-          </Card>
+            {processing ? (
+              <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: MKT.inkSub }} />
+            ) : (
+              <Banknote className="h-5 w-5 shrink-0" style={{ color: MKT.green }} />
+            )}
+            <div className="min-w-0">
+              <p className="font-medium text-sm" style={{ color: MKT.ink }}>Pay at Venue</p>
+              <p className="text-xs" style={{ color: MKT.inkSub }}>Pay cash when you arrive</p>
+            </div>
+          </button>
 
-          <Card
-            className="hover-elevate cursor-pointer"
+          <button
+            type="button"
+            className="text-left"
+            style={{ background: '#fff', border: `1px solid ${MKT.navy}1F`, borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: processing ? 'wait' : 'pointer' }}
             onClick={() => !processing && makeBooking('ziina')}
             data-testid="button-pay-card"
           >
-            <CardContent className="p-4 flex items-center gap-3">
-              {processing ? (
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
-              ) : (
-                <CreditCard className="h-5 w-5 text-primary shrink-0" />
-              )}
-              <div className="min-w-0">
-                <p className="font-medium text-sm">Pay by Card</p>
-                <p className="text-xs text-muted-foreground">Secure checkout via Ziina</p>
-              </div>
-            </CardContent>
-          </Card>
+            {processing ? (
+              <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: MKT.inkSub }} />
+            ) : (
+              <CreditCard className="h-5 w-5 shrink-0" style={{ color: MKT.navy }} />
+            )}
+            <div className="min-w-0">
+              <p className="font-medium text-sm" style={{ color: MKT.ink }}>Pay by Card</p>
+              <p className="text-xs" style={{ color: MKT.inkSub }}>Secure checkout via Ziina</p>
+            </div>
+          </button>
         </div>
       </div>
 
-      <Button
-        variant="ghost"
-        size="sm"
+      <button
+        type="button"
         onClick={() => { setOpen(false); setGuests([]); setError(null); }}
         data-testid="button-cancel-booking"
+        style={{ fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 0' }}
       >
         Cancel
-      </Button>
+      </button>
     </div>
   );
 }
@@ -657,6 +697,7 @@ export default function SessionDetails() {
   const { isAuthenticated } = useMarketplaceAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const reduce = useReducedMotion();
 
   const { data: session, isLoading } = useQuery<BookableSessionWithAvailability>({
     queryKey: ['/api/marketplace/sessions', id],
@@ -711,57 +752,55 @@ export default function SessionDetails() {
 
   if (isLoading) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <Skeleton className="h-8 w-48 mb-6" />
-        <Skeleton className="h-80 w-full" />
+      <div style={{ background: MKT.cream, minHeight: '100%' }}>
+        <div className="max-w-3xl mx-auto px-4 py-8">
+          <Skeleton className="h-8 w-48 mb-6" />
+          <Skeleton className="h-80 w-full" />
+        </div>
       </div>
     );
   }
 
   if (!session) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8 text-center">
-        <h2 className="text-xl font-semibold mb-2">Session not found</h2>
-        <Link href="/marketplace/book">
-          <Button variant="ghost">Back to sessions</Button>
-        </Link>
+      <div style={{ background: MKT.cream, minHeight: '100%' }}>
+        <div className="max-w-3xl mx-auto px-4 py-8 text-center">
+          <h2 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, color: MKT.navy }} className="mb-2">Session not found</h2>
+          <Link href="/marketplace/book">
+            <button type="button" style={ghostBtnStyle('md')}>Back to sessions</button>
+          </Link>
+        </div>
       </div>
     );
   }
 
+  const tone = levelTone(session.title);
   const capacityPercent = session.capacity > 0
     ? Math.round((session.totalBookings / session.capacity) * 100)
     : 0;
+  const capTone = session.spotsRemaining <= 0 ? MKT.red : session.spotsRemaining <= 3 ? MKT.amber : MKT.teal;
 
   const renderBottomSection = () => {
     if (!isAuthenticated) {
       return (
-        <div className="border-t pt-6">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div>
-              <div className="text-xs text-muted-foreground">Price per player</div>
-              <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
-            </div>
-            <Link href="/marketplace/login">
-              <Button size="lg" className="gap-2" data-testid="button-login-to-book">
-                Log in to book
-              </Button>
-            </Link>
-          </div>
+        <div style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 24 }} className="flex items-center justify-between gap-4 flex-wrap">
+          <PriceLabel amount={session.priceAed} large />
+          <Link href="/marketplace/login">
+            <button type="button" style={navyBtnStyle('lg')} data-testid="button-login-to-book">
+              Log in to book
+            </button>
+          </Link>
         </div>
       );
     }
 
     if (isConfirmed) {
       return (
-        <div className="border-t pt-6 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-xs text-muted-foreground">Price per player</div>
-            <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
-          </div>
-          <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-green-500/10 border border-green-500/20" data-testid="status-confirmed">
-            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
-            <span className="text-sm font-medium text-green-700 dark:text-green-400">You're booked!</span>
+        <div style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 24 }} className="flex items-center justify-between gap-4 flex-wrap">
+          <PriceLabel amount={session.priceAed} large />
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg" style={{ background: '#DDEEE2', border: '1px solid #1F8A5B33' }} data-testid="status-confirmed">
+            <CheckCircle2 className="h-5 w-5 shrink-0" style={{ color: MKT.green }} />
+            <span className="text-sm font-medium" style={{ color: '#1A6A45' }}>You're booked!</span>
           </div>
         </div>
       );
@@ -769,27 +808,24 @@ export default function SessionDetails() {
 
     if (isWaitlisted && myBookingForSession) {
       return (
-        <div className="border-t pt-6 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-xs text-muted-foreground">Price per player</div>
-            <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
-          </div>
+        <div style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 24 }} className="flex items-center justify-between gap-4 flex-wrap">
+          <PriceLabel amount={session.priceAed} large />
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-500/10 border border-amber-500/20" data-testid="status-waitlisted">
-              <ListOrdered className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg" style={{ background: '#F6E6CC', border: '1px solid #C97B1733' }} data-testid="status-waitlisted">
+              <ListOrdered className="h-5 w-5 shrink-0" style={{ color: MKT.amber }} />
+              <span className="text-sm font-medium" style={{ color: '#7A4A0E' }}>
                 Waitlist #{myBookingForSession.waitlistPosition}
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
               onClick={() => cancelWaitlistMutation.mutate(myBookingForSession.id)}
               disabled={cancelWaitlistMutation.isPending}
               data-testid="button-leave-waitlist"
+              style={{ ...ghostBtnStyle('sm'), opacity: cancelWaitlistMutation.isPending ? 0.6 : 1 }}
             >
               Leave Waitlist
-            </Button>
+            </button>
           </div>
         </div>
       );
@@ -797,22 +833,18 @@ export default function SessionDetails() {
 
     if (session.spotsRemaining <= 0) {
       return (
-        <div className="border-t pt-6 flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <div className="text-xs text-muted-foreground">Price per player</div>
-            <div className="text-3xl font-bold" data-testid="text-session-price">AED {session.priceAed}</div>
-          </div>
-          <Button
-            size="lg"
-            variant="outline"
-            className="gap-2"
+        <div style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 24 }} className="flex items-center justify-between gap-4 flex-wrap">
+          <PriceLabel amount={session.priceAed} large />
+          <button
+            type="button"
             onClick={() => waitlistMutation.mutate()}
             disabled={waitlistMutation.isPending}
             data-testid="button-join-waitlist"
+            style={{ ...ghostBtnStyle('lg'), opacity: waitlistMutation.isPending ? 0.6 : 1 }}
           >
-            <ListOrdered className="h-5 w-5" />
+            <ListOrdered style={{ width: 18, height: 18 }} />
             {waitlistMutation.isPending ? 'Joining...' : 'Join Waitlist'}
-          </Button>
+          </button>
         </div>
       );
     }
@@ -820,66 +852,80 @@ export default function SessionDetails() {
     return <InlineBookingPanel session={session} onBooked={handleBooked} />;
   };
 
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <motion.div initial="hidden" animate="visible" variants={stagger}>
-        <motion.div variants={fadeInUp}>
-          <Link href="/marketplace/book">
-            <Button variant="ghost" size="sm" className="mb-4 gap-1" data-testid="button-back">
-              <ArrowLeft className="h-4 w-4" /> Back to sessions
-            </Button>
-          </Link>
-        </motion.div>
+  const infoItems: SessionInfoItem[] = [
+    { icon: Calendar, label: 'Date', value: format(new Date(session.date), 'EEEE, MMMM d, yyyy') },
+    { icon: Clock, label: 'Time', value: session.endTime ? `${session.startTime} – ${session.endTime}` : session.startTime },
+    { icon: MapPin, label: 'Venue', value: session.venueName, sub: session.venueLocation, mapUrl: session.venueMapUrl },
+    { icon: Users, label: 'Capacity', value: `${session.courtCount} courts, ${session.capacity} max players` },
+    { icon: Banknote, label: 'Price', value: `AED ${session.priceAed} per player` },
+  ];
 
-        <motion.div variants={fadeInUp}>
-          <Card>
-            <CardHeader className="pb-4">
-              <div className="flex items-start justify-between gap-2 flex-wrap">
+  return (
+    <div style={{ background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY, minHeight: '100%' }}>
+      <div className="max-w-3xl mx-auto" style={{ padding: 'clamp(20px, 4vw, 40px) clamp(16px, 4vw, 32px) clamp(48px, 6vw, 80px)' }}>
+        <Reveal>
+          <Link href="/marketplace/book">
+            <button type="button" data-testid="button-back" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, marginBottom: 16, padding: 0 }}>
+              <ArrowLeft style={{ width: 16, height: 16 }} /> Back to sessions
+            </button>
+          </Link>
+        </Reveal>
+
+        <Reveal>
+          <div style={{ background: '#fff', borderRadius: 16, border: `1px solid ${MKT.navy}14`, overflow: 'hidden' }}>
+            {/* top level accent band */}
+            <div style={{ height: 5, background: tone.band }} />
+
+            <div style={{ padding: 'clamp(20px, 3vw, 28px)' }} className="space-y-6">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0 flex-1">
-                  <CardTitle className="text-2xl mb-1" data-testid="text-session-title">{session.title}</CardTitle>
-                  <p className="text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: 8 }}>
+                    {tone.hasLevel && <LevelTag tone={tone} />}
+                    <span
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 999,
+                        background: session.spotsRemaining > 0 ? 'rgba(0,30,70,0.06)' : '#F1D7D2',
+                        color: session.spotsRemaining > 0 ? MKT.inkSub : '#8E2C22',
+                        fontFamily: FF_MONO, fontWeight: 700, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+                      }}
+                    >
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: session.spotsRemaining > 0 ? MKT.teal : MKT.red }} />
+                      {session.spotsRemaining > 0 ? `${session.spotsRemaining} spots left` : 'Full'}
+                    </span>
+                  </div>
+                  <h1 data-testid="text-session-title" style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(26px, 4vw, 36px)', color: MKT.navy, letterSpacing: '-0.03em', lineHeight: 1.05 }}>
+                    {session.title}
+                  </h1>
+                  <p className="text-sm mt-2" style={{ color: MKT.inkSub }}>
                     {format(new Date(session.date), 'EEEE, MMMM d, yyyy')}
                     {session.startTime && (
-                      <span className="ml-1">
-                        · {session.startTime}{session.endTime ? ` – ${session.endTime}` : ''}
-                      </span>
+                      <span className="ml-1">· {session.startTime}{session.endTime ? ` – ${session.endTime}` : ''}</span>
                     )}
                   </p>
                 </div>
-                <Badge
-                  variant={session.spotsRemaining > 0 ? 'secondary' : 'destructive'}
-                  className="shrink-0"
-                >
-                  {session.spotsRemaining > 0 ? `${session.spotsRemaining} spots left` : 'Full'}
-                </Badge>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {([
-                  { icon: Calendar, label: 'Date', value: format(new Date(session.date), 'EEEE, MMMM d, yyyy') },
-                  { icon: Clock, label: 'Time', value: session.endTime ? `${session.startTime} – ${session.endTime}` : session.startTime },
-                  { icon: MapPin, label: 'Venue', value: session.venueName, sub: session.venueLocation, mapUrl: session.venueMapUrl },
-                  { icon: Users, label: 'Capacity', value: `${session.courtCount} courts, ${session.capacity} max players` },
-                  { icon: Banknote, label: 'Price', value: `AED ${session.priceAed} per player` },
-                ] as SessionInfoItem[]).map((item) => (
-                  <div key={item.label} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                    <div className="w-9 h-9 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
-                      <item.icon className="h-4 w-4 text-secondary" />
+
+              {/* Info tiles */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {infoItems.map((item) => (
+                  <div key={item.label} className="flex items-start gap-3 p-3 rounded-xl" style={{ background: MKT.cream, border: `1px solid ${MKT.navy}10` }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: MKT.tealMist, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+                      <item.icon style={{ width: 16, height: 16, color: MKT.tealD }} />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-xs text-muted-foreground">{item.label}</div>
-                      <div className="font-medium text-sm">{item.value}</div>
-                      {item.sub && <div className="text-xs text-muted-foreground">{item.sub}</div>}
+                      <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: MKT.inkSub }}>{item.label}</div>
+                      <div className="font-medium text-sm" style={{ color: MKT.ink }}>{item.value}</div>
+                      {item.sub && <div className="text-xs" style={{ color: MKT.inkSub }}>{item.sub}</div>}
                       {item.mapUrl && (
                         <a
                           href={item.mapUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-primary hover:underline"
+                          style={{ fontSize: 12, fontWeight: 600, color: MKT.tealD, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}
                           data-testid="link-session-detail-map"
                         >
-                          View on Google Maps
+                          <MapPin style={{ width: 12, height: 12 }} /> View on Google Maps
                         </a>
                       )}
                     </div>
@@ -887,37 +933,43 @@ export default function SessionDetails() {
                 ))}
               </div>
 
+              {/* Capacity */}
               <div>
                 <div className="flex items-center justify-between text-sm mb-2 flex-wrap gap-1">
-                  <span className="text-muted-foreground">Capacity</span>
+                  <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: MKT.inkSub }}>Capacity</span>
                   <div className="flex items-center gap-2">
-                    <span className="font-medium">{session.totalBookings} / {session.capacity} booked</span>
+                    <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 600, color: MKT.inkSub }}>{session.totalBookings} / {session.capacity} booked</span>
                     {session.waitlistCount > 0 && (
-                      <span className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-waitlist-count">
+                      <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 600, color: MKT.amber }} data-testid="text-waitlist-count">
                         + {session.waitlistCount} on waitlist
                       </span>
                     )}
                   </div>
                 </div>
-                <Progress value={capacityPercent} className="h-2" />
+                <div style={{ height: 6, borderRadius: 999, background: 'rgba(0,30,70,0.08)', overflow: 'hidden' }}>
+                  <div style={{ width: `${capacityPercent}%`, height: '100%', borderRadius: 999, background: capTone }} />
+                </div>
               </div>
 
+              {/* About */}
               {session.description && (
                 <div>
-                  <h3 className="font-semibold mb-2 flex items-center gap-2">
-                    <Info className="h-4 w-4 text-secondary" /> About this session
+                  <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 20, color: MKT.navy, letterSpacing: '-0.02em' }} className="mb-2 flex items-center gap-2">
+                    <Info style={{ width: 18, height: 18, color: MKT.teal }} /> About this session
                   </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{session.description}</p>
+                  <p className="text-sm leading-relaxed" style={{ color: MKT.inkSub }}>{session.description}</p>
                 </div>
               )}
 
+              {/* Who's playing */}
               {isAuthenticated && id && <WhosPlaying sessionId={id} />}
 
-              <div className="flex gap-3 p-4 rounded-md border border-orange-500/20 bg-orange-500/5">
-                <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0 mt-0.5" />
+              {/* Cancellation policy */}
+              <div className="flex gap-3 p-4 rounded-xl" style={{ background: '#F6E6CC55', border: '1px solid #C97B1733' }}>
+                <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" style={{ color: MKT.amber }} />
                 <div className="text-sm">
-                  <p className="font-medium text-orange-700 dark:text-orange-400 mb-1">Cancellation Policy</p>
-                  <ul className="text-muted-foreground space-y-0.5 text-xs leading-relaxed">
+                  <p className="font-medium mb-1" style={{ color: '#7A4A0E' }}>Cancellation Policy</p>
+                  <ul className="space-y-0.5 text-xs leading-relaxed" style={{ color: MKT.inkSub }}>
                     <li>Cancellations within 5 hours of the session start will forfeit the full payment.</li>
                     <li>Cancellations made more than 5 hours before the session are free.</li>
                     <li>No-shows may be charged 150% of the session price.</li>
@@ -926,10 +978,10 @@ export default function SessionDetails() {
               </div>
 
               {renderBottomSection()}
-            </CardContent>
-          </Card>
-        </motion.div>
-      </motion.div>
+            </div>
+          </div>
+        </Reveal>
+      </div>
     </div>
   );
 }
