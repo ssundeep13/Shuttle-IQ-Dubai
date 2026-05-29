@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import TagTrendingModal from '@/components/TagTrendingModal';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
 const TAG_MILESTONES = [5, 10, 25, 50];
@@ -550,6 +551,21 @@ export default function Dashboard() {
     return newest.skillScoreAfter - oldest.skillScoreBefore;
   }, [stats?.recentGames]);
 
+  // Compact skill-trend sparkline — same recentGames source My Scores uses, just
+  // summarized. Ascending by date (left = older, right = newer), last 15 games.
+  // Needs ≥2 valid points to draw a trend; fewer → empty state.
+  const skillSpark = useMemo(() => {
+    return [...(stats?.recentGames ?? [])]
+      .filter(g => g.date && g.skillScoreAfter != null)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(-15)
+      .map((g, i) => ({ i, score: g.skillScoreAfter as number }));
+  }, [stats?.recentGames]);
+
+  const sparkDelta = skillSpark.length >= 2
+    ? skillSpark[skillSpark.length - 1].score - skillSpark[0].score
+    : null;
+
   const totalLosses = stats ? Math.max(0, stats.totalGames - stats.totalWins) : 0;
   const tierLabel = stats ? getTierDisplayName(stats.player.level) : null;
 
@@ -823,6 +839,63 @@ export default function Dashboard() {
                     <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 12 }}>Connect your account to see your stats, rankings, and match history.</p>
                     <Link href="/marketplace/profile" style={{ ...ghostBtn('sm'), textDecoration: 'none' }} data-testid="button-link-profile">Go to Profile</Link>
                   </div>
+                </DashCard>
+              </Reveal>
+            )}
+
+            {stats && linkedPlayerId && (
+              <Reveal>
+                <DashCard testid="card-skill-trend">
+                  <DashHeader
+                    icon={<TrendingUp className="h-4 w-4" />}
+                    title="Skill Trend"
+                    action={<Link href="/marketplace/my-scores" style={seeAllLink} data-testid="link-skill-trend-full-stats">View full stats <ChevronRight className="h-3 w-3" /></Link>}
+                  />
+                  {skillSpark.length < 2 ? (
+                    <div
+                      data-testid="empty-skill-trend"
+                      className="text-center"
+                      style={{ padding: '18px 8px', borderRadius: 12, background: MKT.cream }}
+                    >
+                      <TrendingUp className="h-7 w-7 mx-auto mb-2" style={{ color: MKT.inkSub }} />
+                      <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 2 }}>
+                        Current skill score: <span data-testid="text-skill-trend-score">{stats.player.skillScore}</span>
+                      </p>
+                      <p style={{ fontSize: 13, color: MKT.inkSub }}>Play a few games to see your skill trend.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-end justify-between gap-3" style={{ marginBottom: 10 }}>
+                        <div>
+                          <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Skill score</div>
+                          <div style={{ marginTop: 6, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 3vw, 36px)', color: MKT.navy, letterSpacing: '-0.03em', lineHeight: 1 }} data-testid="text-skill-trend-score">{stats.player.skillScore}</div>
+                        </div>
+                        {sparkDelta != null && (
+                          <span
+                            data-testid="text-skill-trend-delta"
+                            style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: sparkDelta >= 0 ? '#DDEEE2' : '#F1D7D2', color: sparkDelta >= 0 ? '#1A6A45' : '#8E2C22', whiteSpace: 'nowrap' }}
+                          >
+                            {sparkDelta > 0 ? '+' : ''}{sparkDelta} pts
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ height: 64 }} data-testid="chart-skill-trend">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={skillSpark} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="dashSkillSpark" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={MKT.teal} stopOpacity={0.28} />
+                                <stop offset="95%" stopColor={MKT.teal} stopOpacity={0.02} />
+                              </linearGradient>
+                            </defs>
+                            <YAxis hide domain={['dataMin - 2', 'dataMax + 2']} />
+                            <Area type="monotone" dataKey="score" stroke={MKT.teal} strokeWidth={2} fill="url(#dashSkillSpark)" dot={false} isAnimationActive={false} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 6 }}>Last {skillSpark.length} games</p>
+                    </>
+                  )}
                 </DashCard>
               </Reveal>
             )}
