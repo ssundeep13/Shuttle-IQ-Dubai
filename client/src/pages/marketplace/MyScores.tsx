@@ -1,24 +1,19 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type CSSProperties, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from 'wouter';
 import {
-  Trophy, TrendingUp, TrendingDown, Swords, ChevronDown,
-  BarChart3, Target, Flame, Users, ArrowLeft, Share2,
-  CheckCircle2, XCircle, Zap, CalendarDays, Flag, Tag as TagIcon, Check, ChevronRight, History
+  Trophy, TrendingUp, TrendingDown, Swords, BarChart3, Target, Flame, Users, ArrowLeft, Share2,
+  CheckCircle2, XCircle, Zap, CalendarDays, Flag, Tag as TagIcon, Check, ChevronRight, History,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine,
-  ResponsiveContainer
+  AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
@@ -26,12 +21,10 @@ import { apiRequest } from '@/lib/queryClient';
 import type { PlayerStats, OpponentStats, PartnerStats, ScoreDispute, PlayerTopTag } from '@shared/schema';
 import TagPlayersDialog from '@/components/TagPlayersDialog';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
-const fadeInUp = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
-};
-const stagger = { visible: { transition: { staggerChildren: 0.06 } } };
+const WIN_GREEN = '#1F8A5B';
+const LOSS_RED = '#B23A2E';
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -49,16 +42,51 @@ function getTeamChemistry(winRate: number): { label: string; color: string } {
   if (winRate >= 40) return { label: 'Average', color: 'text-yellow-600' };
   return { label: 'Needs Work', color: 'text-red-500' };
 }
-
 function getChemistryBarColor(winRate: number): string {
-  if (winRate >= 65) return 'bg-green-500';
-  if (winRate >= 50) return 'bg-blue-500';
-  if (winRate >= 40) return 'bg-yellow-500';
-  return 'bg-red-500';
+  if (winRate >= 65) return WIN_GREEN;
+  if (winRate >= 50) return '#2A6FDB';
+  if (winRate >= 40) return MKT.amber;
+  return LOSS_RED;
 }
-
 function getInitial(name: string): string {
   return name.charAt(0).toUpperCase();
+}
+
+// ── Shared styled primitives (look only) ─────────────────────────────────────
+const cardStyle: CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${MKT.navy}12` };
+function DashCard({ children, testid, style }: { children: ReactNode; testid?: string; style?: CSSProperties }) {
+  return <div data-testid={testid} style={{ ...cardStyle, padding: '18px 20px', ...style }}>{children}</div>;
+}
+function navyBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
+    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: '1.5px solid transparent',
+    background: MKT.navy, color: '#fff', borderColor: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
+  };
+}
+function ghostBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
+    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: `1.5px solid ${MKT.navy}33`,
+    background: '#fff', color: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
+  };
+}
+const eyebrow: CSSProperties = { fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' };
+const bigNum: CSSProperties = { fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(34px, 5vw, 44px)', color: MKT.navy, letterSpacing: '-0.04em', lineHeight: 1 };
+
+function StatTile({ icon, value, label, sub, testid, accent }: { icon: ReactNode; value: ReactNode; label: string; sub?: ReactNode; testid: string; accent?: boolean }) {
+  return (
+    <DashCard testid={testid} style={accent ? { background: MKT.tealMist, borderColor: `${MKT.teal}33` } : undefined}>
+      <div style={{ width: 32, height: 32, borderRadius: 8, background: accent ? 'rgba(0,107,95,0.15)' : MKT.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12, color: accent ? MKT.tealD : MKT.inkSub }}>
+        {icon}
+      </div>
+      <div style={bigNum}>{value}</div>
+      <div style={{ fontSize: 11, color: MKT.inkSub, marginTop: 4 }}>{label}</div>
+      {sub && <div style={{ fontSize: 10, color: MKT.inkMute, marginTop: 2 }}>{sub}</div>}
+    </DashCard>
+  );
 }
 
 interface ChartDot {
@@ -66,18 +94,10 @@ interface ChartDot {
   cy: number;
   payload: { won: boolean };
 }
-
 function CustomDot(props: ChartDot) {
   const { cx, cy, payload } = props;
   return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={4}
-      fill={payload.won ? '#059669' : '#ef4444'}
-      stroke="white"
-      strokeWidth={2}
-    />
+    <circle cx={cx} cy={cy} r={4} fill={payload.won ? WIN_GREEN : LOSS_RED} stroke="white" strokeWidth={2} />
   );
 }
 
@@ -87,6 +107,7 @@ export default function MyScores() {
   const linkedPlayerId = user?.linkedPlayerId;
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const reduce = useReducedMotion();
 
   const [flaggingGameId, setFlaggingGameId] = useState<string | null>(null);
   const [flagNote, setFlagNote] = useState('');
@@ -159,31 +180,31 @@ export default function MyScores() {
     },
   });
 
+  const pageWrap = (children: ReactNode) => (
+    <div style={{ background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY, minHeight: '100%' }}>{children}</div>
+  );
+
   if (!linkedPlayerId) {
-    return (
+    return pageWrap(
       <div className="max-w-4xl mx-auto px-4 py-8">
-        <h1 className="text-2xl font-bold mb-6" data-testid="text-page-title">My Scores</h1>
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <h3 className="font-semibold mb-2">Link your ShuttleIQ profile to see your scores</h3>
-            <p className="text-sm text-muted-foreground mb-3 max-w-sm mx-auto">
-              Connect your account to unlock your stats, rankings, and full match history.
-            </p>
-            <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground mb-5 max-w-sm mx-auto text-left">
-              <span className="font-medium text-foreground">What's a ShuttleIQ ID?</span> It's a unique code (e.g. SIQ-00081) assigned to you by your session organiser. Ask them if you don't have one yet.
-            </div>
-            <Link href="/marketplace/profile">
-              <Button data-testid="button-link-profile">Go to Profile Settings</Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 4vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', marginBottom: 24 }} data-testid="text-page-title">My Scores</h1>
+        <DashCard style={{ padding: 32, textAlign: 'center' }}>
+          <Trophy className="h-12 w-12 mx-auto mb-3" style={{ color: MKT.inkSub }} />
+          <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 20, color: MKT.navy, marginBottom: 8 }}>Link your ShuttleIQ profile to see your scores</h3>
+          <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 12, maxWidth: 360, marginLeft: 'auto', marginRight: 'auto' }}>
+            Connect your account to unlock your stats, rankings, and full match history.
+          </p>
+          <div style={{ borderRadius: 12, border: `1px solid ${MKT.navy}12`, background: MKT.cream, padding: 12, fontSize: 14, color: MKT.inkSub, marginBottom: 20, maxWidth: 360, marginLeft: 'auto', marginRight: 'auto', textAlign: 'left' }}>
+            <span style={{ fontWeight: 600, color: MKT.ink }}>What's a ShuttleIQ ID?</span> It's a unique code (e.g. SIQ-00081) assigned to you by your session organiser. Ask them if you don't have one yet.
+          </div>
+          <Link href="/marketplace/profile" style={{ ...navyBtn('md'), textDecoration: 'none' }} data-testid="button-link-profile">Go to Profile Settings</Link>
+        </DashCard>
       </div>
     );
   }
 
   if (isLoading) {
-    return (
+    return pageWrap(
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between gap-2 flex-wrap mb-6">
           <Skeleton className="h-8 w-20" />
@@ -207,14 +228,7 @@ export default function MyScores() {
   const trendLabel = stats.performanceTrend === 'improving' ? 'Improving'
     : stats.performanceTrend === 'declining' ? 'Declining'
     : 'Stable';
-  const trendIcon = stats.performanceTrend === 'declining' ? TrendingDown : TrendingUp;
-  const TrendIcon = trendIcon;
-  const trendBgColor = stats.performanceTrend === 'improving'
-    ? 'bg-green-500/20 text-green-300'
-    : stats.performanceTrend === 'declining'
-    ? 'bg-red-500/20 text-red-300'
-    : 'bg-white/20 text-white/80';
-
+  const TrendIcon = stats.performanceTrend === 'declining' ? TrendingDown : TrendingUp;
   const recentWinPct = Math.round(stats.recentWinRate);
 
   const streakDisplay = stats.currentStreak.count > 0
@@ -256,234 +270,146 @@ export default function MyScores() {
 
   return (
     <>
-    <div className="max-w-4xl mx-auto px-4 py-6">
-      <motion.div initial="hidden" animate="visible" variants={stagger}>
-        <motion.div variants={fadeInUp} className="flex items-center justify-between gap-2 flex-wrap mb-5">
-          <Link href="/marketplace/dashboard">
-            <Button variant="ghost" size="sm" data-testid="button-back">
-              <ArrowLeft className="h-4 w-4 mr-1" /> Back
-            </Button>
+    {pageWrap(
+    <div className="max-w-5xl mx-auto" style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 24px) clamp(48px, 6vw, 64px)' }}>
+      {/* Top bar */}
+      <Reveal>
+        <div className="flex items-center justify-between gap-2 flex-wrap" style={{ marginBottom: 18 }}>
+          <Link href="/marketplace/dashboard" data-testid="button-back" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>
+            <ArrowLeft className="h-4 w-4" /> Back
           </Link>
-          <Button variant="outline" size="sm" onClick={handleShareProfile} data-testid="button-share-profile">
-            {copied
-              ? <><Check className="h-4 w-4 mr-1" /> Copied!</>
-              : <><Share2 className="h-4 w-4 mr-1" /> Share Profile</>
-            }
-          </Button>
-        </motion.div>
+          <button type="button" onClick={handleShareProfile} data-testid="button-share-profile" style={ghostBtn('sm')}>
+            {copied ? <><Check className="h-4 w-4" /> Copied!</> : <><Share2 className="h-4 w-4" /> Share Profile</>}
+          </button>
+        </div>
+      </Reveal>
 
-        <motion.div variants={fadeInUp}>
-          <div
-            className="rounded-xl p-5 md:p-6 mb-6 flex items-center gap-4 md:gap-6 relative overflow-hidden"
-            style={{ background: 'linear-gradient(135deg, #0f2b46 0%, #163a5f 50%, #1a4a6e 100%)' }}
-            data-testid="hero-banner"
-          >
-            <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white/20 border-2 border-white/30 flex items-center justify-center text-white text-xl md:text-2xl font-bold shrink-0">
-              {getInitial(stats.player.name)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl md:text-2xl font-bold text-white truncate" data-testid="text-player-name">
-                {stats.player.name}
-              </h1>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                {stats.player.shuttleIqId && (
-                  <Badge className="bg-teal-600/80 text-white text-xs border-0 no-default-hover-elevate no-default-active-elevate">
-                    {stats.player.shuttleIqId}
-                  </Badge>
-                )}
-                <span className="text-white/70 text-sm">
-                  {stats.player.gender === 'Male' ? 'M' : 'F'} &middot; {getTierDisplayName(stats.player.level)} ({stats.player.skillScore})
+      {/* Hero — flat brand navy identity block */}
+      <Reveal>
+        <div
+          className="flex items-center gap-4 md:gap-6"
+          style={{ background: MKT.navy, color: '#fff', borderRadius: 16, padding: 'clamp(18px, 3vw, 24px)', marginBottom: 24, position: 'relative', overflow: 'hidden' }}
+          data-testid="hero-banner"
+        >
+          <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: '2px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, flex: 'none' }}>
+            {getInitial(stats.player.name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(20px, 3vw, 28px)', color: '#fff', letterSpacing: '-0.025em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid="text-player-name">
+              {stats.player.name}
+            </h1>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {stats.player.shuttleIqId && (
+                <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, background: 'rgba(0,107,95,0.9)', color: '#fff', padding: '3px 8px', borderRadius: 6, letterSpacing: '0.02em' }}>
+                  {stats.player.shuttleIqId}
                 </span>
-              </div>
-              <div className="mt-2">
-                <span className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full ${trendBgColor}`}>
-                  <TrendIcon className="h-3 w-3" />
-                  {trendLabel} ({recentWinPct}% recent)
-                </span>
-              </div>
+              )}
+              <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
+                {stats.player.gender === 'Male' ? 'M' : 'F'} &middot; {getTierDisplayName(stats.player.level)} ({stats.player.skillScore})
+              </span>
             </div>
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-teal-600 border-2 border-teal-400 flex flex-col items-center justify-center shrink-0">
-              <span className="text-white font-bold text-lg md:text-2xl leading-none">{stats.player.skillScore}</span>
-              <span className="text-teal-200 text-[10px] md:text-xs">pts</span>
+            <div className="mt-2">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '3px 10px', borderRadius: 999, background: stats.performanceTrend === 'improving' ? 'rgba(31,138,91,0.25)' : stats.performanceTrend === 'declining' ? 'rgba(178,58,46,0.25)' : 'rgba(255,255,255,0.18)', color: '#fff' }}>
+                <TrendIcon className="h-3 w-3" />
+                {trendLabel} ({recentWinPct}% recent)
+              </span>
             </div>
           </div>
-        </motion.div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <Card className="h-full" data-testid="card-stat-games">
-            <CardContent className="p-4">
-              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                <Target className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.totalGames}</div>
-              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Games Played</div>
-            </CardContent>
-          </Card>
-
-          <Card className="h-full" data-testid="card-stat-wins">
-            <CardContent className="p-4">
-              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                <Trophy className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.totalWins}</div>
-              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Total Wins</div>
-            </CardContent>
-          </Card>
-
-          <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-winrate">
-            <CardContent className="p-4">
-              <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
-                <TrendingUp className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-              </div>
-              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.winRate}%</div>
-              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Win Rate</div>
-            </CardContent>
-          </Card>
-
-          <Card className="h-full" data-testid="card-stat-streak">
-            <CardContent className="p-4">
-              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                <Flame className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{streakDisplay}</div>
-              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Current Streak</div>
-            </CardContent>
-          </Card>
-
-          <Card className="h-full" data-testid="card-stat-rank">
-            <CardContent className="p-4">
-              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>#{stats.rankBySkillScore}</div>
-              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Skill Rank</div>
-              <div className="text-[10px] text-muted-foreground">of {stats.totalPlayersRanked}</div>
-            </CardContent>
-          </Card>
-
-          <Card className="h-full" data-testid="card-stat-diff">
-            <CardContent className="p-4">
-              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>
-                {stats.avgScoreDifferential > 0 ? '+' : ''}{stats.avgScoreDifferential}
-              </div>
-              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Avg Differential</div>
-              <div className="text-[10px] text-muted-foreground">
-                {stats.avgPointsFor} for / {stats.avgPointsAgainst} against
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-beststreak">
-            <CardContent className="p-4">
-              <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
-                <Zap className="h-4 w-4 text-teal-600 dark:text-teal-400" />
-              </div>
-              <div className="font-extrabold leading-none dark:text-foreground" style={{ fontSize: '48px', letterSpacing: '-0.04em', color: '#003E8C' }}>{stats.longestWinStreak}W</div>
-              <div className="text-[11px] text-muted-foreground mt-1" style={{ fontWeight: 400 }}>Best Streak</div>
-              <div className="text-[10px] text-muted-foreground">Worst: {stats.longestLossStreak}L</div>
-            </CardContent>
-          </Card>
-
-          <Card className="h-full" data-testid="card-stat-tags-received">
-            <CardContent className="p-4">
-              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
-                <TagIcon className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="section-overline mb-2">Tags Received</div>
-              {communityTopTags.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground leading-snug">Play games and get tagged by teammates!</p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {communityTopTags.map(({ tag, count }) => (
-                    <span
-                      key={tag.id}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
-                      data-testid={`pill-tag-${tag.id}`}
-                    >
-                      {tag.emoji} {tag.label}
-                      <span className="opacity-60">{count}×</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <div style={{ width: 72, height: 72, borderRadius: '50%', background: MKT.teal, border: '2px solid #2A8D81', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
+            <span style={{ fontFamily: FF_DISPLAY, color: '#fff', fontWeight: 700, fontSize: 'clamp(18px, 3vw, 24px)', lineHeight: 1 }}>{stats.player.skillScore}</span>
+            <span style={{ color: '#C7E5D3', fontSize: 11 }}>pts</span>
+          </div>
         </div>
+      </Reveal>
 
-        {allValidGames.length > 0 && (
-          <motion.div variants={fadeInUp}>
-            <Card className="mb-6" data-testid="card-skill-progression">
-              <CardHeader className="pb-1">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-muted-foreground" /> Skill Score Progression
-                  </CardTitle>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {totalChange !== 0 && chartData.length > 0 && (
-                      <Badge
-                        variant="outline"
-                        className={`text-xs ${totalChange > 0 ? 'bg-green-500/10 text-green-600 border-green-500/20' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}
+      {/* Stat tiles */}
+      <Reveal>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3" style={{ marginBottom: 24 }}>
+          <StatTile testid="card-stat-games" icon={<Target className="h-4 w-4" />} value={stats.totalGames} label="Games Played" />
+          <StatTile testid="card-stat-wins" icon={<Trophy className="h-4 w-4" />} value={stats.totalWins} label="Total Wins" />
+          <StatTile testid="card-stat-winrate" icon={<TrendingUp className="h-4 w-4" />} value={`${stats.winRate}%`} label="Win Rate" accent />
+          <StatTile testid="card-stat-streak" icon={<Flame className="h-4 w-4" />} value={streakDisplay} label="Current Streak" />
+          <StatTile testid="card-stat-rank" icon={<BarChart3 className="h-4 w-4" />} value={`#${stats.rankBySkillScore}`} label="Skill Rank" sub={`of ${stats.totalPlayersRanked}`} />
+          <StatTile testid="card-stat-diff" icon={<BarChart3 className="h-4 w-4" />} value={`${stats.avgScoreDifferential > 0 ? '+' : ''}${stats.avgScoreDifferential}`} label="Avg Differential" sub={`${stats.avgPointsFor} for / ${stats.avgPointsAgainst} against`} />
+          <StatTile testid="card-stat-beststreak" icon={<Zap className="h-4 w-4" />} value={`${stats.longestWinStreak}W`} label="Best Streak" sub={`Worst: ${stats.longestLossStreak}L`} accent />
+          <DashCard testid="card-stat-tags-received">
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: MKT.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8, color: MKT.inkSub }}>
+              <TagIcon className="h-4 w-4" />
+            </div>
+            <div style={{ ...eyebrow, marginBottom: 8 }}>Tags Received</div>
+            {communityTopTags.length === 0 ? (
+              <p style={{ fontSize: 11, color: MKT.inkSub, lineHeight: 1.4 }}>Play games and get tagged by teammates!</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {communityTopTags.map(({ tag, count }) => (
+                  <span
+                    key={tag.id}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
+                    data-testid={`pill-tag-${tag.id}`}
+                  >
+                    {tag.emoji} {tag.label}
+                    <span className="opacity-60">{count}×</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </DashCard>
+        </div>
+      </Reveal>
+
+      {/* Skill Score Progression (recharts kept, brand-recolored) */}
+      {allValidGames.length > 0 && (
+        <Reveal>
+          <DashCard testid="card-skill-progression" style={{ marginBottom: 24 }}>
+            <div className="flex items-center justify-between gap-2 flex-wrap" style={{ marginBottom: 4 }}>
+              <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <TrendingUp className="h-4 w-4" style={{ color: MKT.teal }} /> Skill Score Progression
+              </h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                {totalChange !== 0 && chartData.length > 0 && (
+                  <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: totalChange > 0 ? '#DDEEE2' : '#F1D7D2', color: totalChange > 0 ? '#1A6A45' : '#8E2C22' }}>
+                    {totalChange > 0 ? '+' : ''}{totalChange} pts
+                  </span>
+                )}
+                <div className="flex gap-1" data-testid="filter-progression" style={{ background: 'rgba(0,30,70,0.06)', borderRadius: 10, padding: 4 }}>
+                  {(['last10', 'monthly', 'all'] as const).map(f => {
+                    const active = progressionFilter === f;
+                    return (
+                      <button
+                        key={f}
+                        onClick={() => setProgressionFilter(f)}
+                        data-testid={`filter-progression-${f}`}
+                        style={{ padding: '6px 10px', borderRadius: 7, border: 'none', cursor: 'pointer', background: active ? '#fff' : 'transparent', color: active ? MKT.navy : MKT.inkSub, fontFamily: FF_BODY, fontWeight: 600, fontSize: 12, boxShadow: active ? `0 0 0 1px ${MKT.navy}14` : 'none' }}
                       >
-                        {totalChange > 0 ? '+' : ''}{totalChange} pts
-                      </Badge>
-                    )}
-                    <div className="flex gap-1" data-testid="filter-progression">
-                      {(['last10', 'monthly', 'all'] as const).map(f => (
-                        <Button
-                          key={f}
-                          size="sm"
-                          variant={progressionFilter === f ? 'default' : 'ghost'}
-                          onClick={() => setProgressionFilter(f)}
-                          data-testid={`filter-progression-${f}`}
-                        >
-                          {f === 'last10' ? 'Last 10' : f === 'monthly' ? 'This Month' : 'All Time'}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
+                        {f === 'last10' ? 'Last 10' : f === 'monthly' ? 'This Month' : 'All Time'}
+                      </button>
+                    );
+                  })}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {progressionFilter === 'last10' ? 'Last 10 games' : progressionFilter === 'monthly' ? 'Last 30 days' : 'All games'}
-                </p>
-              </CardHeader>
-              <CardContent className="pt-2">
-                {chartData.length === 0 ? (
-                  <div className="h-32 flex items-center justify-center text-muted-foreground text-sm">
-                    No games in this period
-                  </div>
-                ) : (
-                <>
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: MKT.inkSub, marginBottom: 8 }}>
+              {progressionFilter === 'last10' ? 'Last 10 games' : progressionFilter === 'monthly' ? 'Last 30 days' : 'All games'}
+            </p>
+            {chartData.length === 0 ? (
+              <div className="h-32 flex items-center justify-center" style={{ color: MKT.inkSub, fontSize: 14 }}>
+                No games in this period
+              </div>
+            ) : (
+              <>
                 <div className="h-52">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <defs>
                         <linearGradient id="skillGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#0d9488" stopOpacity={0.02} />
+                          <stop offset="5%" stopColor={MKT.teal} stopOpacity={0.3} />
+                          <stop offset="95%" stopColor={MKT.teal} stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fontSize: 11 }}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 11 }}
-                        tickLine={false}
-                        axisLine={false}
-                        domain={['dataMin - 5', 'dataMax + 5']}
-                      />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} domain={['dataMin - 5', 'dataMax + 5']} />
                       <Tooltip
-                        contentStyle={{
-                          borderRadius: '8px',
-                          border: '1px solid hsl(var(--border))',
-                          background: 'hsl(var(--card))',
-                          fontSize: '12px',
-                        }}
+                        contentStyle={{ borderRadius: '8px', border: `1px solid ${MKT.navy}1F`, background: '#fff', fontSize: '12px' }}
                         formatter={(value: number) => [`${value}`, 'Skill Score']}
                       />
                       <ReferenceLine
@@ -496,7 +422,7 @@ export default function MyScores() {
                       <Area
                         type="monotone"
                         dataKey="score"
-                        stroke="#0d9488"
+                        stroke={MKT.teal}
                         strokeWidth={2}
                         fill="url(#skillGradient)"
                         dot={(props: Record<string, unknown>) => <CustomDot {...(props as unknown as ChartDot)} />}
@@ -505,358 +431,294 @@ export default function MyScores() {
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex items-center justify-center gap-4 mt-2 text-xs text-muted-foreground">
+                <div className="flex items-center justify-center gap-4 mt-2 text-xs" style={{ color: MKT.inkSub }}>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-green-600 inline-block" /> Win
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: WIN_GREEN, display: 'inline-block' }} /> Win
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> Loss
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: LOSS_RED, display: 'inline-block' }} /> Loss
                   </span>
                   <span className="flex items-center gap-1">
                     <span className="w-6 border-t-2 border-dashed border-slate-400 inline-block" /> Starting Point
                   </span>
                 </div>
-                </>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-
-        {(stats.rivals.length > 0 || stats.frequentPartners.length > 0) && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            {stats.rivals.length > 0 && (
-              <motion.div variants={fadeInUp}>
-                <Card className="h-full" data-testid="card-rivals">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Swords className="h-4 w-4 text-muted-foreground" /> Rivals
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground">Your most frequent opponents</p>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {stats.rivals.slice(0, 4).map((rival: OpponentStats) => {
-                      const rWinRate = Math.round(rival.winRate);
-                      const rBarColor = rWinRate >= 50 ? 'bg-teal-500' : 'bg-red-400';
-                      const rBadgeColor = rWinRate >= 50
-                        ? 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300';
-                      return (
-                        <Link key={rival.player.id} href={`/marketplace/players/${rival.player.id}`}>
-                          <div className="rounded-lg border p-3 hover-elevate cursor-pointer" data-testid={`rival-${rival.player.id}`}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-semibold shrink-0">
-                                {getInitial(rival.player.name)}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm truncate">{rival.player.name}</div>
-                                <div className="text-xs text-muted-foreground">{getTierDisplayName(rival.player.level)} ({rival.player.skillScore})</div>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <div className="text-xs font-semibold">
-                                  <span className="text-teal-600 dark:text-teal-400">{rival.winsAgainst}W</span>
-                                  {' - '}
-                                  <span className="text-red-500">{rival.lossesAgainst}L</span>
-                                </div>
-                                <div className="text-[10px] text-muted-foreground">{rival.gamesAgainst} games</div>
-                              </div>
-                              <Badge className={`text-xs shrink-0 no-default-hover-elevate no-default-active-elevate ${rBadgeColor} border-0`}>
-                                ~ {rWinRate}%
-                              </Badge>
-                            </div>
-                            <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
-                              <div className={`h-full rounded-full transition-all ${rBarColor}`} style={{ width: `${rWinRate}%` }} />
-                            </div>
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              </motion.div>
+              </>
             )}
+          </DashCard>
+        </Reveal>
+      )}
 
-            {stats.frequentPartners.length > 0 && (
-              <motion.div variants={fadeInUp}>
-                <Card className="h-full" data-testid="card-partners">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Users className="h-4 w-4 text-muted-foreground" /> Partners
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground">Players you've teamed up with most</p>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {stats.frequentPartners.slice(0, 4).map((partner: PartnerStats, idx: number) => {
-                      const pWinRate = Math.round(partner.winRate);
-                      const chemistry = getTeamChemistry(partner.winRate);
-                      const pBarColor = getChemistryBarColor(partner.winRate);
-                      const pBadgeColor = pWinRate >= 50
-                        ? 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300';
-                      const isBestPartner = idx === 0 && stats.bestPartner?.player.id === partner.player.id;
-                      return (
-                        <Link key={partner.player.id} href={`/marketplace/players/${partner.player.id}`}>
-                          <div className="rounded-lg border p-3 hover-elevate cursor-pointer" data-testid={`partner-${partner.player.id}`}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-semibold shrink-0 relative">
-                                {getInitial(partner.player.name)}
-                                {isBestPartner && (
-                                  <span className="absolute -top-1 -right-1 text-yellow-500 text-xs">
-                                    <Zap className="h-3 w-3 fill-yellow-500" />
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm truncate">{partner.player.name}</div>
-                                <div className="text-xs text-muted-foreground">{getTierDisplayName(partner.player.level)} ({partner.player.skillScore})</div>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <div className="text-xs font-semibold">{partner.gamesTogether} games</div>
-                                <div className="text-[10px] text-muted-foreground">{partner.winsTogether} wins</div>
-                              </div>
-                              <Badge className={`text-xs shrink-0 no-default-hover-elevate no-default-active-elevate ${pBadgeColor} border-0`}>
-                                {pWinRate}%
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-2 mt-2">
-                              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                                <div className={`h-full rounded-full transition-all ${pBarColor}`} style={{ width: `${pWinRate}%` }} />
-                              </div>
-                              <span className={`text-[10px] font-medium shrink-0 ${chemistry.color}`}>{chemistry.label}</span>
-                            </div>
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              </motion.div>
-            )}
-          </div>
-        )}
-
-        {untaggedCount > 0 && linkedPlayerId && (
-          <motion.div variants={fadeInUp} className="mb-4">
-            <div
-              className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 px-4 py-3 flex items-center gap-3 flex-wrap"
-              data-testid="banner-untagged-nudge"
-            >
-              <TagIcon className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                  {untaggedCount === 1
-                    ? '1 game from this week needs tags'
-                    : `${untaggedCount} games from this week need tags`}
-                </p>
-                <p className="text-xs text-amber-700/70 dark:text-amber-400/70">
-                  Recognise great play — scroll down to tag
-                </p>
-              </div>
-              {firstUntaggedGameId && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="shrink-0 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300"
-                  onClick={() => setTaggingGameId(firstUntaggedGameId)}
-                  data-testid="button-nudge-tag-now"
-                >
-                  Tag now
-                </Button>
-              )}
-            </div>
-          </motion.div>
-        )}
-
-        {stats.recentGames.length > 0 && (
-          <motion.div variants={fadeInUp}>
-            <Card data-testid="card-recent-games">
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <CalendarDays className="h-4 w-4 text-muted-foreground" /> Recent Games
-                  </CardTitle>
-                  <div className="flex items-center gap-1">
-                    {last5Results.map((won, i) => (
-                      <span
-                        key={i}
-                        className={`w-6 h-6 rounded-md text-[10px] font-bold flex items-center justify-center text-white ${won ? 'bg-teal-600' : 'bg-red-500'}`}
-                      >
-                        {won ? 'W' : 'L'}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-0">
-                  {stats.recentGames.slice(0, 10).map((game) => {
-                    const eloChange = (game.skillScoreAfter != null && game.skillScoreBefore != null)
-                      ? game.skillScoreAfter - game.skillScoreBefore
-                      : null;
-                    const gameDate = game.date ? format(new Date(game.date), 'M/d/yyyy') : '';
-                    const tagGameDate = game.date ? new Date(game.date) : null;
-                    const withinWindow = !!linkedPlayerId && tagGameDate && tagGameDate >= thirtyDaysAgo;
-                    const canTag = withinWindow && !taggedGameSet.has(game.gameId);
-                    const alreadyTagged = taggedGameSet.has(game.gameId);
-                    const expired = !!linkedPlayerId && tagGameDate && tagGameDate < thirtyDaysAgo && !alreadyTagged;
-
+      {/* Rivals + Partners */}
+      {(stats.rivals.length > 0 || stats.frequentPartners.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ marginBottom: 24 }}>
+          {stats.rivals.length > 0 && (
+            <Reveal>
+              <DashCard testid="card-rivals" style={{ height: '100%' }}>
+                <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <Swords className="h-4 w-4" style={{ color: MKT.teal }} /> Rivals
+                </h3>
+                <p style={{ fontSize: 12, color: MKT.inkSub, margin: '2px 0 12px' }}>Your most frequent opponents</p>
+                <div className="space-y-3">
+                  {stats.rivals.slice(0, 4).map((rival: OpponentStats) => {
+                    const rWinRate = Math.round(rival.winRate);
+                    const rBarColor = rWinRate >= 50 ? MKT.teal : LOSS_RED;
                     return (
-                      <div
-                        key={game.gameId}
-                        className={`py-3 border-b last:border-0 pl-3 rounded-l-sm border-l-[3px] ${game.won ? 'border-l-teal-500' : 'border-l-red-400'}`}
-                        data-testid={`row-game-${game.gameId}`}
-                      >
-                        {/* Row 1: outcome + score (left) · date (right) */}
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            {game.won ? (
-                              <CheckCircle2 className="h-4 w-4 shrink-0 text-teal-600" />
-                            ) : (
-                              <XCircle className="h-4 w-4 shrink-0 text-red-400" />
-                            )}
-                            <span className={`text-sm font-semibold ${game.won ? 'text-teal-700 dark:text-teal-400' : 'text-red-600 dark:text-red-400'}`}>
-                              {game.won ? 'Won' : 'Lost'} {game.score}
-                            </span>
+                      <Link key={rival.player.id} href={`/marketplace/players/${rival.player.id}`}>
+                        <div style={{ borderRadius: 12, border: `1px solid ${MKT.navy}10`, padding: 12, cursor: 'pointer', background: MKT.cream }} data-testid={`rival-${rival.player.id}`}>
+                          <div className="flex items-center gap-3">
+                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MKT.navy, flex: 'none' }}>
+                              {getInitial(rival.player.name)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div style={{ fontWeight: 600, fontSize: 14, color: MKT.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rival.player.name}</div>
+                              <div style={{ fontSize: 12, color: MKT.inkSub }}>{getTierDisplayName(rival.player.level)} ({rival.player.skillScore})</div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div style={{ fontSize: 12, fontWeight: 700 }}>
+                                <span style={{ color: MKT.tealD }}>{rival.winsAgainst}W</span>{' - '}<span style={{ color: LOSS_RED }}>{rival.lossesAgainst}L</span>
+                              </div>
+                              <div style={{ fontSize: 10, color: MKT.inkSub }}>{rival.gamesAgainst} games</div>
+                            </div>
+                            <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 999, background: rWinRate >= 50 ? MKT.tealMist : '#F1D7D2', color: rWinRate >= 50 ? MKT.tealD : '#8E2C22' }}>~ {rWinRate}%</span>
                           </div>
-                          <span className="text-xs text-muted-foreground shrink-0">{gameDate}</span>
-                        </div>
-
-                        {/* Row 2: partner name (full, linked) */}
-                        <div className="mt-1 text-xs text-muted-foreground pl-6">
-                          Partner:{' '}
-                          {game.partnerId ? (
-                            <Link
-                              href={`/marketplace/players/${game.partnerId}`}
-                              className="font-medium text-foreground underline-offset-2 hover:underline"
-                              data-testid={`link-partner-${game.partnerId}`}
-                            >
-                              {game.partnerName}
-                            </Link>
-                          ) : (
-                            <span className="font-medium text-foreground">{game.partnerName}</span>
-                          )}
-                        </div>
-
-                        {/* Row 3: opponent names (full, each individually linked) */}
-                        <div className="mt-0.5 text-xs text-muted-foreground pl-6">
-                          vs{' '}
-                          {game.opponentNames.map((name, idx) => {
-                            const opId = game.opponentIds?.[idx];
-                            return (
-                              <span key={opId || idx}>
-                                {idx > 0 && <span className="mx-0.5 text-muted-foreground/60">&amp;</span>}
-                                {opId ? (
-                                  <Link
-                                    href={`/marketplace/players/${opId}`}
-                                    className="font-medium text-foreground underline-offset-2 hover:underline"
-                                    data-testid={`link-opponent-${opId}`}
-                                  >
-                                    {name}
-                                  </Link>
-                                ) : (
-                                  <span className="font-medium text-foreground">{name}</span>
-                                )}
-                              </span>
-                            );
-                          })}
-                        </div>
-
-                        {/* Row 4: ELO badge (left) · tag + flag actions (right) */}
-                        <div className="mt-1.5 pl-6 flex items-center justify-between gap-2">
-                          <div>
-                            {eloChange !== null && eloChange !== 0 && (
-                              <Badge
-                                variant="outline"
-                                className={`text-xs no-default-hover-elevate no-default-active-elevate ${eloChange > 0 ? 'bg-green-500/10 text-green-600 border-green-500/20 dark:text-green-400' : 'bg-red-500/10 text-red-500 border-red-500/20'}`}
-                              >
-                                {eloChange > 0 ? '+' : ''}{eloChange}
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-0.5">
-                            {expired ? (
-                              <UITooltip>
-                                <UITooltipTrigger asChild>
-                                  <span className="inline-flex" data-testid={`button-tag-game-${game.gameId}`}>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="text-muted-foreground/30 pointer-events-none"
-                                      tabIndex={-1}
-                                      aria-disabled="true"
-                                    >
-                                      <TagIcon className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </span>
-                                </UITooltipTrigger>
-                                <UITooltipContent side="left">Tagging closed after 30 days</UITooltipContent>
-                              </UITooltip>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className={alreadyTagged ? 'text-teal-500' : canTag ? 'text-muted-foreground/60' : 'invisible'}
-                                onClick={() => canTag && setTaggingGameId(game.gameId)}
-                                disabled={!canTag && !alreadyTagged}
-                                data-testid={`button-tag-game-${game.gameId}`}
-                              >
-                                {alreadyTagged ? <Check className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
-                              </Button>
-                            )}
-                            {flaggedGameIds.has(game.gameId) ? (
-                              <Badge
-                                variant="outline"
-                                className="text-xs text-muted-foreground border-muted-foreground/30 no-default-hover-elevate no-default-active-elevate"
-                                data-testid={`badge-flagged-${game.gameId}`}
-                              >
-                                <Flag className="h-3 w-3 mr-1" />
-                                Flagged
-                              </Badge>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-muted-foreground/50"
-                                onClick={() => { setFlaggingGameId(game.gameId); setFlagNote(''); }}
-                                title="Flag incorrect score"
-                                data-testid={`button-flag-game-${game.gameId}`}
-                              >
-                                <Flag className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
+                          <div style={{ marginTop: 8, height: 6, borderRadius: 999, background: 'rgba(0,30,70,0.08)', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', borderRadius: 999, background: rBarColor, width: `${rWinRate}%`, transition: 'width 0.4s ease' }} />
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
+              </DashCard>
+            </Reveal>
+          )}
 
-        {linkedPlayerId && (
-          <motion.div variants={fadeInUp}>
-            <Link href="/marketplace/game-history" data-testid="link-full-game-history">
-              <div className="flex items-center justify-between px-4 py-3 rounded-lg border bg-muted/30 hover-elevate cursor-pointer">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <History className="h-4 w-4 text-muted-foreground" />
-                  View full game history
+          {stats.frequentPartners.length > 0 && (
+            <Reveal>
+              <DashCard testid="card-partners" style={{ height: '100%' }}>
+                <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <Users className="h-4 w-4" style={{ color: MKT.teal }} /> Partners
+                </h3>
+                <p style={{ fontSize: 12, color: MKT.inkSub, margin: '2px 0 12px' }}>Players you've teamed up with most</p>
+                <div className="space-y-3">
+                  {stats.frequentPartners.slice(0, 4).map((partner: PartnerStats, idx: number) => {
+                    const pWinRate = Math.round(partner.winRate);
+                    const chemistry = getTeamChemistry(partner.winRate);
+                    const pBarColor = getChemistryBarColor(partner.winRate);
+                    const isBestPartner = idx === 0 && stats.bestPartner?.player.id === partner.player.id;
+                    return (
+                      <Link key={partner.player.id} href={`/marketplace/players/${partner.player.id}`}>
+                        <div style={{ borderRadius: 12, border: `1px solid ${MKT.navy}10`, padding: 12, cursor: 'pointer', background: MKT.cream }} data-testid={`partner-${partner.player.id}`}>
+                          <div className="flex items-center gap-3">
+                            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MKT.navy, flex: 'none', position: 'relative' }}>
+                              {getInitial(partner.player.name)}
+                              {isBestPartner && (
+                                <span style={{ position: 'absolute', top: -4, right: -4, color: MKT.amber }}>
+                                  <Zap className="h-3 w-3" style={{ fill: MKT.amber }} />
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div style={{ fontWeight: 600, fontSize: 14, color: MKT.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{partner.player.name}</div>
+                              <div style={{ fontSize: 12, color: MKT.inkSub }}>{getTierDisplayName(partner.player.level)} ({partner.player.skillScore})</div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <div style={{ fontSize: 12, fontWeight: 700, color: MKT.ink }}>{partner.gamesTogether} games</div>
+                              <div style={{ fontSize: 10, color: MKT.inkSub }}>{partner.winsTogether} wins</div>
+                            </div>
+                            <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 999, background: pWinRate >= 50 ? MKT.tealMist : '#F1D7D2', color: pWinRate >= 50 ? MKT.tealD : '#8E2C22' }}>{pWinRate}%</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <div style={{ flex: 1, height: 6, borderRadius: 999, background: 'rgba(0,30,70,0.08)', overflow: 'hidden' }}>
+                              <div style={{ height: '100%', borderRadius: 999, background: pBarColor, width: `${pWinRate}%`, transition: 'width 0.4s ease' }} />
+                            </div>
+                            <span className={`text-[10px] font-medium shrink-0 ${chemistry.color}`}>{chemistry.label}</span>
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
                 </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              </DashCard>
+            </Reveal>
+          )}
+        </div>
+      )}
+
+      {/* Untagged nudge */}
+      {untaggedCount > 0 && linkedPlayerId && (
+        <Reveal>
+          <div style={{ borderRadius: 12, border: `1px solid ${MKT.amber}33`, background: '#F6E6CC55', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 16 }} data-testid="banner-untagged-nudge">
+            <TagIcon className="h-4 w-4 shrink-0" style={{ color: MKT.amber }} />
+            <div className="flex-1 min-w-0">
+              <p style={{ fontSize: 14, fontWeight: 600, color: '#7A4A0E' }}>
+                {untaggedCount === 1 ? '1 game from this week needs tags' : `${untaggedCount} games from this week need tags`}
+              </p>
+              <p style={{ fontSize: 12, color: MKT.inkSub }}>Recognise great play — scroll down to tag</p>
+            </div>
+            {firstUntaggedGameId && (
+              <button type="button" onClick={() => setTaggingGameId(firstUntaggedGameId)} data-testid="button-nudge-tag-now" style={{ ...ghostBtn('sm'), borderColor: `${MKT.amber}66`, color: '#7A4A0E' }}>
+                Tag now
+              </button>
+            )}
+          </div>
+        </Reveal>
+      )}
+
+      {/* Recent Games */}
+      {stats.recentGames.length > 0 && (
+        <Reveal>
+          <DashCard testid="card-recent-games">
+            <div className="flex items-center justify-between gap-2 flex-wrap" style={{ marginBottom: 12 }}>
+              <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <CalendarDays className="h-4 w-4" style={{ color: MKT.teal }} /> Recent Games
+              </h3>
+              <div className="flex items-center gap-1">
+                {last5Results.map((won, i) => (
+                  <span key={i} style={{ width: 24, height: 24, borderRadius: 6, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', background: won ? MKT.teal : LOSS_RED }}>
+                    {won ? 'W' : 'L'}
+                  </span>
+                ))}
               </div>
-            </Link>
-          </motion.div>
-        )}
-      </motion.div>
+            </div>
+            <div className="space-y-0">
+              {stats.recentGames.slice(0, 10).map((game, gi) => {
+                const eloChange = (game.skillScoreAfter != null && game.skillScoreBefore != null)
+                  ? game.skillScoreAfter - game.skillScoreBefore
+                  : null;
+                const gameDate = game.date ? format(new Date(game.date), 'M/d/yyyy') : '';
+                const tagGameDate = game.date ? new Date(game.date) : null;
+                const withinWindow = !!linkedPlayerId && tagGameDate && tagGameDate >= thirtyDaysAgo;
+                const canTag = withinWindow && !taggedGameSet.has(game.gameId);
+                const alreadyTagged = taggedGameSet.has(game.gameId);
+                const expired = !!linkedPlayerId && tagGameDate && tagGameDate < thirtyDaysAgo && !alreadyTagged;
+
+                return (
+                  <Reveal key={game.gameId} delay={reduce ? 0 : Math.min(gi * 0.04, 0.3)}>
+                    <div
+                      style={{ padding: '12px 0 12px 12px', borderBottom: `1px solid ${MKT.line}`, borderLeft: `3px solid ${game.won ? MKT.teal : LOSS_RED}`, borderTopLeftRadius: 2, borderBottomLeftRadius: 2 }}
+                      data-testid={`row-game-${game.gameId}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          {game.won ? <CheckCircle2 className="h-4 w-4 shrink-0" style={{ color: MKT.tealD }} /> : <XCircle className="h-4 w-4 shrink-0" style={{ color: LOSS_RED }} />}
+                          <span style={{ fontSize: 14, fontWeight: 600, color: game.won ? MKT.tealD : '#8E2C22' }}>
+                            {game.won ? 'Won' : 'Lost'} {game.score}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: 12, color: MKT.inkSub }} className="shrink-0">{gameDate}</span>
+                      </div>
+
+                      <div style={{ marginTop: 4, fontSize: 12, color: MKT.inkSub, paddingLeft: 24 }}>
+                        Partner:{' '}
+                        {game.partnerId ? (
+                          <Link href={`/marketplace/players/${game.partnerId}`} style={{ fontWeight: 600, color: MKT.ink, textDecoration: 'none' }} data-testid={`link-partner-${game.partnerId}`}>
+                            {game.partnerName}
+                          </Link>
+                        ) : (
+                          <span style={{ fontWeight: 600, color: MKT.ink }}>{game.partnerName}</span>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: 2, fontSize: 12, color: MKT.inkSub, paddingLeft: 24 }}>
+                        vs{' '}
+                        {game.opponentNames.map((name, idx) => {
+                          const opId = game.opponentIds?.[idx];
+                          return (
+                            <span key={opId || idx}>
+                              {idx > 0 && <span style={{ margin: '0 2px', color: MKT.inkMute }}>&amp;</span>}
+                              {opId ? (
+                                <Link href={`/marketplace/players/${opId}`} style={{ fontWeight: 600, color: MKT.ink, textDecoration: 'none' }} data-testid={`link-opponent-${opId}`}>
+                                  {name}
+                                </Link>
+                              ) : (
+                                <span style={{ fontWeight: 600, color: MKT.ink }}>{name}</span>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2" style={{ marginTop: 6, paddingLeft: 24 }}>
+                        <div>
+                          {eloChange !== null && eloChange !== 0 && (
+                            <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: eloChange > 0 ? '#DDEEE2' : '#F1D7D2', color: eloChange > 0 ? '#1A6A45' : '#8E2C22' }}>
+                              {eloChange > 0 ? '+' : ''}{eloChange}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-0.5">
+                          {expired ? (
+                            <UITooltip>
+                              <UITooltipTrigger asChild>
+                                <span className="inline-flex" data-testid={`button-tag-game-${game.gameId}`}>
+                                  <button type="button" tabIndex={-1} aria-disabled="true" style={{ background: 'transparent', border: 'none', padding: 8, color: 'rgba(0,30,70,0.25)', cursor: 'default' }}>
+                                    <TagIcon className="h-3.5 w-3.5" />
+                                  </button>
+                                </span>
+                              </UITooltipTrigger>
+                              <UITooltipContent side="left">Tagging closed after 30 days</UITooltipContent>
+                            </UITooltip>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => canTag && setTaggingGameId(game.gameId)}
+                              disabled={!canTag && !alreadyTagged}
+                              data-testid={`button-tag-game-${game.gameId}`}
+                              style={{ background: 'transparent', border: 'none', padding: 8, cursor: canTag ? 'pointer' : 'default', color: alreadyTagged ? MKT.teal : canTag ? MKT.inkSub : 'transparent', visibility: (!canTag && !alreadyTagged) ? 'hidden' : 'visible' }}
+                            >
+                              {alreadyTagged ? <Check className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
+                            </button>
+                          )}
+                          {flaggedGameIds.has(game.gameId) ? (
+                            <span style={{ fontSize: 11, color: MKT.inkSub, border: `1px solid ${MKT.navy}22`, padding: '2px 8px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 4 }} data-testid={`badge-flagged-${game.gameId}`}>
+                              <Flag className="h-3 w-3" /> Flagged
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setFlaggingGameId(game.gameId); setFlagNote(''); }}
+                              title="Flag incorrect score"
+                              data-testid={`button-flag-game-${game.gameId}`}
+                              style={{ background: 'transparent', border: 'none', padding: 8, cursor: 'pointer', color: 'rgba(0,30,70,0.4)' }}
+                            >
+                              <Flag className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Reveal>
+                );
+              })}
+            </div>
+          </DashCard>
+        </Reveal>
+      )}
+
+      {/* Full game history link */}
+      {linkedPlayerId && (
+        <Reveal>
+          <Link href="/marketplace/game-history" data-testid="link-full-game-history">
+            <div className="flex items-center justify-between" style={{ padding: '12px 16px', borderRadius: 12, border: `1px solid ${MKT.navy}12`, background: '#fff', cursor: 'pointer', marginTop: 24 }}>
+              <div className="flex items-center gap-2" style={{ fontSize: 14, fontWeight: 600, color: MKT.ink }}>
+                <History className="h-4 w-4" style={{ color: MKT.inkSub }} />
+                View full game history
+              </div>
+              <ChevronRight className="h-4 w-4" style={{ color: MKT.inkSub }} />
+            </div>
+          </Link>
+        </Reveal>
+      )}
     </div>
+    )}
 
     {/* Flag / Dispute Dialog */}
     <Dialog open={!!flaggingGameId} onOpenChange={(open) => { if (!open) setFlaggingGameId(null); }}>
       <DialogContent data-testid="dialog-flag-game">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Flag className="h-4 w-4 text-amber-500" />
+            <Flag className="h-4 w-4" style={{ color: MKT.amber }} />
             Flag Incorrect Score
           </DialogTitle>
         </DialogHeader>
@@ -875,16 +737,18 @@ export default function MyScores() {
           <p className="text-xs text-muted-foreground text-right">{flagNote.length}/500</p>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setFlaggingGameId(null)} data-testid="button-flag-cancel">
+          <button type="button" onClick={() => setFlaggingGameId(null)} data-testid="button-flag-cancel" style={ghostBtn('md')}>
             Cancel
-          </Button>
-          <Button
+          </button>
+          <button
+            type="button"
             onClick={() => { if (flaggingGameId) fileMutation.mutate({ gameResultId: flaggingGameId, note: flagNote }); }}
             disabled={fileMutation.isPending}
             data-testid="button-flag-submit"
+            style={{ ...navyBtn('md'), opacity: fileMutation.isPending ? 0.6 : 1 }}
           >
             {fileMutation.isPending ? 'Submitting...' : 'Submit Dispute'}
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
