@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type CSSProperties } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -348,11 +348,18 @@ export default function Profile() {
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
+  // Brand restyle tokens (look only — no logic/testids touched)
+  const PAGE_CREAM = '#F5EFE0';
+  const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+  const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
+  const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, fontWeight: 700, color: '#003E8C', letterSpacing: '-0.01em' };
+
   return (
+    <div style={{ background: PAGE_CREAM, color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif", minHeight: '100%' }}>
     <div className="max-w-3xl mx-auto px-4 py-8">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-8">
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Profile</h1>
+          <h1 className="font-bold" data-testid="text-page-title" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 4vw, 40px)', color: '#003E8C', letterSpacing: '-0.03em' }}>Profile</h1>
         </motion.div>
 
         <motion.div variants={fadeInUp} className="flex items-center gap-4 mb-8">
@@ -391,7 +398,7 @@ export default function Profile() {
             </Button>
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-semibold" data-testid="text-profile-name">{user?.name}</h2>
+            <h2 className="font-semibold" data-testid="text-profile-name" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: '#003E8C', letterSpacing: '-0.02em' }}>{user?.name}</h2>
             <p className="text-sm text-muted-foreground">{user?.email}</p>
             <div className="flex flex-wrap items-center gap-2 mt-1">
               {user?.linkedPlayer && (
@@ -416,9 +423,9 @@ export default function Profile() {
 
         <div className="space-y-6">
           <motion.div variants={fadeInUp}>
-            <Card>
+            <Card style={cardChrome}>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
+                <CardTitle className="text-base flex items-center gap-2" style={titleStyle}>
                   <User className="h-4 w-4 text-secondary" /> Account Details
                 </CardTitle>
               </CardHeader>
@@ -581,9 +588,9 @@ export default function Profile() {
 
           {user && !user.emailVerified && (
             <motion.div variants={fadeInUp}>
-              <Card className="border-amber-500/40 bg-amber-500/5">
+              <Card style={{ background: '#F6E6CC55', border: '1px solid rgba(201,123,23,0.33)', borderRadius: 14, boxShadow: 'none' }}>
                 <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
+                  <CardTitle className="text-base flex items-center gap-2" style={{ ...titleStyle, color: '#7A4A0E' }}>
                     <AlertTriangle className="h-4 w-4 text-amber-600" /> Verify your email
                   </CardTitle>
                 </CardHeader>
@@ -604,9 +611,9 @@ export default function Profile() {
           )}
 
           <motion.div variants={fadeInUp}>
-            <Card>
+            <Card style={cardChrome}>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
+                <CardTitle className="text-base flex items-center gap-2" style={titleStyle}>
                   <Link2 className="h-4 w-4 text-secondary" /> ShuttleIQ Player Profile
                 </CardTitle>
               </CardHeader>
@@ -1016,9 +1023,9 @@ export default function Profile() {
           </motion.div>
 
           <motion.div variants={fadeInUp}>
-            <Card>
+            <Card style={cardChrome}>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
+                <CardTitle className="text-base flex items-center gap-2" style={titleStyle}>
                   <LogOut className="h-4 w-4 text-secondary" /> Account
                 </CardTitle>
               </CardHeader>
@@ -1040,6 +1047,7 @@ export default function Profile() {
           </motion.div>
         </div>
       </motion.div>
+    </div>
     </div>
   );
 }
