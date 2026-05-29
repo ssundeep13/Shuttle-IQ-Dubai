@@ -151,13 +151,13 @@ export default function MarketplaceHome() {
         </div>
       </section>
 
-      {/* ───────────────────── WELCOME PROMO (AED 15 / jersey15) ───────────────────── */}
+      {/* ───────────────────── REFERRAL PROMO (AED 15 each) ───────────────────── */}
       {!isAuthenticated && (
         <section style={{ padding: 'clamp(20px, 3vw, 28px) clamp(20px, 5vw, 64px) 0' }}>
           <Reveal>
             <Link
-              href="/marketplace/signup?promo=jersey15"
-              data-testid="link-home-promo-jersey15"
+              href="/marketplace/signup"
+              data-testid="link-home-promo-referral"
               className="siq-hover-lift"
               style={{
                 display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
@@ -171,17 +171,17 @@ export default function MarketplaceHome() {
               </span>
               <div style={{ flex: 1, minWidth: 240 }}>
                 <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: MKT.amber, marginBottom: 3 }}>
-                  Welcome offer
+                  Refer &amp; earn
                 </div>
                 <div style={{ fontFamily: FF_DISPLAY, fontSize: 'clamp(18px, 2vw, 22px)', fontWeight: 600, color: MKT.navy, letterSpacing: '-0.02em', lineHeight: 1.15 }}>
-                  AED 15 free credit when you sign up
+                  You and a friend both get AED 15
                 </div>
                 <div style={{ marginTop: 3, fontSize: 13, color: MKT.inkSub }}>
-                  Lands in your wallet instantly — spend it on your first session booking.
+                  Sign up with a friend&apos;s referral code — you each get AED 15 after your first game.
                 </div>
               </div>
               <span style={{ fontSize: 14, fontWeight: 600, color: MKT.navy, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-                Claim AED 15 <MIcon name="arrowSm" size={14} color={MKT.navy} sw={2.2} />
+                Sign up <MIcon name="arrowSm" size={14} color={MKT.navy} sw={2.2} />
               </span>
             </Link>
           </Reveal>

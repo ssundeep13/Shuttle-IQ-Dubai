@@ -2,23 +2,17 @@ import { eq, sql, and } from "drizzle-orm";
 import { db } from "./db";
 import { marketplaceUsers, players } from "@shared/schema";
 
-export const JERSEY_PROMO_SLUG = "jersey15";
-export const JERSEY_PROMO_CREDIT_FILS = 1500;
-
-export function creditForPromo(promo: string | undefined | null): number {
-  if (!promo) return 0;
-  if (promo.trim().toLowerCase() === JERSEY_PROMO_SLUG) {
-    return JERSEY_PROMO_CREDIT_FILS;
-  }
-  return 0;
-}
-
 /**
- * Apply any pending signup credit on a marketplace user to a player wallet.
+ * Drain any pending wallet credit staged on a marketplace user onto a linked
+ * player wallet. Used by the referral flow: when a referred friend is still
+ * unlinked at completion time, their AED 15 credit is staged on
+ * marketplaceUsers.pendingSignupCreditFils and lands here the moment they
+ * link a player.
+ *
  * Idempotent: zeros the pending field after credit, so repeated calls are
  * safe.
  */
-export async function applyPendingSignupCredit(
+export async function applyPendingWalletCredit(
   marketplaceUserId: string,
   playerId: string,
 ): Promise<number> {
@@ -53,14 +47,14 @@ export async function applyPendingSignupCredit(
       .where(eq(players.id, playerId))
       .returning();
     if (!updatedPlayer) {
-      throw new Error(`Player ${playerId} not found while applying signup credit`);
+      throw new Error(`Player ${playerId} not found while applying pending wallet credit`);
     }
     return credit;
   });
 
   if (applied > 0) {
     console.log(
-      `[Promo] Applied ${applied} fils signup credit to player ${playerId} from marketplace user ${marketplaceUserId}`,
+      `[Wallet] Applied ${applied} fils pending credit to player ${playerId} from marketplace user ${marketplaceUserId}`,
     );
   }
   return applied;

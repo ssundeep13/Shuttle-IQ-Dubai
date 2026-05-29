@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
-const SIGNUP_HREF = '/marketplace/signup?promo=jersey15';
+const SIGNUP_HREF = '/marketplace/signup';
 
 const ADVANTAGES = [
   {
@@ -54,10 +54,10 @@ export default function Welcome() {
         <div className="relative mx-auto max-w-2xl text-center">
           <Badge
             className="mb-4 border-teal-400/30 bg-teal-500/15 text-teal-200 hover:bg-teal-500/15"
-            data-testid="badge-jersey-offer"
+            data-testid="badge-referral-offer"
           >
             <Gift className="mr-1 h-3 w-3" />
-            AED 15 free credit on signup
+            Refer a friend — you both get AED 15
           </Badge>
           <h1
             className="text-3xl font-extrabold tracking-tight sm:text-4xl md:text-5xl"
@@ -82,12 +82,12 @@ export default function Welcome() {
                 className="w-full max-w-xs bg-teal-300 text-[#001638] hover:bg-teal-200 border-teal-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
                 data-testid="button-hero-claim"
               >
-                Claim AED 15 — Sign Up
+                Sign Up Free
                 <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
             </Link>
             <p className="text-xs text-white/60" data-testid="text-hero-footnote">
-              Takes 30 seconds. Use it on your first booking.
+              Takes 30 seconds. Got a friend&apos;s code? Even better.
             </p>
           </div>
         </div>
@@ -107,14 +107,14 @@ export default function Welcome() {
                     className="text-sm font-semibold text-foreground"
                     data-testid="text-offer-title"
                   >
-                    Welcome credit: AED 15
+                    Referral bonus: AED 15 each
                   </p>
                   <p
                     className="text-sm text-muted-foreground"
                     data-testid="text-offer-body"
                   >
-                    Lands in your wallet the moment you sign up. Spend it on
-                    your next session booking.
+                    Sign up with a friend&apos;s code — you both get AED 15
+                    after your first game.
                   </p>
                 </div>
               </div>
@@ -269,7 +269,7 @@ export default function Welcome() {
               className="mt-4"
               data-testid="button-secondary-claim"
             >
-              Sign up &amp; grab AED 15
+              Sign up free
               <ArrowRight className="ml-1 h-4 w-4" />
             </Button>
           </Link>
@@ -294,18 +294,18 @@ export default function Welcome() {
               className="truncate text-xs font-semibold text-foreground"
               data-testid="text-sticky-title"
             >
-              AED 15 welcome credit
+              AED 15 referral bonus
             </p>
             <p
               className="truncate text-[11px] text-muted-foreground"
               data-testid="text-sticky-subtitle"
             >
-              Auto-applied at signup
+              For you and your friend
             </p>
           </div>
           <Link href={SIGNUP_HREF} className="shrink-0">
             <Button data-testid="button-sticky-claim">
-              Claim AED 15
+              Sign up
               <ArrowRight className="ml-1 h-4 w-4" />
             </Button>
           </Link>

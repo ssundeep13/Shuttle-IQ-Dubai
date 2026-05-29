@@ -3492,7 +3492,7 @@ export class DatabaseStorage implements IStorage {
       }
 
       // Credit the referee — wallet if linked, otherwise stage on the user
-      // record so applyPendingSignupCredit drains it at link time.
+      // record so applyPendingWalletCredit drains it at link time.
       let refereeWasUnlinked = false;
       if (params.refereeLinkedPlayerId) {
         const [updatedReferee] = await tx

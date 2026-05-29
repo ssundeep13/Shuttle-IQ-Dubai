@@ -37,7 +37,7 @@ import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and, inArray, desc, asc, gt } from "drizzle-orm";
 import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults } from "@shared/schema";
-import { applyPendingSignupCredit, creditForPromo } from "./promos";
+import { applyPendingWalletCredit } from "./promos";
 import {
   generateBracketedLineups,
   buildRestStatesFromHistory,
@@ -264,12 +264,8 @@ export function registerMarketplaceRoutes(app: Express) {
           .array(z.number().int().min(1).max(4))
           .length(3, 'Please answer all three skill questions'),
         referralCode: z.string().optional(),
-        promo: z.string().optional(),
       });
-      const { email, password, name, phone, gender, assessmentAnswers, referralCode, promo } = schema.parse(req.body);
-      // Jersey promo gives the new signup AED 15 wallet credit. It is
-      // ignored if a referral code is also used so credits don't stack.
-      const promoCredit = referralCode ? 0 : creditForPromo(promo);
+      const { email, password, name, phone, gender, assessmentAnswers, referralCode } = schema.parse(req.body);
 
       // Compute starting skill server-side. Hard cap at 95 — Advanced /
       // Professional are earned through gameplay only.
@@ -293,7 +289,7 @@ export function registerMarketplaceRoutes(app: Express) {
           phone: phone || null,
           linkedPlayerId: null,
           role: "player",
-          pendingSignupCreditFils: promoCredit,
+          pendingSignupCreditFils: 0,
           emailVerified: false,
           emailVerificationToken: verificationToken,
           emailVerificationTokenExpiry: verificationExpiry,
@@ -943,8 +939,6 @@ export function registerMarketplaceRoutes(app: Express) {
         if (returnDomain) qs.set('returnDomain', returnDomain);
         const returnPath = (req.query.returnPath as string) || '';
         if (returnPath) qs.set('returnPath', returnPath);
-        const promo = (req.query.promo as string) || '';
-        if (promo) qs.set('promo', promo);
         return res.redirect(`https://${canonicalDomain}/api/marketplace/auth/google?${qs.toString()}`);
       }
 
@@ -965,13 +959,6 @@ export function registerMarketplaceRoutes(app: Express) {
       }
       if (returnPath && returnPath.startsWith('/marketplace/') && returnPath.length < 300) {
         res.cookie('oauth_return_path', returnPath, cookieOpts);
-      }
-
-      // Carry promo slug through OAuth so /welcome → Google → callback
-      // still grants the AED 15 jersey signup credit.
-      const promo = req.query.promo as string | undefined;
-      if (promo && /^[a-z0-9_-]{1,32}$/i.test(promo)) {
-        res.cookie('oauth_promo', promo, cookieOpts);
       }
 
       const url = client.generateAuthUrl({
@@ -1010,10 +997,8 @@ export function registerMarketplaceRoutes(app: Express) {
       // Read and clear return-context cookies
       const returnDomain: string | undefined = req.cookies?.oauth_return_domain;
       const returnPath: string | undefined = req.cookies?.oauth_return_path;
-      const promo: string | undefined = req.cookies?.oauth_promo;
       res.clearCookie('oauth_return_domain', clearOpts);
       res.clearCookie('oauth_return_path', clearOpts);
-      res.clearCookie('oauth_promo', clearOpts);
 
       const { client } = getGoogleOAuthClient();
       const { tokens } = await client.getToken(code);
@@ -1056,10 +1041,7 @@ export function registerMarketplaceRoutes(app: Express) {
           await storage.updateMarketplaceUser(user.id, updates);
           user = { ...user, ...updates } as typeof user;
         } else {
-          // Brand new account via Google. The jersey promo slug (if any)
-          // grants the same AED 15 wallet credit as the email/password
-          // signup flow.
-          const promoCredit = creditForPromo(promo);
+          // Brand new account via Google.
           user = await storage.createMarketplaceUser({
             email,
             passwordHash: null,
@@ -1068,7 +1050,7 @@ export function registerMarketplaceRoutes(app: Express) {
             linkedPlayerId: null,
             role: 'player',
             googleId,
-            pendingSignupCreditFils: promoCredit,
+            pendingSignupCreditFils: 0,
             emailVerified: true,
             photoUrl: googlePicture ?? null,
           });
@@ -1187,7 +1169,7 @@ export function registerMarketplaceRoutes(app: Express) {
           code: "PLAYER_ALREADY_LINKED",
         });
       }
-      await applyPendingSignupCredit(req.user.userId, playerId);
+      await applyPendingWalletCredit(req.user.userId, playerId);
       res.json({ success: true, player });
     } catch (error) {
       console.error("link-player error:", error);
@@ -1468,7 +1450,7 @@ export function registerMarketplaceRoutes(app: Express) {
           code: "PLAYER_ALREADY_LINKED",
         });
       }
-      await applyPendingSignupCredit(req.user.userId, playerId);
+      await applyPendingWalletCredit(req.user.userId, playerId);
       console.info(`[audit] link-player via OTP: marketplaceUser=${req.user.userId} playerId=${playerId}`);
       res.json({ success: true, player });
     } catch (error) {
@@ -1673,7 +1655,7 @@ export function registerMarketplaceRoutes(app: Express) {
             code: "PLAYER_ALREADY_LINKED",
           });
         }
-        await applyPendingSignupCredit(req.user.userId, playerId);
+        await applyPendingWalletCredit(req.user.userId, playerId);
 
         console.info(
           `[audit] player-contact-change: marketplaceUser=${req.user.userId} playerId=${playerId} field=${request.field} old=${request.oldValue ?? ''} new=${request.newValue} verifiedAt=${new Date().toISOString()}`,
@@ -2022,7 +2004,7 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       await storage.updateMarketplaceUser(marketplaceUserId, { linkedPlayerId: playerId });
-      await applyPendingSignupCredit(marketplaceUserId, playerId);
+      await applyPendingWalletCredit(marketplaceUserId, playerId);
       res.json({ success: true });
     } catch (error) {
       console.error("admin/link-player error:", error);

@@ -27,7 +27,6 @@ interface MarketplaceAuthContextType {
     gender: 'Male' | 'Female';
     assessmentAnswers: [number, number, number];
     referralCode?: string;
-    promo?: string;
     remember?: boolean;
   }) => Promise<void>;
   loginWithTokens: (
@@ -203,7 +202,6 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     gender: 'Male' | 'Female';
     assessmentAnswers: [number, number, number];
     referralCode?: string;
-    promo?: string;
     remember?: boolean;
   }) => {
     const remember = input.remember ?? true;
@@ -218,7 +216,6 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
         assessmentAnswers: input.assessmentAnswers,
       };
       if (input.referralCode) payload.referralCode = input.referralCode;
-      if (input.promo) payload.promo = input.promo;
       const response = await fetch('/api/marketplace/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
