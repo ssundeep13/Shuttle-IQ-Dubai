@@ -516,33 +516,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Booking not found" });
       }
 
-      // Referral completion: check if this is the player's first-ever attended booking
-      if (booking.status === 'confirmed' || booking.status === 'attended') {
-        (async () => {
-          try {
-            const user = await storage.getMarketplaceUser(booking.userId);
-            if (!user?.linkedPlayerId) return;
-
-            const allBookings = await storage.getUserBookings(booking.userId);
-            const attendedCount = allBookings.filter(b => b.attendedAt && !b.isGuestBooking).length;
-            if (attendedCount > 1) return;
-
-            // Lookup referral: try by linked player ID first, then by marketplace user ID
-            let referral = await storage.getReferralByRefereePlayerId(user.linkedPlayerId);
-            if (!referral) {
-              referral = await storage.getReferralByRefereeUserId(booking.userId);
-            }
-            if (!referral || referral.status !== 'pending') return;
-
-            const result = await completeReferral(referral.id);
-            if (result.success) {
-              console.log(`[Referral] Completed referral ${referral.id}: ${user.name} (attendance hook)`);
-            }
-          } catch (err) {
-            console.error('[Referral] Completion hook error:', err);
-          }
-        })();
-      }
+      // PR2: attendance-based referral trigger removed. Referral completion
+      // now happens at first confirmed payment (Ziina webhook / cash-paid /
+      // admin-confirm / full-wallet / waitlist-promotion-cash), not on
+      // check-in. The admin force-complete endpoint at
+      // POST /api/referrals/:id/complete (below) still uses completeReferral
+      // for the manual-override case.
 
       res.json(updated);
     } catch (error) {

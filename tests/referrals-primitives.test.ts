@@ -39,6 +39,8 @@ import {
   completeReferralOnPayment,
   clawbackReferralForBooking,
   completeReferral,
+  fireReferralOnPayment,
+  fireReferralClawback,
 } from '../server/referrals';
 
 const REFERRER = {
@@ -405,5 +407,106 @@ describe('completeReferral (admin path)', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/already/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// PR2 wiring helpers — fire-and-forget wrappers that callers can invoke
+// at payment-confirmation / cancel sites without worrying about referral
+// internals breaking payment flow.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe('fireReferralOnPayment', () => {
+  it('forwards (userId, bookingId) to completeReferralOnPayment via storage', async () => {
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(undefined);
+
+    await fireReferralOnPayment('user-1', 'booking-1');
+
+    expect(storage.getReferralByRefereeUserId).toHaveBeenCalledWith('user-1');
+  });
+
+  it('never rejects, even when the underlying primitive throws', async () => {
+    (storage.getReferralByRefereeUserId as any).mockRejectedValue(new Error('db down'));
+
+    await expect(fireReferralOnPayment('user-1', 'booking-1')).resolves.toBeUndefined();
+  });
+
+  it('never rejects on the no-referral happy-bail case', async () => {
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(undefined);
+
+    await expect(fireReferralOnPayment('user-no-ref', 'booking-1')).resolves.toBeUndefined();
+  });
+
+  it('drives the full happy path through to credit emails', async () => {
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(PENDING_REFERRAL);
+    (storage.getMarketplaceUser as any).mockResolvedValue(REFEREE_USER_LINKED);
+    (storage.applyReferralCompletionAtomic as any).mockResolvedValue({
+      applied: true,
+      updatedReferrer: REFERRER,
+      refereeWasUnlinked: false,
+    });
+    (storage.getCompletedReferralCount as any).mockResolvedValue(1);
+
+    await fireReferralOnPayment('mp-user-friend', 'booking-1');
+
+    expect(storage.applyReferralCompletionAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({ triggeringBookingId: 'booking-1', completionMethod: 'first_payment' }),
+    );
+    expect(email.sendReferralCreditEmail).toHaveBeenCalledTimes(1);
+    expect(email.sendReferralFriendCreditEmail).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('fireReferralClawback', () => {
+  it('forwards bookingId to clawbackReferralForBooking via storage', async () => {
+    (storage.findCompletedReferralForBooking as any).mockResolvedValue(undefined);
+
+    await fireReferralClawback('booking-1');
+
+    expect(storage.findCompletedReferralForBooking).toHaveBeenCalledWith('booking-1');
+  });
+
+  it('never rejects when the underlying primitive throws', async () => {
+    (storage.findCompletedReferralForBooking as any).mockRejectedValue(new Error('db down'));
+
+    await expect(fireReferralClawback('booking-1')).resolves.toBeUndefined();
+  });
+
+  it('is a no-op when the booking did not trigger any referral', async () => {
+    (storage.findCompletedReferralForBooking as any).mockResolvedValue(undefined);
+
+    await fireReferralClawback('booking-no-ref');
+
+    expect(storage.applyReferralClawbackAtomic).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op when the referral is already clawed_back (terminal)', async () => {
+    (storage.findCompletedReferralForBooking as any).mockResolvedValue({
+      ...PENDING_REFERRAL,
+      status: 'clawed_back',
+      triggeringBookingId: 'booking-1',
+    });
+
+    await fireReferralClawback('booking-1');
+
+    expect(storage.applyReferralClawbackAtomic).not.toHaveBeenCalled();
+  });
+
+  it('drives the full happy path when the booking really did trigger a referral', async () => {
+    (storage.findCompletedReferralForBooking as any).mockResolvedValue({
+      ...PENDING_REFERRAL,
+      status: 'completed',
+      triggeringBookingId: 'booking-1',
+      refereePlayerId: 'player-friend',
+    });
+    (storage.applyReferralClawbackAtomic as any).mockResolvedValue({ clawedBack: true });
+    (storage.getPlayer as any).mockResolvedValue({ ...REFERRER, leaderboardMention: false });
+    (storage.getCompletedReferralCount as any).mockResolvedValue(0);
+
+    await fireReferralClawback('booking-1');
+
+    expect(storage.applyReferralClawbackAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({ referralId: 'ref-1', creditFils: 1500 }),
+    );
   });
 });

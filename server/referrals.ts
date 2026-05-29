@@ -248,6 +248,57 @@ export async function completeReferral(
 // (handleMilestoneAfterCompletion honors the sticky email flag).
 // ─────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────
+// PR2 wiring helpers — fire-and-forget wrappers used by every payment-
+// confirmation and cancel call site. Internal try/catch guarantees a
+// referral failure never breaks the surrounding payment / booking flow.
+// Both helpers are async (so tests can await them) but they NEVER reject —
+// callers should invoke them without `await` for true fire-and-forget.
+// ─────────────────────────────────────────────────────────────────────────
+
+export async function fireReferralOnPayment(
+  userId: string,
+  bookingId: string,
+): Promise<void> {
+  try {
+    const outcome = await completeReferralOnPayment(userId, bookingId);
+    if (outcome.applied) {
+      console.log(
+        `[Referral] Completed on payment: user=${userId} booking=${bookingId}` +
+          (outcome.milestoneAwarded ? ` milestone=${outcome.milestoneAwarded}` : '') +
+          (outcome.refereeWasUnlinked ? ' (referee unlinked — credit staged)' : ''),
+      );
+    } else if (outcome.reason !== 'no_referral' && outcome.reason !== 'not_pending') {
+      // 'no_referral' and 'not_pending' are the common quiet cases: the user
+      // wasn't referred, or their referral already completed on an earlier
+      // booking. Log the non-trivial bail reasons (race, self-referral) for
+      // visibility.
+      console.log(
+        `[Referral] Not applied on payment: user=${userId} booking=${bookingId} reason=${outcome.reason}`,
+      );
+    }
+  } catch (err) {
+    console.error('[Referral] fireReferralOnPayment failed:', err);
+  }
+}
+
+export async function fireReferralClawback(bookingId: string): Promise<void> {
+  try {
+    const outcome = await clawbackReferralForBooking(bookingId);
+    if (outcome.clawedBack) {
+      console.log(
+        `[Referral] Clawed back on cancel: booking=${bookingId}` +
+          (outcome.milestoneRevoked ? ` milestoneRevoked=${outcome.milestoneRevoked}` : ''),
+      );
+    }
+    // Silent skip for 'no_referral' / 'not_completed' — booking cancels
+    // that did not trigger a referral (the overwhelming majority) are not
+    // worth logging.
+  } catch (err) {
+    console.error('[Referral] fireReferralClawback failed:', err);
+  }
+}
+
 export async function clawbackReferralForBooking(
   bookingId: string,
 ): Promise<ClawbackOutcome> {

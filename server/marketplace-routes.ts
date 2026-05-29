@@ -32,7 +32,7 @@ import {
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage } from "./ziinaClient";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
-import { completeReferral } from "./referrals";
+import { fireReferralOnPayment, fireReferralClawback } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and, inArray, desc, asc, gt } from "drizzle-orm";
@@ -2343,6 +2343,9 @@ export function registerMarketplaceRoutes(app: Express) {
       if (walletApplied > 0 && remainingFils <= 0) {
         await storage.updateBooking(booking.id, { status: 'confirmed', paymentMethod: 'wallet' });
         await createAllSlotsForBooking(booking.id, 'confirmed', true);
+        // PR2 trigger site 4/5: full-wallet booking confirms at creation
+        // (decision A — any first confirmed booking counts as the trigger).
+        fireReferralOnPayment(req.user.userId, booking.id);
 
         try {
           if (primaryUser) {
@@ -2388,6 +2391,9 @@ export function registerMarketplaceRoutes(app: Express) {
           if (failedBooking) await refundBookingWalletCredit(failedBooking);
         }
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), walletAmountUsed: 0 });
+        // PR2 clawback site 2/2: cheap insurance — at this point the booking
+        // never confirmed so no completed referral references it; no-op.
+        fireReferralClawback(booking.id);
         const rawErr = intentError instanceof Error ? intentError.message : String(intentError);
         console.error('[Ziina] Payment intent creation failed — booking cancelled', {
           bookingId: booking.id,
@@ -2947,6 +2953,10 @@ export function registerMarketplaceRoutes(app: Express) {
       // Refund wallet credit if any was used (unless late fee retains full payment)
       if (!lateFeeApplied) {
         await refundBookingWalletCredit(booking);
+        // PR2 clawback site 1/2: cancel with refund — claw back any referral
+        // credit triggered by this booking. Decision B: late-fee forfeit
+        // (money retained) does NOT clawback — only the refund branch.
+        fireReferralClawback(booking.id);
       }
 
       // Cancel the booking
@@ -3001,6 +3011,11 @@ export function registerMarketplaceRoutes(app: Express) {
             } else {
               // Cash payment: immediately confirm the spot
               await storage.updateBooking(first.id, { status: 'confirmed', waitlistPosition: null });
+              // PR2 trigger site 5/5: cash-payment waitlist promotion (the
+              // promoted booking is now confirmed — counts as the friend's
+              // first confirmed booking). Ziina promotions go through
+              // pending_payment → /confirm and are covered by site 1.
+              fireReferralOnPayment(first.userId, first.id);
 
               // Confirm all pending slot rows for the promoted booking
               const promotedSlots = await storage.getBookingGuests(first.id);
@@ -3172,31 +3187,10 @@ export function registerMarketplaceRoutes(app: Express) {
           throw err;
         }
 
-        // Fire-and-forget referral completion hook — only on the first
-        // attended booking, mirrors the admin check-in path.
-        if (!result.alreadyAttended) {
-          (async () => {
-            try {
-              if (!user?.linkedPlayerId) return;
-              const allBookings = await storage.getUserBookings(userId);
-              const attendedCount = allBookings.filter(b => b.attendedAt && !b.isGuestBooking).length;
-              if (attendedCount > 1) return;
-
-              let referral = await storage.getReferralByRefereePlayerId(user.linkedPlayerId);
-              if (!referral) {
-                referral = await storage.getReferralByRefereeUserId(userId);
-              }
-              if (!referral || referral.status !== 'pending') return;
-
-              const completed = await completeReferral(referral.id);
-              if (completed.success) {
-                console.log(`[Referral] Completed referral ${referral.id}: ${user.name} (self check-in)`);
-              }
-            } catch (err) {
-              console.error('[Referral] self check-in completion hook error:', err);
-            }
-          })();
-        }
+        // PR2: attendance-based referral trigger removed. Referral completion
+        // now happens at first confirmed payment (Ziina webhook / cash-paid /
+        // admin-confirm / full-wallet / waitlist-promotion-cash), not on
+        // check-in.
 
         const message = linkedPlayerId
           ? "You're checked in."
@@ -3768,8 +3762,15 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.paymentMethod !== 'cash') return res.status(400).json({ error: "Only cash bookings can be toggled" });
 
-      const { cashPaid } = req.body;
-      const updated = await storage.updateBooking(req.params.id, { cashPaid: !!cashPaid });
+      const newCashPaid = !!req.body.cashPaid;
+      // PR2 trigger site 2/5: cash confirmation fires only on the false→true
+      // transition (not on true→true repeats or on flips back to false). The
+      // pending→completed CAS in the primitive is a second line of defence.
+      const wasFalseTransitioningToTrue = !booking.cashPaid && newCashPaid;
+      const updated = await storage.updateBooking(req.params.id, { cashPaid: newCashPaid });
+      if (wasFalseTransitioningToTrue) {
+        fireReferralOnPayment(booking.userId, booking.id);
+      }
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update cash payment status" });
@@ -3799,6 +3800,11 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       await storage.updateBooking(booking.id, { status: 'confirmed' });
+      // PR2 trigger site 3/5: admin force-confirm. Bypasses the webhook path
+      // but reaches the same "booking is now confirmed" state, so the same
+      // referral trigger fires. Pre-condition above (status !== 'confirmed'
+      // and !== 'attended') is the per-route idempotency guard.
+      fireReferralOnPayment(booking.userId, booking.id);
 
       // Record the payment if not already present
       if (booking.ziinaPaymentIntentId) {

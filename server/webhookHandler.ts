@@ -3,6 +3,7 @@ import type { Express } from "express";
 import express from "express";
 import { storage } from "./storage";
 import { isZiinaPaymentSuccessful } from "./ziinaClient";
+import { fireReferralOnPayment } from "./referrals";
 import {
   sendBookingConfirmationEmail,
   sendGuestBookingEmail,
@@ -103,6 +104,12 @@ export async function confirmZiinaBookingByIntentId(
   }
 
   await storage.updateBooking(booking.id, { status: "confirmed" });
+
+  // PR2 trigger site 1/5: Ziina happy-path payment confirmation. Covers both
+  // the webhook delivery and the POST /bookings/:id/confirm poll fallback
+  // (which delegates here). Fire-and-forget — referral failure must not
+  // affect payment confirmation.
+  fireReferralOnPayment(booking.userId, booking.id);
 
   const existingPayments = await storage.getPaymentsByBookingId(booking.id);
   const alreadyRecorded = existingPayments.some((p) => p.ziinaPaymentIntentId === intentId);
