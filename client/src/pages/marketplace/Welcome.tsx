@@ -49,11 +49,11 @@ export default function Welcome() {
   return (
     <div className="min-h-screen bg-background pb-32">
       {/* Hero */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-[#003D3A] via-[#005049] to-[#006B5F] px-5 pt-12 pb-14 text-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(0,191,165,0.25),transparent_60%)]" />
+      <section className="relative overflow-hidden bg-gradient-to-b from-[#001638] via-[#003E8C] to-[#006B5F] px-5 pt-12 pb-14 text-white">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(0,107,95,0.35),transparent_60%)]" />
         <div className="relative mx-auto max-w-2xl text-center">
           <Badge
-            className="mb-4 border-[#00BFA5]/40 bg-[#00BFA5]/15 text-[#00BFA5] hover:bg-[#00BFA5]/15"
+            className="mb-4 border-teal-400/30 bg-teal-500/15 text-teal-200 hover:bg-teal-500/15"
             data-testid="badge-jersey-offer"
           >
             <Gift className="mr-1 h-3 w-3" />
@@ -61,11 +61,12 @@ export default function Welcome() {
           </Badge>
           <h1
             className="text-3xl font-extrabold tracking-tight sm:text-4xl md:text-5xl"
+            style={{ fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em' }}
             data-testid="text-hero-title"
           >
             Upgraded my game.
             <br />
-            <span className="text-[#00BFA5]">Here&apos;s why.</span>
+            <span className="text-teal-300">Here&apos;s why.</span>
           </h1>
           <p
             className="mx-auto mt-4 max-w-md text-base text-white/80 sm:text-lg"
@@ -78,7 +79,7 @@ export default function Welcome() {
             <Link href={SIGNUP_HREF}>
               <Button
                 size="lg"
-                className="w-full max-w-xs bg-[#00BFA5] text-[#003D3A] hover:bg-[#00BFA5] border-[#00BFA5]"
+                className="w-full max-w-xs bg-teal-300 text-[#001638] hover:bg-teal-200 border-teal-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
                 data-testid="button-hero-claim"
               >
                 Claim AED 15 — Sign Up
@@ -95,10 +96,10 @@ export default function Welcome() {
       {/* Offer callout */}
       <section className="px-5 -mt-8">
         <div className="mx-auto max-w-2xl">
-          <Card className="border-[#00BFA5]/30 bg-card shadow-md">
+          <Card className="border-[#003E8C]/10 bg-card">
             <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00BFA5]/15">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#006B5F]/10">
                   <Gift className="h-5 w-5 text-[#006B5F]" />
                 </div>
                 <div>
@@ -130,6 +131,7 @@ export default function Welcome() {
         <div className="mx-auto max-w-2xl">
           <h2
             className="mb-1 text-center text-2xl font-bold sm:text-3xl"
+            style={{ fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em' }}
             data-testid="text-advantages-title"
           >
             Why players switch
@@ -144,11 +146,11 @@ export default function Welcome() {
             {ADVANTAGES.map(({ icon: Icon, title, body }, idx) => (
               <Card
                 key={title}
-                className="border-border/60"
+                className="border-border/60 transition-all duration-200 hover:-translate-y-0.5"
                 data-testid={`card-advantage-${idx}`}
               >
                 <CardContent className="flex gap-3 p-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#00BFA5]/15">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#006B5F]/10">
                     <Icon className="h-4 w-4 text-[#006B5F]" />
                   </div>
                   <div>
@@ -177,6 +179,7 @@ export default function Welcome() {
         <div className="mx-auto max-w-2xl">
           <h2
             className="mb-1 text-center text-2xl font-bold sm:text-3xl"
+            style={{ fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em' }}
             data-testid="text-social-proof-title"
           >
             Real players. Real rankings.
@@ -205,7 +208,7 @@ export default function Welcome() {
                     <div
                       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                         row.rank === 1
-                          ? 'bg-[#00BFA5] text-[#003D3A]'
+                          ? 'bg-[#006B5F] text-white'
                           : 'bg-muted text-muted-foreground'
                       }`}
                       data-testid={`text-leaderboard-rank-${row.rank}`}

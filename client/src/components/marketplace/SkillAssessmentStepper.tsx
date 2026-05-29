@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -50,6 +50,13 @@ const ASSESSMENT_QUESTIONS: AssessmentQuestion[] = [
 
 export type InternalStep = 'gender' | 'q1' | 'q2' | 'q3';
 const STEP_ORDER: InternalStep[] = ['gender', 'q1', 'q2', 'q3'];
+
+// Brand restyle tokens (look only — assessment logic untouched)
+const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
+const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, color: '#003E8C', letterSpacing: '-0.02em' };
+const primaryBtnStyle: CSSProperties = { background: '#003E8C', borderColor: '#003E8C', color: '#fff' };
+const selectedAnswerStyle: CSSProperties = { background: '#006B5F', borderColor: '#006B5F', color: '#fff' };
 
 export interface SkillAssessmentStepperProps {
   /** Header title shown at the top of the gender card. */
@@ -154,7 +161,7 @@ export function SkillAssessmentStepper({
   // ----- Gender step -----
   if (step === 'gender') {
     return (
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-md" style={cardChrome}>
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
             {showBackButton ? (
@@ -176,7 +183,10 @@ export function SkillAssessmentStepper({
             </span>
             <span className="w-9" />
           </div>
-          <CardTitle className="mt-2 text-lg" data-testid="text-assessment-title">{title}</CardTitle>
+          <div className="mt-3 h-1 w-full overflow-hidden rounded-full" style={{ background: 'rgba(0,62,140,0.10)' }}>
+            <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${(displayCurrent / displayTotal) * 100}%`, background: 'linear-gradient(90deg, #003E8C, #006B5F)' }} />
+          </div>
+          <CardTitle className="mt-2 text-lg" data-testid="text-assessment-title" style={titleStyle}>{title}</CardTitle>
           {description && <CardDescription>{description}</CardDescription>}
         </CardHeader>
         <CardContent className="space-y-4">
@@ -201,7 +211,8 @@ export function SkillAssessmentStepper({
           </div>
           <Button
             type="button"
-            className="w-full"
+            className="w-full transition-all duration-200 hover:brightness-110 active:translate-y-px"
+            style={primaryBtnStyle}
             disabled={!gender || isSubmitting}
             onClick={handleGenderContinue}
             data-testid="button-continue-gender"
@@ -235,7 +246,10 @@ export function SkillAssessmentStepper({
           </span>
           <span className="w-9" />
         </div>
-        <CardTitle className="mt-2 text-lg" data-testid={`text-question-title-${q.key}`}>
+        <div className="mt-3 h-1 w-full overflow-hidden rounded-full" style={{ background: 'rgba(0,62,140,0.10)' }}>
+          <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${(displayCurrent / displayTotal) * 100}%`, background: 'linear-gradient(90deg, #003E8C, #006B5F)' }} />
+        </div>
+        <CardTitle className="mt-2 text-lg" data-testid={`text-question-title-${q.key}`} style={titleStyle}>
           {q.title}
         </CardTitle>
         <CardDescription>Pick the option that best describes you.</CardDescription>
@@ -247,7 +261,8 @@ export function SkillAssessmentStepper({
             <Button
               key={opt.value}
               variant={isSelected ? 'default' : 'outline'}
-              className="w-full justify-start text-left whitespace-normal h-auto py-3"
+              className="w-full justify-start text-left whitespace-normal h-auto py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#006B5F]/40 active:translate-y-0"
+              style={isSelected ? selectedAnswerStyle : undefined}
               onClick={() => handleAnswerSelect(q.key, opt.value)}
               disabled={isSubmitting}
               data-testid={`button-answer-${q.key}-${opt.value}`}

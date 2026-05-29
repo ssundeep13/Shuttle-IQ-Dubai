@@ -45,7 +45,10 @@ export default function CompleteProfile() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
+    <div
+      className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8"
+      style={{ background: '#F5EFE0', color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif" }}
+    >
       <div className="w-full flex justify-center">
         <SkillAssessmentStepper
           title={user?.name ? `Welcome, ${user.name}!` : 'Almost there!'}
