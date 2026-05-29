@@ -406,10 +406,17 @@ export const bookings = pgTable("bookings", {
   spotsBooked: integer("spots_booked").notNull().default(1), // how many spots this booking covers (1 = self only, 2+ = self + guests)
   createdAt: timestamp("created_at").notNull().defaultNow(),
   cancelledAt: timestamp("cancelled_at"),
+  // Cancellation audit. Currently only written by the admin event-cancel
+  // path ('event_cancelled_by_admin'); 40 / 743 rows populated on prod DB.
+  cancellationReason: text("cancellation_reason"),
   attendedAt: timestamp("attended_at"),
   reminderSentAt: timestamp("reminder_sent_at"),
   promotedAt: timestamp("promoted_at"),
   walletAmountUsed: integer("wallet_amount_used").notNull().default(0), // fils of wallet credit applied to this booking
+  // Booking-side companions to the discount_codes / discount_code_uses
+  // tables (parked feature, re-declared here from live DB). Both nullable.
+  discountCodeId: varchar("discount_code_id"),
+  discountAmountAed: integer("discount_amount_aed"),
 }, (table) => [
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)
@@ -784,3 +791,84 @@ export interface RefundNotificationWithDetails {
   sessionDate: Date | null;
   sessionVenueName: string | null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// DRIFT-CLEANUP TABLES (re-declared from live DB so future `drizzle-kit
+// push` does not try to drop them). All four tables already EXIST in the
+// Railway DB; these declarations are describe-only — no DDL is emitted by
+// declaring them. Columns and constraints are mirrored from the live DB.
+// None of these are wired into current TypeScript paths.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Discount codes (parked checkout-discount feature). Live seed row "NEWBIE"
+// (50% off, first-time only) currently in the DB.
+export const discountCodes = pgTable("discount_codes", {
+  id: varchar("id").primaryKey(),
+  code: text("code").notNull().unique(), // discount_codes_code_key
+  description: text("description"),
+  discountType: text("discount_type").notNull(), // 'percentage' | 'fixed'
+  discountValue: integer("discount_value").notNull(),
+  firstTimeOnly: boolean("first_time_only").notNull().default(false),
+  maxUses: integer("max_uses"),
+  usedCount: integer("used_count").notNull().default(0),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertDiscountCodeSchema = createInsertSchema(discountCodes).omit({ id: true, createdAt: true });
+export type InsertDiscountCode = z.infer<typeof insertDiscountCodeSchema>;
+export type DiscountCode = typeof discountCodes.$inferSelect;
+
+// Linkage of a discount-code redemption to its booking + user. booking_id is
+// UNIQUE (one code per booking). code_id has a real FK to discount_codes.id.
+export const discountCodeUses = pgTable("discount_code_uses", {
+  id: varchar("id").primaryKey(),
+  codeId: varchar("code_id").notNull().references(() => discountCodes.id),
+  bookingId: varchar("booking_id").notNull().unique(), // discount_code_uses_booking_id_key
+  userId: varchar("user_id").notNull(),
+  discountAmountAed: integer("discount_amount_aed").notNull(),
+  usedAt: timestamp("used_at").notNull().defaultNow(),
+});
+
+export const insertDiscountCodeUseSchema = createInsertSchema(discountCodeUses).omit({ id: true, usedAt: true });
+export type InsertDiscountCodeUse = z.infer<typeof insertDiscountCodeUseSchema>;
+export type DiscountCodeUse = typeof discountCodeUses.$inferSelect;
+
+// Admin-mediated player-linking workflow (fallback when the OTP self-service
+// path doesn't fit; the marketplace-routes.ts:~1200 OTP flow is the primary
+// path today). Two partial-unique indexes prevent a user opening multiple
+// pending requests against the same player (or against no player at all).
+export const playerLinkRequests = pgTable("player_link_requests", {
+  id: varchar("id").primaryKey(),
+  marketplaceUserId: varchar("marketplace_user_id").notNull(),
+  playerId: varchar("player_id"),
+  reason: text("reason").notNull(),
+  note: text("note"),
+  status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
+  resolvedByAdminId: varchar("resolved_by_admin_id"),
+  resolvedAt: timestamp("resolved_at"),
+  resolutionNote: text("resolution_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('unique_pending_link_request_per_user_no_player')
+    .on(table.marketplaceUserId)
+    .where(sql`status = 'pending' AND player_id IS NULL`),
+  uniqueIndex('unique_pending_link_request_per_user_player')
+    .on(table.marketplaceUserId, table.playerId)
+    .where(sql`status = 'pending'`),
+]);
+
+export const insertPlayerLinkRequestSchema = createInsertSchema(playerLinkRequests).omit({ id: true, createdAt: true });
+export type InsertPlayerLinkRequest = z.infer<typeof insertPlayerLinkRequestSchema>;
+export type PlayerLinkRequest = typeof playerLinkRequests.$inferSelect;
+
+// One-shot migration tracking (used by scripts/* to prevent re-runs). `key`
+// is the natural PK. Existing rows: discount_code_newbie_seed_v1 (2026-05-20)
+// and onboarding_completed_legacy_backfill_v1 (2026-05-12).
+export const systemOneShotMigrations = pgTable("system_one_shot_migrations", {
+  key: text("key").primaryKey(),
+  ranAt: timestamp("ran_at").notNull().defaultNow(),
+});
+
+export type SystemOneShotMigration = typeof systemOneShotMigrations.$inferSelect;
