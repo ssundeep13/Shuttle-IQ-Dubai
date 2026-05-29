@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -30,15 +29,14 @@ import {
 } from '@/components/ui/dialog';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
-import { motion } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 import type { BookingWithDetails, BookingGuest } from '@shared/schema';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
-const fadeInUp = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
-};
-const stagger = { visible: { transition: { staggerChildren: 0.06 } } };
+const WIN_GREEN = '#1F8A5B';
+const LOSS_RED = '#B23A2E';
+const AMBER = '#C97B17';
 
 const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
   confirmed: { variant: 'default', label: 'Confirmed' },
@@ -47,6 +45,16 @@ const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destruc
   pending: { variant: 'outline', label: 'Pending' },
   waitlisted: { variant: 'outline', label: 'Waitlisted' },
   pending_payment: { variant: 'outline', label: 'Payment Due' },
+};
+
+// Brand tone per status — used for the status badge + left strip.
+const statusTone: Record<string, { strip: string; badgeBg: string; badgeFg: string }> = {
+  confirmed: { strip: MKT.teal, badgeBg: MKT.tealMist, badgeFg: MKT.tealD },
+  attended: { strip: WIN_GREEN, badgeBg: '#DDEEE2', badgeFg: '#1A6A45' },
+  cancelled: { strip: 'rgba(0,30,70,0.25)', badgeBg: '#F1D7D2', badgeFg: '#8E2C22' },
+  pending: { strip: 'rgba(0,30,70,0.2)', badgeBg: 'rgba(0,30,70,0.06)', badgeFg: MKT.inkSub },
+  waitlisted: { strip: AMBER, badgeBg: '#F6E6CC', badgeFg: '#7A4A0E' },
+  pending_payment: { strip: AMBER, badgeBg: '#F6E6CC', badgeFg: '#7A4A0E' },
 };
 
 const PAYMENT_WINDOW_MS = 4 * 60 * 60 * 1000;
@@ -86,6 +94,28 @@ function isWithin5Hours(sessionDate: Date | string, startTime: string): boolean 
   return new Date() >= cutoff;
 }
 
+// ── Shared styled primitives (look only) ─────────────────────────────────────
+const cardStyle: CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${MKT.navy}12` };
+function navyBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
+    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: '1.5px solid transparent',
+    background: MKT.navy, color: '#fff', borderColor: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
+  };
+}
+function ghostBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
+  return {
+    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
+    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: `1.5px solid ${MKT.navy}33`,
+    background: '#fff', color: MKT.navy, cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
+  };
+}
+function pill(bg: string, fg: string): CSSProperties {
+  return { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: bg, color: fg, whiteSpace: 'nowrap' };
+}
+
 function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPending }: {
   booking: BookingWithDetails;
   canManage: boolean;
@@ -97,7 +127,6 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
 
-  // Filter out primary booker slot — it's represented by the booking itself, not a guest row
   const confirmedGuests = (booking.guests ?? []).filter(g => g.status === 'confirmed' && !g.isPrimary);
   if (confirmedGuests.length === 0) return null;
 
@@ -114,8 +143,8 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
   };
 
   return (
-    <div className="mb-3 p-3 rounded-md bg-muted/40 space-y-1.5">
-      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1">
+    <div className="mb-3 p-3 rounded-xl space-y-1.5" style={{ background: MKT.cream, border: `1px solid ${MKT.navy}10` }}>
+      <div className="flex items-center gap-1.5 mb-1" style={{ fontSize: 12, fontWeight: 600, color: MKT.inkSub }}>
         <Users className="h-3.5 w-3.5" />
         Guests ({confirmedGuests.length})
       </div>
@@ -138,7 +167,7 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
                 data-testid={`input-edit-guest-email-${guest.id}`}
               />
               <Button size="icon" variant="ghost" disabled={isEditPending} onClick={() => saveEdit(guest.id)} data-testid={`button-save-guest-${guest.id}`}>
-                <Check className="h-3.5 w-3.5 text-secondary" />
+                <Check className="h-3.5 w-3.5" style={{ color: MKT.teal }} />
               </Button>
               <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} data-testid={`button-cancel-edit-guest-${guest.id}`}>
                 <X className="h-3.5 w-3.5" />
@@ -146,24 +175,24 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
             </div>
           ) : (
             <div className="flex items-center justify-between gap-1.5">
-              <div className="flex items-center gap-1.5 text-xs min-w-0">
-                <UserCheck className={`h-3 w-3 shrink-0 ${guest.linkedUserId ? 'text-secondary' : 'text-muted-foreground'}`} />
-                <span className="truncate">{guest.name}</span>
+              <div className="flex items-center gap-1.5 min-w-0" style={{ fontSize: 12 }}>
+                <UserCheck className="h-3 w-3 shrink-0" style={{ color: guest.linkedUserId ? MKT.teal : MKT.inkMute }} />
+                <span className="truncate" style={{ color: MKT.ink }}>{guest.name}</span>
                 {guest.linkedUserId && (
-                  <Badge variant="secondary" className="text-xs h-4 px-1" data-testid={`badge-guest-linked-${guest.id}`}>
+                  <span style={{ ...pill(MKT.tealMist, MKT.tealD), fontSize: 10, padding: '1px 6px' }} data-testid={`badge-guest-linked-${guest.id}`}>
                     linked
-                  </Badge>
+                  </span>
                 )}
               </div>
               {canManage && (
                 <div className="flex items-center gap-0.5 shrink-0">
                   <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => startEdit(guest)} data-testid={`button-edit-guest-${guest.id}`}>
-                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                    <Pencil className="h-3 w-3" style={{ color: MKT.inkSub }} />
                   </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button size="icon" variant="ghost" className="h-5 w-5" data-testid={`button-cancel-guest-${guest.id}`}>
-                        <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                        <XCircle className="h-3.5 w-3.5" style={{ color: MKT.inkSub }} />
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
@@ -193,6 +222,7 @@ export default function MyBookings() {
   usePageTitle('My Bookings');
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const reduce = useReducedMotion();
 
   const { data: bookings, isLoading } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
@@ -305,6 +335,7 @@ export default function MyBookings() {
 
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
+    const tone = statusTone[booking.status] || { strip: 'rgba(0,30,70,0.2)', badgeBg: 'rgba(0,30,70,0.06)', badgeFg: MKT.inkSub };
     const isWaitlisted = booking.status === 'waitlisted';
     const isPendingPayment = booking.status === 'pending_payment';
     const countdown = usePaymentCountdown(isPendingPayment ? booking.promotedAt : null);
@@ -313,24 +344,17 @@ export default function MyBookings() {
     const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && sessionEndTime(booking) >= new Date();
     const lateFee = !isWaitlisted && !isPendingPayment && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
 
-    const stripColor = isWaitlisted ? 'bg-amber-500'
-      : isPendingPayment ? 'bg-orange-500'
-      : booking.status === 'confirmed' ? 'bg-secondary'
-      : booking.status === 'attended' ? 'bg-green-500'
-      : booking.status === 'cancelled' ? 'bg-muted-foreground/30'
-      : 'bg-muted-foreground/20';
-
     return (
-      <Card className={`overflow-hidden ${isPast ? 'opacity-75' : ''}`} data-testid={`card-booking-${booking.id}`}>
+      <div style={{ ...cardStyle, overflow: 'hidden', opacity: isPast ? 0.75 : 1 }} data-testid={`card-booking-${booking.id}`}>
         <div className="flex">
-          <div className={`w-1 shrink-0 ${stripColor}`} />
-          <CardContent className="p-5 flex-1">
+          <div style={{ width: 4, flex: 'none', background: tone.strip }} />
+          <div style={{ padding: 20, flex: 1, minWidth: 0 }}>
             <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
               <div className="min-w-0 flex-1">
-                <h3 className="font-semibold truncate" data-testid={`text-booking-title-${booking.id}`}>
+                <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid={`text-booking-title-${booking.id}`}>
                   {booking.session.title}
                 </h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 2 }}>
                   {booking.isGuestBooking && booking.bookedByName
                     ? `Guest spot — booked by ${booking.bookedByName}`
                     : `Booked ${format(new Date(booking.createdAt || Date.now()), 'MMM d, yyyy')}`
@@ -339,14 +363,14 @@ export default function MyBookings() {
               </div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {isWaitlisted && booking.waitlistPosition && (
-                  <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-600 dark:text-amber-400 gap-1" data-testid={`badge-waitlist-position-${booking.id}`}>
+                  <span style={pill('#F6E6CC', '#7A4A0E')} data-testid={`badge-waitlist-position-${booking.id}`}>
                     <ListOrdered className="h-3 w-3" />
                     #{booking.waitlistPosition}
-                  </Badge>
+                  </span>
                 )}
-                <Badge variant={status.variant} data-testid={`badge-status-${booking.id}`}>
+                <span style={pill(tone.badgeBg, tone.badgeFg)} data-testid={`badge-status-${booking.id}`}>
                   {status.label}
-                </Badge>
+                </span>
               </div>
             </div>
 
@@ -355,13 +379,13 @@ export default function MyBookings() {
                 ? getRelativeTimeLabel(booking.session.date as unknown as string, booking.session.startTime)
                 : '';
               return relTime ? (
-                <div className="flex items-center gap-1.5 text-sm font-medium text-secondary mb-2" data-testid={`text-booking-relative-${booking.id}`}>
+                <div className="flex items-center gap-1.5 mb-2" style={{ fontSize: 14, fontWeight: 600, color: MKT.tealD }} data-testid={`text-booking-relative-${booking.id}`}>
                   <Timer className="h-3.5 w-3.5 shrink-0" />
                   {relTime}
                 </div>
               ) : null;
             })()}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm text-muted-foreground mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4" style={{ fontSize: 14, color: MKT.inkSub }}>
               <div className="flex items-center gap-2">
                 <Calendar className="h-3.5 w-3.5 shrink-0" />
                 <span>{format(new Date(booking.session.date), 'EEE, MMM d')}</span>
@@ -387,10 +411,9 @@ export default function MyBookings() {
               />
             )}
             {!booking.isGuestBooking && booking.status === 'confirmed' && !isPast && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 mt-2"
+              <button
+                type="button"
+                className="mt-2"
                 onClick={() => {
                   setAddGuestBooking(booking);
                   setAddGuestName('');
@@ -398,80 +421,86 @@ export default function MyBookings() {
                   setAddGuestPaymentMethod('cash');
                 }}
                 data-testid={`button-add-guest-${booking.id}`}
+                style={ghostBtn('sm')}
               >
                 <UserPlus className="h-3.5 w-3.5" />
                 Add Guest
-              </Button>
+              </button>
             )}
 
             {/* Pending payment banner */}
             {isPendingPayment && (
-              <div className={`mb-4 flex items-start gap-3 rounded-md border p-3 ${countdown.expired ? 'bg-muted/40 border-muted' : 'bg-orange-50 dark:bg-orange-950/30 border-orange-200 dark:border-orange-800/40'}`} data-testid={`banner-payment-due-${booking.id}`}>
-                <Timer className={`h-4 w-4 shrink-0 mt-0.5 ${countdown.expired ? 'text-muted-foreground' : 'text-orange-500'}`} />
+              <div
+                className="mb-4 mt-3 flex items-start gap-3 rounded-xl p-3"
+                style={countdown.expired
+                  ? { background: MKT.cream, border: `1px solid ${MKT.navy}12` }
+                  : { background: '#F6E6CC55', border: `1px solid ${AMBER}33` }}
+                data-testid={`banner-payment-due-${booking.id}`}
+              >
+                <Timer className="h-4 w-4 shrink-0 mt-0.5" style={{ color: countdown.expired ? MKT.inkSub : AMBER }} />
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${countdown.expired ? 'text-muted-foreground' : 'text-orange-700 dark:text-orange-300'}`}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: countdown.expired ? MKT.inkSub : '#7A4A0E' }}>
                     {countdown.expired ? 'Payment window expired — spot will be released shortly' : 'Payment required to secure your spot'}
                   </p>
-                  <p className={`text-xs mt-0.5 font-mono tabular-nums ${countdown.expired ? 'text-muted-foreground' : 'text-orange-600 dark:text-orange-400'}`}>
+                  <p style={{ fontFamily: FF_MONO, fontSize: 12, marginTop: 2, fontVariantNumeric: 'tabular-nums', color: countdown.expired ? MKT.inkSub : AMBER }}>
                     {countdown.expired ? 'Expired' : `Time remaining: ${countdown.label}`}
                   </p>
                 </div>
                 {!countdown.expired && (
-                  <Button
-                    size="sm"
+                  <button
+                    type="button"
                     onClick={() => initiatePaymentMutation.mutate(booking.id)}
                     disabled={initiatePaymentMutation.isPending}
                     data-testid={`button-complete-payment-${booking.id}`}
-                    className="shrink-0"
+                    style={{ ...navyBtn('sm'), flex: 'none' }}
                   >
                     {initiatePaymentMutation.isPending ? 'Loading...' : 'Pay Now'}
-                  </Button>
+                  </button>
                 )}
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-2 pt-3 border-t flex-wrap">
+            <div className="flex items-center justify-between gap-2 pt-3 flex-wrap" style={{ borderTop: `1px solid ${MKT.line}` }}>
               <div className="flex items-center gap-3 flex-wrap">
                 {!isWaitlisted && !isPendingPayment && (
-                  <span className="font-semibold" data-testid={`text-booking-amount-${booking.id}`}>
+                  <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em' }} data-testid={`text-booking-amount-${booking.id}`}>
                     AED {booking.amountAed}
                   </span>
                 )}
                 {!isWaitlisted && !isPendingPayment && booking.spotsBooked > 1 && (
-                  <Badge variant="outline" className="text-xs gap-1">
+                  <span style={pill('rgba(0,30,70,0.06)', MKT.inkSub)}>
                     <Users className="h-3 w-3" />
                     {booking.spotsBooked} spots
-                  </Badge>
+                  </span>
                 )}
                 {!isWaitlisted && !isPendingPayment && (
-                  <Badge variant="outline" className="text-xs" data-testid={`badge-method-${booking.id}`}>
+                  <span style={pill('rgba(0,30,70,0.06)', MKT.inkSub)} data-testid={`badge-method-${booking.id}`}>
                     {booking.paymentMethod === 'cash' ? (
-                      <><Banknote className="h-3 w-3 mr-1" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
+                      <><Banknote className="h-3 w-3" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
                     ) : (
-                      <><CreditCard className="h-3 w-3 mr-1" /> Card</>
+                      <><CreditCard className="h-3 w-3" /> Card</>
                     )}
-                  </Badge>
+                  </span>
                 )}
                 {isWaitlisted && (
-                  <span className="text-xs text-muted-foreground">No payment until confirmed</span>
+                  <span style={{ fontSize: 12, color: MKT.inkSub }}>No payment until confirmed</span>
                 )}
                 {isPendingPayment && (
-                  <span className="text-xs text-muted-foreground">AED {booking.amountAed} — payment required</span>
+                  <span style={{ fontSize: 12, color: MKT.inkSub }}>AED {booking.amountAed} — payment required</span>
                 )}
               </div>
               {canCancelAsGuest && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1"
+                    <button
+                      type="button"
                       disabled={cancelGuestMutation.isPending}
                       data-testid={`button-cancel-guest-spot-${booking.id}`}
+                      style={{ ...ghostBtn('sm'), opacity: cancelGuestMutation.isPending ? 0.6 : 1 }}
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       Cancel My Spot
-                    </Button>
+                    </button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
@@ -494,21 +523,20 @@ export default function MyBookings() {
               {canCancel && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1"
+                    <button
+                      type="button"
                       disabled={cancelMutation.isPending}
                       data-testid={`button-cancel-${booking.id}`}
+                      style={{ ...ghostBtn('sm'), opacity: cancelMutation.isPending ? 0.6 : 1 }}
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel'}
-                    </Button>
+                    </button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle className="flex items-center gap-2">
-                        <AlertTriangle className="h-5 w-5 text-destructive" />
+                        <AlertTriangle className="h-5 w-5" style={{ color: LOSS_RED }} />
                         {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel Booking'}
                       </AlertDialogTitle>
                       <AlertDialogDescription asChild>
@@ -521,9 +549,9 @@ export default function MyBookings() {
                               : `Are you sure you want to cancel your booking for "${booking.session.title}" on ${format(new Date(booking.session.date), 'MMMM d')}?`}
                           </p>
                           {lateFee && (
-                            <div className="flex gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/20">
-                              <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
-                              <p className="text-sm text-destructive font-medium">
+                            <div className="flex gap-2 p-3 rounded-md" style={{ background: '#F1D7D2', border: `1px solid ${LOSS_RED}33` }}>
+                              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: LOSS_RED }} />
+                              <p style={{ fontSize: 14, color: '#8E2C22', fontWeight: 600 }}>
                                 This cancellation is within 5 hours of the session start. Your full payment of AED {booking.amountAed} will be retained. This cannot be undone.
                               </p>
                             </div>
@@ -544,113 +572,95 @@ export default function MyBookings() {
                 </AlertDialog>
               )}
             </div>
-          </CardContent>
+          </div>
         </div>
-      </Card>
+      </div>
     );
   };
 
+  const sectionHeader = (title: string, count: number, icon: ReactNode, testid: string, countTone: CSSProperties) => (
+    <div className="flex items-center gap-2 mb-4">
+      <h2 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 20, color: MKT.navy, letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: 8 }} data-testid={testid}>
+        {icon}
+        {title}
+      </h2>
+      <span style={countTone}>{count}</span>
+    </div>
+  );
+
   return (
     <>
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <motion.div initial="hidden" animate="visible" variants={stagger}>
-        <motion.div variants={fadeInUp} className="mb-8">
-          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
-            <Bookmark className="h-6 w-6 text-secondary" /> My Bookings
-          </h1>
-          <p className="text-muted-foreground mt-1">Manage your session bookings</p>
-        </motion.div>
+    <div style={{ background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY, minHeight: '100%' }}>
+      <div className="max-w-3xl mx-auto" style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 24px) clamp(48px, 6vw, 64px)' }}>
+        <Reveal>
+          <div style={{ marginBottom: 28 }}>
+            <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 4vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', display: 'flex', alignItems: 'center', gap: 10 }} data-testid="text-page-title">
+              <Bookmark className="h-7 w-7" style={{ color: MKT.teal }} /> My Bookings
+            </h1>
+            <p style={{ color: MKT.inkSub, fontSize: 14, marginTop: 4 }}>Manage your session bookings</p>
+          </div>
+        </Reveal>
 
         {isLoading ? (
           <div className="space-y-4">
-            {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full" />)}
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full rounded-[14px]" />)}
           </div>
         ) : bookings?.length === 0 ? (
-          <motion.div variants={fadeInUp}>
-            <Card>
-              <CardContent className="p-8 text-center">
-                <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                <h3 className="font-semibold mb-1">No bookings yet</h3>
-                <p className="text-sm text-muted-foreground mb-4">Browse sessions and book your first game.</p>
-                <Link href="/marketplace/book">
-                  <Button size="sm" className="gap-1" data-testid="button-browse-sessions">
-                    Browse Sessions <ArrowRight className="h-3.5 w-3.5" />
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </motion.div>
+          <Reveal>
+            <div style={{ ...cardStyle, padding: 32, textAlign: 'center' }}>
+              <Calendar className="h-12 w-12 mx-auto mb-3" style={{ color: MKT.inkMute }} />
+              <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 20, color: MKT.navy, marginBottom: 6 }}>No bookings yet</h3>
+              <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 20 }}>Browse sessions and book your first game.</p>
+              <Link href="/marketplace/book" style={{ ...navyBtn('md'), textDecoration: 'none' }} data-testid="button-browse-sessions">
+                Browse Sessions <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </Reveal>
         ) : (
           <div className="space-y-8">
             {pendingPayment.length > 0 && (
-              <motion.div variants={fadeInUp}>
-                <div className="flex items-center gap-2 mb-4">
-                  <h2 className="text-lg font-semibold flex items-center gap-2" data-testid="text-pending-payment-title">
-                    <Timer className="h-5 w-5 text-orange-500" />
-                    Payment Required
-                  </h2>
-                  <Badge variant="outline" className="text-xs border-orange-400/40 text-orange-600 dark:text-orange-400">{pendingPayment.length}</Badge>
-                </div>
+              <div>
+                <Reveal>{sectionHeader('Payment Required', pendingPayment.length, <Timer className="h-5 w-5" style={{ color: AMBER }} />, 'text-pending-payment-title', pill('#F6E6CC', '#7A4A0E'))}</Reveal>
                 <div className="space-y-3">
-                  {pendingPayment.map(b => (
-                    <motion.div key={b.id} variants={fadeInUp}>
-                      <BookingCard booking={b} />
-                    </motion.div>
+                  {pendingPayment.map((b, i) => (
+                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} /></Reveal>
                   ))}
                 </div>
-              </motion.div>
+              </div>
             )}
             {waitlisted.length > 0 && (
-              <motion.div variants={fadeInUp}>
-                <div className="flex items-center gap-2 mb-4">
-                  <h2 className="text-lg font-semibold flex items-center gap-2" data-testid="text-waitlist-title">
-                    <ListOrdered className="h-5 w-5 text-amber-500" />
-                    Waitlisted
-                  </h2>
-                  <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-600 dark:text-amber-400">{waitlisted.length}</Badge>
-                </div>
+              <div>
+                <Reveal>{sectionHeader('Waitlisted', waitlisted.length, <ListOrdered className="h-5 w-5" style={{ color: AMBER }} />, 'text-waitlist-title', pill('#F6E6CC', '#7A4A0E'))}</Reveal>
                 <div className="space-y-3">
-                  {waitlisted.map(b => (
-                    <motion.div key={b.id} variants={fadeInUp}>
-                      <BookingCard booking={b} />
-                    </motion.div>
+                  {waitlisted.map((b, i) => (
+                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} /></Reveal>
                   ))}
                 </div>
-              </motion.div>
+              </div>
             )}
             {active.length > 0 && (
-              <motion.div variants={fadeInUp}>
-                <div className="flex items-center gap-2 mb-4">
-                  <h2 className="text-lg font-semibold" data-testid="text-upcoming-title">Upcoming</h2>
-                  <Badge variant="secondary" className="text-xs">{active.length}</Badge>
-                </div>
+              <div>
+                <Reveal>{sectionHeader('Upcoming', active.length, <span style={{ width: 0 }} />, 'text-upcoming-title', pill(MKT.tealMist, MKT.tealD))}</Reveal>
                 <div className="space-y-3">
-                  {active.map(b => (
-                    <motion.div key={b.id} variants={fadeInUp}>
-                      <BookingCard booking={b} />
-                    </motion.div>
+                  {active.map((b, i) => (
+                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} /></Reveal>
                   ))}
                 </div>
-              </motion.div>
+              </div>
             )}
             {past.length > 0 && (
-              <motion.div variants={fadeInUp}>
-                <div className="flex items-center gap-2 mb-4">
-                  <h2 className="text-lg font-semibold" data-testid="text-past-title">Past & Cancelled</h2>
-                  <Badge variant="outline" className="text-xs">{past.length}</Badge>
-                </div>
+              <div>
+                <Reveal>{sectionHeader('Past & Cancelled', past.length, <span style={{ width: 0 }} />, 'text-past-title', pill('rgba(0,30,70,0.06)', MKT.inkSub))}</Reveal>
                 <div className="space-y-3">
-                  {past.map(b => (
-                    <motion.div key={b.id} variants={fadeInUp}>
-                      <BookingCard booking={b} isPast />
-                    </motion.div>
+                  {past.map((b, i) => (
+                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} isPast /></Reveal>
                   ))}
                 </div>
-              </motion.div>
+              </div>
             )}
           </div>
         )}
-      </motion.div>
+      </div>
     </div>
 
     <Dialog open={!!addGuestBooking} onOpenChange={(open) => { if (!open) setAddGuestBooking(null); }}>
@@ -689,11 +699,10 @@ export default function MyBookings() {
               <button
                 type="button"
                 onClick={() => setAddGuestPaymentMethod('cash')}
-                className={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors ${
-                  addGuestPaymentMethod === 'cash'
-                    ? 'border-secondary bg-secondary/10 text-secondary font-medium'
-                    : 'border-border text-muted-foreground hover-elevate'
-                }`}
+                className="flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors"
+                style={addGuestPaymentMethod === 'cash'
+                  ? { borderColor: MKT.teal, background: MKT.tealMist, color: MKT.tealD, fontWeight: 600 }
+                  : { borderColor: `${MKT.navy}1F`, background: '#fff', color: MKT.inkSub }}
                 data-testid="button-add-guest-cash"
               >
                 <Banknote className="h-4 w-4" />
@@ -702,11 +711,10 @@ export default function MyBookings() {
               <button
                 type="button"
                 onClick={() => setAddGuestPaymentMethod('ziina')}
-                className={`flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors ${
-                  addGuestPaymentMethod === 'ziina'
-                    ? 'border-secondary bg-secondary/10 text-secondary font-medium'
-                    : 'border-border text-muted-foreground hover-elevate'
-                }`}
+                className="flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors"
+                style={addGuestPaymentMethod === 'ziina'
+                  ? { borderColor: MKT.teal, background: MKT.tealMist, color: MKT.tealD, fontWeight: 600 }
+                  : { borderColor: `${MKT.navy}1F`, background: '#fff', color: MKT.inkSub }}
                 data-testid="button-add-guest-ziina"
               >
                 <CreditCard className="h-4 w-4" />
@@ -721,14 +729,16 @@ export default function MyBookings() {
           </div>
         </div>
         <DialogFooter>
-          <Button
-            variant="outline"
+          <button
+            type="button"
             onClick={() => setAddGuestBooking(null)}
             data-testid="button-add-guest-cancel"
+            style={ghostBtn('md')}
           >
             Cancel
-          </Button>
-          <Button
+          </button>
+          <button
+            type="button"
             disabled={!addGuestName.trim() || addGuestMutation.isPending}
             onClick={() => {
               if (!addGuestBooking || !addGuestName.trim()) return;
@@ -740,13 +750,14 @@ export default function MyBookings() {
               });
             }}
             data-testid="button-add-guest-submit"
+            style={{ ...navyBtn('md'), opacity: (!addGuestName.trim() || addGuestMutation.isPending) ? 0.6 : 1 }}
           >
             {addGuestMutation.isPending
               ? 'Please wait...'
               : addGuestPaymentMethod === 'ziina'
                 ? 'Pay & Add Guest'
                 : 'Add Guest'}
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
