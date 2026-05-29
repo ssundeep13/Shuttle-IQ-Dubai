@@ -5,6 +5,10 @@ import { memoryLocation } from 'wouter/memory-location';
 import { QueryClient, QueryClientProvider, type QueryFunction } from '@tanstack/react-query';
 import { getQueryFn } from '@/lib/queryClient';
 
+// The 50% referral first-game discount has been removed.
+// This suite verifies that the booking panel no longer shows any referral
+// discount banners or code-entry sections.
+
 const toastMock = vi.fn();
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: toastMock, dismiss: vi.fn(), toasts: [] }),
@@ -56,15 +60,9 @@ function renderSessionDetails(fetchImpl: typeof fetch) {
   );
 }
 
-function makeFetch(opts: {
-  eligible?: boolean;
-  canApplyCode?: boolean;
-  applySuccess?: boolean;
-  applyError?: string;
-} = {}) {
+function makeFetch() {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
-    const method = (init?.method ?? 'GET').toUpperCase();
 
     if (url.includes(`/api/marketplace/sessions/${SESSION_ID}/players`)) {
       return new Response(JSON.stringify([]), {
@@ -78,19 +76,9 @@ function makeFetch(opts: {
     }
     if (url.includes('/api/marketplace/referral-discount-eligibility')) {
       return new Response(
-        JSON.stringify({ eligible: opts.eligible ?? false, canApplyCode: opts.canApplyCode ?? false }),
+        JSON.stringify({ eligible: false, canApplyCode: false }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
-    }
-    if (method === 'POST' && url.includes('/api/marketplace/referrals/apply-code')) {
-      if (opts.applyError) {
-        return new Response(JSON.stringify({ error: opts.applyError }), {
-          status: 400, headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      return new Response(JSON.stringify({ success: true, referrerName: 'Ahmed' }), {
-        status: 200, headers: { 'Content-Type': 'application/json' },
-      });
     }
     if (url.includes('/api/marketplace/bookings/mine')) {
       return new Response(JSON.stringify([]), {
@@ -101,7 +89,7 @@ function makeFetch(opts: {
   });
 }
 
-describe('InlineBookingPanel — referral code entry', () => {
+describe('InlineBookingPanel — referral discount UI removed', () => {
   let originalFetch: typeof fetch;
 
   beforeEach(() => {
@@ -120,81 +108,54 @@ describe('InlineBookingPanel — referral code entry', () => {
     vi.restoreAllMocks();
   });
 
-  it('shows referral code toggle section in the booking panel when canApplyCode is true', async () => {
-    renderSessionDetails(makeFetch({ canApplyCode: true }));
+  it('does not show the referral code toggle section when booking panel opens', async () => {
+    renderSessionDetails(makeFetch());
 
-    // Open the booking panel
     const bookNowBtn = await screen.findByTestId('button-book-now');
     fireEvent.click(bookNowBtn);
 
-    // The booking panel should open
     await screen.findByTestId('section-booking-panel');
 
-    // The referral toggle section should be visible
-    const referralSection = await screen.findByTestId('section-referral-panel');
-    expect(referralSection).toBeDefined();
-
-    const toggleBtn = screen.getByTestId('button-toggle-referral-panel');
-    expect(toggleBtn.textContent).toContain('Have a referral code');
+    await waitFor(() => {
+      expect(screen.queryByTestId('section-referral-panel')).toBeNull();
+    });
   });
 
-  it('shows success banner with referrer name after a successful code apply', async () => {
-    renderSessionDetails(makeFetch({ canApplyCode: true, applySuccess: true }));
+  it('does not show the discount-ready banner even for eligible users (discount removed)', async () => {
+    renderSessionDetails(makeFetch());
 
-    // Open the booking panel
     const bookNowBtn = await screen.findByTestId('button-book-now');
     fireEvent.click(bookNowBtn);
 
     await screen.findByTestId('section-booking-panel');
 
-    // Expand the referral entry form
-    const toggleBtn = await screen.findByTestId('button-toggle-referral-panel');
-    fireEvent.click(toggleBtn);
-
-    // Type a referral code
-    const input = await screen.findByTestId('input-referral-code-panel');
-    fireEvent.change(input, { target: { value: 'SIQ-AHMED0-00001' } });
-
-    // Click Apply
-    const applyBtn = screen.getByTestId('button-apply-referral-code-panel');
-    fireEvent.click(applyBtn);
-
-    // Success banner should show with referrer name
-    const appliedBanner = await screen.findByTestId('banner-referral-applied-panel');
-    expect(appliedBanner.textContent).toContain('Ahmed');
-    expect(appliedBanner.textContent).toContain('50% off when paying by card');
+    await waitFor(() => {
+      expect(screen.queryByTestId('banner-referral-ready-panel')).toBeNull();
+    });
   });
 
-  it('shows error message when an invalid referral code is submitted', async () => {
-    renderSessionDetails(makeFetch({ canApplyCode: true, applyError: 'Invalid referral code' }));
+  it('shows the Book Now button and session price without referral-related UI', async () => {
+    renderSessionDetails(makeFetch());
+
+    const priceText = await screen.findByTestId('text-session-price');
+    expect(priceText.textContent).toContain('120');
 
     const bookNowBtn = await screen.findByTestId('button-book-now');
-    fireEvent.click(bookNowBtn);
-
-    await screen.findByTestId('section-booking-panel');
-
-    const toggleBtn = await screen.findByTestId('button-toggle-referral-panel');
-    fireEvent.click(toggleBtn);
-
-    const input = await screen.findByTestId('input-referral-code-panel');
-    fireEvent.change(input, { target: { value: 'BAD-CODE' } });
-
-    const applyBtn = screen.getByTestId('button-apply-referral-code-panel');
-    fireEvent.click(applyBtn);
-
-    const errorMsg = await screen.findByTestId('text-referral-error-panel');
-    expect(errorMsg.textContent).toContain('Invalid referral code');
+    expect(bookNowBtn).toBeDefined();
   });
 
-  it('shows the discount-ready banner when the user already has a referral (eligible=true)', async () => {
-    renderSessionDetails(makeFetch({ eligible: true }));
+  it('opens the booking panel and shows payment method choices without referral sections', async () => {
+    renderSessionDetails(makeFetch());
 
     const bookNowBtn = await screen.findByTestId('button-book-now');
     fireEvent.click(bookNowBtn);
 
-    await screen.findByTestId('section-booking-panel');
+    const panel = await screen.findByTestId('section-booking-panel');
+    expect(panel).toBeDefined();
 
-    const banner = await screen.findByTestId('banner-referral-ready-panel');
-    expect(banner.textContent).toContain('referral welcome discount is ready');
+    await waitFor(() => {
+      expect(screen.queryByTestId('banner-referral-applied-panel')).toBeNull();
+      expect(screen.queryByTestId('section-referral-panel')).toBeNull();
+    });
   });
 });

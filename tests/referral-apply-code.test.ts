@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Route-level tests for:
-//   GET  /api/marketplace/referral-discount-eligibility  (extended shape)
-//   POST /api/marketplace/referrals/apply-code           (new endpoint)
+//   GET  /api/marketplace/referral-discount-eligibility
+//   POST /api/marketplace/referrals/apply-code
 //
-// Pattern: mock auth middleware so it passes through, capture the route
-// handler from a fakeApp proxy, mock storage, call the handler directly.
+// The 50% referral first-game discount has been removed.
+// The eligibility endpoint now always returns { eligible: false, canApplyCode: false }.
+// The apply-code endpoint still works for referral tracking purposes.
 
 vi.mock('../server/auth/middleware', () => ({
   requireAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -63,7 +64,9 @@ function staleUser() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// GET /api/marketplace/referral-discount-eligibility — extended shape
+// GET /api/marketplace/referral-discount-eligibility
+// Always returns { eligible: false, canApplyCode: false } since the 50% discount
+// has been removed.
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('GET /api/marketplace/referral-discount-eligibility', () => {
@@ -78,72 +81,42 @@ describe('GET /api/marketplace/referral-discount-eligibility', () => {
     return handler;
   }
 
-  it('returns eligible=true, canApplyCode=false when user has a referral row and 0 bookings', async () => {
+  it('always returns eligible=false, canApplyCode=false (50% discount removed)', async () => {
     const handler = await load();
-    const { storage } = await import('../server/storage');
-    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'r1' } as any);
-    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
-    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
-
     const captured = makeRes();
     await handler({ user: { userId: 'u1' } }, captured.res);
-
-    expect(captured.statusCode).toBe(200);
-    expect(captured.body).toMatchObject({ eligible: true, canApplyCode: false });
-  });
-
-  it('returns eligible=false, canApplyCode=true when user has NO referral row, 0 bookings, and fresh account', async () => {
-    const handler = await load();
-    const { storage } = await import('../server/storage');
-    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
-    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
-    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
-
-    const captured = makeRes();
-    await handler({ user: { userId: 'u1' } }, captured.res);
-
-    expect(captured.statusCode).toBe(200);
-    expect(captured.body).toMatchObject({ eligible: false, canApplyCode: true });
-  });
-
-  it('returns eligible=false, canApplyCode=false when user has prior bookings (no referral)', async () => {
-    const handler = await load();
-    const { storage } = await import('../server/storage');
-    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
-    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(2);
-    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
-
-    const captured = makeRes();
-    await handler({ user: { userId: 'u1' } }, captured.res);
-
     expect(captured.statusCode).toBe(200);
     expect(captured.body).toMatchObject({ eligible: false, canApplyCode: false });
   });
 
-  it('returns eligible=false, canApplyCode=false when user has referral row but also has prior bookings', async () => {
+  it('returns eligible=false even when user has a referral row and 0 bookings', async () => {
     const handler = await load();
-    const { storage } = await import('../server/storage');
-    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'r1' } as any);
-    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(1);
-    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(freshUser());
-
     const captured = makeRes();
     await handler({ user: { userId: 'u1' } }, captured.res);
-
     expect(captured.statusCode).toBe(200);
     expect(captured.body).toMatchObject({ eligible: false, canApplyCode: false });
   });
 
-  it('returns canApplyCode=false when the account is older than 30 days (window expired)', async () => {
+  it('returns canApplyCode=false even for fresh accounts with 0 bookings', async () => {
     const handler = await load();
-    const { storage } = await import('../server/storage');
-    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
-    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
-    vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(staleUser());
-
     const captured = makeRes();
     await handler({ user: { userId: 'u1' } }, captured.res);
+    expect(captured.statusCode).toBe(200);
+    expect(captured.body).toMatchObject({ eligible: false, canApplyCode: false });
+  });
 
+  it('returns eligible=false, canApplyCode=false when user has prior bookings', async () => {
+    const handler = await load();
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' } }, captured.res);
+    expect(captured.statusCode).toBe(200);
+    expect(captured.body).toMatchObject({ eligible: false, canApplyCode: false });
+  });
+
+  it('returns canApplyCode=false regardless of account age', async () => {
+    const handler = await load();
+    const captured = makeRes();
+    await handler({ user: { userId: 'u1' } }, captured.res);
     expect(captured.statusCode).toBe(200);
     expect(captured.body).toMatchObject({ eligible: false, canApplyCode: false });
   });
@@ -151,6 +124,7 @@ describe('GET /api/marketplace/referral-discount-eligibility', () => {
 
 // ────────────────────────────────────────────────────────────────────────────
 // POST /api/marketplace/referrals/apply-code
+// Still works for referral tracking; no longer unlocks a discount.
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('POST /api/marketplace/referrals/apply-code', () => {

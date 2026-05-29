@@ -2,17 +2,11 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 // ─── Route-level integration test: POST /api/marketplace/bookings — referral discount ───
 //
-// Confirms that the referral first-game 50% discount is auto-applied on the
-// backend whenever:
-//   • paymentMethod is 'ziina' (not cash)
-//   • no manual discountCode is provided
-//   • the user has a referral row (linked via apply-code or signup)
-//   • the user has 0 prior confirmed bookings
-//
-// The frontend (makeBooking in SessionDetails.tsx / InlineBookingPanel) does NOT
-// need to forward any referral context — the backend detects it automatically
-// via getReferralByRefereeUserId(userId).  This test suite documents and locks
-// in that contract.
+// The 50% referral first-game auto-discount has been removed.
+// This suite verifies that:
+//   • Ziina bookings are always charged at full price regardless of referral status.
+//   • Manual discount codes still work as expected.
+//   • Cash bookings are unaffected.
 
 vi.mock('../server/auth/middleware', () => ({
   requireAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -105,10 +99,10 @@ const baseBooking = {
   sessionId: SESSION_ID,
   status: 'pending',
   paymentMethod: 'ziina',
-  amountAed: 50,
+  amountAed: 100,
   spotsBooked: 1,
   discountCodeId: null,
-  discountAmountAed: 50,
+  discountAmountAed: 0,
   ziinaPaymentIntentId: null,
   cashPaid: false,
   waitlistPosition: null,
@@ -132,7 +126,7 @@ const ziinaReqBody = {
 
 const authUser = { userId: 'user-ref-1', name: 'Referred User', email: 'referred@example.com' };
 
-describe('POST /api/marketplace/bookings — referral first-game discount (auto-apply)', () => {
+describe('POST /api/marketplace/bookings — no referral discount (removed)', () => {
   let handler: Handler;
 
   beforeAll(async () => {
@@ -144,19 +138,17 @@ describe('POST /api/marketplace/bookings — referral first-game discount (auto-
     createZiinaIntentMock.mockReset();
   });
 
-  it('applies 50% discount to createBooking and passes discounted amount to Ziina when user has a referral row and 0 prior bookings', async () => {
+  it('charges full price for Ziina bookings even when user has a referral row and 0 prior bookings', async () => {
     const { storage } = await import('../server/storage');
 
     vi.spyOn(storage, 'getUserBookingForSession').mockResolvedValue(undefined);
     vi.spyOn(storage, 'getBookableSession').mockResolvedValue(baseBookableSession as never);
     vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(primaryUser as never);
-    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'ref-row-1' } as never);
-    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(0);
 
     const createBookingSpy = vi.spyOn(storage, 'createBooking').mockResolvedValue({
       ...baseBooking,
-      amountAed: 50,
-      discountAmountAed: 50,
+      amountAed: 100,
+      discountAmountAed: 0,
     } as never);
 
     vi.spyOn(storage, 'createBookingGuest').mockResolvedValue({ id: 'slot-1' } as never);
@@ -164,38 +156,33 @@ describe('POST /api/marketplace/bookings — referral first-game discount (auto-
     vi.spyOn(storage, 'updateBooking').mockResolvedValue({ ...baseBooking } as never);
 
     createZiinaIntentMock.mockResolvedValue({
-      id: 'pi_test_referral',
-      redirect_url: 'https://ziina.com/pay/referral-test',
+      id: 'pi_test_full_price',
+      redirect_url: 'https://ziina.com/pay/full-price',
       status: 'pending',
     });
 
     const { res, captured } = makeRes();
     await handler({ user: authUser, body: ziinaReqBody, params: {} }, res);
 
-    // booking INSERT must carry the 50% discount (50 off 100 AED session)
     expect(createBookingSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        amountAed: 50,
-        discountAmountAed: 50,
-      }),
+      expect.objectContaining({ amountAed: 100 }),
     );
 
-    // Ziina must be called with the discounted amount (50 AED), NOT the full 100 AED
     expect(createZiinaIntentMock).toHaveBeenCalledTimes(1);
-    expect(createZiinaIntentMock.mock.calls[0][0]).toMatchObject({ amountAed: 50 });
+    expect(createZiinaIntentMock.mock.calls[0][0]).toMatchObject({ amountAed: 100 });
 
     expect(captured.status).toBe(200);
     const body = captured.body as Record<string, unknown>;
-    expect(body.discountAmountAed).toBe(50);
+    expect(body.discountAmountAed).toBeUndefined();
   });
 
-  it('does NOT apply the referral discount for cash bookings', async () => {
+  it('does NOT check referral status for cash bookings', async () => {
     const { storage } = await import('../server/storage');
 
     vi.spyOn(storage, 'getUserBookingForSession').mockResolvedValue(undefined);
     vi.spyOn(storage, 'getBookableSession').mockResolvedValue(baseBookableSession as never);
     vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(primaryUser as never);
-    const referralSpy = vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'ref-row-1' } as never);
+    const referralSpy = vi.spyOn(storage, 'getReferralByRefereeUserId');
 
     const createBookingSpy = vi.spyOn(storage, 'createBooking').mockResolvedValue({
       ...baseBooking,
@@ -214,24 +201,19 @@ describe('POST /api/marketplace/bookings — referral first-game discount (auto-
       params: {},
     }, res);
 
-    // Referral row should never be checked for cash bookings
     expect(referralSpy).not.toHaveBeenCalled();
-
-    // Cash booking stored at full price
     expect(createBookingSpy).toHaveBeenCalledWith(
       expect.objectContaining({ amountAed: 100, paymentMethod: 'cash' }),
     );
-
     expect(captured.status).toBe(200);
   });
 
-  it('does NOT apply the referral discount when there is no referral row', async () => {
+  it('charges full price when there is no referral row', async () => {
     const { storage } = await import('../server/storage');
 
     vi.spyOn(storage, 'getUserBookingForSession').mockResolvedValue(undefined);
     vi.spyOn(storage, 'getBookableSession').mockResolvedValue(baseBookableSession as never);
     vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(primaryUser as never);
-    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue(undefined);
 
     const createBookingSpy = vi.spyOn(storage, 'createBooking').mockResolvedValue({
       ...baseBooking,
@@ -250,28 +232,21 @@ describe('POST /api/marketplace/bookings — referral first-game discount (auto-
     const { res, captured } = makeRes();
     await handler({ user: authUser, body: ziinaReqBody, params: {} }, res);
 
-    // Full price stored — no discount
     expect(createBookingSpy).toHaveBeenCalledWith(
       expect.objectContaining({ amountAed: 100 }),
     );
-
-    // Ziina charged the full 100 AED
-    expect(createZiinaIntentMock).toHaveBeenCalledTimes(1);
     expect(createZiinaIntentMock.mock.calls[0][0]).toMatchObject({ amountAed: 100 });
-
     expect(captured.status).toBe(200);
     const body = captured.body as Record<string, unknown>;
     expect(body.discountAmountAed).toBeUndefined();
   });
 
-  it('does NOT apply the referral discount when the user has prior confirmed bookings', async () => {
+  it('charges full price when the user has prior confirmed bookings', async () => {
     const { storage } = await import('../server/storage');
 
     vi.spyOn(storage, 'getUserBookingForSession').mockResolvedValue(undefined);
     vi.spyOn(storage, 'getBookableSession').mockResolvedValue(baseBookableSession as never);
     vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(primaryUser as never);
-    vi.spyOn(storage, 'getReferralByRefereeUserId').mockResolvedValue({ id: 'ref-row-1' } as never);
-    vi.spyOn(storage, 'countConfirmedBookingsForUser').mockResolvedValue(2);
 
     const createBookingSpy = vi.spyOn(storage, 'createBooking').mockResolvedValue({
       ...baseBooking,
@@ -290,23 +265,20 @@ describe('POST /api/marketplace/bookings — referral first-game discount (auto-
     const { res, captured } = makeRes();
     await handler({ user: authUser, body: ziinaReqBody, params: {} }, res);
 
-    // Full price — user already had prior bookings so referral discount no longer applies
     expect(createBookingSpy).toHaveBeenCalledWith(
       expect.objectContaining({ amountAed: 100 }),
     );
     expect(createZiinaIntentMock.mock.calls[0][0]).toMatchObject({ amountAed: 100 });
-
     expect(captured.status).toBe(200);
   });
 
-  it('uses the manual discountCode and skips the referral auto-apply when a discountCode is present in the request', async () => {
+  it('applies manual discountCode correctly (unrelated to referral system)', async () => {
     const { storage } = await import('../server/storage');
 
     vi.spyOn(storage, 'getUserBookingForSession').mockResolvedValue(undefined);
     vi.spyOn(storage, 'getBookableSession').mockResolvedValue(baseBookableSession as never);
     vi.spyOn(storage, 'getMarketplaceUser').mockResolvedValue(primaryUser as never);
 
-    // Referral row exists but should be ignored when discountCode is explicitly provided
     const referralAutoSpy = vi.spyOn(storage, 'getReferralByRefereeUserId');
 
     vi.spyOn(storage, 'validateDiscountCode').mockResolvedValue({
@@ -342,14 +314,11 @@ describe('POST /api/marketplace/bookings — referral first-game discount (auto-
       params: {},
     }, res);
 
-    // The referral auto-apply branch must be completely skipped
     expect(referralAutoSpy).not.toHaveBeenCalled();
 
-    // Manual discount (AED 30) applied
     expect(createBookingSpy).toHaveBeenCalledWith(
       expect.objectContaining({ amountAed: 70, discountCodeId: 'dc-manual', discountAmountAed: 30 }),
     );
-
     expect(captured.status).toBe(200);
   });
 });

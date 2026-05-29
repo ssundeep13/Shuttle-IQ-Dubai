@@ -2340,18 +2340,6 @@ export function registerMarketplaceRoutes(app: Express) {
         appliedDiscountAmountAed = dcResult.discountAmountAed;
       }
 
-      // Referral first-game discount (Ziina-only, no manual code): auto-apply 50%
-      // if the user signed up via referral AND has no prior non-cancelled bookings.
-      if (method !== 'cash' && !discountCode) {
-        const referralRow = await storage.getReferralByRefereeUserId(req.user.userId);
-        if (referralRow) {
-          const priorCount = await storage.countConfirmedBookingsForUser(req.user.userId);
-          if (priorCount === 0) {
-            const baseTotal = bookableSession.priceAed * spotsBooked;
-            appliedDiscountAmountAed = Math.floor(baseTotal * 0.5);
-          }
-        }
-      }
 
       if (method === 'cash') {
         const totalAmount = bookableSession.priceAed * spotsBooked;
@@ -4148,27 +4136,10 @@ export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
 
   // GET /api/marketplace/referral-discount-eligibility
-  // Returns { eligible: boolean, canApplyCode: boolean }
-  // eligible     — true when the user has a referral row AND 0 prior bookings
-  //                (automatic 50% first-game discount applies on Ziina payments)
-  // canApplyCode — true when the user has NO referral row but still 0 prior
-  //                bookings (they can still link a referral code at checkout)
-  app.get("/api/marketplace/referral-discount-eligibility", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
-    try {
-      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const [referralRow, priorBookings, user] = await Promise.all([
-        storage.getReferralByRefereeUserId(req.user.userId),
-        storage.countConfirmedBookingsForUser(req.user.userId),
-        storage.getMarketplaceUser(req.user.userId),
-      ]);
-      const withinWindow = user ? canApplyReferralCode(user.createdAt) : false;
-      const eligible = !!referralRow && priorBookings === 0;
-      const canApplyCode = !referralRow && priorBookings === 0 && withinWindow;
-      return res.json({ eligible, canApplyCode });
-    } catch (err) {
-      console.error('[Referral discount eligibility] error:', err);
-      return res.status(500).json({ error: 'Failed to check eligibility' });
-    }
+  // Referral first-game 50% discount has been removed. Always returns ineligible
+  // so that any cached client-side queries get the correct response.
+  app.get("/api/marketplace/referral-discount-eligibility", requireAuth, requireMarketplaceAuth, async (_req: AuthRequest, res) => {
+    return res.json({ eligible: false, canApplyCode: false });
   });
 
   // POST /api/marketplace/referrals/apply-code
