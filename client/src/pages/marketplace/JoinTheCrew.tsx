@@ -6,8 +6,15 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import type { CSSProperties } from 'react';
 
 const APPLY_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSccGm5-cpPDJ_495b_k8Wg9bc98SEHu0JrGktKAYkfUO_2Ezg/viewform?usp=header';
+
+// Brand restyle tokens (look only — real offer, apply URL, content untouched)
+const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
+const headingNavy: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em', color: '#003E8C' };
+const headingOnDark: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em' };
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
@@ -21,7 +28,7 @@ function SectionHeading({ label, title, subtitle }: { label?: string; title: str
       {label && (
         <p className="text-xs font-semibold uppercase tracking-widest text-secondary mb-2">{label}</p>
       )}
-      <h2 className="text-2xl md:text-3xl font-bold mb-2">{title}</h2>
+      <h2 className="text-2xl md:text-3xl font-bold mb-2" style={headingNavy}>{title}</h2>
       {subtitle && <p className="text-muted-foreground">{subtitle}</p>}
     </div>
   );
@@ -60,6 +67,7 @@ export default function JoinTheCrew() {
           <motion.h1
             variants={fadeInUp}
             className="text-3xl md:text-5xl font-extrabold text-primary-foreground mb-5 leading-tight tracking-tight"
+            style={headingOnDark}
             data-testid="text-hiring-hero-title"
           >
             Join the ShuttleIQ Crew{' '}
@@ -109,7 +117,7 @@ export default function JoinTheCrew() {
               { icon: Zap, text: 'Be a key part of building something exciting' },
             ].map((item) => (
               <motion.div key={item.text} variants={fadeInUp}>
-                <Card className="h-full" data-testid={`card-perk-${item.text.slice(0, 10).replace(/\s/g, '-').toLowerCase()}`}>
+                <Card className="h-full" style={cardChrome} data-testid={`card-perk-${item.text.slice(0, 10).replace(/\s/g, '-').toLowerCase()}`}>
                   <CardContent className="p-5 flex items-start gap-3">
                     <div className="w-9 h-9 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
                       <item.icon className="h-4 w-4 text-secondary" />
@@ -143,7 +151,7 @@ export default function JoinTheCrew() {
             You are the heartbeat of the session. You don't just manage games — you create the experience.
           </motion.p>
           <motion.div variants={fadeInUp}>
-            <Card>
+            <Card style={cardChrome}>
               <CardContent className="p-6">
                 <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Responsibilities</p>
                 <ul className="space-y-3">
@@ -173,7 +181,7 @@ export default function JoinTheCrew() {
             <SectionHeading label="Is This You?" title="Who This Is For" />
           </motion.div>
           <motion.div variants={fadeInUp}>
-            <Card>
+            <Card style={cardChrome}>
               <CardContent className="p-6">
                 <ul className="space-y-3">
                   <BulletItem>Female badminton player (upper-intermediate+)</BulletItem>
@@ -202,7 +210,7 @@ export default function JoinTheCrew() {
 
             {/* Requirements */}
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-6">
                   <div className="flex items-center gap-2 mb-4">
                     <ShieldCheck className="h-5 w-5 text-secondary" />
@@ -219,7 +227,7 @@ export default function JoinTheCrew() {
 
             {/* Compensation */}
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-6">
                   <div className="flex items-center gap-2 mb-4">
                     <DollarSign className="h-5 w-5 text-secondary" />
@@ -236,7 +244,7 @@ export default function JoinTheCrew() {
 
             {/* Locations */}
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-6">
                   <div className="flex items-center gap-2 mb-4">
                     <MapPin className="h-5 w-5 text-secondary" />

@@ -6,6 +6,14 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import type { CSSProperties } from 'react';
+
+// Brand restyle tokens (look only — all scoring content untouched)
+const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
+const flatShadow: CSSProperties = { boxShadow: 'none' };
+const headingNavy: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em', color: '#003E8C' };
+const headingOnDark: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em' };
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
@@ -19,7 +27,7 @@ function SectionHeading({ label, title, subtitle }: { label?: string; title: str
       {label && (
         <p className="text-xs font-semibold uppercase tracking-widest text-secondary mb-2">{label}</p>
       )}
-      <h2 className="text-2xl md:text-3xl font-bold mb-2">{title}</h2>
+      <h2 className="text-2xl md:text-3xl font-bold mb-2" style={headingNavy}>{title}</h2>
       {subtitle && <p className="text-muted-foreground">{subtitle}</p>}
     </div>
   );
@@ -132,6 +140,7 @@ export default function ScoringGuide() {
           <motion.h1
             variants={fadeInUp}
             className="text-3xl md:text-5xl font-extrabold text-primary-foreground mb-5 leading-tight tracking-tight"
+            style={headingOnDark}
             data-testid="text-scoring-guide-title"
           >
             How It Works
@@ -162,7 +171,7 @@ export default function ScoringGuide() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
             {TIERS.map((tier) => (
               <motion.div key={tier.name} variants={fadeInUp}>
-                <Card className={`h-full border ${tier.color}`}>
+                <Card className={`h-full border ${tier.color}`} style={flatShadow}>
                   <CardContent className="p-4 text-center">
                     <p className="font-bold text-base mb-1">{tier.name}</p>
                     <p className="text-2xl font-extrabold tabular-nums mb-1">{tier.range}</p>
@@ -175,7 +184,7 @@ export default function ScoringGuide() {
           </div>
 
           <motion.div variants={fadeInUp}>
-            <Card className="bg-card/60">
+            <Card className="bg-card/60" style={cardChrome}>
               <CardContent className="p-5">
                 <ul className="space-y-2">
                   <BulletItem>New players start at score <strong>50</strong> (mid-Beginner).</BulletItem>
@@ -202,7 +211,7 @@ export default function ScoringGuide() {
           </motion.div>
 
           <motion.div variants={fadeInUp} className="mb-8">
-            <Card className="bg-primary/5 border-primary/20">
+            <Card className="bg-primary/5 border-primary/20" style={flatShadow}>
               <CardContent className="p-5 text-center">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Formula</p>
                 <p className="font-mono text-base md:text-lg font-bold text-foreground">
@@ -217,7 +226,7 @@ export default function ScoringGuide() {
 
             {/* Factor 1: Base Adjustment */}
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <div className="w-7 h-7 rounded-full bg-secondary/10 flex items-center justify-center shrink-0">
@@ -250,7 +259,7 @@ export default function ScoringGuide() {
 
             {/* Factor 2: Contribution */}
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <div className="w-7 h-7 rounded-full bg-secondary/10 flex items-center justify-center shrink-0">
@@ -261,7 +270,7 @@ export default function ScoringGuide() {
                   <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
                     Adjusts for how much of your team's strength you carried. The stronger partner gains or loses more; the weaker one gains or loses less.
                   </p>
-                  <Card className="bg-muted/40 border-0">
+                  <Card className="bg-muted/40 border-0" style={flatShadow}>
                     <CardContent className="p-3">
                       <p className="font-mono text-xs text-center leading-relaxed">
                         factor = 1.0 +<br />(SKID_share − 0.5) × 0.6<br /><br />
@@ -281,7 +290,7 @@ export default function ScoringGuide() {
 
             {/* Factor 3: K-Factor */}
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <div className="w-7 h-7 rounded-full bg-secondary/10 flex items-center justify-center shrink-0">
@@ -307,7 +316,7 @@ export default function ScoringGuide() {
 
           {/* Tier boundary note */}
           <motion.div variants={fadeInUp} className="mt-6">
-            <Card className="bg-card/60">
+            <Card className="bg-card/60" style={cardChrome}>
               <CardContent className="p-5">
                 <p className="text-sm font-semibold mb-2">Tier Boundary Protection</p>
                 <ul className="space-y-2">
@@ -338,7 +347,7 @@ export default function ScoringGuide() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <Clock className="h-5 w-5 text-muted-foreground" />
@@ -358,7 +367,7 @@ export default function ScoringGuide() {
             </motion.div>
 
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <Zap className="h-5 w-5 text-secondary" />
@@ -401,13 +410,13 @@ export default function ScoringGuide() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <BarChart3 className="h-5 w-5 text-secondary" />
                     <h3 className="font-semibold">Priority Score Formula</h3>
                   </div>
-                  <Card className="bg-muted/40 border-0 mb-4">
+                  <Card className="bg-muted/40 border-0 mb-4" style={flatShadow}>
                     <CardContent className="p-3">
                       <p className="font-mono text-xs leading-relaxed">
                         priority =<br />
@@ -433,7 +442,7 @@ export default function ScoringGuide() {
             </motion.div>
 
             <motion.div variants={fadeInUp}>
-              <Card className="h-full">
+              <Card className="h-full" style={cardChrome}>
                 <CardContent className="p-5">
                   <div className="flex items-center gap-2 mb-4">
                     <Users2 className="h-5 w-5 text-secondary" />
@@ -486,7 +495,7 @@ export default function ScoringGuide() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             {BALANCE_STEPS.map((step) => (
               <motion.div key={step.num} variants={fadeInUp}>
-                <Card className="h-full">
+                <Card className="h-full" style={cardChrome}>
                   <CardContent className="p-5">
                     <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center mb-3">
                       <span className="text-sm font-bold text-primary-foreground">{step.num}</span>
@@ -500,7 +509,7 @@ export default function ScoringGuide() {
           </div>
 
           <motion.div variants={fadeInUp}>
-            <Card className="bg-card/60">
+            <Card className="bg-card/60" style={cardChrome}>
               <CardContent className="p-5">
                 <p className="text-sm font-semibold mb-2">Important</p>
                 <p className="text-sm text-muted-foreground leading-relaxed">
