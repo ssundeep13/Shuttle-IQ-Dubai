@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,6 +17,10 @@ const TAG_CATEGORY_COLOR: Record<string, string> = {
   reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
   _default: 'bg-muted text-muted-foreground border-border',
 };
+
+// Brand restyle tokens (look only — ranking logic + real data untouched)
+const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
+const displayTitle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em', color: '#003E8C' };
 
 type TimeFilter = 'all-time' | 'this-month' | 'this-week';
 type SortMode = 'rank' | 'win-pct' | 'most-improved';
@@ -272,7 +276,7 @@ export default function Rankings() {
     <div className="max-w-3xl mx-auto px-4 py-8">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-6">
-          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
+          <h1 className="text-2xl font-bold flex items-center gap-2" style={displayTitle} data-testid="text-page-title">
             <Trophy className="h-6 w-6 text-secondary" /> Rankings
           </h1>
           <p className="text-muted-foreground mt-1">Global ShuttleIQ player leaderboard</p>
@@ -335,7 +339,7 @@ export default function Rankings() {
                 {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 w-full" />)}
               </div>
             ) : ranked.length === 0 ? (
-              <Card>
+              <Card style={cardChrome}>
                 <CardContent className="p-8 text-center">
                   <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
                   <h3 className="font-semibold mb-1">No ranked players yet</h3>
@@ -408,7 +412,7 @@ export default function Rankings() {
                 )}
 
                 {rest.length > 0 && (
-                  <Card>
+                  <Card style={cardChrome}>
                     <CardContent className="p-0">
                       <div className="divide-y">
                         {rest.map((entry, index) => {
@@ -472,12 +476,12 @@ export default function Rankings() {
 
         {topRecruiters.length > 0 && (
           <motion.div variants={fadeInUp} className="mt-10">
-            <h2 className="text-xl font-bold flex items-center gap-2 mb-1" data-testid="text-top-recruiters-title">
+            <h2 className="text-xl font-bold flex items-center gap-2 mb-1" style={displayTitle} data-testid="text-top-recruiters-title">
               <Users className="h-5 w-5 text-secondary" /> Top Recruiters
             </h2>
             <p className="text-muted-foreground text-sm mb-4">Players who've brought the most friends to ShuttleIQ</p>
 
-            <Card>
+            <Card style={cardChrome}>
               <CardContent className="p-0">
                 <div className="divide-y">
                   {topRecruiters.map((recruiter, index) => (
