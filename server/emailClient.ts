@@ -438,6 +438,43 @@ export async function sendReferralCreditEmail(
   }
 }
 
+// ─── Referral Friend (Referee) Credit ────────────────────────────────────
+// New in PR1: the referred friend also gets AED 15. Identical mechanism,
+// different copy — they're being thanked for joining, not for referring.
+export async function sendReferralFriendCreditEmail(
+  toEmail: string,
+  refereeName: string,
+  referrerName: string,
+  creditFils: number,
+): Promise<void> {
+  const aed = (creditFils / 100).toFixed(2);
+  const body = `
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:600;color:#0a2540;">Welcome — here's AED ${aed} on us</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">
+      Hi ${refereeName}, thanks for joining ShuttleIQ through <strong>${referrerName}</strong>'s invite. We've added <strong>AED ${aed}</strong> to your wallet — it lands automatically when you next book a session.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f9ff;border-radius:6px;margin-bottom:24px;">
+      <tr>
+        <td style="padding:16px 20px;">
+          <p style="margin:0 0 4px;font-size:13px;color:#6b7280;">Credit added</p>
+          <p style="margin:0;font-size:24px;font-weight:700;color:#0a2540;">AED ${aed}</p>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 24px;font-size:14px;color:#4a5568;line-height:1.6;">
+      See you on court.
+    </p>
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
+    <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">Wallet credit is automatically applied at checkout.</p>
+  `;
+  try {
+    await sendEmail(toEmail, `Welcome to ShuttleIQ — AED ${aed} on us`, emailWrapper(body));
+    console.log(`[Email] Referral friend credit email sent to ${toEmail}`);
+  } catch (err) {
+    console.error('[Email] sendReferralFriendCreditEmail failed:', err);
+  }
+}
+
 // ─── Referral Milestone ─────────────────────────────────────────────────
 
 export async function sendReferralMilestoneEmail(

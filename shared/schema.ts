@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex, unique, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex, unique, primaryKey, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -46,6 +46,10 @@ export const players = pgTable("players", {
   ambassadorStatus: boolean("ambassador_status").notNull().default(false), // true at 10 completed referrals
   jerseyDispatched: boolean("jersey_dispatched").notNull().default(false), // admin marks when jersey sent
   leaderboardMention: boolean("leaderboard_mention").notNull().default(false), // true at 5 completed referrals
+  // C-2 (PR1): track whether the milestone congrats email has ever been sent so
+  // a clawback-then-re-cross does not re-trigger it. Sticky once true.
+  referralMilestone5Emailed: boolean("referral_milestone_5_emailed").notNull().default(false),
+  referralMilestone10Emailed: boolean("referral_milestone_10_emailed").notNull().default(false),
 });
 
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, shuttleIqId: true, createdAt: true });
@@ -60,10 +64,16 @@ export const referrals = pgTable("referrals", {
   referrerId: varchar("referrer_id").notNull().references(() => players.id), // player.id of the person who referred
   refereeUserId: varchar("referee_user_id").notNull().unique(), // marketplace_users.id of the person who was referred (one referral per user)
   refereePlayerId: varchar("referee_player_id"), // player.id of the referee (populated when marketplace user links a player account)
-  status: text("status").notNull().default('pending'), // 'pending' | 'completed' | 'invalid'
+  status: text("status").notNull().default('pending'), // 'pending' | 'completed' | 'invalid' | 'clawed_back' (terminal)
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  // PR1 additions — wiring deferred to PR2.
+  triggeringBookingId: varchar("triggering_booking_id"), // booking.id whose first confirmed payment fired the credit; null for admin force-complete
+  completionMethod: text("completion_method"), // 'first_payment' | 'admin' (null pre-completion)
+  clawedBackAt: timestamp("clawed_back_at"),
+}, (table) => [
+  index('idx_referrals_triggering_booking').on(table.triggeringBookingId),
+]);
 
 export const insertReferralSchema = createInsertSchema(referrals).omit({ id: true, createdAt: true, completedAt: true });
 export type InsertReferral = z.infer<typeof insertReferralSchema>;
@@ -320,6 +330,8 @@ export const marketplaceUsers = pgTable("marketplace_users", {
   emailVerificationToken: text("email_verification_token"),
   emailVerificationTokenExpiry: timestamp("email_verification_token_expiry"),
   photoUrl: text("photo_url"),
+  // PR1 addition — wiring deferred to PR4 (Dashboard nudge dismiss).
+  referralNudgeDismissedAt: timestamp("referral_nudge_dismissed_at"),
 });
 
 export const insertMarketplaceUserSchema = createInsertSchema(marketplaceUsers).omit({ id: true, createdAt: true, lastLoginAt: true });

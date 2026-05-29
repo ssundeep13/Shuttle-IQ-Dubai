@@ -446,6 +446,33 @@ export interface IStorage {
   getPlayerByReferralCode(code: string): Promise<Player | undefined>;
   backfillReferralCodes(): Promise<number>;
 
+  // PR1 atomic referral primitives. Wired in PR2.
+  // applyReferralCompletionAtomic: CAS-flip referral pending→completed and
+  // credit both wallets (or stage on refereeUser when unlinked) in a single tx.
+  applyReferralCompletionAtomic(params: {
+    referralId: string;
+    refereeUserId: string;
+    refereeLinkedPlayerId: string | null;
+    triggeringBookingId: string | null;
+    completionMethod: 'first_payment' | 'admin';
+    creditFils: number;
+  }): Promise<
+    | { applied: true; updatedReferrer: Player; refereeWasUnlinked: boolean }
+    | { applied: false }
+  >;
+
+  findCompletedReferralForBooking(bookingId: string): Promise<Referral | undefined>;
+
+  // applyReferralClawbackAtomic: CAS-flip completed→clawed_back and reverse
+  // both credits (negative balance OK; pendingSignupCreditFils floored at 0).
+  applyReferralClawbackAtomic(params: {
+    referralId: string;
+    referrerId: string;
+    refereePlayerId: string | null;
+    refereeUserId: string;
+    creditFils: number;
+  }): Promise<{ clawedBack: boolean }>;
+
   // Match suggestion operations (Phase 1 of player-facing gameplay flow)
   // `status` defaults to 'pending'. Pass 'queued' for "next round" lineups
   // built for an occupied court — those rows have pendingUntil = null and
@@ -3416,6 +3443,130 @@ export class DatabaseStorage implements IStorage {
       .from(referrals)
       .where(and(eq(referrals.referrerId, referrerId), eq(referrals.status, 'completed')));
     return result?.count ?? 0;
+  }
+
+  // ─── PR1: atomic referral primitives (DORMANT — wired in PR2) ───────────
+
+  async applyReferralCompletionAtomic(params: {
+    referralId: string;
+    refereeUserId: string;
+    refereeLinkedPlayerId: string | null;
+    triggeringBookingId: string | null;
+    completionMethod: 'first_payment' | 'admin';
+    creditFils: number;
+  }): Promise<
+    | { applied: true; updatedReferrer: Player; refereeWasUnlinked: boolean }
+    | { applied: false }
+  > {
+    return await db.transaction(async (tx) => {
+      // CAS: only flip pending → completed. Stamps the trigger metadata.
+      const [completedRef] = await tx
+        .update(referrals)
+        .set({
+          status: 'completed',
+          completedAt: new Date(),
+          triggeringBookingId: params.triggeringBookingId,
+          completionMethod: params.completionMethod,
+        })
+        .where(and(eq(referrals.id, params.referralId), eq(referrals.status, 'pending')))
+        .returning();
+      if (!completedRef) return { applied: false };
+
+      // Backfill refereePlayerId if the linked player became known after signup.
+      if (params.refereeLinkedPlayerId && !completedRef.refereePlayerId) {
+        await tx
+          .update(referrals)
+          .set({ refereePlayerId: params.refereeLinkedPlayerId })
+          .where(eq(referrals.id, params.referralId));
+      }
+
+      // Credit the referrer's wallet.
+      const [updatedReferrer] = await tx
+        .update(players)
+        .set({ walletBalance: sql`${players.walletBalance} + ${params.creditFils}` })
+        .where(eq(players.id, completedRef.referrerId))
+        .returning();
+      if (!updatedReferrer) {
+        // Should never happen — referrals.referrerId has an FK to players.
+        throw new Error(`Referrer player ${completedRef.referrerId} not found during completion`);
+      }
+
+      // Credit the referee — wallet if linked, otherwise stage on the user
+      // record so applyPendingSignupCredit drains it at link time.
+      let refereeWasUnlinked = false;
+      if (params.refereeLinkedPlayerId) {
+        const [updatedReferee] = await tx
+          .update(players)
+          .set({ walletBalance: sql`${players.walletBalance} + ${params.creditFils}` })
+          .where(eq(players.id, params.refereeLinkedPlayerId))
+          .returning();
+        if (!updatedReferee) {
+          throw new Error(`Referee player ${params.refereeLinkedPlayerId} not found during completion`);
+        }
+      } else {
+        refereeWasUnlinked = true;
+        await tx
+          .update(marketplaceUsers)
+          .set({
+            pendingSignupCreditFils: sql`${marketplaceUsers.pendingSignupCreditFils} + ${params.creditFils}`,
+          })
+          .where(eq(marketplaceUsers.id, params.refereeUserId));
+      }
+
+      return { applied: true, updatedReferrer, refereeWasUnlinked };
+    });
+  }
+
+  async findCompletedReferralForBooking(bookingId: string): Promise<Referral | undefined> {
+    const [row] = await db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.triggeringBookingId, bookingId));
+    return row ?? undefined;
+  }
+
+  async applyReferralClawbackAtomic(params: {
+    referralId: string;
+    referrerId: string;
+    refereePlayerId: string | null;
+    refereeUserId: string;
+    creditFils: number;
+  }): Promise<{ clawedBack: boolean }> {
+    return await db.transaction(async (tx) => {
+      // CAS: only flip completed → clawed_back (terminal).
+      const [clawedRef] = await tx
+        .update(referrals)
+        .set({ status: 'clawed_back', clawedBackAt: new Date() })
+        .where(and(eq(referrals.id, params.referralId), eq(referrals.status, 'completed')))
+        .returning();
+      if (!clawedRef) return { clawedBack: false };
+
+      // Reverse the referrer's credit. Negative balance allowed (a future
+      // top-up absorbs it) — no CHECK constraint on wallet_balance.
+      await tx
+        .update(players)
+        .set({ walletBalance: sql`${players.walletBalance} - ${params.creditFils}` })
+        .where(eq(players.id, params.referrerId));
+
+      // Reverse the referee's credit — wallet if they're linked, otherwise
+      // drain the pendingSignupCreditFils staging field (floored at 0; you
+      // can't owe a credit that was never delivered to a real wallet).
+      if (params.refereePlayerId) {
+        await tx
+          .update(players)
+          .set({ walletBalance: sql`${players.walletBalance} - ${params.creditFils}` })
+          .where(eq(players.id, params.refereePlayerId));
+      } else {
+        await tx
+          .update(marketplaceUsers)
+          .set({
+            pendingSignupCreditFils: sql`GREATEST(${marketplaceUsers.pendingSignupCreditFils} - ${params.creditFils}, 0)`,
+          })
+          .where(eq(marketplaceUsers.id, params.refereeUserId));
+      }
+
+      return { clawedBack: true };
+    });
   }
 
   async getAllReferrals(): Promise<(Referral & { referrerName: string; refereeEmail: string; referralCode: string | null; ambassadorStatus: boolean; jerseyDispatched: boolean })[]> {
