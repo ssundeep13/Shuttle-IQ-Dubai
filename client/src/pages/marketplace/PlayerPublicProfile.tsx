@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, Link } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -79,9 +79,17 @@ export default function PlayerPublicProfile() {
 
   const [progressionFilter, setProgressionFilter] = useState<'last10' | 'monthly' | 'all'>('last10');
 
+  // Brand restyle tokens (look only — public read-only view, no owner actions)
+  const PAGE_CREAM = '#F5EFE0';
+  const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+  const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
+  const cardTealChrome: CSSProperties = { background: '#D9EAE7', border: '1px solid rgba(0,107,95,0.2)', borderRadius: 14, boxShadow: 'none' };
+  const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, fontWeight: 700, color: '#003E8C', letterSpacing: '-0.015em' };
+  const pageWrapStyle: CSSProperties = { background: PAGE_CREAM, color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif", minHeight: '100%' };
+
   if (isLoading) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-4xl mx-auto px-4 py-8" style={pageWrapStyle}>
         <Skeleton className="h-8 w-32 mb-6" />
         <Skeleton className="h-36 w-full mb-6 rounded-xl" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -98,7 +106,7 @@ export default function PlayerPublicProfile() {
 
   if (!stats) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-8 text-center">
+      <div className="max-w-4xl mx-auto px-4 py-8 text-center" style={pageWrapStyle}>
         <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
         <h2 className="text-xl font-semibold mb-2">Player not found</h2>
         <p className="text-sm text-muted-foreground mb-4">This player profile doesn't exist or has no recorded games yet.</p>
@@ -151,6 +159,7 @@ export default function PlayerPublicProfile() {
   const last5Results = stats.recentGames.slice(0, 5).map(g => g.won);
 
   return (
+    <div style={pageWrapStyle}>
     <div className="max-w-4xl mx-auto px-4 py-6">
       <div>
         <div className="mb-5">
@@ -171,7 +180,7 @@ export default function PlayerPublicProfile() {
         <div>
           <div
             className="rounded-xl p-5 md:p-6 mb-6 flex items-center gap-4 md:gap-6 relative overflow-hidden"
-            style={{ background: 'linear-gradient(135deg, #0f2b46 0%, #163a5f 50%, #1a4a6e 100%)' }}
+            style={{ background: '#003E8C' }}
             data-testid="hero-banner"
           >
             {stats.playerPhotoUrl ? (
@@ -216,10 +225,10 @@ export default function PlayerPublicProfile() {
 
         {communityTags.length > 0 && (
           <div className="mb-6">
-            <Card data-testid="card-community-personality">
+            <Card style={cardChrome} data-testid="card-community-personality">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-sm flex items-center gap-2">
+                  <CardTitle className="text-sm flex items-center gap-2" style={titleStyle}>
                     <TagIcon className="h-4 w-4 text-muted-foreground" /> Community Personality
                   </CardTitle>
                   <Link href={`/marketplace/players/${stats.player.id}/personality-card`}>
@@ -249,7 +258,7 @@ export default function PlayerPublicProfile() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div>
-            <Card className="h-full" data-testid="card-stat-games">
+            <Card style={cardChrome} className="h-full" data-testid="card-stat-games">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <Target className="h-4 w-4 text-muted-foreground" />
@@ -261,7 +270,7 @@ export default function PlayerPublicProfile() {
           </div>
 
           <div>
-            <Card className="h-full" data-testid="card-stat-wins">
+            <Card style={cardChrome} className="h-full" data-testid="card-stat-wins">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <Trophy className="h-4 w-4 text-muted-foreground" />
@@ -273,7 +282,7 @@ export default function PlayerPublicProfile() {
           </div>
 
           <div>
-            <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-winrate">
+            <Card style={cardTealChrome} className="h-full" data-testid="card-stat-winrate">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
                   <TrendingUp className="h-4 w-4 text-teal-600 dark:text-teal-400" />
@@ -285,7 +294,7 @@ export default function PlayerPublicProfile() {
           </div>
 
           <div>
-            <Card className="h-full" data-testid="card-stat-streak">
+            <Card style={cardChrome} className="h-full" data-testid="card-stat-streak">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <Flame className="h-4 w-4 text-muted-foreground" />
@@ -297,7 +306,7 @@ export default function PlayerPublicProfile() {
           </div>
 
           <div>
-            <Card className="h-full" data-testid="card-stat-rank">
+            <Card style={cardChrome} className="h-full" data-testid="card-stat-rank">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <BarChart3 className="h-4 w-4 text-muted-foreground" />
@@ -310,7 +319,7 @@ export default function PlayerPublicProfile() {
           </div>
 
           <div>
-            <Card className="h-full" data-testid="card-stat-diff">
+            <Card style={cardChrome} className="h-full" data-testid="card-stat-diff">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center mb-3">
                   <BarChart3 className="h-4 w-4 text-muted-foreground" />
@@ -327,7 +336,7 @@ export default function PlayerPublicProfile() {
           </div>
 
           <div>
-            <Card className="h-full border-teal-200 dark:border-teal-800 bg-teal-50/50 dark:bg-teal-950/30" data-testid="card-stat-beststreak">
+            <Card style={cardTealChrome} className="h-full" data-testid="card-stat-beststreak">
               <CardContent className="p-4">
                 <div className="w-8 h-8 rounded-lg bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center mb-3">
                   <Zap className="h-4 w-4 text-teal-600 dark:text-teal-400" />
@@ -343,7 +352,7 @@ export default function PlayerPublicProfile() {
 
         {last5Results.length > 0 && (
           <div className="mb-6">
-            <Card>
+            <Card style={cardChrome}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <p className="text-sm font-medium">Last {last5Results.length} results</p>
@@ -362,10 +371,10 @@ export default function PlayerPublicProfile() {
 
         {allValidGames.length > 0 && (
           <div>
-            <Card className="mb-6" data-testid="card-skill-progression">
+            <Card style={cardChrome} className="mb-6" data-testid="card-skill-progression">
               <CardHeader className="pb-1">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2">
+                  <CardTitle className="text-base flex items-center gap-2" style={titleStyle}>
                     <TrendingUp className="h-4 w-4 text-muted-foreground" /> Skill Score Progression
                   </CardTitle>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -408,8 +417,8 @@ export default function PlayerPublicProfile() {
                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <defs>
                         <linearGradient id="skillGradientPublic" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#0d9488" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#0d9488" stopOpacity={0.02} />
+                          <stop offset="5%" stopColor="#006B5F" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#006B5F" stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
@@ -433,7 +442,7 @@ export default function PlayerPublicProfile() {
                       <Area
                         type="monotone"
                         dataKey="score"
-                        stroke="#0d9488"
+                        stroke="#006B5F"
                         strokeWidth={2}
                         fill="url(#skillGradientPublic)"
                         dot={(props: Record<string, unknown>) => <CustomDot {...props} />}
@@ -464,9 +473,9 @@ export default function PlayerPublicProfile() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             {stats.rivals.length > 0 && (
               <div>
-                <Card className="h-full" data-testid="card-rivals">
+                <Card style={cardChrome} className="h-full" data-testid="card-rivals">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center gap-2">
+                    <CardTitle className="text-base flex items-center gap-2" style={titleStyle}>
                       <Swords className="h-4 w-4 text-muted-foreground" /> Rivals
                     </CardTitle>
                     <p className="text-xs text-muted-foreground">Most frequent opponents</p>
@@ -515,9 +524,9 @@ export default function PlayerPublicProfile() {
 
             {stats.frequentPartners.length > 0 && (
               <div>
-                <Card className="h-full" data-testid="card-partners">
+                <Card style={cardChrome} className="h-full" data-testid="card-partners">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center gap-2">
+                    <CardTitle className="text-base flex items-center gap-2" style={titleStyle}>
                       <Users className="h-4 w-4 text-muted-foreground" /> Partners
                     </CardTitle>
                     <p className="text-xs text-muted-foreground">Players they've teamed up with most</p>
@@ -569,6 +578,7 @@ export default function PlayerPublicProfile() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }
