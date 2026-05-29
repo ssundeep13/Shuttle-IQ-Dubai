@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useLocation, useParams } from 'wouter';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CheckCircle, XCircle, AlertCircle, Loader2, Calendar, MapPin, Clock, UserX } from 'lucide-react';
 import { usePageTitle } from '@/hooks/usePageTitle';
+
+// Brand restyle tokens (look only — token + cancel logic untouched)
+const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
+const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", color: '#003E8C', letterSpacing: '-0.02em' };
 
 interface GuestInfo {
   id: string;
@@ -98,10 +102,10 @@ export default function GuestCancel() {
   if (error) {
     return (
       <div className="max-w-md mx-auto px-4 py-12">
-        <Card>
+        <Card style={cardChrome}>
           <CardHeader className="text-center">
             <AlertCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
-            <CardTitle>Something went wrong</CardTitle>
+            <CardTitle style={titleStyle}>Something went wrong</CardTitle>
           </CardHeader>
           <CardContent className="text-center space-y-4">
             <p className="text-muted-foreground" data-testid="text-guest-cancel-error">{error}</p>
@@ -117,10 +121,10 @@ export default function GuestCancel() {
   if (alreadyCancelled) {
     return (
       <div className="max-w-md mx-auto px-4 py-12">
-        <Card>
+        <Card style={cardChrome}>
           <CardHeader className="text-center">
             <XCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <CardTitle>Already Cancelled</CardTitle>
+            <CardTitle style={titleStyle}>Already Cancelled</CardTitle>
           </CardHeader>
           <CardContent className="text-center space-y-4">
             <p className="text-muted-foreground" data-testid="text-already-cancelled">
@@ -138,10 +142,10 @@ export default function GuestCancel() {
   if (cancelled) {
     return (
       <div className="max-w-md mx-auto px-4 py-12">
-        <Card>
+        <Card style={cardChrome}>
           <CardHeader className="text-center">
             <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-            <CardTitle data-testid="text-cancel-success">Spot Cancelled</CardTitle>
+            <CardTitle data-testid="text-cancel-success" style={titleStyle}>Spot Cancelled</CardTitle>
           </CardHeader>
           <CardContent className="text-center space-y-4">
             <p className="text-muted-foreground">
@@ -161,7 +165,7 @@ export default function GuestCancel() {
       <Card>
         <CardHeader className="text-center">
           <UserX className="h-12 w-12 mx-auto text-destructive mb-4" />
-          <CardTitle data-testid="text-cancel-title">Cancel Your Spot</CardTitle>
+          <CardTitle data-testid="text-cancel-title" style={titleStyle}>Cancel Your Spot</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <p className="text-center text-muted-foreground">
