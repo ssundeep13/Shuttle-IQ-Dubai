@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { useLocation, Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
@@ -138,11 +138,14 @@ export default function MarketplaceLogin() {
     }
   };
 
+  const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
+  const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", fontWeight: 700, fontSize: 26, color: '#003E8C', letterSpacing: '-0.02em' };
+
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
-      <Card className="w-full max-w-md">
+    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8" style={{ background: '#F5EFE0', color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <Card className="w-full max-w-md" style={cardChrome}>
         <CardHeader className="text-center">
-          <CardTitle data-testid="text-login-title">Welcome back</CardTitle>
+          <CardTitle data-testid="text-login-title" style={titleStyle}>Welcome back</CardTitle>
           <CardDescription>Sign in to your ShuttleIQ account</CardDescription>
         </CardHeader>
         <CardContent>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import { useLocation, Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
@@ -146,10 +146,15 @@ export default function MarketplaceSignup() {
     }
   };
 
+  // Brand restyle tokens (look only — referral + signup logic untouched)
+  const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
+  const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", fontWeight: 700, fontSize: 26, color: '#003E8C', letterSpacing: '-0.02em' };
+  const pageBg: CSSProperties = { background: '#F5EFE0', color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif" };
+
   // ----- Skill assessment phase (gender + 3 questions) -----
   if (phase === 'assessment') {
     return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
+      <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8" style={pageBg}>
         <SkillAssessmentStepper
           title="Tell us about your game"
           description="A few quick questions so we can match you with the right players."
@@ -168,8 +173,8 @@ export default function MarketplaceSignup() {
   // ----- Referral step -----
   if (phase === 'referral') {
     return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
-        <Card className="w-full max-w-md">
+      <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8" style={pageBg}>
+        <Card className="w-full max-w-md" style={cardChrome}>
           <CardHeader className="text-center">
             <div className="flex items-center justify-between gap-2 mb-2">
               <Button
@@ -201,7 +206,7 @@ export default function MarketplaceSignup() {
             <div className="mx-auto mb-2 w-12 h-12 rounded-full bg-[rgba(0,107,95,0.1)] flex items-center justify-center">
               <Gift className="h-6 w-6 text-[#006B5F]" />
             </div>
-            <CardTitle data-testid="text-referral-title">Were you referred?</CardTitle>
+            <CardTitle data-testid="text-referral-title" style={titleStyle}>Were you referred?</CardTitle>
             <CardDescription>
               If a friend shared their referral code with you, enter it below. You can also skip this step.
             </CardDescription>
@@ -271,13 +276,13 @@ export default function MarketplaceSignup() {
 
   // ----- Basic info step (default) -----
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
+    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8" style={pageBg}>
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <span className="text-xs text-muted-foreground mb-1" data-testid="text-step-progress">
             Step 1 of {TOTAL_STEPS}
           </span>
-          <CardTitle data-testid="text-signup-title">Create Account</CardTitle>
+          <CardTitle data-testid="text-signup-title" style={titleStyle}>Create Account</CardTitle>
           <CardDescription>Join the ShuttleIQ community</CardDescription>
         </CardHeader>
         <CardContent>
