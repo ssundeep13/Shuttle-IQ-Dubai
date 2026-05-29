@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -8,6 +8,11 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { CheckCircle2, Eye, EyeOff, KeyRound, XCircle } from 'lucide-react';
 import { usePageTitle } from '@/hooks/usePageTitle';
+
+// Brand restyle tokens (look only — token + redirect logic untouched)
+const pageBg: CSSProperties = { background: '#F5EFE0', color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif" };
+const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
+const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", color: '#003E8C', letterSpacing: '-0.02em' };
 
 export default function ResetPassword() {
   usePageTitle('Reset Password');
@@ -48,10 +53,10 @@ export default function ResetPassword() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
-      <Card className="w-full max-w-md">
+    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8" style={pageBg}>
+      <Card className="w-full max-w-md" style={cardChrome}>
         <CardHeader className="text-center">
-          <CardTitle>Reset Password</CardTitle>
+          <CardTitle style={titleStyle}>Reset Password</CardTitle>
           <CardDescription>Choose a new password for your account</CardDescription>
         </CardHeader>
         <CardContent>

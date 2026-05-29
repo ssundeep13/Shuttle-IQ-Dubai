@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,11 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useQueryClient } from '@tanstack/react-query';
 
 type Status = 'verifying' | 'success' | 'error' | 'missing';
+
+// Brand restyle tokens (look only — token + redirect logic untouched)
+const pageBg: CSSProperties = { background: '#F5EFE0', color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif" };
+const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
+const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", color: '#003E8C', letterSpacing: '-0.02em' };
 
 export default function VerifyEmail() {
   usePageTitle('Verify Email');
@@ -50,15 +55,15 @@ export default function VerifyEmail() {
   }, [queryClient]);
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8">
-      <Card className="w-full max-w-md">
+    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8" style={pageBg}>
+      <Card className="w-full max-w-md" style={cardChrome}>
         <CardHeader className="text-center">
           {status === 'verifying' && (
             <>
               <div className="mx-auto mb-2 w-12 h-12 rounded-full bg-muted flex items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-              <CardTitle data-testid="text-verify-title">Verifying your email…</CardTitle>
+              <CardTitle data-testid="text-verify-title" style={titleStyle}>Verifying your email…</CardTitle>
               <CardDescription>This will only take a moment.</CardDescription>
             </>
           )}
@@ -67,7 +72,7 @@ export default function VerifyEmail() {
               <div className="mx-auto mb-2 w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
                 <CheckCircle2 className="h-6 w-6 text-green-600" />
               </div>
-              <CardTitle data-testid="text-verify-success">Email verified!</CardTitle>
+              <CardTitle data-testid="text-verify-success" style={titleStyle}>Email verified!</CardTitle>
               <CardDescription>You can now link your ShuttleIQ player profile from the Profile page.</CardDescription>
             </>
           )}
@@ -76,7 +81,7 @@ export default function VerifyEmail() {
               <div className="mx-auto mb-2 w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
                 <XCircle className="h-6 w-6 text-destructive" />
               </div>
-              <CardTitle data-testid="text-verify-error">Verification failed</CardTitle>
+              <CardTitle data-testid="text-verify-error" style={titleStyle}>Verification failed</CardTitle>
               <CardDescription data-testid="text-verify-error-msg">{errorMsg}</CardDescription>
             </>
           )}
@@ -85,7 +90,7 @@ export default function VerifyEmail() {
               <div className="mx-auto mb-2 w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
                 <XCircle className="h-6 w-6 text-destructive" />
               </div>
-              <CardTitle>Missing verification link</CardTitle>
+              <CardTitle style={titleStyle}>Missing verification link</CardTitle>
               <CardDescription>This page expects a verification token in the URL.</CardDescription>
             </>
           )}
