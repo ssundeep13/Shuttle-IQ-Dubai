@@ -6,7 +6,12 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Calendar, Clock, ArrowRight } from 'lucide-react';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import type { CSSProperties } from 'react';
 import type { BlogPost } from '@shared/schema';
+
+// Brand restyle tokens (look only — real posts + links untouched)
+const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
+const displayTitle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em', color: '#003E8C' };
 
 function estimateReadTime(content: string): number {
   const plainText = content.replace(/<[^>]*>/g, ' ');
@@ -24,7 +29,7 @@ export default function BlogList() {
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-6 py-8 md:py-12">
       <div className="mb-8 md:mb-10">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight" data-testid="text-blog-heading">
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight" style={displayTitle} data-testid="text-blog-heading">
           Blog
         </h1>
         <p className="text-muted-foreground mt-2 text-sm md:text-base" data-testid="text-blog-subheading">
@@ -35,7 +40,7 @@ export default function BlogList() {
       {isLoading ? (
         <div className="space-y-6">
           {[1, 2, 3].map((i) => (
-            <Card key={i}>
+            <Card key={i} style={cardChrome}>
               <CardContent className="p-6">
                 <Skeleton className="h-5 w-3/4 mb-3" />
                 <Skeleton className="h-4 w-full mb-2" />
@@ -46,7 +51,7 @@ export default function BlogList() {
           ))}
         </div>
       ) : !posts || posts.length === 0 ? (
-        <Card>
+        <Card style={cardChrome}>
           <CardContent className="p-8 text-center">
             <p className="text-muted-foreground" data-testid="text-blog-empty">
               No posts yet. Check back soon!
@@ -62,7 +67,7 @@ export default function BlogList() {
               className="block group"
               data-testid={`link-blog-post-${post.slug}`}
             >
-              <Card className="hover-elevate transition-shadow">
+              <Card className="hover-elevate transition-shadow" style={cardChrome}>
                 <CardContent className="p-5 md:p-6">
                   <div className="flex flex-col gap-3">
                     {post.featuredImage && (

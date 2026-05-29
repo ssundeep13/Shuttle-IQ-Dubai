@@ -10,7 +10,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Calendar, Clock, ArrowLeft } from 'lucide-react';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { renderMarkdown } from '@/lib/renderMarkdown';
+import type { CSSProperties } from 'react';
 import type { BlogPost as BlogPostType } from '@shared/schema';
+
+// Brand restyle tokens (look only — content + SEO + links untouched)
+const displayTitle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em', color: '#003E8C' };
 
 function estimateReadTime(content: string): number {
   const plainText = content.replace(/<[^>]*>/g, ' ');
@@ -80,7 +84,7 @@ export default function BlogPost() {
   if (error || !post) {
     return (
       <div className="max-w-3xl mx-auto px-4 md:px-6 py-16 text-center">
-        <h1 className="text-2xl font-bold mb-3" data-testid="text-post-not-found">Post not found</h1>
+        <h1 className="text-2xl font-bold mb-3" style={displayTitle} data-testid="text-post-not-found">Post not found</h1>
         <p className="text-muted-foreground mb-6">
           This blog post doesn't exist or has been removed.
         </p>
@@ -103,7 +107,7 @@ export default function BlogPost() {
 
       <article>
         <header className="mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight leading-tight mb-4" data-testid="text-post-title">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight leading-tight mb-4" style={displayTitle} data-testid="text-post-title">
             {post.title}
           </h1>
 
