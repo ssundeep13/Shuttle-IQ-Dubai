@@ -7,6 +7,11 @@ import {
 
 const REFERRAL_CREDIT_FILS = 1500;
 
+// PR4: post-signup referral entry. A user may add a referral code after signing
+// up, but only within 30 days of account creation. Exported so route handlers
+// and the referral-status endpoint compute the same eligibility window.
+export const REFERRAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
 // PR1 (railway-migration): both referrer AND referred friend get 1500 fils
 // on the friend's first confirmed payment. Idempotent CAS on referral status.
 // Atomic DB work lives in storage so this module stays pure orchestration.
@@ -195,6 +200,75 @@ export async function completeReferralOnPayment(
     triggeringBookingId,
     completionMethod: 'first_payment',
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PUBLIC: post-signup referral linking (PR4). A user adds a referral code
+// after signing up — from the Dashboard nudge or the Profile field. Enforces
+// the same rules as the signup path (one referral per user, no self-referral)
+// plus the 30-day window. On success, if the user already has a confirmed
+// booking (decision E backfill — e.g. they paid on day 5 and add the code on
+// day 10), the first-payment trigger is fired immediately so credit lands now.
+// ─────────────────────────────────────────────────────────────────────────
+
+export type LinkOutcome =
+  | { ok: true; referralId: string; backfilled: boolean; backfillBookingId?: string }
+  | {
+      ok: false;
+      code: 'ALREADY_LINKED' | 'WINDOW_CLOSED' | 'INVALID_CODE' | 'SELF_REFERRAL' | 'USER_NOT_FOUND';
+    };
+
+export async function linkReferralPostSignup(params: {
+  userId: string;
+  referralCode: string;
+}): Promise<LinkOutcome> {
+  const { userId, referralCode } = params;
+
+  const user = await storage.getMarketplaceUser(userId);
+  if (!user) return { ok: false, code: 'USER_NOT_FOUND' };
+
+  // One referral per user — mirrors the signup path and the link route's 409.
+  const existing = await storage.getReferralByRefereeUserId(userId);
+  if (existing) return { ok: false, code: 'ALREADY_LINKED' };
+
+  // 30-day window from account creation.
+  const createdAtMs = new Date(user.createdAt).getTime();
+  if (Date.now() > createdAtMs + REFERRAL_WINDOW_MS) {
+    return { ok: false, code: 'WINDOW_CLOSED' };
+  }
+
+  const referrer = await storage.getPlayerByReferralCode(referralCode.toUpperCase());
+  if (!referrer) return { ok: false, code: 'INVALID_CODE' };
+
+  // Self-referral block — also enforced again at completion time.
+  if (user.linkedPlayerId && user.linkedPlayerId === referrer.id) {
+    return { ok: false, code: 'SELF_REFERRAL' };
+  }
+
+  const referral = await storage.createReferral({
+    referrerId: referrer.id,
+    refereeUserId: userId,
+    refereePlayerId: user.linkedPlayerId ?? null,
+    status: 'pending',
+  });
+
+  // Backfill (decision E): if the user already has a confirmed/attended
+  // booking, the first-payment trigger has effectively already happened. Fire
+  // the completion now against the earliest qualifying booking so the credit
+  // lands immediately. completeReferralOnPayment is idempotent (pending→
+  // completed CAS), so this is safe.
+  let backfilled = false;
+  let backfillBookingId: string | undefined;
+  const earliest = await storage.getEarliestConfirmedBookingForUser(userId);
+  if (earliest) {
+    const outcome = await completeReferralOnPayment(userId, earliest.id);
+    if (outcome.applied) {
+      backfilled = true;
+      backfillBookingId = earliest.id;
+    }
+  }
+
+  return { ok: true, referralId: referral.id, backfilled, backfillBookingId };
 }
 
 // ─────────────────────────────────────────────────────────────────────────

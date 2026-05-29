@@ -1,5 +1,5 @@
 import { useRef, useState, type CSSProperties } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2 } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Gift } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -58,6 +58,44 @@ export default function Profile() {
     | { mode: 'verify'; field: 'email' | 'phone'; destination: string; code: string }
     | null
   >(null);
+
+  // ── Post-signup referral entry (PR4) — Profile field ────────────────────────
+  interface ReferralStatus {
+    hasIncomingReferral: boolean;
+    referrerName: string | null;
+    eligibleUntil: string;
+    dismissedAt: string | null;
+  }
+  const { data: referralStatus } = useQuery<ReferralStatus>({
+    queryKey: ['/api/marketplace/me/referral-status'],
+    staleTime: 60_000,
+  });
+  const [referralCodeInput, setReferralCodeInput] = useState('');
+
+  const linkReferralMutation = useMutation({
+    mutationFn: (code: string) => apiRequest('POST', '/api/referrals/link', { referralCode: code.trim() }),
+    onSuccess: () => {
+      toast({ title: 'Referral code added!', description: 'You and your friend each get AED 15 after your first game.' });
+      setReferralCodeInput('');
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/referral-status'] });
+    },
+    onError: (err: unknown) => {
+      const code = err && typeof err === 'object' ? (err as { code?: string }).code : undefined;
+      // Window closed since load — refetch so the field locks/hides.
+      if (code === 'WINDOW_CLOSED') {
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/referral-status'] });
+      }
+      toast({ title: 'Could not add code', description: errorMessage(err), variant: 'destructive' });
+    },
+  });
+
+  const referralEligible =
+    !!referralStatus && new Date(referralStatus.eligibleUntil).getTime() > Date.now();
+  // Permanent (no dismiss): show when the user can still add a code, or as a
+  // read-only confirmation once they have. Hidden only when the window closed
+  // without a code ever being added.
+  const showReferralField =
+    !!referralStatus && (referralStatus.hasIncomingReferral || referralEligible);
 
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1021,6 +1059,63 @@ export default function Profile() {
               </CardContent>
             </Card>
           </motion.div>
+
+          {showReferralField && referralStatus && (
+            <motion.div variants={fadeInUp}>
+              <Card style={cardChrome} data-testid="card-add-referral">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2" style={titleStyle}>
+                    <Gift className="h-4 w-4 text-secondary" /> Referral code
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {referralStatus.hasIncomingReferral ? (
+                    <div className="flex items-center gap-2 text-sm" data-testid="text-referred-by">
+                      <Check className="h-4 w-4 text-green-600 shrink-0" />
+                      <span className="text-muted-foreground">
+                        {referralStatus.referrerName
+                          ? <>You were referred by <span className="font-medium text-foreground">{referralStatus.referrerName}</span>.</>
+                          : <>A referral code has been added to your account.</>}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Got a friend's referral code? Add it and you'll both get AED 15 after your first game.
+                      </p>
+                      <form
+                        className="flex items-center gap-2 flex-wrap"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (referralCodeInput.trim() && !linkReferralMutation.isPending) {
+                            linkReferralMutation.mutate(referralCodeInput);
+                          }
+                        }}
+                      >
+                        <Input
+                          value={referralCodeInput}
+                          onChange={(e) => setReferralCodeInput(e.target.value)}
+                          placeholder="Enter code"
+                          aria-label="Referral code"
+                          className="uppercase max-w-[220px]"
+                          data-testid="input-add-referral-code"
+                        />
+                        <Button
+                          type="submit"
+                          className="gap-2"
+                          disabled={!referralCodeInput.trim() || linkReferralMutation.isPending}
+                          data-testid="button-add-referral-code"
+                        >
+                          {linkReferralMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                          Apply
+                        </Button>
+                      </form>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
 
           <motion.div variants={fadeInUp}>
             <Card style={cardChrome}>

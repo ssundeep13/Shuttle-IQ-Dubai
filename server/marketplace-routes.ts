@@ -32,7 +32,7 @@ import {
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage } from "./ziinaClient";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
-import { fireReferralOnPayment, fireReferralClawback } from "./referrals";
+import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and, inArray, desc, asc, gt } from "drizzle-orm";
@@ -682,6 +682,53 @@ export function registerMarketplaceRoutes(app: Express) {
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get user" });
+    }
+  });
+
+  // ── Post-signup referral entry (PR4) ──────────────────────────────────────
+  // Read-only status powering the Dashboard nudge banner + the Profile field.
+  // hasIncomingReferral: user already has a referral as referee (used or pending).
+  // eligibleUntil: account creation + 30 days (the post-signup link window).
+  // referrerName: shown in the Profile field once a code has been added.
+  // dismissedAt: when the user dismissed the Dashboard nudge (null = not dismissed).
+  app.get("/api/marketplace/me/referral-status", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const referral = await storage.getReferralByRefereeUserId(user.id);
+      let referrerName: string | null = null;
+      if (referral) {
+        const referrer = await storage.getPlayer(referral.referrerId);
+        referrerName = referrer?.name ?? null;
+      }
+
+      const eligibleUntil = new Date(
+        new Date(user.createdAt).getTime() + REFERRAL_WINDOW_MS,
+      ).toISOString();
+
+      res.json({
+        hasIncomingReferral: !!referral,
+        referrerName,
+        eligibleUntil,
+        dismissedAt: user.referralNudgeDismissedAt
+          ? new Date(user.referralNudgeDismissedAt).toISOString()
+          : null,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get referral status" });
+    }
+  });
+
+  // Dismiss the Dashboard referral nudge — permanent (no resurfacing).
+  app.patch("/api/marketplace/me/dismiss-referral-nudge", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      await storage.updateMarketplaceUser(req.user.userId, { referralNudgeDismissedAt: new Date() });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to dismiss referral nudge" });
     }
   });
 

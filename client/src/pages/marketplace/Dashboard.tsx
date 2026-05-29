@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, type CSSProperties, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -420,6 +421,58 @@ export default function Dashboard() {
     staleTime: 60_000,
   });
 
+  // ── Post-signup referral entry (PR4) — Dashboard nudge ──────────────────────
+  interface ReferralStatus {
+    hasIncomingReferral: boolean;
+    referrerName: string | null;
+    eligibleUntil: string;
+    dismissedAt: string | null;
+  }
+
+  const queryClient = useQueryClient();
+  const { data: referralStatus } = useQuery<ReferralStatus>({
+    queryKey: ['/api/marketplace/me/referral-status'],
+    staleTime: 60_000,
+  });
+
+  const [referralNudgeCode, setReferralNudgeCode] = useState('');
+  const [referralNudgeHidden, setReferralNudgeHidden] = useState(false);
+
+  const applyReferralMutation = useMutation({
+    mutationFn: (code: string) => apiRequest('POST', '/api/referrals/link', { referralCode: code.trim() }),
+    onSuccess: () => {
+      toast({ title: 'Referral code added!', description: "You and your friend each get AED 15 after your first game." });
+      setReferralNudgeCode('');
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/referral-status'] });
+    },
+    onError: (err: any) => {
+      // Window closed between page load and submit — just retire the nudge.
+      if (err?.code === 'WINDOW_CLOSED') {
+        setReferralNudgeHidden(true);
+        return;
+      }
+      toast({
+        title: 'Could not add code',
+        description: err?.error || 'Please check the code and try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const dismissNudgeMutation = useMutation({
+    mutationFn: () => apiRequest('PATCH', '/api/marketplace/me/dismiss-referral-nudge'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/referral-status'] });
+    },
+  });
+
+  const showReferralNudge =
+    !!referralStatus &&
+    !referralStatus.hasIncomingReferral &&
+    new Date(referralStatus.eligibleUntil).getTime() > Date.now() &&
+    !referralStatus.dismissedAt &&
+    !referralNudgeHidden;
+
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const taggedSet = new Set(taggedGameIds);
   const untaggedCount = (stats?.recentGames ?? [])
@@ -606,6 +659,65 @@ export default function Dashboard() {
                   </button>
                 </div>
               </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Post-signup referral nudge (PR4) — only for users who weren't referred,
+            still inside their 30-day window, and haven't dismissed it. */}
+        {showReferralNudge && (
+          <motion.div {...bannerEntrance} style={{ marginBottom: 20 }}>
+            <div style={{ borderRadius: 14, border: `1px solid ${MKT.teal}33`, background: MKT.tealMist, padding: '16px 18px', display: 'flex', alignItems: 'flex-start', gap: 14 }} data-testid="card-referral-nudge">
+              <div style={{ flex: 'none', width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,107,95,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
+                <Gift className="h-4 w-4" style={{ color: MKT.tealD }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '-0.01em' }}>Got a referral code?</p>
+                <p style={{ fontSize: 14, color: MKT.inkSub, marginTop: 2 }}>
+                  Add a friend's code and you'll <span style={{ fontWeight: 600, color: MKT.ink }}>both get AED 15</span> after your first game.
+                </p>
+                <form
+                  className="flex items-center gap-2 flex-wrap"
+                  style={{ marginTop: 12 }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (referralNudgeCode.trim() && !applyReferralMutation.isPending) {
+                      applyReferralMutation.mutate(referralNudgeCode);
+                    }
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={referralNudgeCode}
+                    onChange={(e) => setReferralNudgeCode(e.target.value)}
+                    placeholder="Enter code"
+                    aria-label="Referral code"
+                    data-testid="input-referral-nudge-code"
+                    style={{
+                      fontFamily: FF_MONO, fontSize: 14, letterSpacing: '0.04em', textTransform: 'uppercase',
+                      padding: '8px 12px', borderRadius: 10, border: `1.5px solid ${MKT.navy}33`,
+                      background: '#fff', color: MKT.ink, minWidth: 0, flex: '1 1 160px', maxWidth: 220,
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!referralNudgeCode.trim() || applyReferralMutation.isPending}
+                    data-testid="button-apply-referral-nudge"
+                    style={{ ...navyBtn('sm'), background: MKT.teal, borderColor: MKT.teal, opacity: (!referralNudgeCode.trim() || applyReferralMutation.isPending) ? 0.6 : 1 }}
+                  >
+                    {applyReferralMutation.isPending ? 'Adding…' : 'Apply'}
+                  </button>
+                </form>
+              </div>
+              <button
+                type="button"
+                onClick={() => dismissNudgeMutation.mutate()}
+                aria-label="Dismiss referral nudge"
+                data-testid="button-dismiss-referral-nudge"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, padding: 4, display: 'inline-flex', flex: 'none' }}
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           </motion.div>
         )}

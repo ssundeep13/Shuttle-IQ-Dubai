@@ -324,6 +324,7 @@ export interface IStorage {
   getBookingByZiinaPaymentIntentId(intentId: string): Promise<Booking | undefined>;
   getBookingWithDetails(id: string): Promise<BookingWithDetails | undefined>;
   getUserBookings(userId: string): Promise<BookingWithDetails[]>;
+  getEarliestConfirmedBookingForUser(userId: string): Promise<Booking | undefined>;
   getUserBookingForSession(userId: string, sessionId: string): Promise<Booking | undefined>;
   getSessionBookings(sessionId: string): Promise<BookingWithDetails[]>;
   updateBooking(id: string, updates: Partial<Booking>): Promise<Booking | undefined>;
@@ -2036,6 +2037,20 @@ export class DatabaseStorage implements IStorage {
       }
     }
     return result;
+  }
+
+  // Earliest "paid" booking for a user — used by the post-signup referral
+  // backfill (decision E). A confirmed/attended booking is exactly the state
+  // the first-payment referral trigger fires on, so the earliest such booking
+  // is the qualifying trigger when a code is added after the fact.
+  async getEarliestConfirmedBookingForUser(userId: string): Promise<Booking | undefined> {
+    const [row] = await db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.userId, userId), sql`${bookings.status} IN ('confirmed', 'attended')`))
+      .orderBy(asc(bookings.createdAt))
+      .limit(1);
+    return row ?? undefined;
   }
 
   async getUserBookingForSession(userId: string, sessionId: string): Promise<Booking | undefined> {

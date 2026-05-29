@@ -97,7 +97,7 @@ function applyTierBuffer(
   return { level: currentTier, tierCandidate: newCandidate, tierCandidateGames: newCount };
 }
 
-import { completeReferral } from "./referrals";
+import { completeReferral, linkReferralPostSignup } from "./referrals";
 import { requestClaudeMatchmaking } from "./claude-matchmaking";
 export { completeReferral };
 
@@ -3567,35 +3567,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Post-signup referral linking (PR4). Thin wrapper over linkReferralPostSignup
+  // which owns the rules: one referral per user, 30-day window, no self-referral,
+  // and decision-E backfill (fires the credit now if a confirmed booking already
+  // exists). Both the Dashboard nudge and the Profile field POST here.
   app.post('/api/referrals/link', requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
       const schema = z.object({ referralCode: z.string().min(1) });
       const { referralCode } = schema.parse(req.body);
 
-      const existing = await storage.getReferralByRefereeUserId(req.user.userId);
-      if (existing) {
-        return res.status(409).json({ error: 'You have already used a referral code' });
+      const outcome = await linkReferralPostSignup({ userId: req.user.userId, referralCode });
+
+      if (!outcome.ok) {
+        const map: Record<typeof outcome.code, { status: number; error: string }> = {
+          ALREADY_LINKED: { status: 409, error: 'You have already used a referral code' },
+          WINDOW_CLOSED: { status: 403, error: 'The 30-day referral window has closed' },
+          INVALID_CODE: { status: 404, error: 'Invalid referral code' },
+          SELF_REFERRAL: { status: 400, error: 'You cannot refer yourself' },
+          USER_NOT_FOUND: { status: 404, error: 'User not found' },
+        };
+        const mapped = map[outcome.code];
+        return res.status(mapped.status).json({ error: mapped.error, code: outcome.code });
       }
 
-      const referrer = await storage.getPlayerByReferralCode(referralCode.toUpperCase());
-      if (!referrer) {
-        return res.status(404).json({ error: 'Invalid referral code' });
-      }
-
-      const user = await storage.getMarketplaceUser(req.user.userId);
-      if (user?.linkedPlayerId === referrer.id) {
-        return res.status(400).json({ error: 'You cannot refer yourself' });
-      }
-
-      const referral = await storage.createReferral({
-        referrerId: referrer.id,
-        refereeUserId: req.user.userId,
-        refereePlayerId: user?.linkedPlayerId ?? null,
-        status: 'pending',
+      res.json({
+        success: true,
+        referralId: outcome.referralId,
+        backfilled: outcome.backfilled,
       });
-
-      res.json(referral);
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });

@@ -17,6 +17,9 @@ vi.mock('../server/storage', () => ({
     getMarketplaceUser: vi.fn(),
     getReferral: vi.fn(),
     getPlayer: vi.fn(),
+    getPlayerByReferralCode: vi.fn(),
+    createReferral: vi.fn(),
+    getEarliestConfirmedBookingForUser: vi.fn(),
     getCompletedReferralCount: vi.fn(),
     updatePlayer: vi.fn(),
     applyReferralCompletionAtomic: vi.fn(),
@@ -41,6 +44,8 @@ import {
   completeReferral,
   fireReferralOnPayment,
   fireReferralClawback,
+  linkReferralPostSignup,
+  REFERRAL_WINDOW_MS,
 } from '../server/referrals';
 
 const REFERRER = {
@@ -508,5 +513,178 @@ describe('fireReferralClawback', () => {
     expect(storage.applyReferralClawbackAtomic).toHaveBeenCalledWith(
       expect.objectContaining({ referralId: 'ref-1', creditFils: 1500 }),
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// PR4 — linkReferralPostSignup (post-signup referral entry)
+//   • 30-day window enforcement (WINDOW_CLOSED)
+//   • backfill (decision E): fire completion now if a confirmed booking exists
+// ─────────────────────────────────────────────────────────────────────────
+
+const REFERRER_PLAYER = { id: 'player-referrer', name: 'Ahmed' } as any;
+
+// A freshly-signed-up referee, well within the 30-day window, linked to a
+// player that is NOT the referrer (so no self-referral).
+const FRESH_REFEREE = {
+  id: 'mp-user-friend',
+  name: 'Bilal',
+  email: 'bilal@example.com',
+  linkedPlayerId: 'player-friend',
+  createdAt: new Date(),
+} as any;
+
+describe('linkReferralPostSignup — guard cases', () => {
+  it('returns USER_NOT_FOUND when the marketplace user does not exist', async () => {
+    (storage.getMarketplaceUser as any).mockResolvedValue(undefined);
+
+    const result = await linkReferralPostSignup({ userId: 'nope', referralCode: 'SIQ-X-1' });
+
+    expect(result).toEqual({ ok: false, code: 'USER_NOT_FOUND' });
+    expect(storage.createReferral).not.toHaveBeenCalled();
+  });
+
+  it('returns ALREADY_LINKED when the user already has a referral row', async () => {
+    (storage.getMarketplaceUser as any).mockResolvedValue(FRESH_REFEREE);
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(PENDING_REFERRAL);
+
+    const result = await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'SIQ-X-1' });
+
+    expect(result).toEqual({ ok: false, code: 'ALREADY_LINKED' });
+    expect(storage.createReferral).not.toHaveBeenCalled();
+  });
+
+  it('returns WINDOW_CLOSED when more than 30 days past account creation', async () => {
+    const stale = {
+      ...FRESH_REFEREE,
+      createdAt: new Date(Date.now() - REFERRAL_WINDOW_MS - 60_000),
+    };
+    (storage.getMarketplaceUser as any).mockResolvedValue(stale);
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(undefined);
+
+    const result = await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'SIQ-X-1' });
+
+    expect(result).toEqual({ ok: false, code: 'WINDOW_CLOSED' });
+    expect(storage.getPlayerByReferralCode).not.toHaveBeenCalled();
+    expect(storage.createReferral).not.toHaveBeenCalled();
+  });
+
+  it('allows linking on the last day inside the window', async () => {
+    const edge = {
+      ...FRESH_REFEREE,
+      createdAt: new Date(Date.now() - REFERRAL_WINDOW_MS + 60_000),
+    };
+    (storage.getMarketplaceUser as any).mockResolvedValue(edge);
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(undefined);
+    (storage.getPlayerByReferralCode as any).mockResolvedValue(REFERRER_PLAYER);
+    (storage.createReferral as any).mockResolvedValue({ id: 'ref-new' });
+    (storage.getEarliestConfirmedBookingForUser as any).mockResolvedValue(undefined);
+
+    const result = await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'SIQ-X-1' });
+
+    expect(result).toEqual({ ok: true, referralId: 'ref-new', backfilled: false, backfillBookingId: undefined });
+  });
+
+  it('returns INVALID_CODE when the referral code resolves to no player', async () => {
+    (storage.getMarketplaceUser as any).mockResolvedValue(FRESH_REFEREE);
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(undefined);
+    (storage.getPlayerByReferralCode as any).mockResolvedValue(undefined);
+
+    const result = await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'BAD' });
+
+    expect(result).toEqual({ ok: false, code: 'INVALID_CODE' });
+    expect(storage.createReferral).not.toHaveBeenCalled();
+  });
+
+  it('returns SELF_REFERRAL when the user is linked to the referrer player', async () => {
+    (storage.getMarketplaceUser as any).mockResolvedValue({ ...FRESH_REFEREE, linkedPlayerId: 'player-referrer' });
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(undefined);
+    (storage.getPlayerByReferralCode as any).mockResolvedValue(REFERRER_PLAYER);
+
+    const result = await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'SIQ-X-1' });
+
+    expect(result).toEqual({ ok: false, code: 'SELF_REFERRAL' });
+    expect(storage.createReferral).not.toHaveBeenCalled();
+  });
+
+  it('uppercases the referral code before resolving it', async () => {
+    (storage.getMarketplaceUser as any).mockResolvedValue(FRESH_REFEREE);
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(undefined);
+    (storage.getPlayerByReferralCode as any).mockResolvedValue(REFERRER_PLAYER);
+    (storage.createReferral as any).mockResolvedValue({ id: 'ref-new' });
+    (storage.getEarliestConfirmedBookingForUser as any).mockResolvedValue(undefined);
+
+    await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'siq-ahmed-9' });
+
+    expect(storage.getPlayerByReferralCode).toHaveBeenCalledWith('SIQ-AHMED-9');
+  });
+});
+
+describe('linkReferralPostSignup — happy path + backfill (decision E)', () => {
+  it('creates a pending referral and does NOT backfill when no confirmed booking exists', async () => {
+    (storage.getMarketplaceUser as any).mockResolvedValue(FRESH_REFEREE);
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(undefined);
+    (storage.getPlayerByReferralCode as any).mockResolvedValue(REFERRER_PLAYER);
+    (storage.createReferral as any).mockResolvedValue({ id: 'ref-new' });
+    (storage.getEarliestConfirmedBookingForUser as any).mockResolvedValue(undefined);
+
+    const result = await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'SIQ-X-1' });
+
+    expect(result).toEqual({ ok: true, referralId: 'ref-new', backfilled: false, backfillBookingId: undefined });
+    expect(storage.createReferral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referrerId: 'player-referrer',
+        refereeUserId: 'mp-user-friend',
+        refereePlayerId: 'player-friend',
+        status: 'pending',
+      }),
+    );
+    expect(storage.applyReferralCompletionAtomic).not.toHaveBeenCalled();
+  });
+
+  it('backfills immediately when the user already has a confirmed booking (paid day 5, code added day 10)', async () => {
+    (storage.getMarketplaceUser as any).mockResolvedValue(FRESH_REFEREE);
+    // First call (ALREADY_LINKED check) → none; second call (inside
+    // completeReferralOnPayment) → the freshly-created pending referral.
+    (storage.getReferralByRefereeUserId as any)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue(PENDING_REFERRAL);
+    (storage.getPlayerByReferralCode as any).mockResolvedValue(REFERRER_PLAYER);
+    (storage.createReferral as any).mockResolvedValue({ id: 'ref-1' });
+    (storage.getEarliestConfirmedBookingForUser as any).mockResolvedValue({ id: 'booking-early' });
+    (storage.applyReferralCompletionAtomic as any).mockResolvedValue({
+      applied: true,
+      updatedReferrer: REFERRER,
+      refereeWasUnlinked: false,
+    });
+    (storage.getCompletedReferralCount as any).mockResolvedValue(1);
+
+    const result = await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'SIQ-X-1' });
+
+    expect(result).toEqual({ ok: true, referralId: 'ref-1', backfilled: true, backfillBookingId: 'booking-early' });
+    expect(storage.applyReferralCompletionAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        triggeringBookingId: 'booking-early',
+        completionMethod: 'first_payment',
+        creditFils: 1500,
+      }),
+    );
+    expect(email.sendReferralCreditEmail).toHaveBeenCalledTimes(1);
+    expect(email.sendReferralFriendCreditEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports backfilled:false if the completion CAS loses a race', async () => {
+    (storage.getMarketplaceUser as any).mockResolvedValue(FRESH_REFEREE);
+    (storage.getReferralByRefereeUserId as any)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue(PENDING_REFERRAL);
+    (storage.getPlayerByReferralCode as any).mockResolvedValue(REFERRER_PLAYER);
+    (storage.createReferral as any).mockResolvedValue({ id: 'ref-1' });
+    (storage.getEarliestConfirmedBookingForUser as any).mockResolvedValue({ id: 'booking-early' });
+    (storage.applyReferralCompletionAtomic as any).mockResolvedValue({ applied: false });
+
+    const result = await linkReferralPostSignup({ userId: 'mp-user-friend', referralCode: 'SIQ-X-1' });
+
+    expect(result).toEqual({ ok: true, referralId: 'ref-1', backfilled: false, backfillBookingId: undefined });
   });
 });
