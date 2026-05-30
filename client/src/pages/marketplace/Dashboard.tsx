@@ -844,7 +844,7 @@ export default function Dashboard() {
             )}
 
             {stats && linkedPlayerId && (
-              <Reveal>
+              <Reveal className="lg:col-span-2">
                 <DashCard testid="card-skill-trend">
                   <DashHeader
                     icon={<TrendingUp className="h-4 w-4" />}
