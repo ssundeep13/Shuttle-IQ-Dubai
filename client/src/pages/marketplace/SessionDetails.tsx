@@ -683,6 +683,7 @@ export default function SessionDetails() {
       toast({ title: 'Removed from waitlist' });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to leave waitlist', description: error.message, variant: 'destructive' });
@@ -709,6 +710,7 @@ export default function SessionDetails() {
     queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
     queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id] });
     queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', id, 'players'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
   };
 
   if (isLoading) {

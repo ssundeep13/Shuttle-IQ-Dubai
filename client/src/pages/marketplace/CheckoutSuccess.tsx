@@ -111,6 +111,7 @@ export default function CheckoutSuccess() {
               queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', sid] });
             }
             queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
             return;
           }
 

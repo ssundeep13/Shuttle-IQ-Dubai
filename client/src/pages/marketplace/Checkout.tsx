@@ -404,6 +404,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
       if (data.paymentMethod === 'wallet') {
         queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
         onWalletSuccess(data);
         return;
       }
@@ -739,6 +740,7 @@ export default function Checkout() {
       }
       if (data.paymentMethod === 'wallet') {
         queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
         setBookingData(data);
         setConfirmed(true);
         return;
@@ -1076,6 +1078,7 @@ export default function Checkout() {
             setBookingData(data);
             setConfirmed(true);
             queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
           }}
         />
       )}

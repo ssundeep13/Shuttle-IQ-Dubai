@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus } from 'lucide-react';
+import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -200,6 +200,11 @@ export default function MyBookings() {
     refetchOnMount: true,
   });
 
+  const { data: walletData } = useQuery<{ walletBalance: number }>({
+    queryKey: ['/api/marketplace/me/wallet'],
+    staleTime: 30_000,
+  });
+
   const cancelMutation = useMutation({
     mutationFn: async (bookingId: string) => {
       return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`);
@@ -217,6 +222,7 @@ export default function MyBookings() {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to cancel', description: error.message, variant: 'destructive' });
@@ -611,10 +617,32 @@ export default function MyBookings() {
     <div className="max-w-3xl mx-auto px-4 py-8">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-8">
-          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
-            <Bookmark className="h-6 w-6 text-secondary" /> My Bookings
-          </h1>
-          <p className="text-muted-foreground mt-1">Manage your session bookings</p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
+                <Bookmark className="h-6 w-6 text-secondary" /> My Bookings
+              </h1>
+              <p className="text-muted-foreground mt-1">Manage your session bookings</p>
+            </div>
+            {walletData !== undefined && (
+              <div
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-md border ${
+                  walletData.walletBalance > 0
+                    ? 'bg-secondary/10 border-secondary/20 text-secondary'
+                    : 'bg-muted/40 border-border text-muted-foreground'
+                }`}
+                data-testid="card-wallet-balance"
+              >
+                <Wallet className="h-4 w-4 shrink-0" />
+                <div>
+                  <p className="text-xs leading-none mb-0.5 opacity-70">Wallet credit</p>
+                  <p className="text-sm font-semibold leading-none" data-testid="text-wallet-balance">
+                    AED {(walletData.walletBalance / 100).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </motion.div>
 
         {isLoading ? (

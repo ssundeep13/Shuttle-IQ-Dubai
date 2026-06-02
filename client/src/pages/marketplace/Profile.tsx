@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +18,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Trophy } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Trophy, Wallet } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -384,6 +384,12 @@ export default function Profile() {
     },
   });
 
+  const { data: walletData } = useQuery<{ walletBalance: number }>({
+    queryKey: ['/api/marketplace/me/wallet'],
+    staleTime: 30_000,
+    enabled: !!user?.linkedPlayerId,
+  });
+
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   return (
@@ -453,6 +459,28 @@ export default function Profile() {
         </motion.div>
 
         <div className="space-y-6">
+          {walletData !== undefined && (
+            <motion.div variants={fadeInUp}>
+              <Card data-testid="card-wallet-balance">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className={`h-9 w-9 rounded-md flex items-center justify-center shrink-0 ${walletData.walletBalance > 0 ? 'bg-secondary/15' : 'bg-muted'}`}>
+                    <Wallet className={`h-5 w-5 ${walletData.walletBalance > 0 ? 'text-secondary' : 'text-muted-foreground'}`} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Wallet credit</p>
+                    <p className={`text-lg font-semibold ${walletData.walletBalance > 0 ? 'text-secondary' : 'text-muted-foreground'}`} data-testid="text-wallet-balance">
+                      AED {(walletData.walletBalance / 100).toFixed(2)}
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground ml-auto max-w-[180px] text-right hidden sm:block">
+                    {walletData.walletBalance > 0
+                      ? 'Applied automatically at checkout when you book a session'
+                      : 'Earn credit by referring friends to ShuttleIQ'}
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
           {user?.canRetakeOnboarding && (
             <motion.div variants={fadeInUp}>
               <Card data-testid="card-retake-onboarding">
