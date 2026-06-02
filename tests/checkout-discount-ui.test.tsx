@@ -77,6 +77,7 @@ describe('Checkout — discount code UI', () => {
   function makeFetch(opts: {
     discountValid?: boolean;
     discountError?: string;
+    walletBalance?: number;
   } = {}) {
     return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -87,8 +88,8 @@ describe('Checkout — discount code UI', () => {
           status: 200, headers: { 'Content-Type': 'application/json' },
         });
       }
-      if (url.includes('/api/referrals/player')) {
-        return new Response(JSON.stringify({ walletBalance: 0 }), {
+      if (url.includes('/api/marketplace/me/wallet')) {
+        return new Response(JSON.stringify({ walletBalance: opts.walletBalance ?? 0 }), {
           status: 200, headers: { 'Content-Type': 'application/json' },
         });
       }
@@ -216,7 +217,7 @@ describe('Checkout — referral discount UI removed', () => {
           status: 200, headers: { 'Content-Type': 'application/json' },
         });
       }
-      if (url.includes('/api/referrals/player')) {
+      if (url.includes('/api/marketplace/me/wallet')) {
         return new Response(JSON.stringify({ walletBalance: 0 }), {
           status: 200, headers: { 'Content-Type': 'application/json' },
         });
@@ -256,6 +257,106 @@ describe('Checkout — referral discount UI removed', () => {
       expect(screen.getByTestId('section-discount-toggle')).toBeInTheDocument();
     }, { timeout: 3000 });
     expect(screen.queryByTestId('banner-referral-code-applied')).not.toBeInTheDocument();
+  });
+});
+
+// ============================================================
+// Wallet credit UI — card visible, fast-path, partial deduction
+// ============================================================
+
+describe('Checkout — wallet credit UI', () => {
+  let originalFetch: typeof fetch;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    toastMock.mockReset();
+    (useMarketplaceAuth as unknown as Mock).mockReturnValue({
+      isAuthenticated: true,
+      user: { id: 'user-3', name: 'Wallet User', linkedPlayerId: 'player-1' },
+    });
+    localStorage.setItem('mp_accessToken', 'test-token');
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    localStorage.removeItem('mp_accessToken');
+    vi.restoreAllMocks();
+  });
+
+  function makeWalletFetch(walletBalance: number) {
+    return vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes(`/api/marketplace/sessions/${SESSION_ID}`)) {
+        return new Response(JSON.stringify(makeSession(100)), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/marketplace/me/wallet')) {
+        return new Response(JSON.stringify({ walletBalance }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+  }
+
+  it('shows wallet credit card on selector screen when balance > 0', async () => {
+    // walletBalance = 1500 fils = AED 15.00
+    renderCheckout(makeWalletFetch(1500) as unknown as typeof fetch);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('card-wallet-credit')).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Toggle switch must be present
+    expect(screen.getByTestId('switch-use-wallet')).toBeInTheDocument();
+    // Payment methods still visible (wallet only partial cover at AED 15 vs AED 100 price)
+    expect(screen.getByTestId('button-pay-card')).toBeInTheDocument();
+  });
+
+  it('shows fast-path "Book with Wallet Credit" button when wallet covers full price', async () => {
+    // walletBalance = 10000 fils = AED 100 (exactly covers AED 100 session)
+    renderCheckout(makeWalletFetch(10000) as unknown as typeof fetch);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('card-wallet-credit')).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Enable wallet
+    fireEvent.click(screen.getByTestId('switch-use-wallet'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('button-book-wallet')).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Standard card/cash buttons are replaced by the fast-path button
+    expect(screen.queryByTestId('button-pay-card')).not.toBeInTheDocument();
+    // "add guests" escape hatch is present
+    expect(screen.getByTestId('button-pay-card-instead')).toBeInTheDocument();
+  });
+
+  it('shows partial wallet deduction and remaining amount in breakdown', async () => {
+    // walletBalance = 5000 fils = AED 50 (covers half of AED 100 session)
+    renderCheckout(makeWalletFetch(5000) as unknown as typeof fetch);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('card-wallet-credit')).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Enable wallet toggle
+    fireEvent.click(screen.getByTestId('switch-use-wallet'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('text-wallet-deduction')).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Deduction should show AED 50.00
+    expect(screen.getByTestId('text-wallet-deduction').textContent).toContain('50.00');
+    // Remaining should show AED 50.00 (100 - 50)
+    expect(screen.getByTestId('text-remaining-amount').textContent).toContain('50.00');
+
+    // Payment method selector still visible (wallet only partial)
+    expect(screen.getByTestId('button-pay-card')).toBeInTheDocument();
   });
 });
 

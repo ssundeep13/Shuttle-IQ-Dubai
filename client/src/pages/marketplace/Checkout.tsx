@@ -323,11 +323,12 @@ function OrderSummary({ sessionInfo, amount, spotsBooked, discountAmountAed, ori
   );
 }
 
-function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots, walletBalanceFils, onWalletSuccess, appliedDiscount, onDiscountApply, onDiscountClear }: {
+function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots, useWallet, walletBalanceFils, onWalletSuccess, appliedDiscount, onDiscountApply, onDiscountClear }: {
   sessionId: string;
   pricePerSpot: number;
   sessionInfo: BookingData['session'];
   availableSpots: number;
+  useWallet: boolean;
   walletBalanceFils: number;
   onWalletSuccess: (data: BookingData) => void;
   appliedDiscount: DiscountResult | null;
@@ -338,7 +339,6 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
-  const [useWallet, setUseWallet] = useState(false);
   const { toast } = useToast();
 
   const spotsBooked = 1 + guests.length;
@@ -467,39 +467,25 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         currentSaving={discountSaving}
       />
 
-      {walletBalanceFils > 0 && (
-        <Card data-testid="card-wallet-credit">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-[#006B5F]" />
-                <span className="text-sm font-medium">Use wallet credit</span>
-              </div>
-              <Switch
-                checked={useWallet}
-                onCheckedChange={setUseWallet}
-                data-testid="switch-use-wallet"
-              />
+      {useWallet && walletBalanceFils > 0 && (
+        <Card data-testid="card-wallet-credit" className="border-[#006B5F]/30 bg-[#006B5F]/5">
+          <CardContent className="p-4 space-y-1">
+            <div className="flex items-center gap-2 mb-2">
+              <Wallet className="h-4 w-4 text-[#006B5F]" />
+              <span className="text-sm font-medium text-[#006B5F]">Wallet credit applied</span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Available: AED {(walletBalanceFils / 100).toFixed(2)}
-            </p>
-            {useWallet && (
-              <div className="space-y-1 border-t pt-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Session cost</span>
-                  <span>AED {totalAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm text-[#006B5F]">
-                  <span>Wallet credit</span>
-                  <span data-testid="text-wallet-deduction">- AED {walletApplicableAed.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-semibold border-t pt-1">
-                  <span>{walletCoversAll ? 'Amount due' : 'Pay via Ziina'}</span>
-                  <span data-testid="text-remaining-amount">AED {Math.max(0, remainingAfterWallet).toFixed(2)}</span>
-                </div>
-              </div>
-            )}
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Session cost</span>
+              <span>AED {totalAmount.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm text-[#006B5F]">
+              <span>Wallet credit</span>
+              <span data-testid="text-wallet-deduction">- AED {walletApplicableAed.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm font-semibold border-t pt-1">
+              <span>{walletCoversAll ? 'Amount due' : 'Pay via Ziina'}</span>
+              <span data-testid="text-remaining-amount">AED {Math.max(0, remainingAfterWallet).toFixed(2)}</span>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -701,15 +687,59 @@ export default function Checkout() {
   const [appliedDiscount, setAppliedDiscount] = useState<DiscountResult | null>(null);
   const [discountExpanded, setDiscountExpanded] = useState(false);
 
-  interface WalletInfo {
-    walletBalance: number;
-  }
-  const { data: walletData } = useQuery<WalletInfo>({
-    queryKey: ['/api/referrals/player', user?.linkedPlayerId],
-    enabled: !!user?.linkedPlayerId,
+  // Wallet credit — fetched server-side via authenticated endpoint (no linkedPlayerId needed in URL)
+  const [useWallet, setUseWallet] = useState(false);
+  const [walletBookingLoading, setWalletBookingLoading] = useState(false);
+  const [walletBookingError, setWalletBookingError] = useState<string | null>(null);
+
+  const { data: walletData } = useQuery<{ walletBalance: number }>({
+    queryKey: ['/api/marketplace/me/wallet'],
+    enabled: isAuthenticated,
     staleTime: 30_000,
   });
   const walletBalanceFils = walletData?.walletBalance ?? 0;
+
+  // Selector-screen preview (1 spot, before guests are added)
+  const previewDiscountSaving = appliedDiscount ? computeDiscountSaving(appliedDiscount, pricePerSpot) : 0;
+  const previewTotalAed = Math.max(0, pricePerSpot - previewDiscountSaving);
+  const previewTotalFils = previewTotalAed * 100;
+  const walletApplicablePreviewFils = Math.min(walletBalanceFils, previewTotalFils);
+  const walletCoversAll = useWallet && walletApplicablePreviewFils >= previewTotalFils && previewTotalFils > 0;
+
+  const handleWalletFastPath = async () => {
+    setWalletBookingLoading(true);
+    setWalletBookingError(null);
+    const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
+    if (!token) {
+      setWalletBookingError('Not authenticated. Please log in again.');
+      setWalletBookingLoading(false);
+      return;
+    }
+    try {
+      const res = await fetch('/api/marketplace/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          sessionId,
+          paymentMethod: 'ziina',
+          guests: [],
+          applyWallet: true,
+          discountCode: appliedDiscount?.code ?? undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Booking failed');
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+      setBookingData(data);
+      setConfirmed(true);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Booking failed. Please try again.';
+      setWalletBookingError(message);
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    } finally {
+      setWalletBookingLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -910,8 +940,78 @@ export default function Checkout() {
             </div>
           )}
 
+          {walletBalanceFils > 0 && (
+            <Card data-testid="card-wallet-credit">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="h-4 w-4 text-[#006B5F]" />
+                    <span className="text-sm font-medium">Use wallet credit</span>
+                  </div>
+                  <Switch
+                    checked={useWallet}
+                    onCheckedChange={setUseWallet}
+                    data-testid="switch-use-wallet"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Available: AED {(walletBalanceFils / 100).toFixed(2)}
+                </p>
+                {useWallet && (
+                  <div className="space-y-1 border-t pt-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Session cost</span>
+                      <span>AED {previewTotalAed.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-[#006B5F]">
+                      <span>Wallet credit</span>
+                      <span data-testid="text-wallet-deduction">- AED {(walletApplicablePreviewFils / 100).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-semibold border-t pt-1">
+                      <span>{walletCoversAll ? 'Amount due' : 'Remaining to pay'}</span>
+                      <span data-testid="text-remaining-amount">AED {Math.max(0, previewTotalAed - walletApplicablePreviewFils / 100).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           <CancellationPolicy />
-          <PaymentMethodSelector onSelect={handlePaymentMethodSelect} />
+
+          {walletCoversAll ? (
+            <div className="space-y-3">
+              {walletBookingError && (
+                <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-wallet-booking-error">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  {walletBookingError}
+                </div>
+              )}
+              <Button
+                size="lg"
+                className="w-full gap-2"
+                disabled={walletBookingLoading}
+                onClick={handleWalletFastPath}
+                data-testid="button-book-wallet"
+              >
+                {walletBookingLoading ? (
+                  <><Loader2 className="h-5 w-5 animate-spin" /> Confirming booking...</>
+                ) : (
+                  <><Wallet className="h-5 w-5" /> Book with Wallet Credit</>
+                )}
+              </Button>
+              <button
+                type="button"
+                className="w-full text-sm text-muted-foreground text-center hover:text-foreground transition-colors"
+                onClick={() => handlePaymentMethodSelect('ziina')}
+                data-testid="button-pay-card-instead"
+              >
+                Adding guests? Pay by card instead
+              </button>
+            </div>
+          ) : (
+            <PaymentMethodSelector onSelect={handlePaymentMethodSelect} />
+          )}
         </div>
       )}
 
@@ -921,6 +1021,7 @@ export default function Checkout() {
           pricePerSpot={pricePerSpot}
           sessionInfo={sessionInfo}
           availableSpots={availableSpots}
+          useWallet={useWallet}
           walletBalanceFils={walletBalanceFils}
           onWalletSuccess={(data) => {
             setBookingData(data);

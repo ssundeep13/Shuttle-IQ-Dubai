@@ -472,6 +472,18 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  app.get("/api/marketplace/me/wallet", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (!user?.linkedPlayerId) return res.json({ walletBalance: 0 });
+      const player = await storage.getPlayer(user.linkedPlayerId);
+      return res.json({ walletBalance: player?.walletBalance ?? 0 });
+    } catch {
+      res.status(500).json({ error: "Failed to fetch wallet balance" });
+    }
+  });
+
   app.get("/api/marketplace/auth/me", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
