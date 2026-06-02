@@ -86,38 +86,62 @@ export function sanitizeZiinaMessage(input: string | null | undefined): string {
 }
 
 /**
- * Build a Ziina-safe payment message for a booking. Prefers the brand-first
- * "ShuttleIQ - {title} xN" form; if the title would push the message past
- * the safe cap (in either characters OR UTF-8 bytes), downgrades to a
- * length-safe brand-only form ("ShuttleIQ booking xN" / "ShuttleIQ extra
- * spot") so we never deliberately produce near-cap strings. The brand
- * scaffolding ("ShuttleIQ", " - ", " x", "extra spot", "booking") is
- * ASCII-only; the title is the only potential non-ASCII contributor and
- * is dropped in the fallback path. Sanitizer remains the final safety net
- * via createZiinaPaymentIntent.
+ * Format a session date as a short "{day}{suffix} {Mon}" string (e.g. "3rd Jun")
+ * for inclusion in the Ziina payment message. Accepts a Date or a "YYYY-MM-DD"
+ * string; returns null if the input can't be parsed into a valid calendar day.
+ */
+function formatSessionDate(dateInput: Date | string): string | null {
+  let dateStr: string;
+  if (dateInput instanceof Date) {
+    const y = dateInput.getFullYear();
+    const m = String(dateInput.getMonth() + 1).padStart(2, '0');
+    const d = String(dateInput.getDate()).padStart(2, '0');
+    dateStr = `${y}-${m}-${d}`;
+  } else {
+    dateStr = dateInput;
+  }
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const day = parseInt(match[3], 10);
+  const monthIndex = parseInt(match[2], 10) - 1;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[monthIndex];
+  if (!month || day < 1 || day > 31) return null;
+  const s = day % 100;
+  const suffix = s >= 11 && s <= 13 ? 'th'
+    : day % 10 === 1 ? 'st'
+    : day % 10 === 2 ? 'nd'
+    : day % 10 === 3 ? 'rd'
+    : 'th';
+  return `${day}${suffix} ${month}`;
+}
+
+/**
+ * Build a Ziina-safe payment message for a booking. Prefers a personalised
+ * "{playerName} - {3rd Jun}" form so the payer recognises the charge; if the
+ * full name would push the message past the safe cap (in either characters OR
+ * UTF-8 bytes), it retries with just the first name, and finally falls back to
+ * the length-safe brand-only "ShuttleIQ booking" string. Sanitizer remains the
+ * final safety net via createZiinaPaymentIntent.
  */
 export function buildZiinaBookingMessage(opts: {
-  title: string | null | undefined;
-  spots?: number;
-  extraSpot?: boolean;
+  playerName?: string | null;
+  sessionDate?: Date | string | null;
 }): string {
-  const cleanedTitle = (opts.title ?? '').replace(/\s+/g, ' ').trim();
-  const count = opts.spots ?? 1;
-  const countSuffix = count > 1 ? ` x${count}` : '';
-  const prefix = opts.extraSpot ? 'ShuttleIQ extra spot' : 'ShuttleIQ';
-  if (cleanedTitle) {
-    const full = `${prefix} - ${cleanedTitle}${countSuffix}`;
-    if (
-      full.length <= ZIINA_MESSAGE_MAX &&
-      Buffer.byteLength(full, 'utf8') <= ZIINA_MESSAGE_MAX
-    ) {
-      return full;
+  const name = (opts.playerName ?? '').replace(/\s+/g, ' ').trim();
+  const formattedDate = opts.sessionDate ? formatSessionDate(opts.sessionDate) : null;
+  if (name && formattedDate) {
+    const fullMsg = `${name} - ${formattedDate}`;
+    if (fullMsg.length <= ZIINA_MESSAGE_MAX && Buffer.byteLength(fullMsg, 'utf8') <= ZIINA_MESSAGE_MAX) {
+      return fullMsg;
+    }
+    const firstName = name.split(' ')[0];
+    const firstNameMsg = `${firstName} - ${formattedDate}`;
+    if (firstNameMsg.length <= ZIINA_MESSAGE_MAX && Buffer.byteLength(firstNameMsg, 'utf8') <= ZIINA_MESSAGE_MAX) {
+      return firstNameMsg;
     }
   }
-  const fallback = opts.extraSpot
-    ? 'ShuttleIQ extra spot'
-    : `ShuttleIQ booking${countSuffix}`;
-  return fallback;
+  return 'ShuttleIQ booking';
 }
 
 export async function createZiinaPaymentIntent(input: ZiinaPaymentIntentInput): Promise<ZiinaPaymentIntent> {
@@ -148,4 +172,101 @@ export function isZiinaPaymentSuccessful(status: string): boolean {
 
 export async function registerZiinaWebhook(webhookUrl: string, secret: string): Promise<{ success: boolean; error?: string }> {
   return ziinaRequest('POST', '/webhook', { url: webhookUrl, secret });
+}
+
+// ─── Refunds ──────────────────────────────────────────────────────────────
+//
+// Discovery probe (2026-05-07, refined after a live 400 from the admin UI):
+//   POST /api/refund    body { id, currency_code, amount }
+//     → 200 with refund object on success
+//     → 400 NOT_AUTHORISED when the intent UUID isn't owned by this account
+//     → 400 "id must be a UUID, currency_code must be longer than or equal
+//        to 3 characters" if either field is missing/wrong shape
+//   The earlier probe that suggested `{ payment_intent_id, amount }` was
+//   misleading: Ziina ignored the unknown `payment_intent_id` field and
+//   surfaced a NOT_AUTHORISED on the (missing) `id` instead of a clean
+//   validation error. Real shape requires `id` (the intent UUID),
+//   `currency_code` (e.g. "AED"), and `amount` in fils.
+//
+//   POST /api/refunds   → 404 (not the right path)
+//   POST /api/payment_intent/{id}/refund → 404 (not the right path)
+//   GET  /api/refund    → 404 (no list endpoint exposed)
+//   GET  /api/refund/{id} → 500 22P02 (probably exists but expects UUID)
+//
+// Idempotency-Key header is accepted (no error) but Ziina's docs don't
+// confirm whether it's actually deduplicated server-side, so we ALSO guard
+// against double-refunds at the application layer (payments.refundStatus).
+//
+// Refund webhook event names: Ziina docs list `refund.completed` and
+// `refund.failed` alongside `payment_intent.status.updated`. The webhook
+// handler below tolerates both shapes.
+
+export interface ZiinaRefund {
+  id: string;
+  payment_intent_id: string;
+  amount: number;
+  status: string;
+  created_at?: string;
+}
+
+export async function createZiinaRefund(input: {
+  intentId: string;
+  amountFils: number;
+  currencyCode?: string;
+  reason?: string;
+  idempotencyKey?: string;
+}): Promise<ZiinaRefund> {
+  const token = getZiinaToken();
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  };
+  if (input.idempotencyKey) headers['Idempotency-Key'] = input.idempotencyKey;
+
+  const body: Record<string, unknown> = {
+    id: input.intentId,
+    currency_code: input.currencyCode || 'AED',
+    amount: input.amountFils,
+  };
+  if (input.reason) body.reason = input.reason;
+
+  const res = await fetch(`${ZIINA_API_BASE}/refund`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  let data: Record<string, unknown>;
+  try {
+    data = await res.json() as Record<string, unknown>;
+  } catch {
+    const text = await res.text().catch(() => '(unreadable)');
+    console.error(`[Ziina] Refund POST /refund — HTTP ${res.status}, non-JSON response:`, text);
+    throw new Error(`Ziina refund error: ${res.status} (non-JSON response)`);
+  }
+  if (!res.ok) {
+    console.error(`[Ziina] Refund POST /refund failed — HTTP ${res.status}`, {
+      intentId: input.intentId,
+      amountFils: input.amountFils,
+      status: res.status,
+      code: data?.code,
+      message: data?.message,
+      body: data,
+    });
+    const err = new Error((data?.message || data?.error || `Ziina refund error: ${res.status}`) as string) as Error & { ziinaCode?: string; httpStatus?: number };
+    err.ziinaCode = (data?.code as string) || undefined;
+    err.httpStatus = res.status;
+    throw err;
+  }
+  return data as unknown as ZiinaRefund;
+}
+
+export function isZiinaRefundSuccessful(status: string): boolean {
+  const s = (status || '').toLowerCase();
+  return ['completed', 'succeeded', 'success', 'refunded'].includes(s);
+}
+
+export function isZiinaRefundFailed(status: string): boolean {
+  const s = (status || '').toLowerCase();
+  return ['failed', 'declined', 'cancelled', 'canceled', 'rejected'].includes(s);
 }
