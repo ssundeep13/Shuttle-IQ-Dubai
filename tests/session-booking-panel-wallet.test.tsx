@@ -172,7 +172,7 @@ describe('InlineBookingPanel — wallet credit', () => {
     expect(screen.queryByTestId('button-pay-card')).toBeNull();
   });
 
-  it('hides "Book with Wallet Credit" button when wallet does not cover full amount', async () => {
+  it('hides "Book with Wallet Credit" button and "Pay at Venue" when wallet partially covers and toggle is on', async () => {
     renderSessionDetails(makeFetch({ walletBalance: 1500 }));
     await openPanel();
 
@@ -180,8 +180,11 @@ describe('InlineBookingPanel — wallet credit', () => {
     fireEvent.click(toggle);
 
     await waitFor(() => {
+      // wallet fast-path hidden (does not fully cover)
       expect(screen.queryByTestId('button-book-wallet')).toBeNull();
-      expect(screen.getByTestId('button-pay-cash')).toBeDefined();
+      // "Pay at Venue" is hidden — backend does not apply wallet credit for cash bookings
+      expect(screen.queryByTestId('button-pay-cash')).toBeNull();
+      // only card (Ziina) is offered so the remaining balance can be deducted
       expect(screen.getByTestId('button-pay-card')).toBeDefined();
     });
   });

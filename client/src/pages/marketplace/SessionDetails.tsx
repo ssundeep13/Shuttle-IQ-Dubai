@@ -695,28 +695,28 @@ function InlineBookingPanel({
       ) : (
         <div className="space-y-2">
           <p className="text-sm font-medium">How would you like to pay?</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Card
-              className="hover-elevate cursor-pointer"
-              onClick={() => !processing && makeBooking('cash', useWallet)}
-              data-testid="button-pay-cash"
-            >
-              <CardContent className="p-4 flex items-center gap-3">
-                {processing ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
-                ) : (
-                  <Banknote className="h-5 w-5 text-chart-2 shrink-0" />
-                )}
-                <div className="min-w-0">
-                  <p className="font-medium text-sm">Pay at Venue</p>
-                  <p className="text-xs text-muted-foreground">
-                    {useWallet && walletBalanceFils > 0
-                      ? `Pay AED ${remainingAfterWalletAed.toFixed(2)} cash at venue`
-                      : 'Pay cash when you arrive'}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+          <div className={`grid gap-3 ${useWallet && walletBalanceFils > 0 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
+            {/* Pay at Venue — only available when wallet is not toggled on,
+                because the backend only applies wallet credit for card (Ziina) payments */}
+            {!(useWallet && walletBalanceFils > 0) && (
+              <Card
+                className="hover-elevate cursor-pointer"
+                onClick={() => !processing && makeBooking('cash')}
+                data-testid="button-pay-cash"
+              >
+                <CardContent className="p-4 flex items-center gap-3">
+                  {processing ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+                  ) : (
+                    <Banknote className="h-5 w-5 text-chart-2 shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm">Pay at Venue</p>
+                    <p className="text-xs text-muted-foreground">Pay cash when you arrive</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card
               className="hover-elevate cursor-pointer"
