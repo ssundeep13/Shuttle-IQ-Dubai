@@ -790,6 +790,9 @@ export interface RefundNotificationWithDetails {
   sessionTitle: string | null;
   sessionDate: Date | null;
   sessionVenueName: string | null;
+  // Exact time the payment was taken (completedAt preferred, falling back to
+  // createdAt) so the admin Refunds tab can show when the booking was paid.
+  paymentAt: Date | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

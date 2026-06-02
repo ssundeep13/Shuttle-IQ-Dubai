@@ -1113,6 +1113,50 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     },
   });
 
+  const [showCancelEvent, setShowCancelEvent] = useState(false);
+
+  const cancelEventMutation = useMutation({
+    mutationFn: async (bookableId: string) => {
+      const res = await fetch(`/api/marketplace/admin/sessions/${bookableId}/cancel`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to cancel event');
+      return data as {
+        alreadyCancelled: boolean;
+        bookingsCancelled: number;
+        ziinaRefundCount: number;
+        cashRefundCount: number;
+        walletRefundedCount: number;
+        emailsSent: number;
+      };
+    },
+    onSuccess: (data) => {
+      setShowCancelEvent(false);
+      if (data.alreadyCancelled) {
+        toast({ title: 'Event already cancelled' });
+      } else {
+        const refundParts: string[] = [];
+        if (data.ziinaRefundCount > 0) refundParts.push(`${data.ziinaRefundCount} Ziina refund${data.ziinaRefundCount === 1 ? '' : 's'} owed`);
+        if (data.cashRefundCount > 0) refundParts.push(`${data.cashRefundCount} cash refund${data.cashRefundCount === 1 ? '' : 's'} owed`);
+        if (data.walletRefundedCount > 0) refundParts.push(`${data.walletRefundedCount} wallet credit${data.walletRefundedCount === 1 ? '' : 's'} returned`);
+        toast({
+          title: 'Event cancelled',
+          description: `${data.bookingsCancelled} booking${data.bookingsCancelled === 1 ? '' : 's'} cancelled, ${data.emailsSent} email${data.emailsSent === 1 ? '' : 's'} sent.${refundParts.length ? ' ' + refundParts.join(', ') + '.' : ''}`,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', linkedBookable?.id, 'bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/refunds'] });
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Failed to cancel event';
+      toast({ title: 'Failed to cancel event', description: msg, variant: 'destructive' });
+    },
+  });
+
   const { data: allPlayers = [] } = useQuery<Player[]>({ queryKey: ['/api/players'] });
   const playerSiqMap = Object.fromEntries(
     allPlayers.filter(p => p.shuttleIqId).map(p => [p.id, p.shuttleIqId!])
@@ -1357,6 +1401,55 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                 )}
               </div>
             </div>
+
+            <div className="flex items-center justify-between gap-2 flex-wrap rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+              {linkedBookable.status === 'cancelled' ? (
+                <span className="flex items-center gap-2 text-sm text-destructive" data-testid="text-event-cancelled">
+                  <Badge variant="destructive">Cancelled</Badge>
+                  This event has been cancelled.
+                </span>
+              ) : (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    Cancels every booking, refunds wallet credit, queues refunds and emails all bookers.
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="gap-1.5"
+                    onClick={() => setShowCancelEvent(true)}
+                    disabled={cancelEventMutation.isPending}
+                    data-testid="button-cancel-event"
+                  >
+                    <XCircle className="h-3 w-3" />
+                    Cancel event
+                  </Button>
+                </>
+              )}
+            </div>
+
+            <AlertDialog open={showCancelEvent} onOpenChange={(open) => !open && setShowCancelEvent(false)}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Cancel this event?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This cancels every booking for "{linkedBookable.title}", returns any wallet credit used,
+                    queues Ziina/cash refunds on the Refunds tab, and emails all affected bookers. This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-cancel-cancel-event">Keep event</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => linkedBookable && cancelEventMutation.mutate(linkedBookable.id)}
+                    disabled={cancelEventMutation.isPending}
+                    className="bg-destructive hover:bg-destructive/90"
+                    data-testid="button-confirm-cancel-event"
+                  >
+                    {cancelEventMutation.isPending ? 'Cancelling…' : 'Cancel event & refund'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
 
             {isLoading ? (
               <div className="space-y-3">{[1, 2].map(i => <Skeleton key={i} className="h-16" />)}</div>
@@ -2178,6 +2271,13 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
     return format(new Date(d), 'dd MMM yyyy');
   };
 
+  // Exact payment time (date + time) for the admin to reconcile against the
+  // Ziina dashboard. Falls back to the flagged date when no payment row exists.
+  const formatDateTime = (d: Date | string | null) => {
+    if (!d) return '—';
+    return format(new Date(d), 'dd MMM yyyy, h:mm a');
+  };
+
   const RefundRow = ({ r, showAction }: { r: RefundNotificationWithDetails; showAction: boolean }) => (
     <div
       className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-md border ${showAction ? 'bg-card' : 'bg-muted/30 opacity-70'}`}
@@ -2205,8 +2305,13 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
             <span>{r.spotsBooked} spots</span>
           )}
           <span>Flagged {formatDate(r.createdAt)}</span>
+          {r.paymentAt && (
+            <span data-testid={`text-refund-paid-at-${r.id}`}>Paid {formatDateTime(r.paymentAt)}</span>
+          )}
           {r.relatedBookingId && (
-            <span className="font-mono">#{r.relatedBookingId.slice(-8)}</span>
+            <span className="font-mono" data-testid={`text-refund-order-${r.id}`}>
+              Order #{r.relatedBookingId.slice(-8)}
+            </span>
           )}
         </div>
       </div>

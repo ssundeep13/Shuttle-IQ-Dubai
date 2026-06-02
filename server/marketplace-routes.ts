@@ -2086,6 +2086,78 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Admin: cancel a whole bookable session. Cancels every non-cancelled
+  // booking in a single transaction (refunding wallet credit and queueing
+  // refund_required notifications for Ziina/cash-paid seats), marks the
+  // session cancelled, then emails every affected booker. Idempotent — a
+  // repeat call on an already-cancelled session returns alreadyCancelled.
+  app.post("/api/marketplace/admin/sessions/:id/cancel", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const bookableSession = await storage.getBookableSession(req.params.id);
+      if (!bookableSession) return res.status(404).json({ error: "Session not found" });
+
+      const result = await storage.cancelBookableSessionAndRefund(req.params.id);
+
+      if (result.alreadyCancelled) {
+        return res.json({
+          success: true,
+          alreadyCancelled: true,
+          bookingsCancelled: 0,
+          ziinaRefundCount: 0,
+          cashRefundCount: 0,
+          walletRefundedCount: 0,
+          emailsSent: 0,
+        });
+      }
+
+      // Wallet refunds already happened inside the storage transaction.
+      // Now email EVERY affected booker — including those whose seats were
+      // not yet paid (pending / pending_payment) — so they all know the
+      // event is off. The email template branches on payment method /
+      // walletAmountUsedAed to render the right refund wording (or the
+      // "no payment was taken" fallback for unpaid seats).
+      let emailsSent = 0;
+      for (const booking of result.affectedBookings) {
+        const wasPaidStatus =
+          booking.status === 'confirmed' || booking.status === 'attended';
+        const user = booking.user ?? await storage.getMarketplaceUser(booking.userId);
+        if (user?.email) {
+          try {
+            const walletAed = (booking.walletAmountUsed ?? 0) / 100;
+            await sendCancellationEmail(
+              user.email,
+              user.name ?? 'there',
+              bookableSession,
+              false,
+              wasPaidStatus ? booking.amountAed : 0,
+              {
+                eventCancelledByAdmin: true,
+                paymentMethod: wasPaidStatus ? booking.paymentMethod : null,
+                walletAmountUsedAed: wasPaidStatus ? walletAed : 0,
+              },
+            );
+            emailsSent += 1;
+          } catch (err) {
+            console.error(`[CancelEvent] Email failed for booking ${booking.id}:`, err);
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        alreadyCancelled: false,
+        bookingsCancelled: result.affectedBookings.length,
+        ziinaRefundCount: result.ziinaRefundCount,
+        cashRefundCount: result.cashRefundCount,
+        walletRefundedCount: result.walletRefundedCount,
+        emailsSent,
+      });
+    } catch (error) {
+      console.error('[CancelEvent] Failed:', error);
+      res.status(500).json({ error: "Failed to cancel event" });
+    }
+  });
+
   // ============================================================
   // BOOKABLE SESSIONS
   // ============================================================

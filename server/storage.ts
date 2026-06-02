@@ -327,6 +327,13 @@ export interface IStorage {
   getEarliestConfirmedBookingForUser(userId: string): Promise<Booking | undefined>;
   getUserBookingForSession(userId: string, sessionId: string): Promise<Booking | undefined>;
   getSessionBookings(sessionId: string): Promise<BookingWithDetails[]>;
+  cancelBookableSessionAndRefund(id: string): Promise<{
+    alreadyCancelled: boolean;
+    affectedBookings: BookingWithDetails[];
+    walletRefundedCount: number;
+    ziinaRefundCount: number;
+    cashRefundCount: number;
+  }>;
   updateBooking(id: string, updates: Partial<Booking>): Promise<Booking | undefined>;
   getBookingCountForSession(sessionId: string): Promise<number>;
   getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]>;
@@ -2079,6 +2086,113 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
+  async cancelBookableSessionAndRefund(id: string): Promise<{
+    alreadyCancelled: boolean;
+    affectedBookings: BookingWithDetails[];
+    walletRefundedCount: number;
+    ziinaRefundCount: number;
+    cashRefundCount: number;
+  }> {
+    const session = await this.getBookableSession(id);
+    if (!session) throw new Error('Bookable session not found');
+
+    if (session.status === 'cancelled') {
+      return { alreadyCancelled: true, affectedBookings: [], walletRefundedCount: 0, ziinaRefundCount: 0, cashRefundCount: 0 };
+    }
+
+    // Snapshot the bookings BEFORE we mutate them so the route can email and
+    // refund wallet credits using the original values.
+    const allBookings = await this.getSessionBookings(id);
+    const affected = allBookings.filter(b => b.status !== 'cancelled');
+
+    let walletRefundedCount = 0;
+    let ziinaRefundCount = 0;
+    let cashRefundCount = 0;
+    const cancelledAt = new Date();
+
+    // Wrap booking cancellations + wallet refunds + refund-notification
+    // inserts + session status update in a single transaction so a partial
+    // failure rolls everything back. This keeps the action retry-safe: if
+    // anything below throws, nothing is committed and the admin can re-run.
+    await db.transaction(async (tx) => {
+      for (const booking of affected) {
+        await tx.update(bookings).set({
+          status: 'cancelled',
+          cancelledAt,
+          cancellationReason: 'event_cancelled_by_admin',
+        }).where(eq(bookings.id, booking.id));
+
+        // Wallet credit refund — done inside the tx so a failure rolls back
+        // the booking cancellation too. We resolve the linked player via
+        // marketplaceUsers in-tx to avoid stale reads.
+        if ((booking.walletAmountUsed ?? 0) > 0) {
+          const [user] = await tx
+            .select({ linkedPlayerId: marketplaceUsers.linkedPlayerId })
+            .from(marketplaceUsers)
+            .where(eq(marketplaceUsers.id, booking.userId));
+          if (user?.linkedPlayerId) {
+            await tx
+              .update(players)
+              .set({ walletBalance: sql`${players.walletBalance} + ${booking.walletAmountUsed}` })
+              .where(eq(players.id, user.linkedPlayerId));
+            walletRefundedCount += 1;
+          }
+        }
+
+        // Only queue refund rows for bookings where money actually changed
+        // hands. A pending_payment Ziina row can carry an intent ID without
+        // the customer ever completing checkout — refunding those would
+        // create false positives on the admin Pending Refunds tab. We gate
+        // strictly on the pre-cancel booking status (confirmed or attended).
+        const wasPaidStatus =
+          booking.status === 'confirmed' || booking.status === 'attended';
+        const isZiinaPaid =
+          wasPaidStatus &&
+          booking.paymentMethod === 'ziina' &&
+          !!booking.ziinaPaymentIntentId;
+        const isCashPaid =
+          wasPaidStatus &&
+          booking.paymentMethod === 'cash' &&
+          booking.cashPaid === true;
+
+        if (isZiinaPaid) {
+          await tx.insert(marketplaceNotifications).values({
+            id: randomUUID(),
+            userId: booking.userId,
+            type: 'refund_required',
+            title: 'Event cancelled — full refund owed',
+            message: `Event "${session.title}" cancelled. Full refund of AED ${booking.amountAed.toFixed(2)} owed via Ziina dashboard (intent ${booking.ziinaPaymentIntentId}).`,
+            relatedBookingId: booking.id,
+          });
+          ziinaRefundCount += 1;
+        } else if (isCashPaid) {
+          await tx.insert(marketplaceNotifications).values({
+            id: randomUUID(),
+            userId: booking.userId,
+            type: 'refund_required',
+            title: 'Event cancelled — cash refund owed',
+            message: `Event "${session.title}" cancelled. Cash refund of AED ${booking.amountAed.toFixed(2)} owed in person.`,
+            relatedBookingId: booking.id,
+          });
+          cashRefundCount += 1;
+        }
+      }
+
+      // Mark the bookable session cancelled last in the same tx — if any
+      // notification insert above throws, the whole batch rolls back and the
+      // session stays 'upcoming' so the admin can safely retry.
+      await tx.update(bookableSessions).set({ status: 'cancelled' }).where(eq(bookableSessions.id, id));
+    });
+
+    return {
+      alreadyCancelled: false,
+      affectedBookings: affected,
+      walletRefundedCount,
+      ziinaRefundCount,
+      cashRefundCount,
+    };
+  }
+
   async updateBooking(id: string, updates: Partial<Booking>): Promise<Booking | undefined> {
     const [updated] = await db
       .update(bookings)
@@ -2358,11 +2472,22 @@ export class DatabaseStorage implements IStorage {
         sessionTitle: bookableSessions.title,
         sessionDate: bookableSessions.date,
         sessionVenueName: bookableSessions.venueName,
+        paymentCompletedAt: payments.completedAt,
+        paymentCreatedAt: payments.createdAt,
       })
       .from(marketplaceNotifications)
       .leftJoin(bookings, eq(marketplaceNotifications.relatedBookingId, bookings.id))
       .leftJoin(marketplaceUsers, eq(bookings.userId, marketplaceUsers.id))
       .leftJoin(bookableSessions, eq(bookings.sessionId, bookableSessions.id))
+      // Join the payment row matching the booking AND the same Ziina intent so
+      // we can surface the exact time the payment was taken. Cash bookings
+      // won't have a matching Ziina payment row — paymentAt stays null and the
+      // UI falls back to the notification's createdAt.
+      .leftJoin(payments, and(
+        eq(payments.bookingId, bookings.id),
+        sql`${payments.ziinaPaymentIntentId} IS NOT NULL`,
+        eq(payments.ziinaPaymentIntentId, bookings.ziinaPaymentIntentId),
+      ))
       .where(eq(marketplaceNotifications.type, 'refund_required'))
       .orderBy(desc(marketplaceNotifications.createdAt));
 
@@ -2382,6 +2507,7 @@ export class DatabaseStorage implements IStorage {
       sessionTitle: row.sessionTitle ?? null,
       sessionDate: row.sessionDate ?? null,
       sessionVenueName: row.sessionVenueName ?? null,
+      paymentAt: row.paymentCompletedAt ?? row.paymentCreatedAt ?? null,
     }));
   }
 

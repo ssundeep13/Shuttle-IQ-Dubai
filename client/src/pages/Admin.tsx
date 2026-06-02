@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { LogOut, Users, FileDown, FolderKanban, Trophy, Lightbulb, Check, X, ThumbsUp } from 'lucide-react';
+import { LogOut, Users, FileDown, FolderKanban, Trophy, Lightbulb, Check, X, ThumbsUp, RefreshCw } from 'lucide-react';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
 import { Leaderboard } from '@/components/Leaderboard';
@@ -204,6 +204,31 @@ export default function Admin() {
     });
   };
 
+  const recalculateStatsMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest<{ message: string; playersUpdated: number }>('POST', '/api/admin/recalculate-player-stats', null);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      toast({
+        title: 'Stats recalculated',
+        description: `Games played, wins and skill score recalculated for ${data.playersUpdated} players from game history.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: 'Recalculation failed',
+        description: 'Could not recalculate player stats. Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleRecalculateStats = () => {
+    recalculateStatsMutation.mutate();
+  };
+
   const handleClearAllPlayers = () => {
     const playingPlayers = players.filter((p) => p.status === 'playing');
     if (playingPlayers.length > 0) {
@@ -306,6 +331,23 @@ export default function Admin() {
           </TabsContent>
 
           <TabsContent value="leaderboard" className="space-y-6">
+            <div className="flex items-center justify-between gap-3 flex-wrap rounded-md border bg-muted/30 px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Recalculate player stats</p>
+                <p className="text-xs text-muted-foreground">
+                  Rebuilds games played, wins and skill score for every player from full game history.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleRecalculateStats}
+                disabled={recalculateStatsMutation.isPending}
+                data-testid="button-recalculate-stats"
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${recalculateStatsMutation.isPending ? 'animate-spin' : ''}`} />
+                {recalculateStatsMutation.isPending ? 'Recalculating…' : 'Recalculate Stats'}
+              </Button>
+            </div>
             <Leaderboard
               players={players}
               onResetStats={handleResetStats}

@@ -313,22 +313,64 @@ export async function sendCancellationEmail(
   session: BookableSession,
   lateFeeApplied: boolean,
   amountAed: number,
+  options?: {
+    eventCancelledByAdmin?: boolean;
+    paymentMethod?: 'ziina' | 'cash' | string | null;
+    walletAmountUsedAed?: number;
+  },
 ): Promise<void> {
+  const adminCancelled = !!options?.eventCancelledByAdmin;
+  const paymentMethod = options?.paymentMethod ?? null;
+  const walletAed = options?.walletAmountUsedAed ?? 0;
+
   const lateFeeNote = lateFeeApplied
     ? `<p style="margin:0 0 20px;font-size:14px;color:#c53030;line-height:1.6;background-color:#fff5f5;border-radius:6px;padding:12px 16px;">
         <strong>Late cancellation fee applied:</strong> Because this cancellation was made within 5 hours of the session, your payment of AED ${amountAed} has been retained as per our cancellation policy.
        </p>`
     : '';
+
+  // Admin cancellation gets an explicit refund block: how much, how it
+  // arrives, and the 3–5 working day note for Ziina refunds.
+  let adminRefundNote = '';
+  if (adminCancelled && !lateFeeApplied) {
+    const lines: string[] = [];
+    if (paymentMethod === 'ziina' && amountAed > 0) {
+      lines.push(`<strong>Full refund of AED ${amountAed.toFixed(2)}</strong> will be issued to the card you paid with via Ziina.`);
+      lines.push('Ziina refunds typically take <strong>3–5 working days</strong> to appear on your statement.');
+    } else if (paymentMethod === 'cash' && amountAed > 0) {
+      lines.push(`<strong>Full refund of AED ${amountAed.toFixed(2)}</strong> in cash — please collect from the venue host at your next visit, or reply to this email to arrange another method.`);
+    }
+    if (walletAed > 0) {
+      lines.push(`<strong>AED ${walletAed.toFixed(2)} wallet credit</strong> has already been returned to your ShuttleIQ wallet.`);
+    }
+    if (lines.length === 0) {
+      lines.push('No payment was taken for this booking, so there is nothing to refund.');
+    }
+    adminRefundNote = `<div style="margin:0 0 20px;font-size:14px;color:#0a2540;line-height:1.7;background-color:#f0f9ff;border-radius:6px;padding:14px 18px;">
+        <p style="margin:0 0 8px;font-weight:600;">Refund details</p>
+        ${lines.map(l => `<p style="margin:0 0 6px;">${l}</p>`).join('')}
+       </div>`;
+  }
+
+  const lead = adminCancelled
+    ? `Hi ${name}, we're sorry — the organiser has cancelled the following session, and your booking has been cancelled as a result:`
+    : `Hi ${name}, your booking for the following session has been cancelled:`;
+  const heading = adminCancelled ? 'Event cancelled' : 'Booking cancelled';
+
   const body = `
-    <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">Booking cancelled</h1>
-    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${name}, your booking for the following session has been cancelled:</p>
+    <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">${heading}</h1>
+    <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">${lead}</p>
     ${sessionBlock(session)}
     ${lateFeeNote}
+    ${adminRefundNote}
     <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 24px;">
     <p style="margin:0;font-size:13px;color:#a0aec0;line-height:1.6;">We hope to see you at a future session.</p>
   `;
+  const subject = adminCancelled
+    ? `Event cancelled: ${session.title}`
+    : `Booking cancelled: ${session.title}`;
   try {
-    await sendEmail(toEmail, `Booking cancelled: ${session.title}`, emailWrapper(body));
+    await sendEmail(toEmail, subject, emailWrapper(body));
     console.log(`[Email] Cancellation email sent to ${toEmail}`);
   } catch (err) {
     console.error('[Email] sendCancellationEmail failed:', err);
