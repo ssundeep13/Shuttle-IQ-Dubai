@@ -12,8 +12,9 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import {
   Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info,
   Banknote, ShieldCheck, ListOrdered, CheckCircle2, X, Loader2,
-  AlertCircle, Minus, Plus, Search, UserCheck, User, Gift,
+  AlertCircle, Minus, Plus, Search, UserCheck, User, Gift, Wallet,
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 import { apiRequest } from '@/lib/queryClient';
@@ -406,10 +407,22 @@ function InlineBookingPanel({
   const [guests, setGuests] = useState<Guest[]>([]);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number } | null>(null);
+  const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number; paidByWallet?: boolean } | null>(null);
+  const [useWallet, setUseWallet] = useState(false);
   const maxGuests = Math.min(3, session.spotsRemaining - 1);
   const spotsBooked = 1 + guests.length;
   const totalAmount = session.priceAed * spotsBooked;
+
+  const { data: walletData } = useQuery<{ walletBalance: number }>({
+    queryKey: ['/api/marketplace/me/wallet'],
+    enabled: isAuthenticated,
+    staleTime: 30_000,
+  });
+  const walletBalanceFils = walletData?.walletBalance ?? 0;
+  const totalFils = totalAmount * 100;
+  const walletApplicableFils = Math.min(walletBalanceFils, totalFils);
+  const walletCoversAll = useWallet && totalFils > 0 && walletApplicableFils >= totalFils;
+  const remainingAfterWalletAed = Math.max(0, totalAmount - walletApplicableFils / 100);
 
   const addGuest = () => {
     if (guests.length < maxGuests) {
@@ -431,7 +444,7 @@ function InlineBookingPanel({
     return null;
   };
 
-  const makeBooking = async (method: 'cash' | 'ziina') => {
+  const makeBooking = async (method: 'cash' | 'ziina', applyWallet = false) => {
     const guestError = validateGuests();
     if (guestError) { setError(guestError); return; }
 
@@ -458,6 +471,7 @@ function InlineBookingPanel({
             marketplaceUserId: g.marketplaceUserId ?? null,
             siqPlayerId: g.siqPlayerId ?? null,
           })),
+          ...(applyWallet ? { applyWallet: true } : {}),
         }),
       });
       const data = await res.json();
@@ -469,6 +483,13 @@ function InlineBookingPanel({
           description: `You are #${data.waitlistPosition} on the waitlist. We'll notify you if a spot opens up.`,
         });
         onBooked();
+        return;
+      }
+
+      if (data.paymentMethod === 'wallet') {
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
+        setCashConfirmed({ spots: spotsBooked, total: 0, paidByWallet: true });
         return;
       }
 
@@ -497,9 +518,13 @@ function InlineBookingPanel({
               Booking Confirmed!
             </p>
             <p className="text-sm text-muted-foreground mt-1">
-              {cashConfirmed.spots > 1
-                ? `${cashConfirmed.spots} spots reserved — pay AED ${cashConfirmed.total} in cash at the venue.`
-                : `Your spot is reserved — pay AED ${cashConfirmed.total} in cash at the venue.`}
+              {cashConfirmed.paidByWallet
+                ? cashConfirmed.spots > 1
+                  ? `${cashConfirmed.spots} spots reserved — paid in full with wallet credit.`
+                  : 'Your spot is reserved — paid in full with wallet credit.'
+                : cashConfirmed.spots > 1
+                  ? `${cashConfirmed.spots} spots reserved — pay AED ${cashConfirmed.total} in cash at the venue.`
+                  : `Your spot is reserved — pay AED ${cashConfirmed.total} in cash at the venue.`}
             </p>
           </div>
         </div>
@@ -568,9 +593,51 @@ function InlineBookingPanel({
           <span className="text-muted-foreground">
             {spotsBooked === 1 ? 'Just you' : `You + ${guests.length} guest${guests.length > 1 ? 's' : ''}`}
           </span>
-          <span className="font-bold text-base" data-testid="text-inline-total">AED {totalAmount}</span>
+          <span className="font-bold text-base" data-testid="text-inline-total">
+            {useWallet && walletBalanceFils > 0
+              ? `AED ${remainingAfterWalletAed.toFixed(2)}`
+              : `AED ${totalAmount}`}
+          </span>
         </div>
       </div>
+
+      {/* Wallet credit card */}
+      {walletBalanceFils > 0 && (
+        <Card data-testid="card-wallet-credit">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-[#006B5F]" />
+                <span className="text-sm font-medium">Use wallet credit</span>
+              </div>
+              <Switch
+                checked={useWallet}
+                onCheckedChange={setUseWallet}
+                data-testid="switch-use-wallet"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Available: AED {(walletBalanceFils / 100).toFixed(2)}
+            </p>
+            {useWallet && (
+              <div className="space-y-1 border-t pt-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Session cost</span>
+                  <span>AED {totalAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-[#006B5F]">
+                  <span>Wallet credit</span>
+                  <span data-testid="text-wallet-deduction">- AED {(walletApplicableFils / 100).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold border-t pt-1">
+                  <span>{walletCoversAll ? 'Amount due' : 'Remaining to pay'}</span>
+                  <span data-testid="text-remaining-amount">AED {remainingAfterWalletAed.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Guest rows */}
       {guests.length > 0 && (
@@ -599,52 +666,78 @@ function InlineBookingPanel({
         </div>
       )}
 
-      {/* Payment method buttons */}
-      <div className="space-y-2">
-        <p className="text-sm font-medium">How would you like to pay?</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Card
-            className="hover-elevate cursor-pointer"
-            onClick={() => !processing && makeBooking('cash')}
-            data-testid="button-pay-cash"
+      {/* Payment method buttons / wallet fast-path */}
+      {walletCoversAll ? (
+        <div className="space-y-2">
+          <Button
+            size="lg"
+            className="w-full gap-2"
+            disabled={processing}
+            onClick={() => makeBooking('ziina', true)}
+            data-testid="button-book-wallet"
           >
-            <CardContent className="p-4 flex items-center gap-3">
-              {processing ? (
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
-              ) : (
-                <Banknote className="h-5 w-5 text-chart-2 shrink-0" />
-              )}
-              <div className="min-w-0">
-                <p className="font-medium text-sm">Pay at Venue</p>
-                <p className="text-xs text-muted-foreground">Pay cash when you arrive</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card
-            className="hover-elevate cursor-pointer"
-            onClick={() => !processing && makeBooking('ziina')}
-            data-testid="button-pay-card"
-          >
-            <CardContent className="p-4 flex items-center gap-3">
-              {processing ? (
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
-              ) : (
-                <CreditCard className="h-5 w-5 text-primary shrink-0" />
-              )}
-              <div className="min-w-0">
-                <p className="font-medium text-sm">Pay by Card</p>
-                <p className="text-xs text-muted-foreground">Secure checkout via Ziina</p>
-              </div>
-            </CardContent>
-          </Card>
+            {processing ? (
+              <><Loader2 className="h-5 w-5 animate-spin" /> Confirming booking...</>
+            ) : (
+              <><Wallet className="h-5 w-5" /> Book with Wallet Credit</>
+            )}
+          </Button>
         </div>
-      </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">How would you like to pay?</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Card
+              className="hover-elevate cursor-pointer"
+              onClick={() => !processing && makeBooking('cash', useWallet)}
+              data-testid="button-pay-cash"
+            >
+              <CardContent className="p-4 flex items-center gap-3">
+                {processing ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+                ) : (
+                  <Banknote className="h-5 w-5 text-chart-2 shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">Pay at Venue</p>
+                  <p className="text-xs text-muted-foreground">
+                    {useWallet && walletBalanceFils > 0
+                      ? `Pay AED ${remainingAfterWalletAed.toFixed(2)} cash at venue`
+                      : 'Pay cash when you arrive'}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card
+              className="hover-elevate cursor-pointer"
+              onClick={() => !processing && makeBooking('ziina', useWallet)}
+              data-testid="button-pay-card"
+            >
+              <CardContent className="p-4 flex items-center gap-3">
+                {processing ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+                ) : (
+                  <CreditCard className="h-5 w-5 text-primary shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">Pay by Card</p>
+                  <p className="text-xs text-muted-foreground">
+                    {useWallet && walletBalanceFils > 0
+                      ? `Pay AED ${remainingAfterWalletAed.toFixed(2)} via Ziina`
+                      : 'Secure checkout via Ziina'}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
 
       <Button
         variant="ghost"
         size="sm"
-        onClick={() => { setOpen(false); setGuests([]); setError(null); }}
+        onClick={() => { setOpen(false); setGuests([]); setError(null); setUseWallet(false); }}
         data-testid="button-cancel-booking"
       >
         Cancel
