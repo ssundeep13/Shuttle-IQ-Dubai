@@ -490,6 +490,7 @@ function InlineBookingPanel({
         queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
         queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
         setCashConfirmed({ spots: spotsBooked, total: 0, paidByWallet: true });
+        onBooked();
         return;
       }
 
@@ -668,7 +669,7 @@ function InlineBookingPanel({
 
       {/* Payment method buttons / wallet fast-path */}
       {walletCoversAll ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <Button
             size="lg"
             className="w-full gap-2"
@@ -682,6 +683,14 @@ function InlineBookingPanel({
               <><Wallet className="h-5 w-5" /> Book with Wallet Credit</>
             )}
           </Button>
+          <button
+            type="button"
+            className="w-full text-xs text-muted-foreground underline-offset-2 hover:underline"
+            onClick={() => setUseWallet(false)}
+            data-testid="link-pay-by-card-instead"
+          >
+            Pay by card instead
+          </button>
         </div>
       ) : (
         <div className="space-y-2">

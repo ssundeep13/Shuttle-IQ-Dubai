@@ -234,6 +234,35 @@ describe('InlineBookingPanel — wallet credit', () => {
     expect(confirmText).toContain('wallet credit');
   });
 
+  it('shows "Pay by card instead" escape-hatch when wallet covers full amount', async () => {
+    renderSessionDetails(makeFetch({ walletBalance: 10000 }));
+    await openPanel();
+
+    const toggle = await screen.findByTestId('switch-use-wallet');
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('link-pay-by-card-instead')).toBeDefined();
+    });
+  });
+
+  it('"Pay by card instead" escape-hatch toggles wallet off and restores payment cards', async () => {
+    renderSessionDetails(makeFetch({ walletBalance: 10000 }));
+    await openPanel();
+
+    const toggle = await screen.findByTestId('switch-use-wallet');
+    fireEvent.click(toggle);
+
+    const escapeLink = await screen.findByTestId('link-pay-by-card-instead');
+    fireEvent.click(escapeLink);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('button-book-wallet')).toBeNull();
+      expect(screen.getByTestId('button-pay-cash')).toBeDefined();
+      expect(screen.getByTestId('button-pay-card')).toBeDefined();
+    });
+  });
+
   it('live total shows remaining amount when wallet toggle is on (partial)', async () => {
     renderSessionDetails(makeFetch({ walletBalance: 1500 }));
     await openPanel();
