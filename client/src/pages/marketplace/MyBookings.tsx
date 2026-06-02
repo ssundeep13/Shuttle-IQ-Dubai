@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus } from 'lucide-react';
+import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -230,6 +230,11 @@ export default function MyBookings() {
     refetchOnMount: true,
   });
 
+  const { data: walletData } = useQuery<{ walletBalance: number }>({
+    queryKey: ['/api/marketplace/me/wallet'],
+    staleTime: 30_000,
+  });
+
   const cancelMutation = useMutation({
     mutationFn: async (bookingId: string) => {
       return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`);
@@ -247,6 +252,7 @@ export default function MyBookings() {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to cancel', description: error.message, variant: 'destructive' });
@@ -593,11 +599,32 @@ export default function MyBookings() {
     <div style={{ background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY, minHeight: '100%' }}>
       <div className="max-w-3xl mx-auto" style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 24px) clamp(48px, 6vw, 64px)' }}>
         <Reveal>
-          <div style={{ marginBottom: 28 }}>
-            <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 4vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', display: 'flex', alignItems: 'center', gap: 10 }} data-testid="text-page-title">
-              <Bookmark className="h-7 w-7" style={{ color: MKT.teal }} /> My Bookings
-            </h1>
-            <p style={{ color: MKT.inkSub, fontSize: 14, marginTop: 4 }}>Manage your session bookings</p>
+          <div style={{ marginBottom: 28, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <div>
+              <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 4vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', display: 'flex', alignItems: 'center', gap: 10 }} data-testid="text-page-title">
+                <Bookmark className="h-7 w-7" style={{ color: MKT.teal }} /> My Bookings
+              </h1>
+              <p style={{ color: MKT.inkSub, fontSize: 14, marginTop: 4 }}>Manage your session bookings</p>
+            </div>
+            {walletData !== undefined && (
+              <div
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 12,
+                  ...(walletData.walletBalance > 0
+                    ? { background: MKT.tealMist, border: `1px solid ${MKT.teal}33`, color: MKT.tealD }
+                    : { background: `${MKT.navy}06`, border: `1px solid ${MKT.navy}14`, color: MKT.inkSub }),
+                }}
+                data-testid="card-wallet-balance"
+              >
+                <Wallet className="h-4 w-4 shrink-0" />
+                <div>
+                  <p style={{ fontSize: 11, lineHeight: 1, marginBottom: 3, opacity: 0.7 }}>Wallet credit</p>
+                  <p style={{ fontSize: 14, fontWeight: 700, lineHeight: 1 }} data-testid="text-wallet-balance">
+                    AED {(walletData.walletBalance / 100).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </Reveal>
 

@@ -685,6 +685,22 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Read-only wallet balance for the signed-in marketplace user. Reads the
+  // canonical players.walletBalance (in fils) via the linked player — the same
+  // source the Dashboard referral card uses (GET /api/referrals/player/:id),
+  // so all wallet surfaces stay consistent. Returns 0 when no player is linked.
+  app.get("/api/marketplace/me/wallet", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (!user?.linkedPlayerId) return res.json({ walletBalance: 0 });
+      const player = await storage.getPlayer(user.linkedPlayerId);
+      return res.json({ walletBalance: player?.walletBalance ?? 0 });
+    } catch {
+      res.status(500).json({ error: "Failed to fetch wallet balance" });
+    }
+  });
+
   // ── Post-signup referral entry (PR4) ──────────────────────────────────────
   // Read-only status powering the Dashboard nudge banner + the Profile field.
   // hasIncomingReferral: user already has a referral as referee (used or pending).
