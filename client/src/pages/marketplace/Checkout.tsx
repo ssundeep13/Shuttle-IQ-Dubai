@@ -693,6 +693,7 @@ export default function Checkout() {
   const [walletBookingLoading, setWalletBookingLoading] = useState(false);
   const [walletBookingError, setWalletBookingError] = useState<string | null>(null);
   const [walletWaitlisted, setWalletWaitlisted] = useState<{ position: number } | null>(null);
+  const [walletGuests, setWalletGuests] = useState<Guest[]>([]);
 
   const { data: walletData } = useQuery<{ walletBalance: number }>({
     queryKey: ['/api/marketplace/me/wallet'],
@@ -701,14 +702,32 @@ export default function Checkout() {
   });
   const walletBalanceFils = walletData?.walletBalance ?? 0;
 
-  // Selector-screen preview (1 spot, before guests are added)
+  // Wallet fast-path: guest-aware totals
+  const walletSpotsBooked = 1 + walletGuests.length;
+  const walletRawTotal = pricePerSpot * walletSpotsBooked;
+  const walletDiscountSaving = appliedDiscount ? computeDiscountSaving(appliedDiscount, walletRawTotal) : 0;
+  const walletTotalAed = Math.max(0, walletRawTotal - walletDiscountSaving);
+  const walletTotalFils = walletTotalAed * 100;
+  const walletApplicableFils = Math.min(walletBalanceFils, walletTotalFils);
+  const walletCoversAll = useWallet && walletTotalFils > 0 && walletApplicableFils >= walletTotalFils;
+
+  // Single-spot preview for OrderSummary before guests are added (used when wallet doesn't cover all)
   const previewDiscountSaving = appliedDiscount ? computeDiscountSaving(appliedDiscount, pricePerSpot) : 0;
   const previewTotalAed = Math.max(0, pricePerSpot - previewDiscountSaving);
-  const previewTotalFils = previewTotalAed * 100;
-  const walletApplicablePreviewFils = Math.min(walletBalanceFils, previewTotalFils);
-  const walletCoversAll = useWallet && walletApplicablePreviewFils >= previewTotalFils && previewTotalFils > 0;
 
   const handleWalletFastPath = async () => {
+    // Validate guest fields before submitting
+    for (const g of walletGuests) {
+      if (!g.name.trim()) {
+        setWalletBookingError('All guest names are required.');
+        return;
+      }
+      if (g.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) {
+        setWalletBookingError('Invalid guest email address.');
+        return;
+      }
+    }
+
     setWalletBookingLoading(true);
     setWalletBookingError(null);
     const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
@@ -724,7 +743,7 @@ export default function Checkout() {
         body: JSON.stringify({
           sessionId,
           paymentMethod: 'ziina',
-          guests: [],
+          guests: walletGuests.map(g => ({ name: g.name.trim(), email: g.email.trim() || null })),
           applyWallet: true,
           discountCode: appliedDiscount?.code ?? undefined,
         }),
@@ -911,18 +930,23 @@ export default function Checkout() {
 
       {!paymentMethod && sessionInfo && (
         <div className="space-y-6">
-          {(() => {
-            const previewSaving = appliedDiscount ? computeDiscountSaving(appliedDiscount, pricePerSpot) : 0;
-            return (
-              <OrderSummary
-                sessionInfo={sessionInfo}
-                amount={Math.max(0, pricePerSpot - previewSaving)}
-                spotsBooked={1}
-                discountAmountAed={previewSaving > 0 ? previewSaving : undefined}
-                originalAmount={previewSaving > 0 ? pricePerSpot : undefined}
-              />
-            );
-          })()}
+          {walletCoversAll ? (
+            <OrderSummary
+              sessionInfo={sessionInfo}
+              amount={walletTotalAed}
+              spotsBooked={walletSpotsBooked}
+              discountAmountAed={walletDiscountSaving > 0 ? walletDiscountSaving : undefined}
+              originalAmount={walletDiscountSaving > 0 ? walletRawTotal : undefined}
+            />
+          ) : (
+            <OrderSummary
+              sessionInfo={sessionInfo}
+              amount={previewTotalAed}
+              spotsBooked={1}
+              discountAmountAed={previewDiscountSaving > 0 ? previewDiscountSaving : undefined}
+              originalAmount={previewDiscountSaving > 0 ? pricePerSpot : undefined}
+            />
+          )}
 
           {appliedDiscount ? (
             <DiscountCodeField
@@ -980,15 +1004,15 @@ export default function Checkout() {
                   <div className="space-y-1 border-t pt-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Session cost</span>
-                      <span>AED {previewTotalAed.toFixed(2)}</span>
+                      <span>AED {walletTotalAed.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm text-[#006B5F]">
                       <span>Wallet credit</span>
-                      <span data-testid="text-wallet-deduction">- AED {(walletApplicablePreviewFils / 100).toFixed(2)}</span>
+                      <span data-testid="text-wallet-deduction">- AED {(walletApplicableFils / 100).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm font-semibold border-t pt-1">
                       <span>{walletCoversAll ? 'Amount due' : 'Remaining to pay'}</span>
-                      <span data-testid="text-remaining-amount">AED {Math.max(0, previewTotalAed - walletApplicablePreviewFils / 100).toFixed(2)}</span>
+                      <span data-testid="text-remaining-amount">AED {Math.max(0, walletTotalAed - walletApplicableFils / 100).toFixed(2)}</span>
                     </div>
                   </div>
                 )}
@@ -998,8 +1022,18 @@ export default function Checkout() {
 
           <CancellationPolicy />
 
-          {walletCoversAll ? (
+          {useWallet && walletBalanceFils > 0 && !walletCoversAll && walletGuests.length > 0 ? (
+            // Guests were added but wallet no longer covers full cost — drop to card/cash
+            <PaymentMethodSelector onSelect={handlePaymentMethodSelect} />
+          ) : walletCoversAll ? (
             <div className="space-y-3">
+              {availableSpots > 1 && (
+                <GuestForm
+                  guests={walletGuests}
+                  onChange={setWalletGuests}
+                  maxGuests={Math.min(3, availableSpots - 1)}
+                />
+              )}
               {walletWaitlisted ? (
                 <Card data-testid="card-wallet-waitlisted">
                   <CardContent className="p-4 space-y-2">
@@ -1033,14 +1067,6 @@ export default function Checkout() {
                       <><Wallet className="h-5 w-5" /> Book with Wallet Credit</>
                     )}
                   </Button>
-                  <button
-                    type="button"
-                    className="w-full text-sm text-muted-foreground text-center hover:text-foreground transition-colors"
-                    onClick={() => handlePaymentMethodSelect('ziina')}
-                    data-testid="button-pay-card-instead"
-                  >
-                    Adding guests? Pay by card instead
-                  </button>
                 </>
               )}
             </div>

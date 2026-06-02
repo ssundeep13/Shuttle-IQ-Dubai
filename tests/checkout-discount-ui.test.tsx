@@ -331,8 +331,8 @@ describe('Checkout — wallet credit UI', () => {
 
     // Standard card/cash buttons are replaced by the fast-path button
     expect(screen.queryByTestId('button-pay-card')).not.toBeInTheDocument();
-    // "add guests" escape hatch is present
-    expect(screen.getByTestId('button-pay-card-instead')).toBeInTheDocument();
+    // Guest form now renders inline in the wallet fast-path section
+    expect(screen.getByTestId('button-add-guest')).toBeInTheDocument();
   });
 
   it('does NOT show confirmed state when fast-path booking returns a redirectUrl (balance race condition)', async () => {
