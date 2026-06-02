@@ -335,6 +335,66 @@ describe('Checkout — wallet credit UI', () => {
     expect(screen.getByTestId('button-pay-card-instead')).toBeInTheDocument();
   });
 
+  it('does NOT show confirmed state when fast-path booking returns a redirectUrl (balance race condition)', async () => {
+    // walletBalance = 10000 fils = AED 100 (covers price client-side)
+    // but server responds with a redirectUrl (e.g. balance consumed by a concurrent booking)
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      const method = init?.method ?? 'GET';
+      if (url.includes(`/api/marketplace/sessions/${SESSION_ID}`)) {
+        return new Response(JSON.stringify(makeSession(100)), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/marketplace/me/wallet')) {
+        return new Response(JSON.stringify({ walletBalance: 10000 }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'POST' && url.includes('/api/marketplace/bookings')) {
+        // Server returns a redirect URL — wallet didn't cover after all
+        return new Response(
+          JSON.stringify({ paymentMethod: 'ziina', redirectUrl: 'https://checkout.ziina.com/test' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    // Mock window.location.href to capture the redirect without error
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: { ...originalLocation, href: '' },
+    });
+
+    renderCheckout(fetchMock as unknown as typeof fetch);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('card-wallet-credit')).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Enable wallet (covers full amount client-side)
+    fireEvent.click(screen.getByTestId('switch-use-wallet'));
+    await waitFor(() => {
+      expect(screen.getByTestId('button-book-wallet')).toBeInTheDocument();
+    }, { timeout: 3000 });
+
+    // Click book with wallet
+    fireEvent.click(screen.getByTestId('button-book-wallet'));
+
+    // Should have navigated to Ziina, NOT shown "Booking confirmed"
+    await waitFor(() => {
+      expect(window.location.href).toBe('https://checkout.ziina.com/test');
+    }, { timeout: 3000 });
+
+    // Confirmed state must NOT be shown
+    expect(screen.queryByTestId('card-booking-confirmed')).not.toBeInTheDocument();
+
+    // Restore
+    Object.defineProperty(window, 'location', { writable: true, value: originalLocation });
+  });
+
   it('shows partial wallet deduction and remaining amount in breakdown', async () => {
     // walletBalance = 5000 fils = AED 50 (covers half of AED 100 session)
     renderCheckout(makeWalletFetch(5000) as unknown as typeof fetch);

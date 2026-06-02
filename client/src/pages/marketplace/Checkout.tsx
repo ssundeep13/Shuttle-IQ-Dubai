@@ -691,6 +691,7 @@ export default function Checkout() {
   const [useWallet, setUseWallet] = useState(false);
   const [walletBookingLoading, setWalletBookingLoading] = useState(false);
   const [walletBookingError, setWalletBookingError] = useState<string | null>(null);
+  const [walletWaitlisted, setWalletWaitlisted] = useState<{ position: number } | null>(null);
 
   const { data: walletData } = useQuery<{ walletBalance: number }>({
     queryKey: ['/api/marketplace/me/wallet'],
@@ -729,9 +730,25 @@ export default function Checkout() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Booking failed');
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
-      setBookingData(data);
-      setConfirmed(true);
+
+      // Mirror ZiinaPaymentForm.handlePay response branches exactly
+      if (data.waitlisted) {
+        setWalletWaitlisted({ position: data.waitlistPosition });
+        setWalletBookingLoading(false);
+        return;
+      }
+      if (data.paymentMethod === 'wallet') {
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+        setBookingData(data);
+        setConfirmed(true);
+        return;
+      }
+      // Wallet didn't fully cover server-side (balance changed, race) — redirect to Ziina
+      if (data.redirectUrl) {
+        window.location.href = data.redirectUrl;
+        return;
+      }
+      throw new Error('Unexpected response from server. Please try again.');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Booking failed. Please try again.';
       setWalletBookingError(message);
@@ -981,33 +998,49 @@ export default function Checkout() {
 
           {walletCoversAll ? (
             <div className="space-y-3">
-              {walletBookingError && (
-                <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-wallet-booking-error">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  {walletBookingError}
-                </div>
+              {walletWaitlisted ? (
+                <Card data-testid="card-wallet-waitlisted">
+                  <CardContent className="p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                      <Info className="h-4 w-4 shrink-0" />
+                      <span className="text-sm font-medium">Added to waitlist — position #{walletWaitlisted.position}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      The last spot was taken just before your booking. You've been added to the waitlist. No payment was taken — we'll notify you if a spot opens up.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  {walletBookingError && (
+                    <div className="flex items-center gap-2 text-destructive text-sm" data-testid="text-wallet-booking-error">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      {walletBookingError}
+                    </div>
+                  )}
+                  <Button
+                    size="lg"
+                    className="w-full gap-2"
+                    disabled={walletBookingLoading}
+                    onClick={handleWalletFastPath}
+                    data-testid="button-book-wallet"
+                  >
+                    {walletBookingLoading ? (
+                      <><Loader2 className="h-5 w-5 animate-spin" /> Confirming booking...</>
+                    ) : (
+                      <><Wallet className="h-5 w-5" /> Book with Wallet Credit</>
+                    )}
+                  </Button>
+                  <button
+                    type="button"
+                    className="w-full text-sm text-muted-foreground text-center hover:text-foreground transition-colors"
+                    onClick={() => handlePaymentMethodSelect('ziina')}
+                    data-testid="button-pay-card-instead"
+                  >
+                    Adding guests? Pay by card instead
+                  </button>
+                </>
               )}
-              <Button
-                size="lg"
-                className="w-full gap-2"
-                disabled={walletBookingLoading}
-                onClick={handleWalletFastPath}
-                data-testid="button-book-wallet"
-              >
-                {walletBookingLoading ? (
-                  <><Loader2 className="h-5 w-5 animate-spin" /> Confirming booking...</>
-                ) : (
-                  <><Wallet className="h-5 w-5" /> Book with Wallet Credit</>
-                )}
-              </Button>
-              <button
-                type="button"
-                className="w-full text-sm text-muted-foreground text-center hover:text-foreground transition-colors"
-                onClick={() => handlePaymentMethodSelect('ziina')}
-                data-testid="button-pay-card-instead"
-              >
-                Adding guests? Pay by card instead
-              </button>
             </div>
           ) : (
             <PaymentMethodSelector onSelect={handlePaymentMethodSelect} />

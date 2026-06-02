@@ -5,10 +5,10 @@ export const modules: ModuleMap = {
   "./components/mockups/bookings-redesign/VariantA.tsx": () => import("../components/mockups/bookings-redesign/VariantA.tsx"),
   "./components/mockups/bookings-redesign/VariantB.tsx": () => import("../components/mockups/bookings-redesign/VariantB.tsx"),
   "./components/mockups/bookings-redesign/VariantC.tsx": () => import("../components/mockups/bookings-redesign/VariantC.tsx"),
-  "./components/mockups/game-day-post/GameDay.tsx": () => import("../components/mockups/game-day-post/GameDay.tsx"),
   "./components/mockups/schedule-post/FeaturesPost.tsx": () => import("../components/mockups/schedule-post/FeaturesPost.tsx"),
   "./components/mockups/schedule-post/SchedulePost.tsx": () => import("../components/mockups/schedule-post/SchedulePost.tsx"),
   "./components/mockups/schedule-post/Spotlight.tsx": () => import("../components/mockups/schedule-post/Spotlight.tsx"),
   "./components/mockups/schedule-post/TicketStrip.tsx": () => import("../components/mockups/schedule-post/TicketStrip.tsx"),
-  "./components/mockups/schedule-post/TypePoster.tsx": () => import("../components/mockups/schedule-post/TypePoster.tsx")
+  "./components/mockups/schedule-post/TypePoster.tsx": () => import("../components/mockups/schedule-post/TypePoster.tsx"),
+  "./components/mockups/game-day-post/GameDay.tsx": () => import("../components/mockups/game-day-post/GameDay.tsx")
 };
