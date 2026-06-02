@@ -669,6 +669,7 @@ export default function Home() {
   };
 
   const handleEndGameSubmit = (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => {
+    if (endGameMutation.isPending) return;
     endGameMutation.mutate({ courtId, winningTeam, team1Score, team2Score });
   };
 
@@ -1018,6 +1019,7 @@ export default function Home() {
           setEndingCourtId(null);
         }}
         onSubmit={handleEndGameSubmit}
+        isPending={endGameMutation.isPending}
       />
 
       <AutoAssignConfirmDialog
