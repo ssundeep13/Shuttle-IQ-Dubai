@@ -10,8 +10,9 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import {
   Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info,
   Banknote, ShieldCheck, ListOrdered, CheckCircle2, X, Loader2,
-  AlertCircle, Minus, Plus, Search, UserCheck, User, ArrowRight,
+  AlertCircle, Minus, Plus, Search, UserCheck, User, ArrowRight, Wallet,
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { format } from 'date-fns';
 import { useReducedMotion } from 'framer-motion';
 import { apiRequest, getMarketplaceAccessToken } from '@/lib/queryClient';
@@ -444,15 +445,30 @@ function InlineBookingPanel({
   onBooked: () => void;
 }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number } | null>(null);
+  const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number; paidByWallet?: boolean } | null>(null);
+  const [useWallet, setUseWallet] = useState(false);
 
   const maxGuests = Math.min(3, session.spotsRemaining - 1);
   const spotsBooked = 1 + guests.length;
   const totalAmount = session.priceAed * spotsBooked;
+
+  // Wallet credit (display only). The booking endpoint is server-authoritative:
+  // we send applyWallet as a boolean — never an amount — and the backend caps
+  // the deduction at min(balance, total), idempotently and atomically.
+  const { data: walletData } = useQuery<{ walletBalance: number }>({
+    queryKey: ['/api/marketplace/me/wallet'],
+    staleTime: 30_000,
+  });
+  const walletBalanceFils = walletData?.walletBalance ?? 0;
+  const totalFils = totalAmount * 100;
+  const walletApplicableFils = Math.min(walletBalanceFils, totalFils);
+  const walletCoversAll = useWallet && totalFils > 0 && walletApplicableFils >= totalFils;
+  const remainingAfterWalletAed = Math.max(0, totalAmount - walletApplicableFils / 100);
 
   const addGuest = () => {
     if (guests.length < maxGuests) {
@@ -474,7 +490,7 @@ function InlineBookingPanel({
     return null;
   };
 
-  const makeBooking = async (method: 'cash' | 'ziina') => {
+  const makeBooking = async (method: 'cash' | 'ziina', applyWallet = false) => {
     const guestError = validateGuests();
     if (guestError) { setError(guestError); return; }
 
@@ -501,6 +517,7 @@ function InlineBookingPanel({
             marketplaceUserId: g.marketplaceUserId ?? null,
             siqPlayerId: g.siqPlayerId ?? null,
           })),
+          ...(applyWallet ? { applyWallet: true } : {}),
         }),
       });
       const data = await res.json();
@@ -515,12 +532,23 @@ function InlineBookingPanel({
         return;
       }
 
+      // Wallet credit covered the full amount — booking confirmed server-side
+      // with no Ziina redirect. Refresh wallet + bookings so balances update.
+      if (data.paymentMethod === 'wallet') {
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
+        setCashConfirmed({ spots: spotsBooked, total: 0, paidByWallet: true });
+        onBooked();
+        return;
+      }
+
       if (method === 'ziina') {
         if (!data.redirectUrl) throw new Error('No payment URL received. Please try again.');
         window.location.href = data.redirectUrl;
         return;
       }
 
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
       setCashConfirmed({ spots: spotsBooked, total: totalAmount });
       onBooked();
     } catch (err: any) {
@@ -540,9 +568,13 @@ function InlineBookingPanel({
               Booking Confirmed!
             </p>
             <p className="text-sm mt-1" style={{ color: MKT.inkSub }}>
-              {cashConfirmed.spots > 1
-                ? `${cashConfirmed.spots} spots reserved — pay AED ${cashConfirmed.total} in cash at the venue.`
-                : `Your spot is reserved — pay AED ${cashConfirmed.total} in cash at the venue.`}
+              {cashConfirmed.paidByWallet
+                ? (cashConfirmed.spots > 1
+                    ? `${cashConfirmed.spots} spots reserved — paid in full with wallet credit.`
+                    : 'Your spot is reserved — paid in full with wallet credit.')
+                : (cashConfirmed.spots > 1
+                    ? `${cashConfirmed.spots} spots reserved — pay AED ${cashConfirmed.total} in cash at the venue.`
+                    : `Your spot is reserved — pay AED ${cashConfirmed.total} in cash at the venue.`)}
             </p>
           </div>
         </div>
@@ -610,6 +642,38 @@ function InlineBookingPanel({
         </div>
       </div>
 
+      {/* Wallet credit */}
+      {walletBalanceFils > 0 && (
+        <div style={{ background: MKT.cream, border: `1px solid ${MKT.navy}12`, borderRadius: 12, padding: 14 }} className="space-y-3" data-testid="card-wallet-credit">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-4 w-4" style={{ color: MKT.teal }} />
+              <span className="text-sm font-medium" style={{ color: MKT.ink }}>Use wallet credit</span>
+            </div>
+            <Switch checked={useWallet} onCheckedChange={setUseWallet} data-testid="switch-use-wallet" />
+          </div>
+          <p className="text-xs" style={{ color: MKT.inkSub }}>
+            Available: AED {(walletBalanceFils / 100).toFixed(2)}
+          </p>
+          {useWallet && (
+            <div className="space-y-1" style={{ borderTop: `1px solid ${MKT.navy}12`, paddingTop: 8 }}>
+              <div className="flex justify-between text-sm">
+                <span style={{ color: MKT.inkSub }}>Session cost</span>
+                <span style={{ color: MKT.ink }}>AED {totalAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm" style={{ color: MKT.tealD }}>
+                <span>Wallet credit</span>
+                <span data-testid="text-wallet-deduction">- AED {(walletApplicableFils / 100).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm font-semibold" style={{ borderTop: `1px solid ${MKT.navy}12`, paddingTop: 4, color: MKT.ink }}>
+                <span>{walletCoversAll ? 'Amount due' : 'Remaining to pay'}</span>
+                <span data-testid="text-remaining-amount">AED {remainingAfterWalletAed.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Guest rows */}
       {guests.length > 0 && (
         <div className="space-y-2">
@@ -638,46 +702,67 @@ function InlineBookingPanel({
       )}
 
       {/* Payment method buttons */}
-      <div className="space-y-2">
-        <p className="text-sm font-medium" style={{ color: MKT.ink }}>How would you like to pay?</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {walletCoversAll ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium" style={{ color: MKT.ink }}>Wallet credit covers the full amount</p>
           <button
             type="button"
-            className="text-left"
-            style={{ background: '#fff', border: `1px solid ${MKT.navy}1F`, borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: processing ? 'wait' : 'pointer' }}
-            onClick={() => !processing && makeBooking('cash')}
-            data-testid="button-pay-cash"
+            style={{ ...navyBtnStyle('lg'), width: '100%', cursor: processing ? 'wait' : 'pointer' }}
+            onClick={() => !processing && makeBooking('cash', true)}
+            data-testid="button-pay-wallet"
           >
             {processing ? (
-              <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: MKT.inkSub }} />
+              <Loader2 className="h-5 w-5 animate-spin" />
             ) : (
-              <Banknote className="h-5 w-5 shrink-0" style={{ color: MKT.green }} />
+              <Wallet className="h-5 w-5" />
             )}
-            <div className="min-w-0">
-              <p className="font-medium text-sm" style={{ color: MKT.ink }}>Pay at Venue</p>
-              <p className="text-xs" style={{ color: MKT.inkSub }}>Pay cash when you arrive</p>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className="text-left"
-            style={{ background: '#fff', border: `1px solid ${MKT.navy}1F`, borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: processing ? 'wait' : 'pointer' }}
-            onClick={() => !processing && makeBooking('ziina')}
-            data-testid="button-pay-card"
-          >
-            {processing ? (
-              <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: MKT.inkSub }} />
-            ) : (
-              <CreditCard className="h-5 w-5 shrink-0" style={{ color: MKT.navy }} />
-            )}
-            <div className="min-w-0">
-              <p className="font-medium text-sm" style={{ color: MKT.ink }}>Pay by Card</p>
-              <p className="text-xs" style={{ color: MKT.inkSub }}>Secure checkout via Ziina</p>
-            </div>
+            Confirm booking — paid with wallet credit
           </button>
         </div>
-      </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-sm font-medium" style={{ color: MKT.ink }}>
+            {useWallet ? 'Pay the remaining balance' : 'How would you like to pay?'}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              className="text-left"
+              style={{ background: '#fff', border: `1px solid ${MKT.navy}1F`, borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: processing ? 'wait' : 'pointer' }}
+              onClick={() => !processing && makeBooking('cash', useWallet)}
+              data-testid="button-pay-cash"
+            >
+              {processing ? (
+                <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: MKT.inkSub }} />
+              ) : (
+                <Banknote className="h-5 w-5 shrink-0" style={{ color: MKT.green }} />
+              )}
+              <div className="min-w-0">
+                <p className="font-medium text-sm" style={{ color: MKT.ink }}>Pay at Venue</p>
+                <p className="text-xs" style={{ color: MKT.inkSub }}>Pay cash when you arrive</p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="text-left"
+              style={{ background: '#fff', border: `1px solid ${MKT.navy}1F`, borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: processing ? 'wait' : 'pointer' }}
+              onClick={() => !processing && makeBooking('ziina', useWallet)}
+              data-testid="button-pay-card"
+            >
+              {processing ? (
+                <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: MKT.inkSub }} />
+              ) : (
+                <CreditCard className="h-5 w-5 shrink-0" style={{ color: MKT.navy }} />
+              )}
+              <div className="min-w-0">
+                <p className="font-medium text-sm" style={{ color: MKT.ink }}>Pay by Card</p>
+                <p className="text-xs" style={{ color: MKT.inkSub }}>Secure checkout via Ziina</p>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
 
       <button
         type="button"
