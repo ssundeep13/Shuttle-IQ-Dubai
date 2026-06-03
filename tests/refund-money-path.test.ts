@@ -75,6 +75,56 @@ describe('computeZiinaRefundFils — wallet-trap cap', () => {
   });
 });
 
+describe('computeZiinaRefundFils — AED→fils conversion regression (audit B1)', () => {
+  // payments.amount is stored in WHOLE AED. The route must convert it to fils
+  // (payment.amount * 100) before passing it as paymentCapturedFils. These
+  // tests model that boundary: `paymentAmountAed` is the raw DB value.
+  it('30 AED, no wallet: refunds 3000 fils (AED 30.00), NOT 30', () => {
+    const paymentAmountAed = 30; // raw payments.amount (whole AED)
+    const result = computeZiinaRefundFils({
+      amountAedTotal: 30,
+      walletAmountUsedFils: 0,
+      paymentCapturedFils: paymentAmountAed * 100, // route converts AED → fils
+    });
+    expect(result).toBe(3000);   // AED 30.00
+    expect(result).not.toBe(30); // the pre-fix bug refunded AED 0.30
+    expect(result / 100).toBe(30); // email amount derives from amountFils/100
+  });
+
+  it('regression: forgetting the *100 conversion slashes the refund ~100x', () => {
+    const paymentAmountAed = 30;
+    const buggy = computeZiinaRefundFils({
+      amountAedTotal: 30,
+      walletAmountUsedFils: 0,
+      paymentCapturedFils: paymentAmountAed, // BUG: AED passed as fils
+    });
+    expect(buggy).toBe(30); // AED 0.30 — demonstrates why the *100 matters
+  });
+
+  it('partial wallet still nets correctly after conversion', () => {
+    // AED 60 total, AED 15 (1500 fils) from wallet. payments.amount stores the
+    // full total in AED (60). Cash portion to refund = 6000 − 1500 = 4500 fils.
+    const paymentAmountAed = 60;
+    const result = computeZiinaRefundFils({
+      amountAedTotal: 60,
+      walletAmountUsedFils: 1500,
+      paymentCapturedFils: paymentAmountAed * 100, // 6000 fils
+    });
+    expect(result).toBe(4500);     // AED 45.00 to the card
+    expect(result / 100).toBe(45);
+  });
+
+  it('full-wallet booking after conversion still yields 0 (rejected upstream)', () => {
+    const paymentAmountAed = 0; // no card capture
+    const result = computeZiinaRefundFils({
+      amountAedTotal: 40,
+      walletAmountUsedFils: 4000,
+      paymentCapturedFils: paymentAmountAed * 100,
+    });
+    expect(result).toBe(0);
+  });
+});
+
 describe('classifyRefundReentry — double-click / idempotency', () => {
   it('already-refunded (terminal success) short-circuits, never re-charges', () => {
     expect(classifyRefundReentry({ refundStatus: 'completed', read: false })).toBe('already_refunded');

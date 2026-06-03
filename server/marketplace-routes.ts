@@ -4443,7 +4443,11 @@ export function registerMarketplaceRoutes(app: Express) {
       const amountFils = computeZiinaRefundFils({
         amountAedTotal: refund.amountAed,
         walletAmountUsedFils: refund.walletAmountUsed ?? 0,
-        paymentCapturedFils: payment.amount,
+        // payments.amount is stored in whole AED (see createPayment sites:
+        // webhookHandler.ts amount: priceAed / booking.amountAed). Convert to
+        // fils so the captured-cash cap is in the same unit as the rest of the
+        // computation. Without *100 the cap would slash every refund ~100x.
+        paymentCapturedFils: payment.amount * 100,
       });
       if (amountFils <= 0) {
         return res.status(400).json({ error: "Computed refund amount is zero (the booking was fully covered by wallet credit, which is refunded to the wallet, not via Ziina)." });

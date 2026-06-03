@@ -19,7 +19,10 @@ import { isZiinaRefundSuccessful } from './ziinaClient';
 export function computeZiinaRefundFils(input: {
   amountAedTotal: number;        // bookings.amountAed (full total, integer AED)
   walletAmountUsedFils: number;  // bookings.walletAmountUsed (fils)
-  paymentCapturedFils: number;   // payments.amount (fils actually captured by Ziina)
+  // Captured cash IN FILS. NOTE: payments.amount is stored in whole AED, so the
+  // caller MUST convert (payment.amount * 100) before passing it here — passing
+  // the raw AED value caps every refund at ~1/100th of the owed amount.
+  paymentCapturedFils: number;
 }): number {
   const cashFromTotal = Math.round(input.amountAedTotal * 100) - (input.walletAmountUsedFils || 0);
   const capped = Math.min(cashFromTotal, input.paymentCapturedFils);
