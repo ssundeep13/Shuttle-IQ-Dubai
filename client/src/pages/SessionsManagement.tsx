@@ -2253,6 +2253,9 @@ function DisputesTabContent({ disputes }: { disputes: ScoreDisputeWithDetails[] 
 function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails[] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  // Confirm gate (#231) — the live refund mutation fires ONLY from this dialog's
+  // confirm action. No one-click money-out.
+  const [confirmRefund, setConfirmRefund] = useState<RefundNotificationWithDetails | null>(null);
 
   const resolveMutation = useMutation({
     mutationFn: async (id: string) => apiRequest('PATCH', `/api/marketplace/admin/refunds/${id}/resolve`),
@@ -2262,6 +2265,48 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
     },
     onError: () => toast({ title: 'Error', description: 'Failed to resolve refund', variant: 'destructive' }),
   });
+
+  // Live "Refund via Ziina". The client sends ONLY the notification id — the
+  // server computes the capped cash amount and enforces all idempotency guards.
+  const ziinaRefundMutation = useMutation({
+    mutationFn: async (id: string) =>
+      apiRequest<{ success: boolean; alreadyRefunded?: boolean; pending?: boolean; refundId?: string }>(
+        'POST',
+        `/api/marketplace/admin/refunds/${id}/process`,
+      ),
+    onSuccess: (data) => {
+      const title = data.alreadyRefunded ? 'Already refunded' : data.pending ? 'Refund pending' : 'Refund issued';
+      const description = data.alreadyRefunded
+        ? 'This payment was already refunded — row marked resolved.'
+        : data.pending
+          ? `Ziina is processing the refund${data.refundId ? ` (${data.refundId})` : ''}. The row resolves and the player is emailed once Ziina confirms settlement.`
+          : `Ziina has accepted the refund${data.refundId ? ` (${data.refundId})` : ''}. The player has been emailed.`;
+      toast({ title, description });
+      setConfirmRefund(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/refunds'] });
+    },
+    onError: (err: unknown) => {
+      let description = '';
+      if (err && typeof err === 'object' && 'error' in err && typeof (err as { error: unknown }).error === 'string') {
+        description = (err as { error: string }).error;
+      } else if (err instanceof Error) {
+        description = err.message;
+      }
+      toast({
+        title: 'Refund failed',
+        description: description || 'Ziina rejected the refund. The row is still pending — try the dashboard or retry.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Refund-state helpers (mirror server isZiinaRefund* without importing server code).
+  const isRefunded = (r: RefundNotificationWithDetails) =>
+    !!r.refundStatus && ['completed', 'succeeded', 'success', 'refunded'].includes(r.refundStatus.toLowerCase());
+  const isRefundFailed = (r: RefundNotificationWithDetails) =>
+    !!r.refundStatus && ['failed', 'declined', 'cancelled', 'canceled', 'rejected'].includes(r.refundStatus.toLowerCase());
+  const isRefundPending = (r: RefundNotificationWithDetails) =>
+    !!r.refundStatus && !isRefunded(r) && !isRefundFailed(r);
 
   const pending = refunds.filter(r => !r.read);
   const resolved = refunds.filter(r => r.read);
@@ -2315,30 +2360,61 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          asChild
-          data-testid={`button-ziina-dashboard-${r.id}`}
-        >
-          <a href="https://app.ziina.com" target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-            Ziina Dashboard
-          </a>
-        </Button>
-        {showAction && (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => resolveMutation.mutate(r.id)}
-            disabled={resolveMutation.isPending}
-            data-testid={`button-resolve-refund-${r.id}`}
-          >
-            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-            Mark Resolved
-          </Button>
-        )}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
+        {(() => {
+          const isZiina = (r.paymentMethod ?? '').toLowerCase() === 'ziina' && !!r.ziinaPaymentIntentId;
+          const refunded = isRefunded(r);
+          const refundPending = isRefundPending(r);
+          return (
+            <>
+              {isZiina && showAction && !refunded && !refundPending && (
+                <Button
+                  size="sm"
+                  onClick={() => setConfirmRefund(r)}
+                  disabled={ziinaRefundMutation.isPending}
+                  data-testid={`button-refund-ziina-${r.id}`}
+                >
+                  {ziinaRefundMutation.isPending && ziinaRefundMutation.variables === r.id ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : null}
+                  Refund AED {(r.amountAed ?? 0).toFixed(2)} via Ziina
+                </Button>
+              )}
+              {isZiina && showAction && refundPending && (
+                <span className="text-xs text-muted-foreground italic px-2" data-testid={`text-refund-pending-${r.id}`}>
+                  Refund in progress…
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+                data-testid={`button-ziina-dashboard-${r.id}`}
+              >
+                <a
+                  href={r.ziinaPaymentIntentId ? `https://app.ziina.com/payment_intent/${r.ziinaPaymentIntentId}` : 'https://app.ziina.com'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                  {r.ziinaPaymentIntentId ? 'Open in Ziina' : 'Ziina Dashboard'}
+                </a>
+              </Button>
+              {showAction && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => resolveMutation.mutate(r.id)}
+                  disabled={resolveMutation.isPending}
+                  data-testid={`button-resolve-refund-${r.id}`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                  Mark Resolved
+                </Button>
+              )}
+            </>
+          );
+        })()}
       </div>
     </div>
   );
@@ -2385,6 +2461,42 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
           </div>
         </div>
       )}
+
+      {/* Confirm gate — real money-out, requires explicit confirmation. */}
+      <AlertDialog open={!!confirmRefund} onOpenChange={(open) => { if (!open) setConfirmRefund(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Refund this booking via Ziina?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>This issues a real refund to the player's card via Ziina. This cannot be undone from here.</p>
+                {confirmRefund && (
+                  <div className="space-y-1 rounded-md border p-3 bg-muted/40">
+                    <p><span className="text-muted-foreground">Player:</span> <span className="font-medium" data-testid="text-confirm-player">{confirmRefund.playerName ?? 'Unknown'}</span></p>
+                    <p><span className="text-muted-foreground">Amount:</span> <span className="font-medium" data-testid="text-confirm-amount">AED {(confirmRefund.amountAed ?? 0).toFixed(2)}</span></p>
+                    {(confirmRefund.walletAmountUsed ?? 0) > 0 && (
+                      <p className="text-xs text-muted-foreground" data-testid="text-confirm-wallet-note">
+                        AED {((confirmRefund.walletAmountUsed ?? 0) / 100).toFixed(2)} was paid with wallet credit and is returned to the wallet separately — only the card portion is refunded via Ziina.
+                      </p>
+                    )}
+                    <p className="break-all"><span className="text-muted-foreground">Intent:</span> <code className="font-mono text-xs" data-testid="text-confirm-intent">{confirmRefund.ziinaPaymentIntentId}</code></p>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-refund-ziina">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (confirmRefund) ziinaRefundMutation.mutate(confirmRefund.id); }}
+              disabled={ziinaRefundMutation.isPending}
+              data-testid="button-confirm-refund-ziina"
+            >
+              {ziinaRefundMutation.isPending ? 'Processing…' : 'Refund via Ziina'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

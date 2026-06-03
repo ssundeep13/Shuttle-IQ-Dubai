@@ -2,11 +2,12 @@ import crypto from "crypto";
 import type { Express } from "express";
 import express from "express";
 import { storage } from "./storage";
-import { isZiinaPaymentSuccessful } from "./ziinaClient";
+import { isZiinaPaymentSuccessful, isZiinaRefundSuccessful } from "./ziinaClient";
 import { fireReferralOnPayment } from "./referrals";
 import {
   sendBookingConfirmationEmail,
   sendGuestBookingEmail,
+  sendRefundProcessedEmail,
 } from "./emailClient";
 
 // Shared confirmation logic — called by both the webhook handler and the
@@ -225,6 +226,68 @@ export function registerZiinaWebhookRoute(app: Express) {
       const eventType: string | undefined = payload.event;
 
       console.log(`[Ziina Webhook] Received event="${eventType}" intentId="${intentId}" status="${intentStatus}"`);
+
+      // Refund events: refund.completed | refund.failed. The webhook is the
+      // SOURCE OF TRUTH for terminal refund state — it overwrites the payment
+      // row's refund_status by intent id. On terminal success it also resolves
+      // the refund_required notification + emails the player, idempotently
+      // (harmless whether the synchronous process response or this webhook
+      // arrives first).
+      if (eventType && eventType.startsWith("refund.")) {
+        const refundObj: any = payload.refund ?? paymentIntent;
+        const refundIntentId: string | undefined =
+          refundObj?.payment_intent_id ?? refundObj?.payment_intent ?? intentId;
+        const refundId: string | null = refundObj?.id ?? null;
+        const refundStatus: string =
+          refundObj?.status ?? (eventType === "refund.completed" ? "completed" : "failed");
+        const refundAmount: number | null =
+          typeof refundObj?.amount === "number" ? refundObj.amount : null;
+
+        if (refundIntentId) {
+          try {
+            const result = await storage.markZiinaRefundFromWebhook({
+              intentId: refundIntentId,
+              refundId,
+              status: refundStatus,
+              amountFils: refundAmount,
+              refundedAt: new Date(),
+            });
+            console.log(`[Ziina Webhook] refund event ${eventType} intent=${refundIntentId} →`, result);
+
+            // On terminal success, finalize the workflow: resolve the
+            // refund_required notification and email the player. Idempotent —
+            // resolveRefundNotification is a no-op if already resolved.
+            if (result.matched && result.bookingId && isZiinaRefundSuccessful(refundStatus)) {
+              try {
+                const notif = await storage.getUnresolvedRefundNotificationByBooking(result.bookingId);
+                if (notif) {
+                  await storage.resolveRefundNotification(notif.id);
+                  if (notif.playerEmail && notif.bookingSessionId) {
+                    const session = await storage.getBookableSession(notif.bookingSessionId);
+                    if (session) {
+                      // Email the cash amount actually refunded via Ziina —
+                      // prefer the webhook's amount, else the recorded refund.
+                      const refundedAed = (refundAmount ?? notif.refundedAmount ?? 0) / 100;
+                      sendRefundProcessedEmail(
+                        notif.playerEmail,
+                        notif.playerName ?? 'there',
+                        session,
+                        refundedAed,
+                        refundId ?? notif.ziinaRefundId ?? '',
+                      ).catch((err) => console.error('[Ziina Webhook] refund email failed', err));
+                    }
+                  }
+                }
+              } catch (err) {
+                console.error("[Ziina Webhook] Error finalizing refund notification:", err);
+              }
+            }
+          } catch (err) {
+            console.error("[Ziina Webhook] Error handling refund event:", err);
+          }
+        }
+        return res.status(200).json({ received: true });
+      }
 
       // Only process payment_intent.status.updated events (ignore everything else).
       if (eventType && eventType !== "payment_intent.status.updated") {

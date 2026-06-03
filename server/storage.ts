@@ -347,7 +347,14 @@ export interface IStorage {
   markNotificationRead(id: string): Promise<void>;
   markAllNotificationsRead(userId: string): Promise<void>;
   getRefundNotifications(): Promise<RefundNotificationWithDetails[]>;
+  getRefundNotification(id: string): Promise<RefundNotificationWithDetails | undefined>;
+  getUnresolvedRefundNotificationByBooking(bookingId: string): Promise<RefundNotificationWithDetails | undefined>;
   resolveRefundNotification(id: string): Promise<boolean>;
+  // Ziina refund persistence (#231)
+  claimZiinaRefundForProcessing(bookingId: string, intentId: string): Promise<boolean>;
+  releaseZiinaRefundClaim(bookingId: string, intentId: string): Promise<void>;
+  recordZiinaRefund(input: { bookingId: string; intentId: string; refundId: string; amountFils: number; status: string; refundedAt: Date | null }): Promise<void>;
+  markZiinaRefundFromWebhook(input: { intentId: string; refundId: string | null; status: string; amountFils: number | null; refundedAt: Date }): Promise<{ matched: boolean; bookingId: string | null }>;
 
   // Booking Guest operations
   createBookingGuest(guest: InsertBookingGuest): Promise<BookingGuest>;
@@ -2472,17 +2479,22 @@ export class DatabaseStorage implements IStorage {
         sessionTitle: bookableSessions.title,
         sessionDate: bookableSessions.date,
         sessionVenueName: bookableSessions.venueName,
+        walletAmountUsed: bookings.walletAmountUsed,
         paymentCompletedAt: payments.completedAt,
         paymentCreatedAt: payments.createdAt,
+        refundStatus: payments.refundStatus,
+        refundedAt: payments.refundedAt,
+        refundedAmount: payments.refundedAmount,
+        ziinaRefundId: payments.ziinaRefundId,
       })
       .from(marketplaceNotifications)
       .leftJoin(bookings, eq(marketplaceNotifications.relatedBookingId, bookings.id))
       .leftJoin(marketplaceUsers, eq(bookings.userId, marketplaceUsers.id))
       .leftJoin(bookableSessions, eq(bookings.sessionId, bookableSessions.id))
       // Join the payment row matching the booking AND the same Ziina intent so
-      // we can surface the exact time the payment was taken. Cash bookings
-      // won't have a matching Ziina payment row — paymentAt stays null and the
-      // UI falls back to the notification's createdAt.
+      // we can surface the exact time the payment was taken plus the refund
+      // state. Cash bookings won't have a matching Ziina payment row —
+      // paymentAt/refund* stay null and the UI falls back accordingly.
       .leftJoin(payments, and(
         eq(payments.bookingId, bookings.id),
         sql`${payments.ziinaPaymentIntentId} IS NOT NULL`,
@@ -2491,7 +2503,20 @@ export class DatabaseStorage implements IStorage {
       .where(eq(marketplaceNotifications.type, 'refund_required'))
       .orderBy(desc(marketplaceNotifications.createdAt));
 
-    return rows.map(row => ({
+    return rows.map(row => this.mapRefundNotificationRow(row));
+  }
+
+  // Shared row → RefundNotificationWithDetails mapper for the refund queries.
+  private mapRefundNotificationRow(row: {
+    id: string; message: string; createdAt: Date; read: boolean;
+    relatedBookingId: string | null; amountAed: number | null; spotsBooked: number | null;
+    paymentMethod: string | null; ziinaPaymentIntentId: string | null; bookingSessionId: string | null;
+    playerName: string | null; playerEmail: string | null; sessionTitle: string | null;
+    sessionDate: Date | null; sessionVenueName: string | null; walletAmountUsed: number | null;
+    paymentCompletedAt: Date | null; paymentCreatedAt: Date | null;
+    refundStatus: string | null; refundedAt: Date | null; refundedAmount: number | null; ziinaRefundId: string | null;
+  }): RefundNotificationWithDetails {
+    return {
       id: row.id,
       message: row.message,
       createdAt: row.createdAt,
@@ -2508,7 +2533,163 @@ export class DatabaseStorage implements IStorage {
       sessionDate: row.sessionDate ?? null,
       sessionVenueName: row.sessionVenueName ?? null,
       paymentAt: row.paymentCompletedAt ?? row.paymentCreatedAt ?? null,
-    }));
+      walletAmountUsed: row.walletAmountUsed ?? null,
+      refundStatus: row.refundStatus ?? null,
+      refundedAt: row.refundedAt ?? null,
+      refundedAmount: row.refundedAmount ?? null,
+      ziinaRefundId: row.ziinaRefundId ?? null,
+    };
+  }
+
+  // Single refund notification by id (admin process route). Same joins as the
+  // list query so the route gets walletAmountUsed + refund state.
+  async getRefundNotification(id: string): Promise<RefundNotificationWithDetails | undefined> {
+    const [row] = await db
+      .select({
+        id: marketplaceNotifications.id,
+        message: marketplaceNotifications.message,
+        createdAt: marketplaceNotifications.createdAt,
+        read: marketplaceNotifications.read,
+        relatedBookingId: marketplaceNotifications.relatedBookingId,
+        amountAed: bookings.amountAed,
+        spotsBooked: bookings.spotsBooked,
+        paymentMethod: bookings.paymentMethod,
+        ziinaPaymentIntentId: bookings.ziinaPaymentIntentId,
+        bookingSessionId: bookings.sessionId,
+        playerName: marketplaceUsers.name,
+        playerEmail: marketplaceUsers.email,
+        sessionTitle: bookableSessions.title,
+        sessionDate: bookableSessions.date,
+        sessionVenueName: bookableSessions.venueName,
+        walletAmountUsed: bookings.walletAmountUsed,
+        paymentCompletedAt: payments.completedAt,
+        paymentCreatedAt: payments.createdAt,
+        refundStatus: payments.refundStatus,
+        refundedAt: payments.refundedAt,
+        refundedAmount: payments.refundedAmount,
+        ziinaRefundId: payments.ziinaRefundId,
+      })
+      .from(marketplaceNotifications)
+      .leftJoin(bookings, eq(marketplaceNotifications.relatedBookingId, bookings.id))
+      .leftJoin(marketplaceUsers, eq(bookings.userId, marketplaceUsers.id))
+      .leftJoin(bookableSessions, eq(bookings.sessionId, bookableSessions.id))
+      .leftJoin(payments, and(
+        eq(payments.bookingId, bookings.id),
+        sql`${payments.ziinaPaymentIntentId} IS NOT NULL`,
+        eq(payments.ziinaPaymentIntentId, bookings.ziinaPaymentIntentId),
+      ))
+      .where(and(
+        eq(marketplaceNotifications.id, id),
+        eq(marketplaceNotifications.type, 'refund_required'),
+      ))
+      .limit(1);
+    return row ? this.mapRefundNotificationRow(row) : undefined;
+  }
+
+  // Find the unresolved refund_required notification for a booking — used by
+  // the Ziina refund webhook to finalize the workflow when settlement lands
+  // asynchronously (terminal success).
+  async getUnresolvedRefundNotificationByBooking(bookingId: string): Promise<RefundNotificationWithDetails | undefined> {
+    const [row] = await db
+      .select({ id: marketplaceNotifications.id })
+      .from(marketplaceNotifications)
+      .where(and(
+        eq(marketplaceNotifications.type, 'refund_required'),
+        eq(marketplaceNotifications.relatedBookingId, bookingId),
+        eq(marketplaceNotifications.read, false),
+      ))
+      .orderBy(desc(marketplaceNotifications.createdAt))
+      .limit(1);
+    if (!row) return undefined;
+    return this.getRefundNotification(row.id);
+  }
+
+  // Atomically claim + record a Ziina refund on the payment row. The atomic
+  // claim (Decision 3) lives in the route via claimZiinaRefundForProcessing;
+  // this method persists the terminal/pending result returned by Ziina. It
+  // matches the payment row by booking + intent id.
+  async recordZiinaRefund(input: {
+    bookingId: string;
+    intentId: string;
+    refundId: string;
+    amountFils: number;
+    status: string;
+    refundedAt: Date | null;
+  }): Promise<void> {
+    await db
+      .update(payments)
+      .set({
+        ziinaRefundId: input.refundId,
+        refundedAmount: input.amountFils,
+        refundedAt: input.refundedAt,
+        refundStatus: input.status,
+      })
+      .where(and(
+        eq(payments.bookingId, input.bookingId),
+        eq(payments.ziinaPaymentIntentId, input.intentId),
+      ));
+  }
+
+  // Decision 3 — atomic claim. Flip refund_status to 'pending' ONLY when it is
+  // currently NULL, for the payment row matching this booking + intent. Returns
+  // true if THIS call won the claim (so it may call the live Ziina API), false
+  // if another in-flight request already claimed it (caller must bail). This
+  // prevents two simultaneous clicks from both reaching the live refund API.
+  async claimZiinaRefundForProcessing(bookingId: string, intentId: string): Promise<boolean> {
+    const claimed = await db
+      .update(payments)
+      .set({ refundStatus: 'pending' })
+      .where(and(
+        eq(payments.bookingId, bookingId),
+        eq(payments.ziinaPaymentIntentId, intentId),
+        sql`${payments.refundStatus} IS NULL`,
+      ))
+      .returning({ id: payments.id });
+    return claimed.length > 0;
+  }
+
+  // Release a claim made by claimZiinaRefundForProcessing when the live Ziina
+  // call failed (threw or returned a terminal failure) BEFORE any refund id was
+  // recorded. Only resets rows still in the bare-claim state (status='pending'
+  // AND ziina_refund_id IS NULL) so a genuinely in-flight Ziina-pending refund
+  // (which has a refund id) is never reopened. Makes a failed attempt retryable.
+  async releaseZiinaRefundClaim(bookingId: string, intentId: string): Promise<void> {
+    await db
+      .update(payments)
+      .set({ refundStatus: null })
+      .where(and(
+        eq(payments.bookingId, bookingId),
+        eq(payments.ziinaPaymentIntentId, intentId),
+        eq(payments.refundStatus, 'pending'),
+        sql`${payments.ziinaRefundId} IS NULL`,
+      ));
+  }
+
+  // Called by the webhook handler on refund.completed / refund.failed. The
+  // webhook is the source of truth for terminal state — it overwrites
+  // refundStatus by intent id. Returns whether a payment row matched so the
+  // handler can finalize the notification row.
+  async markZiinaRefundFromWebhook(input: {
+    intentId: string;
+    refundId: string | null;
+    status: string;
+    amountFils: number | null;
+    refundedAt: Date;
+  }): Promise<{ matched: boolean; bookingId: string | null }> {
+    const [row] = await db
+      .select({ id: payments.id, bookingId: payments.bookingId })
+      .from(payments)
+      .where(eq(payments.ziinaPaymentIntentId, input.intentId))
+      .limit(1);
+    if (!row) return { matched: false, bookingId: null };
+    const updates: Partial<typeof payments.$inferSelect> = {
+      refundStatus: input.status,
+      refundedAt: input.refundedAt,
+    };
+    if (input.refundId) updates.ziinaRefundId = input.refundId;
+    if (input.amountFils != null) updates.refundedAmount = input.amountFils;
+    await db.update(payments).set(updates).where(eq(payments.id, row.id));
+    return { matched: true, bookingId: row.bookingId };
   }
 
   async resolveRefundNotification(id: string): Promise<boolean> {

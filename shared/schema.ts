@@ -456,6 +456,15 @@ export const payments = pgTable("payments", {
   status: text("status").notNull().default('pending'),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
+  // Ziina refund tracking (#231). Nullable/additive — populated only when an
+  // admin issues a refund via Ziina. refundedAmount is in fils (the actual
+  // cash captured by Ziina, never the wallet-paid portion). refundStatus:
+  // null (no refund) | 'pending' (request accepted, awaiting Ziina settlement)
+  // | 'completed' | 'failed'.
+  ziinaRefundId: text("ziina_refund_id"),
+  refundedAmount: integer("refunded_amount"),
+  refundedAt: timestamp("refunded_at"),
+  refundStatus: text("refund_status"),
 });
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
@@ -793,6 +802,15 @@ export interface RefundNotificationWithDetails {
   // Exact time the payment was taken (completedAt preferred, falling back to
   // createdAt) so the admin Refunds tab can show when the booking was paid.
   paymentAt: Date | null;
+  // Wallet credit (fils) applied to the original booking. Surfaced so the
+  // refund route can cap the Ziina (cash) refund at the captured amount and
+  // never refund the wallet-paid portion (returned to wallet separately).
+  walletAmountUsed: number | null;
+  // Ziina refund state mirrored from the payments row (#231).
+  refundStatus: string | null;
+  refundedAt: Date | null;
+  refundedAmount: number | null;
+  ziinaRefundId: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
