@@ -75,13 +75,25 @@
 
     <!-- Service Worker registration -->
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/sw.js').catch(function (err) {
-            console.warn('Service Worker registration failed:', err);
+      // The native Capacitor shell injects a global `window.Capacitor` (with
+      // isNativePlatform()) before any app script runs. On the web this is
+      // undefined, so the PWA service worker registers exactly as before.
+      // Inside the native shell we skip registration entirely: the SW's asset
+      // caching conflicts with how Capacitor serves the bundle and can pin
+      // stale assets ("old version showing"). The web's SW lives on a different
+      // origin (the website), so it is never visible to the native shell.
+      (function () {
+        var cap = window.Capacitor;
+        var isNative = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+        if (isNative) return;
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/sw.js').catch(function (err) {
+              console.warn('Service Worker registration failed:', err);
+            });
           });
-        });
-      }
+        }
+      })();
     </script>
   </head>
   <body>
