@@ -10,6 +10,7 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet } from 'lucide-react';
 import { queryClient, getMarketplaceAccessToken } from '@/lib/queryClient';
+import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
@@ -256,6 +257,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
           paymentMethod: 'ziina',
           guests: guests.map(g => ({ name: g.name.trim(), email: g.email.trim() || null })),
           applyWallet: useWallet,
+          ...nativeReturnFields(),
         }),
       });
       const data = await res.json();
@@ -277,7 +279,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         throw new Error('No payment URL received. Please try again.');
       }
 
-      window.location.href = data.redirectUrl;
+      await openCheckoutRedirect(data.redirectUrl);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Payment failed. Please try again.';
       setError(message);

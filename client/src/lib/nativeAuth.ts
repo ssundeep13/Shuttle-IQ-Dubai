@@ -28,3 +28,29 @@ export async function startGoogleOAuth(returnPath?: string): Promise<void> {
   const qs = params.toString();
   window.location.href = apiUrl(`/api/marketplace/auth/google${qs ? `?${qs}` : ''}`);
 }
+
+// Navigate to a Ziina hosted-payment redirect URL.
+//  • Web: full-page navigation, exactly as today.
+//  • Native: open the system browser (Capacitor Browser) so the app survives
+//    underneath and the deep-link return (com.shuttleiq.app://checkout/…) can
+//    bring us back via the NativeBridge appUrlOpen handler.
+export async function openCheckoutRedirect(url: string): Promise<void> {
+  if (Capacitor.isNativePlatform()) {
+    await Browser.open({ url });
+    return;
+  }
+  window.location.href = url;
+}
+
+// Native return marker to merge into a booking/payment request body so the
+// server emits deep-link return URLs. Empty object on web (spreads to nothing →
+// request body byte-for-byte unchanged).
+export function nativeReturnFields(): Record<string, string> {
+  return Capacitor.isNativePlatform() ? { returnScheme: NATIVE_DEEPLINK_SCHEME } : {};
+}
+
+// Same marker for apiRequest() calls that currently send NO body — returns
+// undefined on web so the request stays body-less exactly as today.
+export function nativeReturnBody(): Record<string, string> | undefined {
+  return Capacitor.isNativePlatform() ? { returnScheme: NATIVE_DEEPLINK_SCHEME } : undefined;
+}

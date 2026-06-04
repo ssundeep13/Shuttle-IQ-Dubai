@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch';
 import { format } from 'date-fns';
 import { useReducedMotion } from 'framer-motion';
 import { apiRequest, getMarketplaceAccessToken } from '@/lib/queryClient';
+import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
 import { useToast } from '@/hooks/use-toast';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -519,6 +520,7 @@ function InlineBookingPanel({
             siqPlayerId: g.siqPlayerId ?? null,
           })),
           ...(applyWallet ? { applyWallet: true } : {}),
+          ...nativeReturnFields(),
         }),
       });
       const data = await res.json();
@@ -545,7 +547,7 @@ function InlineBookingPanel({
 
       if (method === 'ziina') {
         if (!data.redirectUrl) throw new Error('No payment URL received. Please try again.');
-        window.location.href = data.redirectUrl;
+        await openCheckoutRedirect(data.redirectUrl);
         return;
       }
 

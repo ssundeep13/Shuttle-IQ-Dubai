@@ -33,6 +33,7 @@ import {
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage, createZiinaRefund, isZiinaRefundSuccessful, isZiinaRefundFailed } from "./ziinaClient";
 import { computeZiinaRefundFils, classifyRefundReentry } from "./refundMath";
 import { isSchemeAllowed, buildOAuthCallbackRedirect } from "./oauthReturn";
+import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
@@ -2545,12 +2546,21 @@ export function registerMarketplaceRoutes(app: Express) {
       let paymentIntent;
       try {
         const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
+        // Return-path only: native marker (allowlisted) → custom-scheme return
+        // URLs; otherwise unchanged https URLs. No amount logic touched.
+        const ziinaUrls = buildZiinaReturnUrls({
+          baseUrl,
+          bookingId: booking.id,
+          resumeParam,
+          returnScheme: req.body?.returnScheme,
+          allowedSchemes: getAllowedDeepLinkSchemes(),
+        });
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: ziinaAmountAed,
           message: buildZiinaBookingMessage({ playerName: primaryUser?.name, sessionDate: bookableSession.date }),
-          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
-          cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
-          failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
+          successUrl: ziinaUrls.successUrl,
+          cancelUrl: ziinaUrls.cancelUrl,
+          failureUrl: ziinaUrls.failureUrl,
         });
       } catch (intentError: unknown) {
         // Refund wallet if Ziina fails
@@ -2685,12 +2695,19 @@ export function registerMarketplaceRoutes(app: Express) {
       let paymentIntent;
       try {
         const resumeParam = await mintPaymentResumeParam(req.user.userId, booking.id);
+        const ziinaUrls = buildZiinaReturnUrls({
+          baseUrl,
+          bookingId: booking.id,
+          resumeParam,
+          returnScheme: req.body?.returnScheme,
+          allowedSchemes: getAllowedDeepLinkSchemes(),
+        });
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: booking.amountAed,
           message: buildZiinaBookingMessage({ playerName: mpUser?.name, sessionDate: bookableSession.date }),
-          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}${resumeParam}`,
-          cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
-          failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
+          successUrl: ziinaUrls.successUrl,
+          cancelUrl: ziinaUrls.cancelUrl,
+          failureUrl: ziinaUrls.failureUrl,
         });
       } catch (intentError: unknown) {
         const rawErr = intentError instanceof Error ? intentError.message : String(intentError);
@@ -3020,12 +3037,20 @@ export function registerMarketplaceRoutes(app: Express) {
       let paymentIntent;
       try {
         const resumeParam = await mintPaymentResumeParam(req.user!.userId, booking.id);
+        const ziinaUrls = buildZiinaReturnUrls({
+          baseUrl,
+          bookingId: booking.id,
+          resumeParam,
+          extraGuest: true,
+          returnScheme: req.body?.returnScheme,
+          allowedSchemes: getAllowedDeepLinkSchemes(),
+        });
         paymentIntent = await createZiinaPaymentIntent({
           amountAed: bookableSession.priceAed,
           message: buildZiinaBookingMessage({ playerName: playerUser?.name, sessionDate: bookableSession.date }),
-          successUrl: `${baseUrl}/marketplace/checkout/success?booking_id=${booking.id}&extra_guest=1${resumeParam}`,
-          cancelUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}`,
-          failureUrl: `${baseUrl}/marketplace/checkout/cancel?booking_id=${booking.id}&failed=1`,
+          successUrl: ziinaUrls.successUrl,
+          cancelUrl: ziinaUrls.cancelUrl,
+          failureUrl: ziinaUrls.failureUrl,
         });
       } catch (intentError) {
         // Clean up the pending guest row on Ziina failure — delete it so it leaves no trace

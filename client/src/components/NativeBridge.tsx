@@ -65,9 +65,16 @@ export function NativeBridge() {
         return;
       }
 
-      // ── Ziina checkout return (part 2) — branches added in the next prompt:
-      //   if (route === 'checkout/success') { … }
-      //   if (route === 'checkout/cancel')  { … }
+      // ── Ziina checkout return (part 2) ────────────────────────────────────
+      // Navigate to the SAME web routes the https flow uses, preserving the
+      // query (booking_id, extra_guest, failed). The existing CheckoutSuccess /
+      // CheckoutCancel confirm logic then runs unchanged (confirmation is
+      // server-side via the Ziina webhook + booking_id).
+      if (route === 'checkout/success' || route === 'checkout/cancel') {
+        const search = parsed.search || '';
+        setLocation(`/marketplace/${route}${search}`);
+        return;
+      }
     });
 
     return () => {

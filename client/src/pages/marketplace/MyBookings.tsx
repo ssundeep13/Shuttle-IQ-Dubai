@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
@@ -288,11 +289,11 @@ export default function MyBookings() {
 
   const initiatePaymentMutation = useMutation({
     mutationFn: async (bookingId: string): Promise<{ redirectUrl: string }> => {
-      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/initiate-payment`);
+      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/initiate-payment`, nativeReturnBody());
     },
     onSuccess: (data) => {
       if (data?.redirectUrl) {
-        window.location.href = data.redirectUrl;
+        void openCheckoutRedirect(data.redirectUrl);
       }
     },
     onError: (error: Error) => {
@@ -312,12 +313,12 @@ export default function MyBookings() {
       return apiRequest<{ success?: boolean; redirectUrl?: string }>(
         'POST',
         `/api/marketplace/bookings/${bookingId}/add-guest`,
-        { guestName, guestEmail: guestEmail || null, paymentMethod }
+        { guestName, guestEmail: guestEmail || null, paymentMethod, ...nativeReturnFields() }
       );
     },
     onSuccess: (data) => {
       if (data.redirectUrl) {
-        window.location.href = data.redirectUrl;
+        void openCheckoutRedirect(data.redirectUrl);
         return;
       }
       toast({ title: 'Guest added successfully' });
