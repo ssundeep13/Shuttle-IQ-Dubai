@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1020,7 +1021,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     queryKey: ['/api/marketplace/sessions', linkedBookable?.id, 'bookings'],
     enabled: !!linkedBookable?.id,
     queryFn: async () => {
-      const res = await fetch(`/api/marketplace/sessions/${linkedBookable!.id}/bookings`, {
+      const res = await fetch(apiUrl(`/api/marketplace/sessions/${linkedBookable!.id}/bookings`), {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
       });
       if (!res.ok) throw new Error('Failed to fetch');
@@ -1030,7 +1031,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
   const attendMutation = useMutation({
     mutationFn: async (bookingId: string) => {
-      const res = await fetch(`/api/marketplace/bookings/${bookingId}/attend`, {
+      const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/attend`), {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
       });
@@ -1056,7 +1057,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
   const cashPaidMutation = useMutation({
     mutationFn: async ({ bookingId, cashPaid }: { bookingId: string; cashPaid: boolean }) => {
-      const res = await fetch(`/api/marketplace/bookings/${bookingId}/cash-paid`, {
+      const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/cash-paid`), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
@@ -1075,7 +1076,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
   const adminConfirmMutation = useMutation({
     mutationFn: async (bookingId: string) => {
-      const res = await fetch(`/api/marketplace/bookings/${bookingId}/admin-confirm`, {
+      const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/admin-confirm`), {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
       });
@@ -1094,7 +1095,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
   const adminPromoteMutation = useMutation({
     mutationFn: async (bookingId: string) => {
-      const res = await fetch(`/api/marketplace/bookings/${bookingId}/admin-promote`, {
+      const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/admin-promote`), {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
       });
@@ -1117,7 +1118,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
   const cancelEventMutation = useMutation({
     mutationFn: async (bookableId: string) => {
-      const res = await fetch(`/api/marketplace/admin/sessions/${bookableId}/cancel`, {
+      const res = await fetch(apiUrl(`/api/marketplace/admin/sessions/${bookableId}/cancel`), {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
       });
@@ -1813,7 +1814,7 @@ function MarketplaceUsersSubTab() {
   const { data: users, isLoading } = useQuery<MarketplaceUserWithLinkedPlayer[]>({
     queryKey: ['/api/marketplace/admin/users'],
     queryFn: async () => {
-      const res = await fetch('/api/marketplace/admin/users', {
+      const res = await fetch(apiUrl('/api/marketplace/admin/users'), {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
       });
       if (!res.ok) throw new Error('Failed');
@@ -1824,7 +1825,7 @@ function MarketplaceUsersSubTab() {
   const searchPlayers = async (query: string) => {
     if (query.length < 2) { setSearchResults([]); return; }
     const token = localStorage.getItem('accessToken');
-    const res = await fetch(`/api/marketplace/admin/search-players?q=${encodeURIComponent(query)}`, {
+    const res = await fetch(apiUrl(`/api/marketplace/admin/search-players?q=${encodeURIComponent(query)}`), {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     if (res.ok) {
@@ -1863,7 +1864,7 @@ function MarketplaceUsersSubTab() {
 
   const linkMutation = useMutation({
     mutationFn: async ({ marketplaceUserId, playerId, force }: { marketplaceUserId: string; playerId: number; force?: boolean }) => {
-      const res = await fetch('/api/marketplace/admin/link-player', {
+      const res = await fetch(apiUrl('/api/marketplace/admin/link-player'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
@@ -2911,7 +2912,7 @@ function BlogPanel() {
       const formData = new FormData();
       formData.append('image', file);
       const token = localStorage.getItem('accessToken');
-      const resp = await fetch('/api/admin/blog/upload-image', {
+      const resp = await fetch(apiUrl('/api/admin/blog/upload-image'), {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,

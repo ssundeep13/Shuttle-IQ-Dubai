@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, Link } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,7 +74,7 @@ export default function PlayerPublicProfile() {
 
   const { data: communityTags = [] } = useQuery<PlayerTopTag[]>({
     queryKey: ['/api/tags/player', playerId],
-    queryFn: () => fetch(`/api/tags/player/${playerId}?limit=30`).then(r => r.json()),
+    queryFn: () => fetch(apiUrl(`/api/tags/player/${playerId}?limit=30`)).then(r => r.json()),
     enabled: !!playerId,
   });
 

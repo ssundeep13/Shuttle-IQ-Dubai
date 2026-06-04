@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { apiUrl } from '@/lib/queryClient';
 import { FlaskConical } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -427,7 +428,7 @@ export default function Home() {
     onSuccess: async (_, sessionId) => {
       // Download CSV export before invalidating
       try {
-        const response = await fetch(`/api/sessions/${sessionId}/game-history`);
+        const response = await fetch(apiUrl(`/api/sessions/${sessionId}/game-history`));
         if (response.ok) {
           const games = await response.json();
           if (games.length > 0) {
@@ -550,7 +551,7 @@ export default function Home() {
 
     try {
       // Call matchmaking API to get optimal team combinations
-      const response = await fetch(`/api/matchmaking/optimal-teams?groupByTier=${groupByTier}`);
+      const response = await fetch(apiUrl(`/api/matchmaking/optimal-teams?groupByTier=${groupByTier}`));
       
       if (!response.ok) {
         const error = await response.json();

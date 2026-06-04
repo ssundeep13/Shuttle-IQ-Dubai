@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useLocation, Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
@@ -76,7 +77,7 @@ export default function MarketplaceSignup() {
     setReferralError(null);
     setReferrerName(null);
     try {
-      const res = await fetch(`/api/referrals/validate/${encodeURIComponent(code.trim())}`);
+      const res = await fetch(apiUrl(`/api/referrals/validate/${encodeURIComponent(code.trim())}`));
       const data = await res.json();
       if (data.valid) {
         setReferrerName(data.referrerName);
@@ -278,7 +279,7 @@ export default function MarketplaceSignup() {
             variant="outline"
             className="w-full gap-2 mb-2"
             onClick={() => {
-              window.location.href = '/api/marketplace/auth/google';
+              window.location.href = apiUrl('/api/marketplace/auth/google');
             }}
             data-testid="button-google-signup"
           >

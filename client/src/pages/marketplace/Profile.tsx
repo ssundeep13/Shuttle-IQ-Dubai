@@ -1,4 +1,5 @@
 import { useRef, useState, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -110,7 +111,7 @@ export default function Profile() {
       fd.append('photo', file);
       const token =
         localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
-      const res = await fetch('/api/marketplace/profile/photo', {
+      const res = await fetch(apiUrl('/api/marketplace/profile/photo'), {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         body: fd,

@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useLocation, Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
@@ -236,7 +237,7 @@ export default function MarketplaceLogin() {
                 onClick={() => {
                   const from = new URLSearchParams(window.location.search).get('from') || '';
                   const qs = from ? `?returnPath=${encodeURIComponent(from)}` : '';
-                  window.location.href = `/api/marketplace/auth/google${qs}`;
+                  window.location.href = apiUrl(`/api/marketplace/auth/google${qs}`);
                 }}
                 data-testid="button-google-login"
               >

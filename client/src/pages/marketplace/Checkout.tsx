@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useParams, useLocation, Link } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -244,7 +245,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
     }
 
     try {
-      const res = await fetch('/api/marketplace/bookings', {
+      const res = await fetch(apiUrl('/api/marketplace/bookings'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -471,7 +472,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
     }
 
     try {
-      const res = await fetch('/api/marketplace/bookings', {
+      const res = await fetch(apiUrl('/api/marketplace/bookings'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -563,7 +564,7 @@ export default function Checkout() {
 
     if (!sessionId) return;
 
-    fetch(`/api/marketplace/sessions/${sessionId}`)
+    fetch(apiUrl(`/api/marketplace/sessions/${sessionId}`))
       .then(async res => {
         if (!res.ok) throw new Error('Session not found');
         return res.json();

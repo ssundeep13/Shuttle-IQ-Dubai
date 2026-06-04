@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -34,7 +35,7 @@ export default function TagPlayersDialog({ gameResultId, linkedPlayerId, open, o
 
   const { data: participants = [], isLoading: participantsLoading } = useQuery<GameParticipantInfo[]>({
     queryKey: ['/api/tags/game', gameResultId, 'participants'],
-    queryFn: () => fetch(`/api/tags/game/${gameResultId}/participants`).then(r => r.json()),
+    queryFn: () => fetch(apiUrl(`/api/tags/game/${gameResultId}/participants`)).then(r => r.json()),
     enabled: open,
     staleTime: Infinity,
   });

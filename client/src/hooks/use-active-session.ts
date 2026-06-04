@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiUrl } from '@/lib/queryClient';
 import type { Session } from "@shared/schema";
 
 export function useActiveSession() {
   const query = useQuery<Session | null>({
     queryKey: ['/api/sessions/active'],
     queryFn: async () => {
-      const response = await fetch('/api/sessions/active');
+      const response = await fetch(apiUrl('/api/sessions/active'));
       
       // 404 means no active session, which is a valid state
       if (response.status === 404) {

@@ -29,6 +29,45 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
+// CORS — required only for the native Capacitor shell, which loads the web
+// bundle from a different origin (capacitor://localhost on iOS,
+// http://localhost on Android) than the Railway API. The web app is
+// same-origin, and browsers do not apply CORS to same-origin requests, so
+// these headers are inert for it — web behaviour is unchanged.
+//
+// We REFLECT only explicitly-allowed origins (never '*'), and keep
+// Access-Control-Allow-Credentials: true so the existing cookie/Bearer auth
+// keeps working from the shell. Allowed origins:
+//   • capacitor://localhost / http://localhost  — the two native shells
+//   • the deployed web origin(s) from REPLIT_DOMAINS (existing convention)
+//   • any extra origins in CORS_ALLOWED_ORIGINS (comma-separated) — e.g. the
+//     Railway domain, set per-environment without a code change.
+const CORS_ALLOWED_ORIGINS = new Set<string>([
+  'capacitor://localhost',
+  'http://localhost',
+  ...(process.env.REPLIT_DOMAINS
+    ? process.env.REPLIT_DOMAINS.split(',').map((d) => `https://${d.trim()}`)
+    : []),
+  ...(process.env.CORS_ALLOWED_ORIGINS
+    ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    : []),
+]);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && CORS_ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      return res.sendStatus(204);
+    }
+  }
+  next();
+});
+
 // Rate limiter: max 10 login attempts per 15 minutes per IP
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

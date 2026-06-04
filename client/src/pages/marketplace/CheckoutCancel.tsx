@@ -1,4 +1,5 @@
 import { useEffect, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { XCircle } from 'lucide-react';
 import { Link } from 'wouter';
 import { InstallAppBar } from '@/components/InstallAppBar';
@@ -31,7 +32,7 @@ export default function CheckoutCancel() {
     if (bookingId) {
       const token = getMarketplaceAccessToken();
       if (token) {
-        fetch(`/api/marketplace/bookings/${bookingId}/cancel`, {
+        fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/cancel`), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

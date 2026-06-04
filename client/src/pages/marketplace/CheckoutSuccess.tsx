@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { CheckCircle, Loader2, AlertCircle, ListOrdered, Wallet } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -86,7 +87,7 @@ export default function CheckoutSuccess() {
         return;
       }
       try {
-        const res = await fetch('/api/marketplace/auth/resume', {
+        const res = await fetch(apiUrl('/api/marketplace/auth/resume'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ resume: resumeToken }),
@@ -120,7 +121,7 @@ export default function CheckoutSuccess() {
         try {
           const headers: Record<string, string> = { 'Content-Type': 'application/json' };
           if (token) headers['Authorization'] = `Bearer ${token}`;
-          const res = await fetch(`/api/marketplace/bookings/${bookingId}/confirm`, {
+          const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/confirm`), {
             method: 'POST',
             headers,
           });

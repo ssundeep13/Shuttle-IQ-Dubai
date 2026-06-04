@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
@@ -38,7 +39,7 @@ interface TagWithPlayersProps {
 function TagWithPlayers({ tagId, onBack }: TagWithPlayersProps) {
   const { data, isLoading } = useQuery<Array<{ player: Player; count: number }>>({
     queryKey: ['/api/tags', tagId, 'players'],
-    queryFn: () => fetch(`/api/tags/${tagId}/players?limit=10`).then(r => r.json()),
+    queryFn: () => fetch(apiUrl(`/api/tags/${tagId}/players?limit=10`)).then(r => r.json()),
     staleTime: Infinity,
   });
 
@@ -280,7 +281,7 @@ export default function TagTrendingModal({ open, onOpenChange, linkedPlayerId }:
 
   const { data: myTags = [], isLoading: myTagsLoading } = useQuery<PlayerTopTag[]>({
     queryKey: ['/api/tags/player', linkedPlayerId],
-    queryFn: () => fetch(`/api/tags/player/${linkedPlayerId}?limit=5`).then(r => r.json()),
+    queryFn: () => fetch(apiUrl(`/api/tags/player/${linkedPlayerId}?limit=5`)).then(r => r.json()),
     enabled: open && !!linkedPlayerId,
     staleTime: Infinity,
   });

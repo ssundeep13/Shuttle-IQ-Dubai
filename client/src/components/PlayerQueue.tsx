@@ -1,4 +1,5 @@
 import { Plus, Trash2, RefreshCw, ArrowUpDown, Coffee } from "lucide-react";
+import { apiUrl } from '@/lib/queryClient';
 import { Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +48,7 @@ export function PlayerQueue({
   const { data: sittingOutData } = useQuery<{ sittingOut: string[] }>({
     queryKey: ["/api/sessions", sessionId, "queue", "sitting-out"],
     queryFn: async () => {
-      const res = await fetch(`/api/sessions/${sessionId}/queue/sitting-out`, {
+      const res = await fetch(apiUrl(`/api/sessions/${sessionId}/queue/sitting-out`), {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
         },

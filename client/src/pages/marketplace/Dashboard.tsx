@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, type CSSProperties, type ReactNode } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Link } from 'wouter';
@@ -376,7 +377,7 @@ export default function Dashboard() {
 
   const { data: myTopTag } = useQuery<PlayerTopTag[]>({
     queryKey: ['/api/tags/player', linkedPlayerId],
-    queryFn: () => fetch(`/api/tags/player/${linkedPlayerId}?limit=1`).then(r => r.json()),
+    queryFn: () => fetch(apiUrl(`/api/tags/player/${linkedPlayerId}?limit=1`)).then(r => r.json()),
     enabled: !!linkedPlayerId,
     staleTime: Infinity,
   });

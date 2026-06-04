@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { apiUrl } from '@/lib/queryClient';
 import { useParams, Link } from 'wouter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -29,7 +30,7 @@ export default function PersonalityCard() {
 
   const { data: tags = [], isLoading: tagsLoading } = useQuery<PlayerTopTag[]>({
     queryKey: ['/api/tags/player', playerId],
-    queryFn: () => fetch(`/api/tags/player/${playerId}?limit=3`).then(r => r.json()),
+    queryFn: () => fetch(apiUrl(`/api/tags/player/${playerId}?limit=3`)).then(r => r.json()),
     enabled: !!playerId,
   });
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link } from 'wouter';
 import { Badge } from '@/components/ui/badge';
@@ -157,7 +158,7 @@ function GuestRow({
     queryFn: async () => {
       if (debouncedQuery.length < 2) return [];
       const token = getMarketplaceAccessToken();
-      const res = await fetch(`/api/marketplace/search-guests?q=${encodeURIComponent(debouncedQuery)}`, {
+      const res = await fetch(apiUrl(`/api/marketplace/search-guests?q=${encodeURIComponent(debouncedQuery)}`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return [];
@@ -505,7 +506,7 @@ function InlineBookingPanel({
     }
 
     try {
-      const res = await fetch('/api/marketplace/bookings', {
+      const res = await fetch(apiUrl('/api/marketplace/bookings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({

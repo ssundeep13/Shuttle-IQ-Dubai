@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { Link, useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,7 +32,7 @@ export default function VerifyEmail() {
     }
     (async () => {
       try {
-        const res = await fetch('/api/marketplace/auth/verify-email', {
+        const res = await fetch(apiUrl('/api/marketplace/auth/verify-email'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),

@@ -1,4 +1,5 @@
 import { useState, useMemo, type CSSProperties, type ReactNode } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -153,7 +154,7 @@ export default function MyScores() {
 
   const { data: communityTopTags = [] } = useQuery<PlayerTopTag[]>({
     queryKey: ['/api/tags/player', linkedPlayerId],
-    queryFn: () => fetch(`/api/tags/player/${linkedPlayerId}?limit=30`).then(r => r.json()),
+    queryFn: () => fetch(apiUrl(`/api/tags/player/${linkedPlayerId}?limit=30`)).then(r => r.json()),
     enabled: !!linkedPlayerId,
     staleTime: Infinity,
   });

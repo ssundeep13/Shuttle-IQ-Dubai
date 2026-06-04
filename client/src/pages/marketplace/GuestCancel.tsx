@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { apiUrl } from '@/lib/queryClient';
 import { useLocation, useParams } from 'wouter';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -47,7 +48,7 @@ export default function GuestCancel() {
       return;
     }
 
-    fetch(`/api/marketplace/guests/${encodeURIComponent(token)}`)
+    fetch(apiUrl(`/api/marketplace/guests/${encodeURIComponent(token)}`))
       .then(async res => {
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -73,7 +74,7 @@ export default function GuestCancel() {
     if (!token) return;
     setCancelling(true);
     try {
-      const res = await fetch(`/api/marketplace/guests/${encodeURIComponent(token)}/cancel`, {
+      const res = await fetch(apiUrl(`/api/marketplace/guests/${encodeURIComponent(token)}/cancel`), {
         method: 'POST',
       });
       const data = await res.json();

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiUrl } from '@/lib/queryClient';
 
 interface MarketplaceUser {
   id: string;
@@ -119,7 +120,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     enabled: !!accessToken,
     retry: false,
     queryFn: async () => {
-      const response = await fetch('/api/marketplace/auth/me', {
+      const response = await fetch(apiUrl('/api/marketplace/auth/me'), {
         headers: { 'Authorization': `Bearer ${accessToken}` },
       });
       if (!response.ok) {
@@ -146,7 +147,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     isRefreshing.current = true;
     lastRefreshAttempt.current = now;
     try {
-      const response = await fetch('/api/marketplace/auth/refresh', {
+      const response = await fetch(apiUrl('/api/marketplace/auth/refresh'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
@@ -174,7 +175,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
   const login = async (email: string, password: string, remember: boolean = true) => {
     setError(null);
     try {
-      const response = await fetch('/api/marketplace/auth/login', {
+      const response = await fetch(apiUrl('/api/marketplace/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -216,7 +217,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
         assessmentAnswers: input.assessmentAnswers,
       };
       if (input.referralCode) payload.referralCode = input.referralCode;
-      const response = await fetch('/api/marketplace/auth/signup', {
+      const response = await fetch(apiUrl('/api/marketplace/auth/signup'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -252,7 +253,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     // Also returned so callers (e.g. GoogleAuthCallback) can branch on
     // linkedPlayerId without waiting for the next render.
     try {
-      const response = await fetch('/api/marketplace/auth/me', {
+      const response = await fetch(apiUrl('/api/marketplace/auth/me'), {
         headers: { 'Authorization': `Bearer ${accessToken}` },
       });
       if (response.ok) {
@@ -273,7 +274,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     if (!accessToken) {
       throw new Error('Not signed in');
     }
-    const response = await fetch('/api/marketplace/auth/complete-profile', {
+    const response = await fetch(apiUrl('/api/marketplace/auth/complete-profile'), {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -293,7 +294,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
   const logout = async () => {
     try {
       if (accessToken && refreshToken) {
-        await fetch('/api/marketplace/auth/logout', {
+        await fetch(apiUrl('/api/marketplace/auth/logout'), {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${accessToken}`,

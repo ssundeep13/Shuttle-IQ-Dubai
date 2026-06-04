@@ -1,5 +1,20 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Configurable API origin for the Capacitor wrap (prep item #1).
+//  • Web builds: VITE_API_BASE is unset → API_BASE is '' → every request stays
+//    relative ('/api/...'), byte-for-byte identical to today.
+//  • Native builds: set VITE_API_BASE to the Railway backend origin
+//    (e.g. https://api.example.com) so the same code issues absolute requests.
+const API_BASE = ((import.meta as any).env?.VITE_API_BASE ?? '').replace(/\/$/, '');
+
+// Prefix an app API path with the configured base. Only '/api' paths are
+// prefixed; already-absolute URLs or non-api paths are returned unchanged.
+// With API_BASE empty this returns `path` verbatim — a pure no-op for the web.
+export function apiUrl(path: string): string {
+  if (!API_BASE) return path;
+  return path.startsWith('/api') ? `${API_BASE}${path}` : path;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = await res.text();
@@ -60,7 +75,7 @@ export async function apiRequest<T = any>(
     headers["Authorization"] = `Bearer ${accessToken}`;
   }
   
-  const res = await fetch(url, {
+  const res = await fetch(apiUrl(url), {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
@@ -90,7 +105,7 @@ export const getQueryFn: <T>(options: {
       headers["Authorization"] = `Bearer ${accessToken}`;
     }
     
-    const res = await fetch(url, {
+    const res = await fetch(apiUrl(url), {
       credentials: "include",
       headers,
     });
