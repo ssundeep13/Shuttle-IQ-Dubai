@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { apiUrl } from '@/lib/queryClient';
+import { startGoogleOAuth } from '@/lib/nativeAuth';
 import { useLocation, Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
@@ -236,8 +236,7 @@ export default function MarketplaceLogin() {
                 className="w-full gap-2"
                 onClick={() => {
                   const from = new URLSearchParams(window.location.search).get('from') || '';
-                  const qs = from ? `?returnPath=${encodeURIComponent(from)}` : '';
-                  window.location.href = apiUrl(`/api/marketplace/auth/google${qs}`);
+                  startGoogleOAuth(from || undefined);
                 }}
                 data-testid="button-google-login"
               >

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import { apiUrl } from '@/lib/queryClient';
+import { startGoogleOAuth } from '@/lib/nativeAuth';
 import { useLocation, Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Button } from '@/components/ui/button';
@@ -279,7 +280,7 @@ export default function MarketplaceSignup() {
             variant="outline"
             className="w-full gap-2 mb-2"
             onClick={() => {
-              window.location.href = apiUrl('/api/marketplace/auth/google');
+              startGoogleOAuth();
             }}
             data-testid="button-google-signup"
           >

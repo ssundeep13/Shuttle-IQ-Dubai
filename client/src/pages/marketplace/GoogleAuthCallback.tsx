@@ -20,6 +20,12 @@ export default function GoogleAuthCallback() {
     const refreshToken = params.get('refreshToken');
     const error = params.get('error');
 
+    // Audit S3: strip the tokens from the URL/history immediately so the
+    // access/refresh tokens don't linger in browser history or leak via the
+    // Referer header. They are already captured above. Mirrors the resume-token
+    // scrub in CheckoutSuccess.tsx. Harmless on web and native.
+    try { window.history.replaceState({}, '', '/marketplace/auth/callback'); } catch { /* ignore */ }
+
     if (error || !accessToken || !refreshToken) {
       toast({ title: 'Google sign-in failed', description: 'Please try again.', variant: 'destructive' });
       setLocation('/marketplace/login');

@@ -9,6 +9,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { MarketplaceAuthProvider } from "@/contexts/MarketplaceAuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { MarketplaceProtectedRoute } from "@/components/MarketplaceProtectedRoute";
+import { NativeBridge } from "@/components/NativeBridge";
 import { RootRedirect } from "@/components/RootRedirect";
 import { MarketplaceLayout } from "@/pages/marketplace/MarketplaceLayout";
 import { Component, useEffect, useState } from "react";
@@ -287,6 +288,7 @@ function App() {
         <MarketplaceAuthProvider>
           <TooltipProvider>
             <MotionConfig reducedMotion="user">
+              <NativeBridge />
               <ConnectionBanner />
               <Toaster />
               <Router />

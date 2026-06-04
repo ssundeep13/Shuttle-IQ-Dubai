@@ -32,6 +32,7 @@ import {
 } from "./auth/utils";
 import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage, createZiinaRefund, isZiinaRefundSuccessful, isZiinaRefundFailed } from "./ziinaClient";
 import { computeZiinaRefundFils, classifyRefundReentry } from "./refundMath";
+import { isSchemeAllowed, buildOAuthCallbackRedirect } from "./oauthReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
@@ -968,6 +969,20 @@ export function registerMarketplaceRoutes(app: Express) {
     return [...replitDomains, 'localhost:5000', 'localhost'];
   }
 
+  // Custom URL scheme(s) the native Capacitor shell is allowed to receive the
+  // OAuth deep-link return on. This is the SECURITY BOUNDARY for native auth:
+  // access/refresh tokens are only ever redirected to a scheme in this strict
+  // allowlist, never to a scheme supplied verbatim by the client. Defaults to
+  // the app's bundle scheme; overridable via NATIVE_DEEPLINK_SCHEME (comma-
+  // separated for multiple build flavours).
+  function getAllowedDeepLinkSchemes(): string[] {
+    const env = (process.env.NATIVE_DEEPLINK_SCHEME || '').split(',').map((s) => s.trim()).filter(Boolean);
+    return env.length > 0 ? env : ['com.shuttleiq.app'];
+  }
+  function isAllowedDeepLinkScheme(scheme: string | undefined | null): scheme is string {
+    return isSchemeAllowed(scheme, getAllowedDeepLinkSchemes());
+  }
+
   function getGoogleOAuthClient() {
     const clientId = process.env.GOOGLE_CLIENT_ID!;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
@@ -1004,6 +1019,10 @@ export function registerMarketplaceRoutes(app: Express) {
         if (returnDomain) qs.set('returnDomain', returnDomain);
         const returnPath = (req.query.returnPath as string) || '';
         if (returnPath) qs.set('returnPath', returnPath);
+        // Carry the native return scheme across the canonical-domain bounce so
+        // it survives to the cookie-setting hop below.
+        const bounceScheme = (req.query.returnScheme as string) || '';
+        if (bounceScheme) qs.set('returnScheme', bounceScheme);
         return res.redirect(`https://${canonicalDomain}/api/marketplace/auth/google?${qs.toString()}`);
       }
 
@@ -1024,6 +1043,13 @@ export function registerMarketplaceRoutes(app: Express) {
       }
       if (returnPath && returnPath.startsWith('/marketplace/') && returnPath.length < 300) {
         res.cookie('oauth_return_path', returnPath, cookieOpts);
+      }
+      // Native deep-link return: only persisted when it matches the strict
+      // server-side allowlist. A non-allowlisted scheme is silently ignored,
+      // so the callback falls back to the normal https web redirect.
+      const returnScheme = req.query.returnScheme as string | undefined;
+      if (isAllowedDeepLinkScheme(returnScheme)) {
+        res.cookie('oauth_return_scheme', returnScheme, cookieOpts);
       }
 
       const url = client.generateAuthUrl({
@@ -1062,8 +1088,10 @@ export function registerMarketplaceRoutes(app: Express) {
       // Read and clear return-context cookies
       const returnDomain: string | undefined = req.cookies?.oauth_return_domain;
       const returnPath: string | undefined = req.cookies?.oauth_return_path;
+      const returnScheme: string | undefined = req.cookies?.oauth_return_scheme;
       res.clearCookie('oauth_return_domain', clearOpts);
       res.clearCookie('oauth_return_path', clearOpts);
+      res.clearCookie('oauth_return_scheme', clearOpts);
 
       const { client } = getGoogleOAuthClient();
       const { tokens } = await client.getToken(code);
@@ -1151,17 +1179,21 @@ export function registerMarketplaceRoutes(app: Express) {
       expiresAt.setDate(expiresAt.getDate() + 7);
       await storage.createMarketplaceAuthSession(user.id, refreshToken, expiresAt);
 
-      const params = new URLSearchParams({ accessToken, refreshToken });
-      if (returnPath) params.set('returnPath', returnPath);
-
-      // Redirect back to the originating domain if it differs from canonical
-      const allowedDomains = getAllowedReturnDomains();
-      if (returnDomain && allowedDomains.includes(returnDomain)) {
-        const scheme = returnDomain.startsWith('localhost') ? 'http' : 'https';
-        return res.redirect(`${scheme}://${returnDomain}/marketplace/auth/callback?${params.toString()}`);
-      }
-
-      res.redirect(`/marketplace/auth/callback?${params.toString()}`);
+      // Decide the return target. The allowlist is RE-VALIDATED inside
+      // buildOAuthCallbackRedirect (defence-in-depth): the native deep-link
+      // scheme wins only when allowlisted, else the originating web domain,
+      // else the default relative web redirect — never tokens to an unknown
+      // scheme. (Pure + unit-tested in tests/oauth-return.test.ts.)
+      const redirectTarget = buildOAuthCallbackRedirect({
+        accessToken,
+        refreshToken,
+        returnPath,
+        returnScheme,
+        returnDomain,
+        allowedSchemes: getAllowedDeepLinkSchemes(),
+        allowedDomains: getAllowedReturnDomains(),
+      });
+      res.redirect(redirectTarget);
     } catch (error) {
       console.error('Google OAuth callback error:', error);
       res.redirect('/marketplace/login?error=google_failed');
