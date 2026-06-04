@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ShuttleIQ</string>
+    <string name="title_activity_main">ShuttleIQ</string>
+    <string name="package_name">com.shuttleiq.app</string>
+    <string name="custom_url_scheme">com.shuttleiq.app</string>
+</resources>
