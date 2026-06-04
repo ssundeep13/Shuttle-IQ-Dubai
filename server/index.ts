@@ -31,19 +31,23 @@ app.use(cookieParser());
 
 // CORS — required only for the native Capacitor shell, which loads the web
 // bundle from a different origin (capacitor://localhost on iOS,
-// http://localhost on Android) than the Railway API. The web app is
-// same-origin, and browsers do not apply CORS to same-origin requests, so
-// these headers are inert for it — web behaviour is unchanged.
+// https://localhost on Android — Capacitor 3+ defaults androidScheme to https)
+// than the Railway API. The web app is same-origin, and browsers do not apply
+// CORS to same-origin requests, so these headers are inert for it — web
+// behaviour is unchanged.
 //
 // We REFLECT only explicitly-allowed origins (never '*'), and keep
 // Access-Control-Allow-Credentials: true so the existing cookie/Bearer auth
 // keeps working from the shell. Allowed origins:
-//   • capacitor://localhost / http://localhost  — the two native shells
+//   • capacitor://localhost — iOS shell
+//   • https://localhost — Android shell (default https scheme)
+//   • http://localhost — Android shell when androidScheme is set to http
 //   • the deployed web origin(s) from REPLIT_DOMAINS (existing convention)
 //   • any extra origins in CORS_ALLOWED_ORIGINS (comma-separated) — e.g. the
 //     Railway domain, set per-environment without a code change.
 const CORS_ALLOWED_ORIGINS = new Set<string>([
   'capacitor://localhost',
+  'https://localhost',
   'http://localhost',
   ...(process.env.REPLIT_DOMAINS
     ? process.env.REPLIT_DOMAINS.split(',').map((d) => `https://${d.trim()}`)
