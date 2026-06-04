@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { apiUrl } from '@/lib/queryClient';
+import { shareUrl } from '@/lib/shareLinks';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Link } from 'wouter';
@@ -944,7 +945,7 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => {
-                        const url = `${window.location.origin}/marketplace/signup?ref=${encodeURIComponent(referralData.referralCode)}`;
+                        const url = shareUrl(`/marketplace/signup?ref=${encodeURIComponent(referralData.referralCode)}`);
                         const nav = navigator as Navigator & { share?: (data: { title?: string; text?: string; url?: string }) => Promise<void> };
                         if (typeof nav.share === 'function') {
                           nav.share({ title: 'Join me on ShuttleIQ', text: 'Book badminton sessions in Dubai with me on ShuttleIQ.', url }).catch(() => {});

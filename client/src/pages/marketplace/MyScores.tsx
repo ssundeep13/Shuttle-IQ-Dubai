@@ -1,5 +1,6 @@
 import { useState, useMemo, type CSSProperties, type ReactNode } from 'react';
 import { apiUrl } from '@/lib/queryClient';
+import { shareUrl } from '@/lib/shareLinks';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -118,7 +119,7 @@ export default function MyScores() {
 
   const handleShareProfile = async () => {
     if (!linkedPlayerId) return;
-    const url = `${window.location.origin}/marketplace/players/${linkedPlayerId}`;
+    const url = shareUrl(`/marketplace/players/${linkedPlayerId}`);
     if (navigator.share) {
       try {
         await navigator.share({ title: 'My ShuttleIQ Profile', url });

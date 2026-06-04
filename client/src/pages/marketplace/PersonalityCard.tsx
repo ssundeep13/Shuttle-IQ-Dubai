@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiUrl } from '@/lib/queryClient';
+import { shareCurrentPageUrl } from '@/lib/shareLinks';
 import { useParams, Link } from 'wouter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -37,14 +38,15 @@ export default function PersonalityCard() {
   const isLoading = statsLoading || tagsLoading;
 
   const handleShare = () => {
+    const url = shareCurrentPageUrl();
     if (navigator.share) {
       navigator.share({
         title: `${stats?.player.name}'s ShuttleIQ Personality`,
         text: `Check out ${stats?.player.name}'s personality on ShuttleIQ!`,
-        url: window.location.href,
+        url,
       }).catch(() => {});
     } else {
-      navigator.clipboard.writeText(window.location.href).catch(() => {});
+      navigator.clipboard.writeText(url).catch(() => {});
     }
   };
 
