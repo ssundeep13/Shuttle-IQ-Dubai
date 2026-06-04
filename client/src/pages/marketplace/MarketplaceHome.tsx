@@ -109,10 +109,9 @@ export default function MarketplaceHome() {
                 color: MKT.navy, textWrap: 'balance' as CSSProperties['textWrap'],
               }}
             >
-              Smarter games.<br />
-              Real{' '}
+              Smarter games. Tough rivals,<br />
               <span style={{ fontStyle: 'italic', color: MKT.teal, position: 'relative', display: 'inline-block' }}>
-                rivalries
+                real friends
                 <svg width="320" height="20" viewBox="0 0 320 20" style={{ position: 'absolute', left: 4, bottom: -8, width: '102%' }}>
                   <path d="M 4 14 Q 80 -2 170 8 T 316 6" fill="none" stroke={MKT.amber} strokeWidth="4" strokeLinecap="round" />
                 </svg>
@@ -314,7 +313,7 @@ export default function MarketplaceHome() {
             data-testid="text-features-title"
             style={{ margin: '16px 0 clamp(24px, 3vw, 36px)', fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(30px, 4vw, 48px)', lineHeight: 0.95, letterSpacing: '-0.03em', color: MKT.navy, maxWidth: 640 }}
           >
-            Built by players who got tired of waiting around.
+            Built by players who wanted more.
           </h2>
         </Reveal>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" style={{ gap: 14 }}>
