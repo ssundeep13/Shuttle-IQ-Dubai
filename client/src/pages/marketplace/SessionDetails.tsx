@@ -727,25 +727,9 @@ function InlineBookingPanel({
           <p className="text-sm font-medium" style={{ color: MKT.ink }}>
             {useWallet ? 'Pay the remaining balance' : 'How would you like to pay?'}
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
-              type="button"
-              className="text-left"
-              style={{ background: '#fff', border: `1px solid ${MKT.navy}1F`, borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: processing ? 'wait' : 'pointer' }}
-              onClick={() => !processing && makeBooking('cash', useWallet)}
-              data-testid="button-pay-cash"
-            >
-              {processing ? (
-                <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: MKT.inkSub }} />
-              ) : (
-                <Banknote className="h-5 w-5 shrink-0" style={{ color: MKT.green }} />
-              )}
-              <div className="min-w-0">
-                <p className="font-medium text-sm" style={{ color: MKT.ink }}>Pay at Venue</p>
-                <p className="text-xs" style={{ color: MKT.inkSub }}>Pay cash when you arrive</p>
-              </div>
-            </button>
-
+          {/* Player-facing "Pay at Venue" (cash) option removed; card-only.
+              The makeBooking('cash', …) path stays for admin/SaaS use. */}
+          <div className="grid grid-cols-1 gap-3">
             <button
               type="button"
               className="text-left"

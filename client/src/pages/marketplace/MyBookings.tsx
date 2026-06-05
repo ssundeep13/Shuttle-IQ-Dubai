@@ -304,7 +304,9 @@ export default function MyBookings() {
   const [addGuestBooking, setAddGuestBooking] = useState<BookingWithDetails | null>(null);
   const [addGuestName, setAddGuestName] = useState('');
   const [addGuestEmail, setAddGuestEmail] = useState('');
-  const [addGuestPaymentMethod, setAddGuestPaymentMethod] = useState<'cash' | 'ziina'>('cash');
+  // Player-facing cash option removed — add-guest is card-only now. The 'cash'
+  // union member and the server cash path are retained for admin/SaaS use.
+  const [addGuestPaymentMethod, setAddGuestPaymentMethod] = useState<'cash' | 'ziina'>('ziina');
 
   const addGuestMutation = useMutation({
     mutationFn: async ({ bookingId, guestName, guestEmail, paymentMethod }: {
@@ -425,7 +427,7 @@ export default function MyBookings() {
                   setAddGuestBooking(booking);
                   setAddGuestName('');
                   setAddGuestEmail('');
-                  setAddGuestPaymentMethod('cash');
+                  setAddGuestPaymentMethod('ziina');
                 }}
                 data-testid={`button-add-guest-${booking.id}`}
                 style={ghostBtn('sm')}
@@ -723,19 +725,9 @@ export default function MyBookings() {
           </div>
           <div className="space-y-1.5">
             <Label>Payment method</Label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setAddGuestPaymentMethod('cash')}
-                className="flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors"
-                style={addGuestPaymentMethod === 'cash'
-                  ? { borderColor: MKT.teal, background: MKT.tealMist, color: MKT.tealD, fontWeight: 600 }
-                  : { borderColor: `${MKT.navy}1F`, background: '#fff', color: MKT.inkSub }}
-                data-testid="button-add-guest-cash"
-              >
-                <Banknote className="h-4 w-4" />
-                Pay at Venue
-              </button>
+            {/* Player-facing "Pay at Venue" (cash) option removed; card-only.
+                The cash path is retained server-side for admin/SaaS use. */}
+            <div className="grid grid-cols-1 gap-2">
               <button
                 type="button"
                 onClick={() => setAddGuestPaymentMethod('ziina')}

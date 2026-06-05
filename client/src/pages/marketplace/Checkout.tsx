@@ -411,22 +411,9 @@ function PaymentMethodSelector({ onSelect }: { onSelect: (method: 'ziina' | 'cas
             <p className="text-sm" style={{ color: MKT.inkSub }}>Secure card payment via Ziina</p>
           </div>
         </button>
-
-        <button
-          type="button"
-          className="text-left"
-          onClick={() => onSelect('cash')}
-          data-testid="button-pay-cash"
-          style={{ ...cardShell, padding: 16, display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}
-        >
-          <div style={{ padding: 12, borderRadius: 10, background: '#DDEEE2' }}>
-            <Banknote className="h-6 w-6" style={{ color: MKT.green }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium" style={{ color: MKT.ink }}>Pay at Venue</p>
-            <p className="text-sm" style={{ color: MKT.inkSub }}>Pay in cash when you arrive</p>
-          </div>
-        </button>
+        {/* Player-facing "Pay at Venue" (cash) option removed. The backend cash
+            path is retained for admin/SaaS use; this selector is no longer
+            rendered (paymentMethod defaults to 'ziina'). */}
       </div>
     </div>
   );
@@ -539,7 +526,11 @@ export default function Checkout() {
   const { id: sessionId } = useParams<{ id: string }>();
   const { isAuthenticated, user } = useMarketplaceAuth();
   const [, setLocation] = useLocation();
-  const [paymentMethod, setPaymentMethod] = useState<'ziina' | 'cash' | null>(null);
+  // Player-facing cash option removed — default straight to the card (Ziina)
+  // form so there's no one-option selector. The 'cash' union member and the
+  // cash render branch below are intentionally retained (unused) for a future
+  // SaaS fork; the backend cash machinery is untouched.
+  const [paymentMethod, setPaymentMethod] = useState<'ziina' | 'cash' | null>('ziina');
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<BookingData['session'] | null>(null);
