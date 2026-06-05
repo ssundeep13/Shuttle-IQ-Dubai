@@ -13,7 +13,7 @@ import {
   CheckCircle2, XCircle, Zap, CalendarDays, Flag, Tag as TagIcon, Check, ChevronRight, History,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { getTierDisplayName, MAX_SKILL_SCORE } from '@shared/utils/skillUtils';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer,
 } from 'recharts';
@@ -80,13 +80,17 @@ const bigNum: CSSProperties = { fontFamily: FF_DISPLAY, fontWeight: 700, fontSiz
 
 function StatTile({ icon, value, label, sub, testid, accent }: { icon: ReactNode; value: ReactNode; label: string; sub?: ReactNode; testid: string; accent?: boolean }) {
   return (
-    <DashCard testid={testid} style={accent ? { background: MKT.tealMist, borderColor: `${MKT.teal}33` } : undefined}>
+    <DashCard testid={testid} style={{ display: 'flex', flexDirection: 'column', height: '100%', ...(accent ? { background: MKT.tealMist, borderColor: `${MKT.teal}33` } : {}) }}>
       <div style={{ width: 32, height: 32, borderRadius: 8, background: accent ? 'rgba(0,107,95,0.15)' : MKT.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12, color: accent ? MKT.tealD : MKT.inkSub }}>
         {icon}
       </div>
       <div style={bigNum}>{value}</div>
-      <div style={{ fontSize: 11, color: MKT.inkSub, marginTop: 4 }}>{label}</div>
-      {sub && <div style={{ fontSize: 10, color: MKT.inkMute, marginTop: 2 }}>{sub}</div>}
+      {/* label+sub pushed to the bottom so a stretched card (next to the taller
+          Tags card) fills cleanly instead of leaving a gap under the value */}
+      <div style={{ marginTop: 'auto' }}>
+        <div style={{ fontSize: 11, color: MKT.inkSub, marginTop: 4 }}>{label}</div>
+        {sub && <div style={{ fontSize: 10, color: MKT.inkMute, marginTop: 2 }}>{sub}</div>}
+      </div>
     </DashCard>
   );
 }
@@ -270,6 +274,30 @@ export default function MyScores() {
 
   const last5Results = stats.recentGames.slice(0, 5).map(g => g.won);
 
+  // ── Header skill-score callout (B1) — all from existing data, no new fetch ──
+  // Stable "last 10" delta, computed the same way as the chart's last10 view so
+  // the two always agree (the chart defaults to last10). Falls back to the
+  // performanceTrend label when there aren't enough scored games for a number.
+  const last10Games = allValidGames.slice(0, 10); // newest-first
+  const last10Delta = last10Games.length > 0
+    ? (last10Games[0].skillScoreAfter ?? stats.player.skillScore)
+      - (last10Games[last10Games.length - 1].skillScoreBefore ?? last10Games[last10Games.length - 1].skillScoreAfter ?? stats.player.skillScore)
+    : null;
+  const last10Line = last10Delta == null
+    ? `${trendLabel} form.`
+    : last10Delta > 0
+      ? `Up +${last10Delta} over your last 10 games.`
+      : last10Delta < 0
+        ? `Down ${Math.abs(last10Delta)} over your last 10 games.`
+        : 'Holding steady over your last 10 games.';
+  // Percentile from real rank data (rankBySkillScore / totalPlayersRanked).
+  const topPct = stats.totalPlayersRanked > 0
+    ? Math.max(1, Math.round((stats.rankBySkillScore / stats.totalPlayersRanked) * 100))
+    : null;
+  const rankLine = topPct != null
+    ? ` Top ${topPct}% of ${stats.totalPlayersRanked} players this season.`
+    : '';
+
   return (
     <>
     {pageWrap(
@@ -280,46 +308,57 @@ export default function MyScores() {
           <Link href="/marketplace/dashboard" data-testid="button-back" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>
             <ArrowLeft className="h-4 w-4" /> Back
           </Link>
-          <button type="button" onClick={handleShareProfile} data-testid="button-share-profile" style={ghostBtn('sm')}>
-            {copied ? <><Check className="h-4 w-4" /> Copied!</> : <><Share2 className="h-4 w-4" /> Share Profile</>}
-          </button>
         </div>
       </Reveal>
 
-      {/* Hero — flat brand navy identity block */}
+      {/* Header — identity card + skill-score callout (B1) */}
       <Reveal>
         <div
-          className="flex items-center gap-4 md:gap-6"
-          style={{ background: MKT.navy, color: '#fff', borderRadius: 16, padding: 'clamp(18px, 3vw, 24px)', marginBottom: 24, position: 'relative', overflow: 'hidden' }}
+          className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4"
+          style={{ marginBottom: 24 }}
           data-testid="hero-banner"
         >
-          <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', border: '2px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, flex: 'none' }}>
-            {getInitial(stats.player.name)}
-          </div>
-          <div className="flex-1 min-w-0">
-            <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(20px, 3vw, 28px)', color: '#fff', letterSpacing: '-0.025em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid="text-player-name">
-              {stats.player.name}
-            </h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              {stats.player.shuttleIqId && (
-                <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, background: 'rgba(0,107,95,0.9)', color: '#fff', padding: '3px 8px', borderRadius: 6, letterSpacing: '0.02em' }}>
-                  {stats.player.shuttleIqId}
+          {/* Identity card */}
+          <div style={{ background: '#fff', borderRadius: 16, border: `1px solid ${MKT.navy}14`, padding: 'clamp(18px, 3vw, 24px)', display: 'flex', alignItems: 'center', gap: 'clamp(14px, 2vw, 20px)' }}>
+            <div style={{ width: 64, height: 64, borderRadius: '50%', background: MKT.tealMist, border: `2px solid ${MKT.teal}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MKT.navy, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, flex: 'none' }}>
+              {getInitial(stats.player.name)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(20px, 3vw, 28px)', color: MKT.navy, letterSpacing: '-0.025em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid="text-player-name">
+                {stats.player.name}
+              </h1>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                {stats.player.shuttleIqId && (
+                  <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, background: MKT.teal, color: '#fff', padding: '3px 8px', borderRadius: 6, letterSpacing: '0.02em' }}>
+                    {stats.player.shuttleIqId}
+                  </span>
+                )}
+                <span style={{ color: MKT.inkSub, fontSize: 13 }}>
+                  {stats.player.gender === 'Male' ? 'M' : 'F'} &middot; {getTierDisplayName(stats.player.level)} ({stats.player.skillScore})
                 </span>
-              )}
-              <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
-                {stats.player.gender === 'Male' ? 'M' : 'F'} &middot; {getTierDisplayName(stats.player.level)} ({stats.player.skillScore})
-              </span>
+              </div>
+              <div className="mt-2">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '3px 10px', borderRadius: 999, background: stats.performanceTrend === 'improving' ? 'rgba(31,138,91,0.12)' : stats.performanceTrend === 'declining' ? 'rgba(178,58,46,0.12)' : 'rgba(0,30,70,0.06)', color: stats.performanceTrend === 'improving' ? WIN_GREEN : stats.performanceTrend === 'declining' ? LOSS_RED : MKT.inkSub }}>
+                  <TrendIcon className="h-3 w-3" />
+                  {trendLabel} ({recentWinPct}% recent)
+                </span>
+              </div>
             </div>
-            <div className="mt-2">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '3px 10px', borderRadius: 999, background: stats.performanceTrend === 'improving' ? 'rgba(31,138,91,0.25)' : stats.performanceTrend === 'declining' ? 'rgba(178,58,46,0.25)' : 'rgba(255,255,255,0.18)', color: '#fff' }}>
-                <TrendIcon className="h-3 w-3" />
-                {trendLabel} ({recentWinPct}% recent)
-              </span>
-            </div>
+            <button type="button" onClick={handleShareProfile} data-testid="button-share-profile" style={{ ...ghostBtn('sm'), alignSelf: 'flex-start', flex: 'none' }}>
+              {copied ? <><Check className="h-4 w-4" /> Copied!</> : <><Share2 className="h-4 w-4" /> Share Profile</>}
+            </button>
           </div>
-          <div style={{ width: 72, height: 72, borderRadius: '50%', background: MKT.teal, border: '2px solid #2A8D81', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 'none' }}>
-            <span style={{ fontFamily: FF_DISPLAY, color: '#fff', fontWeight: 700, fontSize: 'clamp(18px, 3vw, 24px)', lineHeight: 1 }}>{stats.player.skillScore}</span>
-            <span style={{ color: '#C7E5D3', fontSize: 11 }}>pts</span>
+
+          {/* Skill-score callout */}
+          <div style={{ background: MKT.navy, color: '#fff', borderRadius: 16, padding: 'clamp(18px, 3vw, 24px)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 12, minWidth: 240 }}>
+            <div style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.65)' }}>Skill score</div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, fontFamily: FF_DISPLAY, fontWeight: 700, color: '#fff', letterSpacing: '-0.04em', lineHeight: 0.9 }}>
+              <span style={{ fontSize: 'clamp(48px, 7vw, 64px)' }} data-testid="text-skill-score">{stats.player.skillScore}</span>
+              <span style={{ fontSize: 18, color: 'rgba(255,255,255,0.5)', marginBottom: 8, fontWeight: 500 }}>/ {MAX_SKILL_SCORE}</span>
+            </div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', letterSpacing: '-0.005em', lineHeight: 1.5 }}>
+              {last10Line}{rankLine}
+            </div>
           </div>
         </div>
       </Reveal>
@@ -365,7 +404,7 @@ export default function MyScores() {
           <DashCard testid="card-skill-progression" style={{ marginBottom: 24 }}>
             <div className="flex items-center justify-between gap-2 flex-wrap" style={{ marginBottom: 4 }}>
               <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <TrendingUp className="h-4 w-4" style={{ color: MKT.teal }} /> Skill Score Progression
+                <TrendingUp className="h-4 w-4" style={{ color: MKT.teal }} /> Skill trajectory
               </h3>
               <div className="flex items-center gap-2 flex-wrap">
                 {totalChange !== 0 && chartData.length > 0 && (
@@ -383,7 +422,7 @@ export default function MyScores() {
                         data-testid={`filter-progression-${f}`}
                         style={{ padding: '6px 10px', borderRadius: 7, border: 'none', cursor: 'pointer', background: active ? '#fff' : 'transparent', color: active ? MKT.navy : MKT.inkSub, fontFamily: FF_BODY, fontWeight: 600, fontSize: 12, boxShadow: active ? `0 0 0 1px ${MKT.navy}14` : 'none' }}
                       >
-                        {f === 'last10' ? 'Last 10' : f === 'monthly' ? 'This Month' : 'All Time'}
+                        {f === 'last10' ? 'Last 10' : f === 'monthly' ? '30 days' : 'All time'}
                       </button>
                     );
                   })}
@@ -459,7 +498,7 @@ export default function MyScores() {
                 <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <Swords className="h-4 w-4" style={{ color: MKT.teal }} /> Rivals
                 </h3>
-                <p style={{ fontSize: 12, color: MKT.inkSub, margin: '2px 0 12px' }}>Your most frequent opponents</p>
+                <p style={{ fontSize: 12, color: MKT.inkSub, margin: '2px 0 12px' }}>Who&apos;s keeping score with you.</p>
                 <div className="space-y-3">
                   {stats.rivals.slice(0, 4).map((rival: OpponentStats) => {
                     const rWinRate = Math.round(rival.winRate);
@@ -501,7 +540,7 @@ export default function MyScores() {
                 <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <Users className="h-4 w-4" style={{ color: MKT.teal }} /> Partners
                 </h3>
-                <p style={{ fontSize: 12, color: MKT.inkSub, margin: '2px 0 12px' }}>Players you've teamed up with most</p>
+                <p style={{ fontSize: 12, color: MKT.inkSub, margin: '2px 0 12px' }}>Who you play your best with.</p>
                 <div className="space-y-3">
                   {stats.frequentPartners.slice(0, 4).map((partner: PartnerStats, idx: number) => {
                     const pWinRate = Math.round(partner.winRate);
@@ -583,6 +622,7 @@ export default function MyScores() {
                 ))}
               </div>
             </div>
+            <p style={{ fontSize: 12, color: MKT.inkSub, margin: '0 0 12px' }}>Every shuttle, recorded.</p>
             <div className="space-y-0">
               {stats.recentGames.slice(0, 10).map((game, gi) => {
                 const eloChange = (game.skillScoreAfter != null && game.skillScoreBefore != null)
@@ -649,13 +689,13 @@ export default function MyScores() {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-0.5">
+                        <div className="flex items-center gap-2">
                           {expired ? (
                             <UITooltip>
                               <UITooltipTrigger asChild>
                                 <span className="inline-flex" data-testid={`button-tag-game-${game.gameId}`}>
-                                  <button type="button" tabIndex={-1} aria-disabled="true" style={{ background: 'transparent', border: 'none', padding: 8, color: 'rgba(0,30,70,0.25)', cursor: 'default' }}>
-                                    <TagIcon className="h-3.5 w-3.5" />
+                                  <button type="button" tabIndex={-1} aria-disabled="true" style={{ background: 'transparent', border: `1.5px solid ${MKT.navy}22`, borderRadius: 8, padding: '7px 9px', color: 'rgba(0,30,70,0.4)', cursor: 'default', display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: FF_BODY, fontWeight: 600, fontSize: 12 }}>
+                                    <TagIcon className="h-3.5 w-3.5" /><span className="hidden sm:inline">Tag Players</span>
                                   </button>
                                 </span>
                               </UITooltipTrigger>
@@ -667,14 +707,15 @@ export default function MyScores() {
                               onClick={() => canTag && setTaggingGameId(game.gameId)}
                               disabled={!canTag && !alreadyTagged}
                               data-testid={`button-tag-game-${game.gameId}`}
-                              style={{ background: 'transparent', border: 'none', padding: 8, cursor: canTag ? 'pointer' : 'default', color: alreadyTagged ? MKT.teal : canTag ? MKT.inkSub : 'transparent', visibility: (!canTag && !alreadyTagged) ? 'hidden' : 'visible' }}
+                              style={{ background: alreadyTagged ? MKT.tealMist : 'transparent', border: `1.5px solid ${alreadyTagged ? 'transparent' : `${MKT.navy}33`}`, borderRadius: 8, padding: '7px 9px', cursor: canTag ? 'pointer' : 'default', color: alreadyTagged ? MKT.teal : canTag ? MKT.navy : 'transparent', visibility: (!canTag && !alreadyTagged) ? 'hidden' : 'visible', display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: FF_BODY, fontWeight: 600, fontSize: 12 }}
                             >
                               {alreadyTagged ? <Check className="h-3.5 w-3.5" /> : <TagIcon className="h-3.5 w-3.5" />}
+                              <span className="hidden sm:inline">{alreadyTagged ? 'Tagged' : 'Tag Players'}</span>
                             </button>
                           )}
                           {flaggedGameIds.has(game.gameId) ? (
-                            <span style={{ fontSize: 11, color: MKT.inkSub, border: `1px solid ${MKT.navy}22`, padding: '2px 8px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 4 }} data-testid={`badge-flagged-${game.gameId}`}>
-                              <Flag className="h-3 w-3" /> Flagged
+                            <span style={{ fontSize: 12, fontWeight: 600, color: MKT.inkSub, border: `1px solid ${MKT.navy}22`, padding: '6px 9px', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 5 }} data-testid={`badge-flagged-${game.gameId}`}>
+                              <Flag className="h-3.5 w-3.5" /><span className="hidden sm:inline">Flagged</span>
                             </span>
                           ) : (
                             <button
@@ -682,9 +723,9 @@ export default function MyScores() {
                               onClick={() => { setFlaggingGameId(game.gameId); setFlagNote(''); }}
                               title="Flag incorrect score"
                               data-testid={`button-flag-game-${game.gameId}`}
-                              style={{ background: 'transparent', border: 'none', padding: 8, cursor: 'pointer', color: 'rgba(0,30,70,0.4)' }}
+                              style={{ background: 'transparent', border: `1.5px solid ${MKT.navy}22`, borderRadius: 8, padding: '7px 9px', cursor: 'pointer', color: MKT.inkSub, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: FF_BODY, fontWeight: 600, fontSize: 12 }}
                             >
-                              <Flag className="h-3.5 w-3.5" />
+                              <Flag className="h-3.5 w-3.5" /><span className="hidden sm:inline">Flag Score</span>
                             </button>
                           )}
                         </div>
