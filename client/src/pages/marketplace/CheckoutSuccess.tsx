@@ -110,6 +110,12 @@ export default function CheckoutSuccess() {
 
     async function pollConfirm() {
       const token = localStorage.getItem('mp_accessToken') ?? sessionStorage.getItem('mp_accessToken');
+      // Extra-guest return: use the dedicated confirm-guest endpoint, which finds
+      // the pending guest intent and mirrors the webhook's confirmation logic.
+      // Primary booking return: use the normal /confirm endpoint (unchanged).
+      const confirmPath = isExtraGuest
+        ? `/api/marketplace/bookings/${bookingId}/confirm-guest`
+        : `/api/marketplace/bookings/${bookingId}/confirm`;
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
         if (cancelled) return;
         if (i > 0) {
@@ -121,11 +127,22 @@ export default function CheckoutSuccess() {
         try {
           const headers: Record<string, string> = { 'Content-Type': 'application/json' };
           if (token) headers['Authorization'] = `Bearer ${token}`;
-          const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/confirm`), {
+          const res = await fetch(apiUrl(confirmPath), {
             method: 'POST',
             headers,
           });
           const data = await res.json();
+
+          // If the endpoint returned a clear "no pending guest" error (e.g. the webhook
+          // already confirmed it or the guest intent was never created), surface it
+          // rather than retrying MAX_ATTEMPTS times for nothing.
+          if (!res.ok && res.status === 404 && isExtraGuest) {
+            // 404 means no pending guest intent exists — the webhook may have already
+            // confirmed it. Re-check by fetching bookings/mine to see if it's there.
+            setStatus('success');
+            queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+            return;
+          }
 
           if (data.confirmed) {
             setStatus('success');

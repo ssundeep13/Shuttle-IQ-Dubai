@@ -2662,6 +2662,57 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Poll-fallback for the add-guest Ziina success-URL redirect. The primary
+  // /confirm endpoint only knows about the booking's own intent; this endpoint
+  // looks for any pending booking_guests row for this booking that has a
+  // pending_payment_intent_id, fetches its status from Ziina, and — if paid —
+  // delegates to confirmZiinaBookingByIntentId, which mirrors exactly what the
+  // webhook's extra-guest branch does (confirms the guest, increments
+  // spots_booked, records the payment, sends the guest email).
+  // Does NOT require auth: the booking UUID is the secret, matching /confirm.
+  app.post("/api/marketplace/bookings/:id/confirm-guest", async (req: AuthRequest, res) => {
+    try {
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+
+      // Find the pending guest slot for this booking (there should be at most one at a time)
+      const guests = await storage.getBookingGuests(booking.id);
+      const pendingGuest = guests.find(g => !g.isPrimary && g.status === 'pending' && g.pendingPaymentIntentId);
+      if (!pendingGuest || !pendingGuest.pendingPaymentIntentId) {
+        return res.status(404).json({ error: "No pending guest payment found for this booking" });
+      }
+
+      // Idempotency — if it's already confirmed (webhook beat us here) return success
+      if (pendingGuest.status === 'confirmed') {
+        const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+        return res.json({ confirmed: true, alreadyConfirmed: true, booking: bookingWithDetails });
+      }
+
+      // Re-fetch the guest intent's current status from Ziina before acting
+      const intentId = pendingGuest.pendingPaymentIntentId;
+      const paymentIntent = await retrieveZiinaPaymentIntent(intentId);
+
+      if (!isZiinaPaymentSuccessful(paymentIntent.status)) {
+        console.warn('[Ziina] confirm-guest: payment not yet successful', {
+          bookingId: booking.id, intentId, status: paymentIntent.status,
+        });
+        return res.json({ confirmed: false, status: paymentIntent.status });
+      }
+
+      // Delegate to the same shared logic the webhook uses — ensures parity
+      const result = await confirmZiinaBookingByIntentId(intentId, paymentIntent.status);
+
+      const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
+      return res.json({ confirmed: result.confirmed, alreadyConfirmed: result.alreadyConfirmed, booking: bookingWithDetails });
+    } catch (error: unknown) {
+      console.error('[Ziina] confirm-guest error', {
+        bookingId: req.params.id,
+        error: error instanceof Error ? error.message : error,
+      });
+      res.status(500).json({ error: "Failed to confirm guest booking" });
+    }
+  });
+
   // Authenticated: initiate Ziina payment for a pending_payment (waitlist-promoted) booking
   app.post("/api/marketplace/bookings/:id/initiate-payment", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
