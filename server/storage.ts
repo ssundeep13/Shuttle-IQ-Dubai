@@ -350,6 +350,7 @@ export interface IStorage {
   getRefundNotification(id: string): Promise<RefundNotificationWithDetails | undefined>;
   getUnresolvedRefundNotificationByBooking(bookingId: string): Promise<RefundNotificationWithDetails | undefined>;
   resolveRefundNotification(id: string): Promise<boolean>;
+  markRefundAsManuallyProcessed(notificationId: string): Promise<boolean>;
   // Ziina refund persistence (#231)
   claimZiinaRefundForProcessing(bookingId: string, intentId: string): Promise<boolean>;
   releaseZiinaRefundClaim(bookingId: string, intentId: string): Promise<void>;
@@ -2697,6 +2698,52 @@ export class DatabaseStorage implements IStorage {
       .update(marketplaceNotifications)
       .set({ read: true })
       .where(and(eq(marketplaceNotifications.id, id), eq(marketplaceNotifications.type, 'refund_required')))
+      .returning({ id: marketplaceNotifications.id });
+    return !!updated;
+  }
+
+  // Records that an admin manually issued a refund via the Ziina dashboard.
+  // Updates payments.refund_status = 'completed' + refunded_at (if a payments row
+  // exists for the booking) and flips the notification to read=true.
+  async markRefundAsManuallyProcessed(notificationId: string): Promise<boolean> {
+    // Get the notification to resolve the booking ID.
+    const [notif] = await db
+      .select({ relatedBookingId: marketplaceNotifications.relatedBookingId })
+      .from(marketplaceNotifications)
+      .where(and(
+        eq(marketplaceNotifications.id, notificationId),
+        eq(marketplaceNotifications.type, 'refund_required'),
+      ));
+    if (!notif) return false;
+
+    // If the notification has a related booking, update the matching payments row.
+    if (notif.relatedBookingId) {
+      const [booking] = await db
+        .select({ ziinaPaymentIntentId: bookings.ziinaPaymentIntentId })
+        .from(bookings)
+        .where(eq(bookings.id, notif.relatedBookingId));
+
+      if (booking?.ziinaPaymentIntentId) {
+        await db
+          .update(payments)
+          .set({ refundStatus: 'completed', refundedAt: new Date() })
+          .where(and(
+            eq(payments.bookingId, notif.relatedBookingId),
+            isNotNull(payments.ziinaPaymentIntentId),
+            eq(payments.ziinaPaymentIntentId, booking.ziinaPaymentIntentId),
+            isNull(payments.refundStatus),
+          ));
+      }
+    }
+
+    // Always flip the notification read flag.
+    const [updated] = await db
+      .update(marketplaceNotifications)
+      .set({ read: true })
+      .where(and(
+        eq(marketplaceNotifications.id, notificationId),
+        eq(marketplaceNotifications.type, 'refund_required'),
+      ))
       .returning({ id: marketplaceNotifications.id });
     return !!updated;
   }

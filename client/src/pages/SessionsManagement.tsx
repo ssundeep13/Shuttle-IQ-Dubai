@@ -2257,6 +2257,9 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
   // Confirm gate (#231) — the live refund mutation fires ONLY from this dialog's
   // confirm action. No one-click money-out.
   const [confirmRefund, setConfirmRefund] = useState<RefundNotificationWithDetails | null>(null);
+  // Guard for "Mark Resolved" when refund_status is null — Shannon must confirm
+  // she really wants to dismiss without recording a refund.
+  const [confirmResolve, setConfirmResolve] = useState<RefundNotificationWithDetails | null>(null);
 
   const resolveMutation = useMutation({
     mutationFn: async (id: string) => apiRequest('PATCH', `/api/marketplace/admin/refunds/${id}/resolve`),
@@ -2301,6 +2304,16 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
     },
   });
 
+  // Records that an admin manually issued a refund via the Ziina dashboard.
+  const manualRefundMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest('PATCH', `/api/marketplace/admin/refunds/${id}/mark-manual-refund`),
+    onSuccess: () => {
+      toast({ title: 'Refund recorded', description: 'Marked as manually refunded via Ziina dashboard.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/admin/refunds'] });
+    },
+    onError: () => toast({ title: 'Error', description: 'Failed to record manual refund', variant: 'destructive' }),
+  });
+
   // Refund-state helpers (mirror server isZiinaRefund* without importing server code).
   const isRefunded = (r: RefundNotificationWithDetails) =>
     !!r.refundStatus && ['completed', 'succeeded', 'success', 'refunded'].includes(r.refundStatus.toLowerCase());
@@ -2324,101 +2337,131 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
     return format(new Date(d), 'dd MMM yyyy, h:mm a');
   };
 
-  const RefundRow = ({ r, showAction }: { r: RefundNotificationWithDetails; showAction: boolean }) => (
-    <div
-      className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-md border ${showAction ? 'bg-card' : 'bg-muted/30 opacity-70'}`}
-      data-testid={`refund-row-${r.id}`}
-    >
-      <div className="flex-1 min-w-0 space-y-0.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-sm" data-testid={`text-refund-player-${r.id}`}>
-            {r.playerName ?? 'Unknown player'}
-          </span>
-          {r.playerEmail && (
-            <span className="text-xs text-muted-foreground">{r.playerEmail}</span>
-          )}
+  const RefundRow = ({ r }: { r: RefundNotificationWithDetails }) => {
+    const isZiina = (r.paymentMethod ?? '').toLowerCase() === 'ziina' && !!r.ziinaPaymentIntentId;
+    const refunded = isRefunded(r);
+    const refundPending = isRefundPending(r);
+    // Dim only when truly done: marked read AND a refund is confirmed.
+    const isDone = r.read && refunded;
+    return (
+      <div
+        className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-md border ${isDone ? 'bg-muted/30 opacity-70' : 'bg-card'}`}
+        data-testid={`refund-row-${r.id}`}
+      >
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-sm" data-testid={`text-refund-player-${r.id}`}>
+              {r.playerName ?? 'Unknown player'}
+            </span>
+            {r.playerEmail && (
+              <span className="text-xs text-muted-foreground">{r.playerEmail}</span>
+            )}
+            {isZiina && (
+              <span
+                className={`text-xs font-medium px-2 py-0.5 rounded-full border ${
+                  refunded
+                    ? 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800'
+                    : refundPending
+                      ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800'
+                      : 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-800'
+                }`}
+                data-testid={`badge-refund-status-${r.id}`}
+              >
+                {refunded
+                  ? `✓ Refunded${r.refundedAmount != null ? ` · AED ${(r.refundedAmount / 100).toFixed(2)}` : ''}`
+                  : refundPending
+                    ? 'In progress'
+                    : 'Not refunded'}
+              </span>
+            )}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {r.sessionTitle ?? 'Unknown session'}
+            {r.sessionDate && <span> · {formatDate(r.sessionDate)}</span>}
+            {r.sessionVenueName && <span> · {r.sessionVenueName}</span>}
+          </div>
+          <div className="text-xs text-muted-foreground flex flex-wrap gap-3 pt-0.5">
+            {r.amountAed != null && (
+              <span className="font-medium text-foreground">AED {r.amountAed.toFixed(2)}</span>
+            )}
+            {r.spotsBooked != null && r.spotsBooked > 1 && (
+              <span>{r.spotsBooked} spots</span>
+            )}
+            <span>Flagged {formatDate(r.createdAt)}</span>
+            {r.paymentAt && (
+              <span data-testid={`text-refund-paid-at-${r.id}`}>Paid {formatDateTime(r.paymentAt)}</span>
+            )}
+            {r.relatedBookingId && (
+              <span className="font-mono" data-testid={`text-refund-order-${r.id}`}>
+                Order #{r.relatedBookingId.slice(-8)}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="text-sm text-muted-foreground">
-          {r.sessionTitle ?? 'Unknown session'}
-          {r.sessionDate && <span> · {formatDate(r.sessionDate)}</span>}
-          {r.sessionVenueName && <span> · {r.sessionVenueName}</span>}
-        </div>
-        <div className="text-xs text-muted-foreground flex flex-wrap gap-3 pt-0.5">
-          {r.amountAed != null && (
-            <span className="font-medium text-foreground">AED {r.amountAed.toFixed(2)}</span>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
+          {isZiina && !refunded && !refundPending && (
+            <Button
+              size="sm"
+              onClick={() => setConfirmRefund(r)}
+              disabled={ziinaRefundMutation.isPending}
+              data-testid={`button-refund-ziina-${r.id}`}
+            >
+              {ziinaRefundMutation.isPending && ziinaRefundMutation.variables === r.id ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : null}
+              Refund AED {(r.amountAed ?? 0).toFixed(2)} via Ziina
+            </Button>
           )}
-          {r.spotsBooked != null && r.spotsBooked > 1 && (
-            <span>{r.spotsBooked} spots</span>
-          )}
-          <span>Flagged {formatDate(r.createdAt)}</span>
-          {r.paymentAt && (
-            <span data-testid={`text-refund-paid-at-${r.id}`}>Paid {formatDateTime(r.paymentAt)}</span>
-          )}
-          {r.relatedBookingId && (
-            <span className="font-mono" data-testid={`text-refund-order-${r.id}`}>
-              Order #{r.relatedBookingId.slice(-8)}
+          {isZiina && refundPending && (
+            <span className="text-xs text-muted-foreground italic px-2" data-testid={`text-refund-pending-${r.id}`}>
+              Refund in progress…
             </span>
           )}
+          {isZiina && !refunded && !refundPending && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => manualRefundMutation.mutate(r.id)}
+              disabled={manualRefundMutation.isPending}
+              data-testid={`button-manual-refund-${r.id}`}
+            >
+              {manualRefundMutation.isPending && manualRefundMutation.variables === r.id ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : null}
+              Mark as Manually Refunded
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            asChild
+            data-testid={`button-ziina-dashboard-${r.id}`}
+          >
+            <a
+              href={r.ziinaPaymentIntentId ? `https://app.ziina.com/payment_intent/${r.ziinaPaymentIntentId}` : 'https://app.ziina.com'}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+              {r.ziinaPaymentIntentId ? 'Open in Ziina' : 'Ziina Dashboard'}
+            </a>
+          </Button>
+          {!r.read && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => r.refundStatus === null ? setConfirmResolve(r) : resolveMutation.mutate(r.id)}
+              disabled={resolveMutation.isPending}
+              data-testid={`button-resolve-refund-${r.id}`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+              Mark Resolved
+            </Button>
+          )}
         </div>
       </div>
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0">
-        {(() => {
-          const isZiina = (r.paymentMethod ?? '').toLowerCase() === 'ziina' && !!r.ziinaPaymentIntentId;
-          const refunded = isRefunded(r);
-          const refundPending = isRefundPending(r);
-          return (
-            <>
-              {isZiina && showAction && !refunded && !refundPending && (
-                <Button
-                  size="sm"
-                  onClick={() => setConfirmRefund(r)}
-                  disabled={ziinaRefundMutation.isPending}
-                  data-testid={`button-refund-ziina-${r.id}`}
-                >
-                  {ziinaRefundMutation.isPending && ziinaRefundMutation.variables === r.id ? (
-                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                  ) : null}
-                  Refund AED {(r.amountAed ?? 0).toFixed(2)} via Ziina
-                </Button>
-              )}
-              {isZiina && showAction && refundPending && (
-                <span className="text-xs text-muted-foreground italic px-2" data-testid={`text-refund-pending-${r.id}`}>
-                  Refund in progress…
-                </span>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                asChild
-                data-testid={`button-ziina-dashboard-${r.id}`}
-              >
-                <a
-                  href={r.ziinaPaymentIntentId ? `https://app.ziina.com/payment_intent/${r.ziinaPaymentIntentId}` : 'https://app.ziina.com'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-                  {r.ziinaPaymentIntentId ? 'Open in Ziina' : 'Ziina Dashboard'}
-                </a>
-              </Button>
-              {showAction && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => resolveMutation.mutate(r.id)}
-                  disabled={resolveMutation.isPending}
-                  data-testid={`button-resolve-refund-${r.id}`}
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                  Mark Resolved
-                </Button>
-              )}
-            </>
-          );
-        })()}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -2443,7 +2486,7 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
         ) : (
           <div className="space-y-2">
             {pending.map(r => (
-              <RefundRow key={r.id} r={r} showAction={true} />
+              <RefundRow key={r.id} r={r} />
             ))}
           </div>
         )}
@@ -2457,7 +2500,7 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
           </h3>
           <div className="space-y-2">
             {resolved.map(r => (
-              <RefundRow key={r.id} r={r} showAction={false} />
+              <RefundRow key={r.id} r={r} />
             ))}
           </div>
         </div>
@@ -2494,6 +2537,32 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
               data-testid="button-confirm-refund-ziina"
             >
               {ziinaRefundMutation.isPending ? 'Processing…' : 'Refund via Ziina'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm gate — "Mark Resolved" when no Ziina refund has been recorded. */}
+      <AlertDialog open={!!confirmResolve} onOpenChange={(open) => { if (!open) setConfirmResolve(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark as resolved without a recorded refund?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>No Ziina refund has been recorded for this booking.</p>
+                <p>If you have already issued it via the Ziina dashboard, click <strong>Cancel</strong> and use <strong>Mark as Manually Refunded</strong> instead — that records the refund date and updates the status badge.</p>
+                <p>Continue only if you want to dismiss this notification without recording any refund.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-resolve-unrefunded">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (confirmResolve) { resolveMutation.mutate(confirmResolve.id); setConfirmResolve(null); } }}
+              disabled={resolveMutation.isPending}
+              data-testid="button-confirm-resolve-unrefunded"
+            >
+              Dismiss without recording
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

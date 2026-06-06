@@ -4493,6 +4493,21 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Records that an admin manually issued a refund via the Ziina merchant dashboard.
+  // Sets payments.refund_status = 'completed' + refunded_at = now() (if a payments
+  // row exists) and marks the notification read=true. Does NOT call the Ziina API.
+  app.patch("/api/marketplace/admin/refunds/:id/mark-manual-refund", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updated = await storage.markRefundAsManuallyProcessed(id);
+      if (!updated) return res.status(404).json({ error: "Refund notification not found" });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Failed to mark manual refund:', error);
+      res.status(500).json({ error: "Failed to record manual refund" });
+    }
+  });
+
   // Issue a live Ziina refund for a Pending Refund row in one (confirmed) click.
   // Money-safety (#231):
   //  • The client sends ONLY the notificationId — never an amount.
