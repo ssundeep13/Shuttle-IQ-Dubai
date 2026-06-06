@@ -310,56 +310,83 @@ export default function MyScores() {
         </div>
       </Reveal>
 
-      {/* Header — identity card + skill-score callout (B1) */}
+      {/* Hero card — identity + skill score unified */}
       <Reveal>
-        <div
-          className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4"
-          style={{ marginBottom: 24 }}
-          data-testid="hero-banner"
-        >
-          {/* Identity card */}
-          <div style={{ background: '#fff', borderRadius: 16, border: `1px solid ${MKT.navy}14`, padding: 'clamp(18px, 3vw, 24px)', display: 'flex', alignItems: 'center', gap: 'clamp(14px, 2vw, 20px)' }}>
-            <div style={{ width: 64, height: 64, borderRadius: '50%', background: MKT.tealMist, border: `2px solid ${MKT.teal}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MKT.navy, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, flex: 'none' }}>
+        <DashCard testid="hero-banner" style={{ marginBottom: 24, padding: 20 }}>
+          {/* Row 1: avatar · name / SIQ badge / tier · share button */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            {/* Avatar */}
+            <div style={{ width: 52, height: 52, borderRadius: '50%', background: MKT.tealMist, border: `2px solid ${MKT.teal}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MKT.navy, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 20, flex: 'none' }}>
               {getInitial(stats.player.name)}
             </div>
-            <div className="flex-1 min-w-0">
-              <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(20px, 3vw, 28px)', color: MKT.navy, letterSpacing: '-0.025em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid="text-player-name">
+            {/* Text block */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <h1
+                style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 20, color: MKT.navy, letterSpacing: '-0.025em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}
+                data-testid="text-player-name"
+              >
                 {stats.player.name}
               </h1>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {/* SIQ badge + tier — single nowrap line */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'nowrap', overflow: 'hidden' }}>
                 {stats.player.shuttleIqId && (
-                  <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, background: MKT.teal, color: '#fff', padding: '3px 8px', borderRadius: 6, letterSpacing: '0.02em' }}>
+                  <span style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, background: MKT.teal, color: '#fff', padding: '2px 7px', borderRadius: 5, letterSpacing: '0.02em', flex: 'none' }}>
                     {stats.player.shuttleIqId}
                   </span>
                 )}
-                <span style={{ color: MKT.inkSub, fontSize: 13 }}>
+                <span style={{ color: MKT.inkSub, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {stats.player.gender === 'Male' ? 'M' : 'F'} &middot; {getTierDisplayName(stats.player.level)} ({stats.player.skillScore})
                 </span>
               </div>
-              <div className="mt-2">
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '3px 10px', borderRadius: 999, background: stats.performanceTrend === 'improving' ? 'rgba(31,138,91,0.12)' : stats.performanceTrend === 'declining' ? 'rgba(178,58,46,0.12)' : 'rgba(0,30,70,0.06)', color: stats.performanceTrend === 'improving' ? WIN_GREEN : stats.performanceTrend === 'declining' ? LOSS_RED : MKT.inkSub }}>
+              {/* Trend — plain small text, no pill background */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 5 }}>
+                <span style={{ color: stats.performanceTrend === 'improving' ? WIN_GREEN : stats.performanceTrend === 'declining' ? LOSS_RED : MKT.inkSub, display: 'flex', alignItems: 'center' }}>
                   <TrendIcon className="h-3 w-3" />
-                  {trendLabel} ({recentWinPct}% recent)
+                </span>
+                <span style={{ fontSize: 12, color: MKT.inkSub }}>
+                  {trendLabel} &middot; {recentWinPct}% recent
                 </span>
               </div>
             </div>
-            <button type="button" onClick={handleShareProfile} data-testid="button-share-profile" style={{ ...ghostBtn('sm'), alignSelf: 'flex-start', flex: 'none' }}>
-              {copied ? <><Check className="h-4 w-4" /> Copied!</> : <><Share2 className="h-4 w-4" /> Share Profile</>}
+            {/* Share button — small, outlined, top-right */}
+            <button
+              type="button"
+              onClick={handleShareProfile}
+              data-testid="button-share-profile"
+              style={{ fontFamily: FF_BODY, fontWeight: 600, fontSize: 12, letterSpacing: '-0.005em', padding: '6px 12px', borderRadius: 8, border: `1.5px solid ${MKT.navy}33`, background: '#fff', color: MKT.navy, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap', flex: 'none', alignSelf: 'flex-start' }}
+            >
+              {copied ? <><Check className="h-3.5 w-3.5" /> Copied!</> : <><Share2 className="h-3.5 w-3.5" /> Share Profile</>}
             </button>
           </div>
 
-          {/* Skill-score callout */}
-          <div style={{ background: MKT.navy, color: '#fff', borderRadius: 16, padding: 'clamp(18px, 3vw, 24px)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 12, minWidth: 240 }}>
-            <div style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.65)' }}>Skill score</div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, fontFamily: FF_DISPLAY, fontWeight: 700, color: '#fff', letterSpacing: '-0.04em', lineHeight: 0.9 }}>
-              <span style={{ fontSize: 'clamp(48px, 7vw, 64px)' }} data-testid="text-skill-score">{stats.player.skillScore}</span>
-              <span style={{ fontSize: 18, color: 'rgba(255,255,255,0.5)', marginBottom: 8, fontWeight: 500 }}>/ {MAX_SKILL_SCORE}</span>
+          {/* Divider */}
+          <div style={{ height: 1, background: `${MKT.navy}1A`, margin: '16px 0' }} />
+
+          {/* Row 2: skill score (left) + rank / delta (right) */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ ...eyebrow, color: MKT.teal }}>Skill Score</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginTop: 4 }}>
+                <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 48, color: MKT.navy, letterSpacing: '-0.04em', lineHeight: 1 }} data-testid="text-skill-score">
+                  {stats.player.skillScore}
+                </span>
+                <span style={{ fontSize: 18, color: MKT.inkSub, fontWeight: 500 }}>/ {MAX_SKILL_SCORE}</span>
+              </div>
             </div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.72)', letterSpacing: '-0.005em', lineHeight: 1.5 }}>
-              {last10Line}{rankLine}
+            <div style={{ textAlign: 'right' }}>
+              {topPct != null && (
+                <div style={{ fontSize: 13, color: MKT.inkSub }}>Top {topPct}% of {stats.totalPlayersRanked} players</div>
+              )}
+              {last10Delta != null ? (
+                <div style={{ fontSize: 13, color: last10Delta > 0 ? MKT.teal : last10Delta < 0 ? LOSS_RED : MKT.inkSub, marginTop: 2 }}>
+                  {last10Delta > 0 ? `+${last10Delta}` : last10Delta < 0 ? `${last10Delta}` : 'Steady'} over last 10 games
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: MKT.inkSub, marginTop: 2 }}>{trendLabel} form</div>
+              )}
             </div>
           </div>
-        </div>
+        </DashCard>
       </Reveal>
 
       {/* Stat tiles */}
