@@ -35,7 +35,7 @@ import { computeZiinaRefundFils, classifyRefundReentry } from "./refundMath";
 import { isSchemeAllowed, buildOAuthCallbackRedirect } from "./oauthReturn";
 import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
-import { confirmZiinaBookingByIntentId } from "./webhookHandler";
+import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhookHandler";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -2662,13 +2662,11 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
-  // Poll-fallback for the add-guest Ziina success-URL redirect. The primary
-  // /confirm endpoint only knows about the booking's own intent; this endpoint
-  // looks for any pending booking_guests row for this booking that has a
-  // pending_payment_intent_id, fetches its status from Ziina, and — if paid —
-  // delegates to confirmZiinaBookingByIntentId, which mirrors exactly what the
-  // webhook's extra-guest branch does (confirms the guest, increments
-  // spots_booked, records the payment, sends the guest email).
+  // Poll-fallback for the add-guest Ziina success-URL redirect. Finds the
+  // pending booking_guests row for this booking, re-fetches the intent status
+  // from Ziina, and — if paid — delegates to confirmGuestByIntentId, which
+  // confirms the guest, increments spots_booked, records the payment, and
+  // sends the guest booking email (idempotent).
   // Does NOT require auth: the booking UUID is the secret, matching /confirm.
   app.post("/api/marketplace/bookings/:id/confirm-guest", async (req: AuthRequest, res) => {
     try {
@@ -2699,8 +2697,9 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.json({ confirmed: false, status: paymentIntent.status });
       }
 
-      // Delegate to the same shared logic the webhook uses — ensures parity
-      const result = await confirmZiinaBookingByIntentId(intentId, paymentIntent.status);
+      // Use the direct guest confirmation path — looks up via pending_payment_intent_id,
+      // the only column that holds guest intent IDs (not bookings.ziina_payment_intent_id).
+      const result = await confirmGuestByIntentId(intentId);
 
       const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
       return res.json({ confirmed: result.confirmed, alreadyConfirmed: result.alreadyConfirmed, booking: bookingWithDetails });

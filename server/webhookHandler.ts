@@ -10,6 +10,74 @@ import {
   sendRefundProcessedEmail,
 } from "./emailClient";
 
+// Confirms a pending extra-guest slot whose Ziina payment has completed.
+// Called by confirmZiinaBookingByIntentId (webhook path) AND by the
+// /confirm-guest poll endpoint. Looks up the guest directly via
+// pending_payment_intent_id — the only reliable path for guest intents,
+// which are never stored in bookings.ziina_payment_intent_id.
+export async function confirmGuestByIntentId(
+  intentId: string,
+): Promise<{ confirmed: boolean; alreadyConfirmed?: boolean; error?: string }> {
+  const pendingGuest = await storage.getBookingGuestByPendingPaymentIntentId(intentId);
+  if (!pendingGuest) {
+    console.warn(`[Ziina] No extra-guest found for payment intent ${intentId}`);
+    return { confirmed: false, error: "guest_not_found" };
+  }
+
+  const parentBooking = await storage.getBooking(pendingGuest.bookingId);
+  if (!parentBooking) {
+    console.warn(`[Ziina] Parent booking not found for extra-guest intent ${intentId}`);
+    return { confirmed: false, error: "booking_not_found" };
+  }
+
+  // Idempotency — webhook may have beaten us here
+  if (pendingGuest.status === "confirmed") return { confirmed: true, alreadyConfirmed: true };
+
+  // Confirm the guest slot and clear the pending intent ID
+  await storage.updateBookingGuest(pendingGuest.id, {
+    status: "confirmed",
+    pendingPaymentIntentId: null,
+  });
+
+  // Increment parent booking spots and amount
+  const session = await storage.getBookableSession(parentBooking.sessionId);
+  const priceAed = session?.priceAed ?? 0;
+  await storage.updateBooking(parentBooking.id, {
+    spotsBooked: (parentBooking.spotsBooked ?? 1) + 1,
+    amountAed: parentBooking.amountAed + priceAed,
+  });
+
+  // Record payment (idempotent)
+  const existingPayments = await storage.getPaymentsByBookingId(parentBooking.id);
+  if (!existingPayments.some((p) => p.ziinaPaymentIntentId === intentId)) {
+    await storage.createPayment({
+      bookingId: parentBooking.id,
+      ziinaPaymentIntentId: intentId,
+      amount: priceAed,
+      currency: "aed",
+      status: "completed",
+      completedAt: new Date(),
+    });
+  }
+
+  // Send guest booking email (fire-and-forget)
+  try {
+    const booker = await storage.getMarketplaceUser(parentBooking.userId);
+    const guestBaseUrl = process.env.REPLIT_DOMAINS
+      ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
+      : "http://localhost:5000";
+    if (booker && session && pendingGuest.email && pendingGuest.cancellationToken) {
+      const cancelGuestUrl = `${guestBaseUrl}/marketplace/guests/cancel/${pendingGuest.cancellationToken}`;
+      const signupUrl = `${guestBaseUrl}/marketplace/signup?email=${encodeURIComponent(pendingGuest.email)}`;
+      sendGuestBookingEmail(pendingGuest.email, pendingGuest.name, booker.name, session, cancelGuestUrl, signupUrl).catch(() => {});
+    }
+  } catch (err) {
+    console.error("[Ziina] Extra-guest email failed:", err);
+  }
+
+  return { confirmed: true };
+}
+
 // Shared confirmation logic — called by both the webhook handler and the
 // admin-triggered /confirm endpoint. Finds the booking by Ziina payment intent
 // ID and confirms it idempotently if the payment is successful.
@@ -23,66 +91,9 @@ export async function confirmZiinaBookingByIntentId(
 
   const booking = await storage.getBookingByZiinaPaymentIntentId(intentId);
 
-  // No booking found — check if this is an extra-guest payment intent
+  // No booking found — delegate to the dedicated extra-guest confirmation path
   if (!booking) {
-    const pendingGuest = await storage.getBookingGuestByPendingPaymentIntentId(intentId);
-    if (!pendingGuest) {
-      console.warn(`[Ziina Webhook] No booking or extra-guest found for payment intent ${intentId}`);
-      return { confirmed: false, error: "booking_not_found" };
-    }
-
-    const parentBooking = await storage.getBooking(pendingGuest.bookingId);
-    if (!parentBooking) {
-      console.warn(`[Ziina Webhook] Parent booking not found for extra-guest intent ${intentId}`);
-      return { confirmed: false, error: "booking_not_found" };
-    }
-
-    // Idempotency — already confirmed
-    if (pendingGuest.status === "confirmed") return { confirmed: true, alreadyConfirmed: true };
-
-    // Confirm the guest slot and clear the pending intent ID
-    await storage.updateBookingGuest(pendingGuest.id, {
-      status: "confirmed",
-      pendingPaymentIntentId: null,
-    });
-
-    // Increment parent booking spots and amount
-    const session = await storage.getBookableSession(parentBooking.sessionId);
-    const priceAed = session?.priceAed ?? 0;
-    await storage.updateBooking(parentBooking.id, {
-      spotsBooked: (parentBooking.spotsBooked ?? 1) + 1,
-      amountAed: parentBooking.amountAed + priceAed,
-    });
-
-    // Record payment (idempotent)
-    const existingPayments = await storage.getPaymentsByBookingId(parentBooking.id);
-    if (!existingPayments.some((p) => p.ziinaPaymentIntentId === intentId)) {
-      await storage.createPayment({
-        bookingId: parentBooking.id,
-        ziinaPaymentIntentId: intentId,
-        amount: priceAed,
-        currency: "aed",
-        status: "completed",
-        completedAt: new Date(),
-      });
-    }
-
-    // Send guest booking email (fire-and-forget)
-    try {
-      const booker = await storage.getMarketplaceUser(parentBooking.userId);
-      const guestBaseUrl = process.env.REPLIT_DOMAINS
-        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
-        : "http://localhost:5000";
-      if (booker && session && pendingGuest.email && pendingGuest.cancellationToken) {
-        const cancelGuestUrl = `${guestBaseUrl}/marketplace/guests/cancel/${pendingGuest.cancellationToken}`;
-        const signupUrl = `${guestBaseUrl}/marketplace/signup?email=${encodeURIComponent(pendingGuest.email)}`;
-        sendGuestBookingEmail(pendingGuest.email, pendingGuest.name, booker.name, session, cancelGuestUrl, signupUrl).catch(() => {});
-      }
-    } catch (err) {
-      console.error("[Ziina Webhook] Extra-guest email failed:", err);
-    }
-
-    return { confirmed: true };
+    return confirmGuestByIntentId(intentId);
   }
 
   if (booking.status === "confirmed") {
