@@ -85,8 +85,7 @@ function StatTile({ icon, value, label, sub, testid, accent }: { icon: ReactNode
         {icon}
       </div>
       <div style={bigNum}>{value}</div>
-      {/* label+sub pushed to the bottom so a stretched card (next to the taller
-          Tags card) fills cleanly instead of leaving a gap under the value */}
+      {/* label+sub pushed to the bottom so equal-height grid cards fill cleanly */}
       <div style={{ marginTop: 'auto' }}>
         <div style={{ fontSize: 11, color: MKT.inkSub, marginTop: 4 }}>{label}</div>
         {sub && <div style={{ fontSize: 10, color: MKT.inkMute, marginTop: 2 }}>{sub}</div>}
@@ -373,30 +372,29 @@ export default function MyScores() {
           <StatTile testid="card-stat-rank" icon={<BarChart3 className="h-4 w-4" />} value={`#${stats.rankBySkillScore}`} label="Skill Rank" sub={`of ${stats.totalPlayersRanked}`} />
           <StatTile testid="card-stat-diff" icon={<BarChart3 className="h-4 w-4" />} value={`${stats.avgScoreDifferential > 0 ? '+' : ''}${stats.avgScoreDifferential}`} label="Avg Differential" sub={`${stats.avgPointsFor} for / ${stats.avgPointsAgainst} against`} />
           <StatTile testid="card-stat-beststreak" icon={<Zap className="h-4 w-4" />} value={`${stats.longestWinStreak}W`} label="Best Streak" sub={`Worst: ${stats.longestLossStreak}L`} accent />
-          <DashCard testid="card-stat-tags-received">
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: MKT.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8, color: MKT.inkSub }}>
-              <TagIcon className="h-4 w-4" />
-            </div>
-            <div style={{ ...eyebrow, marginBottom: 8 }}>Tags Received</div>
-            {communityTopTags.length === 0 ? (
-              <p style={{ fontSize: 11, color: MKT.inkSub, lineHeight: 1.4 }}>Play games and get tagged by teammates!</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {communityTopTags.map(({ tag, count }) => (
-                  <span
-                    key={tag.id}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
-                    data-testid={`pill-tag-${tag.id}`}
-                  >
-                    {tag.emoji} {tag.label}
-                    <span className="opacity-60">{count}×</span>
-                  </span>
-                ))}
-              </div>
-            )}
-          </DashCard>
         </div>
       </Reveal>
+
+      {/* Tags Received — standalone full-width section, hidden when no tags */}
+      {communityTopTags.length > 0 && (
+        <Reveal>
+          <div style={{ marginBottom: 24 }} data-testid="section-tags-received">
+            <div style={{ ...eyebrow, color: MKT.teal, marginBottom: 10 }}>Tags Received</div>
+            <div className="flex flex-wrap gap-1.5">
+              {communityTopTags.map(({ tag, count }) => (
+                <span
+                  key={tag.id}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${tagCategoryClass(tag.category)}`}
+                  data-testid={`pill-tag-${tag.id}`}
+                >
+                  {tag.emoji} {tag.label}
+                  <span className="opacity-60">{count}×</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+      )}
 
       {/* Skill Score Progression (recharts kept, brand-recolored) */}
       {allValidGames.length > 0 && (
