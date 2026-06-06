@@ -11,6 +11,22 @@ import { registerZiinaWebhookRoute } from "./webhookHandler";
 const app = express();
 app.set('trust proxy', 1);
 
+// Canonical-domain redirect — MUST be the first middleware so it short-circuits
+// before any other processing. Permanently (301) sends the legacy domains to the
+// equivalent path on https://shuttleiq.ai, preserving the full path + query
+// string (req.originalUrl). Only the two legacy hostnames match; shuttleiq.ai
+// and the *.up.railway.app service domain fall through untouched (no redirect
+// loop). trust proxy is set above, so req.hostname reflects the forwarded Host.
+// Inert until shuttleiq.org / shuttleiqdubai.com actually point at Railway.
+const LEGACY_REDIRECT_HOSTS = new Set(["shuttleiq.org", "shuttleiqdubai.com"]);
+app.use((req, res, next) => {
+  const host = req.hostname?.toLowerCase();
+  if (host && LEGACY_REDIRECT_HOSTS.has(host)) {
+    return res.redirect(301, `https://shuttleiq.ai${req.originalUrl}`);
+  }
+  next();
+});
+
 app.use(
   "/uploads",
   express.static(path.resolve(process.cwd(), "uploads"), {
