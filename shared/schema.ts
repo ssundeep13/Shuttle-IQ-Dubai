@@ -524,6 +524,9 @@ export interface BookingWithDetails extends Booking {
   isGuestBooking?: boolean;
   bookedByName?: string;
   myGuestId?: string;
+  /** Sum of all completed payments rows for this booking. Populated by
+   *  /api/marketplace/bookings/mine. Falls back to amountAed when absent. */
+  totalPaidAed?: number;
 }
 
 // ============================================================

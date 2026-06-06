@@ -3168,7 +3168,15 @@ export function registerMarketplaceRoutes(app: Express) {
       const merged = [...primaryBookings, ...guestBookings.filter(b => !seen.has(b.id))];
       // Sort by createdAt desc
       merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      res.json(merged);
+      // Attach totalPaidAed from the payments table — this is the source of truth
+      // for the amount shown on each booking card. bookings.amount_aed reflects the
+      // initial booking amount and may lag when extra-guest payments are added.
+      const paymentTotals = await storage.getPaymentTotalsByBookingIds(merged.map(b => b.id));
+      const augmented = merged.map(b => ({
+        ...b,
+        totalPaidAed: paymentTotals[b.id] ?? b.amountAed,
+      }));
+      res.json(augmented);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bookings" });
     }

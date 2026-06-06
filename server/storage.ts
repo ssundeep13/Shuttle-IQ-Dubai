@@ -2422,6 +2422,29 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(payments).where(eq(payments.bookingId, bookingId));
   }
 
+  // Returns a map of bookingId → total AED paid (sum of completed payments rows).
+  // Used by /api/marketplace/bookings/mine to surface the live payment total,
+  // which may exceed bookings.amount_aed when extra-guest payments have been made.
+  async getPaymentTotalsByBookingIds(bookingIds: string[]): Promise<Record<string, number>> {
+    if (!bookingIds.length) return {};
+    const rows = await db
+      .select({
+        bookingId: payments.bookingId,
+        total: sql<number>`cast(coalesce(sum(${payments.amount}), 0) as integer)`,
+      })
+      .from(payments)
+      .where(and(
+        inArray(payments.bookingId, bookingIds),
+        eq(payments.status, 'completed'),
+      ))
+      .groupBy(payments.bookingId);
+    const map: Record<string, number> = {};
+    for (const row of rows) {
+      map[row.bookingId] = row.total;
+    }
+    return map;
+  }
+
   async updatePayment(id: string, updates: Partial<Payment>): Promise<Payment | undefined> {
     const [updated] = await db
       .update(payments)

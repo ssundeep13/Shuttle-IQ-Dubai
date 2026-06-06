@@ -473,7 +473,7 @@ export default function MyBookings() {
               <div className="flex items-center gap-3 flex-wrap">
                 {!isWaitlisted && !isPendingPayment && (
                   <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em' }} data-testid={`text-booking-amount-${booking.id}`}>
-                    AED {booking.amountAed}
+                    AED {booking.totalPaidAed ?? booking.amountAed}
                   </span>
                 )}
                 {!isWaitlisted && !isPendingPayment && booking.spotsBooked > 1 && (
@@ -487,7 +487,7 @@ export default function MyBookings() {
                     {booking.paymentMethod === 'cash' ? (
                       <><Banknote className="h-3 w-3" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
                     ) : (
-                      <><CreditCard className="h-3 w-3" /> Card</>
+                      <><CreditCard className="h-3 w-3" /> Ziina</>
                     )}
                   </span>
                 )}
