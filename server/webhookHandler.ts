@@ -229,13 +229,20 @@ export function registerZiinaWebhookRoute(app: Express) {
         return res.status(200).json({ received: true });
       }
 
-      // Ziina sends: { event: "payment_intent.status.updated", payment_intent: { id, status, ... } }
-      // Some older docs show the payment intent object at the top level — handle both.
-      const paymentIntent: any = payload.payment_intent ?? payload;
+      // Ziina webhook envelope (per docs): { event: "<type>", data: { ...object... } }
+      // The event object — the payment intent for payment_intent.* events, the
+      // refund for refund.* events — lives under `data` (its id/status are at the
+      // object's top level). Fallbacks handle alternate shapes defensively: a
+      // Stripe-style data.object wrapper, a legacy payment_intent wrapper, or the
+      // object at the very top level.
+      const paymentIntent: any =
+        payload.data?.object ?? payload.data ?? payload.payment_intent ?? payload;
       const intentId: string | undefined = paymentIntent?.id;
       const intentStatus: string | undefined = paymentIntent?.status;
       const eventType: string | undefined = payload.event;
 
+      // TEMP DEBUG — remove once the live payload shape is confirmed in the logs.
+      console.log('[Ziina Webhook] raw payload:', JSON.stringify(payload));
       console.log(`[Ziina Webhook] Received event="${eventType}" intentId="${intentId}" status="${intentStatus}"`);
 
       // Refund events: refund.completed | refund.failed. The webhook is the
