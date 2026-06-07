@@ -117,6 +117,14 @@ export async function confirmZiinaBookingByIntentId(
 
   await storage.updateBooking(booking.id, { status: "confirmed" });
 
+  // Birthday free-game: the discount is "consumed" only when the booking
+  // actually confirms (here), not at submission — so an abandoned Ziina payment
+  // never burns the player's once-a-year discount. Idempotent: the already-
+  // confirmed early-return above means this runs at most once per booking.
+  if (booking.birthdayDiscountApplied) {
+    await storage.updateMarketplaceUser(booking.userId, { birthdayDiscountUsedAt: new Date() });
+  }
+
   // PR2 trigger site 1/5: Ziina happy-path payment confirmation. Covers both
   // the webhook delivery and the POST /bookings/:id/confirm poll fallback
   // (which delegates here). Fire-and-forget — referral failure must not

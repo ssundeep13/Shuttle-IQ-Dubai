@@ -397,7 +397,14 @@ function DateChip({ active, onClick, isAll, allCount, day, num, month, count, is
 
 export default function BookSessions() {
   usePageTitle('Book Sessions');
-  const { isAuthenticated } = useMarketplaceAuth();
+  const { isAuthenticated, user } = useMarketplaceAuth();
+  const [birthdayPromptDismissed, setBirthdayPromptDismissed] = useState(() => {
+    try { return localStorage.getItem('siq_birthday_prompt_dismissed') === 'true'; } catch { return false; }
+  });
+  const dismissBirthdayPrompt = () => {
+    try { localStorage.setItem('siq_birthday_prompt_dismissed', 'true'); } catch { /* ignore */ }
+    setBirthdayPromptDismissed(true);
+  };
   const reduce = !!useReducedMotion();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -508,6 +515,51 @@ export default function BookSessions() {
             </p>
           </div>
         </Reveal>
+
+        {/* Birthday prompt — shown only when the player has no birthday set and
+            hasn't dismissed it (localStorage, no DB column). Not a blocking modal. */}
+        {user && !user.birthDay && !birthdayPromptDismissed && (
+          <Reveal>
+            <div
+              data-testid="banner-birthday-prompt"
+              style={{
+                marginTop: 'clamp(20px, 3vw, 28px)',
+                borderRadius: 14,
+                border: `1px solid ${MKT.teal}40`,
+                background: MKT.tealMist,
+                padding: 'clamp(14px, 2.5vw, 18px) clamp(16px, 3vw, 22px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                gap: 16, flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em' }}>
+                  Get a free game on your birthday
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.5, color: MKT.inkSub, marginTop: 2 }}>
+                  Add your birthday and your spot is on us during your birthday week. Takes 5 seconds.
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 'none' }}>
+                <Link
+                  href="/marketplace/profile"
+                  data-testid="button-birthday-add"
+                  style={{ fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, padding: '9px 16px', borderRadius: 9, background: MKT.navy, color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}
+                >
+                  Add my birthday
+                </Link>
+                <button
+                  type="button"
+                  onClick={dismissBirthdayPrompt}
+                  data-testid="button-birthday-dismiss"
+                  style={{ fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, padding: '9px 14px', borderRadius: 9, background: 'transparent', color: MKT.inkSub, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  Maybe later
+                </button>
+              </div>
+            </div>
+          </Reveal>
+        )}
 
         {/* Date strip */}
         <Reveal>

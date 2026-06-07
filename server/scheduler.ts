@@ -1,7 +1,8 @@
 import { storage } from "./storage";
-import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendGuestBookingEmail } from "./emailClient";
+import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendGuestBookingEmail, sendBirthdayReminderEmail } from "./emailClient";
 import { retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaClient";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
+import { daysUntilBirthday, birthdayWindowRange } from "@shared/birthday";
 import { db } from "./db";
 import { players } from "@shared/schema";
 import { sql } from "drizzle-orm";
@@ -13,6 +14,9 @@ const RESUME_TOKEN_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const AUTO_APPROVE_SWEEP_INTERVAL_MS = 15 * 1000; // 15 seconds — pending match suggestions auto-approve once their pendingUntil window passes
 const RECONCILE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes — Ziina payment reconciliation sweep
 const RECONCILE_WINDOW_MS = 48 * 60 * 60 * 1000; // look back 48h for paid-but-unrecorded bookings
+const BIRTHDAY_REMINDER_UTC_HOUR = 4; // 4 AM UTC = 8 AM Dubai
+const BIRTHDAY_REMINDER_LEAD_DAYS = 4; // notify when birthday is within the next 4 days
+const BIRTHDAY_EMAIL_DEDUPE_MS = 300 * 24 * 60 * 60 * 1000; // 300 days — one reminder per year
 
 const MIN_SKILL_SCORE = 10;
 const INACTIVITY_THRESHOLD_DAYS = 14;
@@ -474,6 +478,41 @@ async function runZiinaReconciliationJob(): Promise<void> {
   }
 }
 
+// Run `job` daily at a fixed UTC hour: schedule the first run at the next
+// occurrence of that hour, then every 24h after.
+function scheduleDailyAtUtcHour(hour: number, job: () => void): void {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, 0, 0, 0));
+  if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+  setTimeout(() => { job(); setInterval(job, 24 * 60 * 60 * 1000); }, next.getTime() - now.getTime());
+}
+
+// ── Birthday reminder sweep (daily) ──────────────────────────────────────────
+// Emails players whose birthday is within the next 4 days that their free game
+// is coming up. De-duped via birthday_email_sent_at (one send per ~year), so it
+// stays reliable even if the scheduler misses the exact day-4 run.
+async function runBirthdayReminderJob(): Promise<void> {
+  try {
+    const users = await storage.getMarketplaceUsersWithBirthday();
+    const now = new Date();
+    let sent = 0;
+    for (const u of users) {
+      const days = daysUntilBirthday(u, now);
+      if (days === null || days < 0 || days > BIRTHDAY_REMINDER_LEAD_DAYS) continue; // not in the upcoming window
+      const sentAt = u.birthdayEmailSentAt ? new Date(u.birthdayEmailSentAt).getTime() : 0;
+      if (sentAt && now.getTime() - sentAt <= BIRTHDAY_EMAIL_DEDUPE_MS) continue;     // already emailed this year
+      const range = birthdayWindowRange(u, now);
+      if (!range || !u.email) continue;
+      try {
+        await sendBirthdayReminderEmail(u.email, u.name, range.from, range.to);
+        await storage.updateMarketplaceUser(u.id, { birthdayEmailSentAt: new Date() });
+        sent++;
+      } catch (e) { console.error(`[Birthday] reminder email failed for ${u.email}:`, e); }
+    }
+    if (sent > 0) console.log(`[Birthday] reminder sweep — ${sent} email(s) sent.`);
+  } catch (err) { console.error('[Birthday] reminder job failed:', err); }
+}
+
 export function startScheduler(): void {
   console.log('[Scheduler] Session reminder scheduler started (runs every 30 min)');
   setInterval(runReminderJob, REMINDER_INTERVAL_MS);
@@ -486,6 +525,9 @@ export function startScheduler(): void {
   console.log('[Scheduler] Ziina payment reconciliation sweep started (runs every 10 min)');
   setInterval(runZiinaReconciliationJob, RECONCILE_INTERVAL_MS);
   runZiinaReconciliationJob();
+
+  console.log('[Scheduler] Birthday reminder scheduler started (daily 04:00 UTC)');
+  scheduleDailyAtUtcHour(BIRTHDAY_REMINDER_UTC_HOUR, runBirthdayReminderJob);
 
   console.log('[Scheduler] Inactivity decay scheduler started (runs every 24 h)');
   // Backfill first, then run the decay job (backfill is fast and idempotent)

@@ -13,6 +13,7 @@ import { queryClient, getMarketplaceAccessToken } from '@/lib/queryClient';
 import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
+import { isBirthdayDiscountAvailable } from '@shared/birthday';
 
 interface Guest {
   name: string;
@@ -157,10 +158,11 @@ function GuestForm({ guests, onChange, maxGuests }: {
   );
 }
 
-function OrderSummary({ sessionInfo, amount, spotsBooked }: {
+function OrderSummary({ sessionInfo, amount, spotsBooked, birthdayWaivedAed }: {
   sessionInfo: BookingData['session'];
   amount: number;
   spotsBooked: number;
+  birthdayWaivedAed?: number;
 }) {
   return (
     <div style={cardShell}>
@@ -186,6 +188,12 @@ function OrderSummary({ sessionInfo, amount, spotsBooked }: {
             <span>{spotsBooked} spots (you + {spotsBooked - 1} guest{spotsBooked > 2 ? 's' : ''})</span>
           </div>
         )}
+        {birthdayWaivedAed ? (
+          <div className="flex items-center justify-between gap-2 text-sm" style={{ color: MKT.teal }} data-testid="line-birthday-discount">
+            <span>Birthday discount — your spot is free</span>
+            <span>− AED {birthdayWaivedAed}</span>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between gap-2" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 12 }}>
           <span className="font-medium" style={{ color: MKT.ink }}>Total</span>
           <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-checkout-amount">AED {amount}</span>
@@ -210,8 +218,13 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const [useWallet, setUseWallet] = useState(false);
   const { toast } = useToast();
 
+  const { user } = useMarketplaceAuth();
   const spotsBooked = 1 + guests.length;
-  const totalAmount = pricePerSpot * spotsBooked;
+  // Birthday free-game: primary spot waived during the window (mirrors the
+  // server's authoritative enforcement; this is display only).
+  const birthdayFree = !!user && isBirthdayDiscountAvailable(user, new Date());
+  const chargeableSpots = birthdayFree ? Math.max(0, spotsBooked - 1) : spotsBooked;
+  const totalAmount = pricePerSpot * chargeableSpots;
   const totalAmountFils = totalAmount * 100;
   const maxGuests = Math.min(3, availableSpots - 1);
 
@@ -291,7 +304,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   if (waitlisted) {
     return (
       <div className="space-y-6">
-        <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} />
+        <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} birthdayWaivedAed={birthdayFree ? pricePerSpot : undefined} />
         <div style={{ borderRadius: 14, background: '#F6E6CC55', border: '1px solid #C97B1733', padding: 16 }} className="space-y-3">
           <div className="flex items-center gap-2">
             <ListOrdered className="h-5 w-5 shrink-0" style={{ color: MKT.amber }} />
@@ -312,7 +325,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   return (
     <div className="space-y-6">
-      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} />
+      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} birthdayWaivedAed={birthdayFree ? pricePerSpot : undefined} />
 
       {maxGuests > 0 && (
         <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />
@@ -431,8 +444,11 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const [guests, setGuests] = useState<Guest[]>([]);
   const { toast } = useToast();
 
+  const { user } = useMarketplaceAuth();
   const spotsBooked = 1 + guests.length;
-  const totalAmount = pricePerSpot * spotsBooked;
+  const birthdayFree = !!user && isBirthdayDiscountAvailable(user, new Date());
+  const chargeableSpots = birthdayFree ? Math.max(0, spotsBooked - 1) : spotsBooked;
+  const totalAmount = pricePerSpot * chargeableSpots;
   const maxGuests = Math.min(3, availableSpots - 1);
 
   const validateGuests = () => {
@@ -489,7 +505,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   return (
     <div className="space-y-6">
-      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} />
+      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} birthdayWaivedAed={birthdayFree ? pricePerSpot : undefined} />
 
       {maxGuests > 0 && (
         <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />

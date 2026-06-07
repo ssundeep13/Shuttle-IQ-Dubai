@@ -44,6 +44,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails, TagSuggestionWithVote } from '@shared/schema';
+import { isInBirthdayWindow } from '@shared/birthday';
 import { UserCheck, FileText } from 'lucide-react';
 import BlogEditor from '@/components/BlogEditor';
 import type { BlogPost } from '@shared/schema';
@@ -1265,7 +1266,14 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
       <CardContent className="p-3 space-y-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
-            <div className="font-medium text-sm">{booking.user?.name || 'Unknown'}</div>
+            <div className="flex items-center gap-2">
+              <div className="font-medium text-sm">{booking.user?.name || 'Unknown'}</div>
+              {isInBirthdayWindow({ birthDay: booking.user?.birthDay, birthMonth: booking.user?.birthMonth }, new Date()) && (
+                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+                  style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}
+                  data-testid={`tag-birthday-${booking.id}`}>Birthday</span>
+              )}
+            </div>
             <div className="text-xs text-muted-foreground">{booking.user?.email}</div>
           </div>
           <div className="text-right">

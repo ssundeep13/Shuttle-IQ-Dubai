@@ -37,6 +37,9 @@ export default function MarketplaceSignup() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [birthDay, setBirthDay] = useState('');
+  const [birthMonth, setBirthMonth] = useState('');
+  const [birthYear, setBirthYear] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -132,6 +135,9 @@ export default function MarketplaceSignup() {
         gender: collected.gender,
         assessmentAnswers: collected.assessmentAnswers,
         referralCode: code,
+        birthDay: birthDay ? parseInt(birthDay, 10) : null,
+        birthMonth: birthMonth ? parseInt(birthMonth, 10) : null,
+        birthYear: birthYear ? parseInt(birthYear, 10) : null,
         remember,
       });
       toast({ title: 'Account created!' });
@@ -333,6 +339,18 @@ export default function MarketplaceSignup() {
                 placeholder="+971 50 000 0000"
                 data-testid="input-phone"
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="birth-day">Birthday (optional)</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <Input id="birth-day" type="number" min={1} max={31} placeholder="Day" value={birthDay} onChange={(e) => setBirthDay(e.target.value)} data-testid="input-signup-birth-day" />
+                <select className="h-10 rounded-md border border-input bg-background px-2 text-sm" value={birthMonth} onChange={(e) => setBirthMonth(e.target.value)} data-testid="select-signup-birth-month">
+                  <option value="">Month</option>
+                  {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+                </select>
+                <Input type="number" min={1900} max={new Date().getFullYear()} placeholder="Year" value={birthYear} onChange={(e) => setBirthYear(e.target.value)} data-testid="input-signup-birth-year" />
+              </div>
+              <p className="text-xs text-muted-foreground">Get a free game during your birthday week.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>

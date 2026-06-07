@@ -262,6 +262,30 @@ export async function sendBookingConfirmationEmail(
   }
 }
 
+// ─── Birthday free-game reminder ──────────────────────────────────────────
+export async function sendBirthdayReminderEmail(
+  toEmail: string,
+  name: string,
+  from: Date,
+  to: Date,
+): Promise<void> {
+  const fmt = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const body = `
+    <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">Your free birthday game is coming up</h1>
+    <p style="margin:0 0 20px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${name}, your birthday is almost here — and your next game is on us.</p>
+    <p style="margin:0 0 20px;font-size:15px;color:#4a5568;line-height:1.6;">Book any ShuttleIQ session between <strong>${fmt(from)}</strong> and <strong>${fmt(to)}</strong> and your spot is completely free. No code needed — the discount applies automatically when you book. If you bring guests, their spots are charged as usual; yours is on the house.</p>
+    <p style="margin:0 0 24px;font-size:14px;color:#4a5568;line-height:1.6;">Pick a session, grab your spot, and we will see you on court.</p>
+    <hr style="border:none;border-top:1px solid #e8edf2;margin:0 0 20px;">
+    <p style="margin:0;font-size:13px;color:#718096;line-height:1.6;">Happy birthday from all of us,<br>The ShuttleIQ team</p>
+  `;
+  try {
+    await sendEmail(toEmail, 'Your free birthday game is coming up', emailWrapper(body));
+    console.log(`[Email] Birthday reminder sent to ${toEmail}`);
+  } catch (err) {
+    console.error('[Email] sendBirthdayReminderEmail failed:', err);
+  }
+}
+
 // ─── Waitlist Promotion ───────────────────────────────────────────────────
 
 export async function sendWaitlistPromotionEmail(

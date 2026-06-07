@@ -332,6 +332,13 @@ export const marketplaceUsers = pgTable("marketplace_users", {
   photoUrl: text("photo_url"),
   // PR1 addition — wiring deferred to PR4 (Dashboard nudge dismiss).
   referralNudgeDismissedAt: timestamp("referral_nudge_dismissed_at"),
+  // Birthday (free-game) feature. Day/month required to qualify; year optional.
+  // discountUsedAt: 300-day reset. emailSentAt: reminder de-dupe (once per year).
+  birthDay: integer("birth_day"),
+  birthMonth: integer("birth_month"),
+  birthYear: integer("birth_year"),
+  birthdayDiscountUsedAt: timestamp("birthday_discount_used_at"),
+  birthdayEmailSentAt: timestamp("birthday_email_sent_at"),
 });
 
 export const insertMarketplaceUserSchema = createInsertSchema(marketplaceUsers).omit({ id: true, createdAt: true, lastLoginAt: true });
@@ -417,6 +424,9 @@ export const bookings = pgTable("bookings", {
   // tables (parked feature, re-declared here from live DB). Both nullable.
   discountCodeId: varchar("discount_code_id"),
   discountAmountAed: integer("discount_amount_aed"),
+  // Birthday free-game: primary spot waived when applied. Set at booking submit;
+  // the user's birthdayDiscountUsedAt is set only on confirmation.
+  birthdayDiscountApplied: boolean("birthday_discount_applied").notNull().default(false),
 }, (table) => [
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)

@@ -268,6 +268,7 @@ export interface IStorage {
   createMarketplaceUser(user: InsertMarketplaceUser): Promise<MarketplaceUser>;
   getMarketplaceUser(id: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByEmail(email: string): Promise<MarketplaceUser | undefined>;
+  getMarketplaceUsersWithBirthday(): Promise<MarketplaceUser[]>;
   getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined>;
   getMarketplaceUserByVerificationToken(token: string): Promise<MarketplaceUser | undefined>;
   backfillEmailVerifiedForGoogleUsers(): Promise<number>;
@@ -1634,6 +1635,13 @@ export class DatabaseStorage implements IStorage {
   async getMarketplaceUser(id: string): Promise<MarketplaceUser | undefined> {
     const [user] = await db.select().from(marketplaceUsers).where(eq(marketplaceUsers.id, id));
     return user || undefined;
+  }
+
+  // Marketplace users who have set a birthday (day + month). Used by the daily
+  // birthday-reminder scheduler; filtered/windowed in JS via shared/birthday.ts.
+  async getMarketplaceUsersWithBirthday(): Promise<MarketplaceUser[]> {
+    return db.select().from(marketplaceUsers)
+      .where(and(isNotNull(marketplaceUsers.birthDay), isNotNull(marketplaceUsers.birthMonth)));
   }
 
   async getMarketplaceUserByResetToken(token: string): Promise<MarketplaceUser | undefined> {

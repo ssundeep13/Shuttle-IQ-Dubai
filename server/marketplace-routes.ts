@@ -36,6 +36,7 @@ import { isSchemeAllowed, buildOAuthCallbackRedirect } from "./oauthReturn";
 import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhookHandler";
+import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -268,8 +269,12 @@ export function registerMarketplaceRoutes(app: Express) {
           .array(z.number().int().min(1).max(4))
           .length(3, 'Please answer all three skill questions'),
         referralCode: z.string().optional(),
+        // Birthday (optional) — does not block signup if omitted.
+        birthDay: z.number().int().min(1).max(31).nullable().optional(),
+        birthMonth: z.number().int().min(1).max(12).nullable().optional(),
+        birthYear: z.number().int().min(1900).max(new Date().getFullYear()).nullable().optional(),
       });
-      const { email, password, name, phone, gender, assessmentAnswers, referralCode } = schema.parse(req.body);
+      const { email, password, name, phone, gender, assessmentAnswers, referralCode, birthDay, birthMonth, birthYear } = schema.parse(req.body);
 
       // Compute starting skill server-side. Hard cap at 95 — Advanced /
       // Professional are earned through gameplay only.
@@ -291,6 +296,10 @@ export function registerMarketplaceRoutes(app: Express) {
           passwordHash,
           name,
           phone: phone || null,
+          // Birthday is optional; both day+month needed to qualify for the free game.
+          birthDay: birthDay ?? null,
+          birthMonth: birthMonth ?? null,
+          birthYear: birthYear ?? null,
           linkedPlayerId: null,
           role: "player",
           pendingSignupCreditFils: 0,
@@ -683,9 +692,37 @@ export function registerMarketplaceRoutes(app: Express) {
         emailVerified: user.emailVerified,
         hasPassword: !!user.passwordHash,
         photoUrl: user.photoUrl,
+        birthDay: user.birthDay,
+        birthMonth: user.birthMonth,
+        birthYear: user.birthYear,
+        birthdayDiscountUsedAt: user.birthdayDiscountUsedAt,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get user" });
+    }
+  });
+
+  // Save the signed-in player's birthday (day + month required to qualify for the
+  // free-game discount; year optional). Pass nulls to clear. Validated 1-31 / 1-12.
+  app.patch("/api/marketplace/me/birthday", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const schema = z.object({
+        birthDay: z.number().int().min(1).max(31).nullable(),
+        birthMonth: z.number().int().min(1).max(12).nullable(),
+        birthYear: z.number().int().min(1900).max(new Date().getFullYear()).nullable().optional(),
+      });
+      const { birthDay, birthMonth, birthYear } = schema.parse(req.body);
+      // Day and month must be set together (or both cleared) — partial is invalid.
+      if ((birthDay === null) !== (birthMonth === null)) {
+        return res.status(400).json({ error: "Provide both day and month, or clear both." });
+      }
+      await storage.updateMarketplaceUser(req.user.userId, {
+        birthDay, birthMonth, birthYear: birthYear ?? null,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ error: "Invalid birthday" });
     }
   });
 
@@ -2346,6 +2383,21 @@ export function registerMarketplaceRoutes(app: Express) {
       // Fetch primary user once — needed for waitlist path too
       const primaryUser = await storage.getMarketplaceUser(req.user.userId);
 
+      // ── Birthday discount: the PRIMARY player's spot is free during their
+      //    birthday window, once per ~year (300-day reset). Fully automatic,
+      //    silent, server-side. Guests pay full price. NOT applied on the
+      //    waitlist path (would burn the once-a-year discount before they get a
+      //    spot). `chargeableSpots` waives the primary's single spot when eligible.
+      const birthdayDiscountApplied = isBirthdayDiscountAvailable(primaryUser ?? {}, new Date());
+      const chargeableSpots = birthdayDiscountApplied ? Math.max(0, spotsBooked - 1) : spotsBooked;
+      // Set the user's once-a-year marker only when the booking confirms now.
+      // (Pending Ziina bookings set it on confirmation in confirmZiinaBookingByIntentId.)
+      const markBirthdayUsedIfConfirmedNow = async () => {
+        if (birthdayDiscountApplied && primaryUser) {
+          await storage.updateMarketplaceUser(primaryUser.id, { birthdayDiscountUsedAt: new Date() });
+        }
+      };
+
       // Helper: create per-slot booking_guest rows for ALL spots (primary + extras),
       // making the per-slot model explicit. Primary booker gets isPrimary=true.
       const createAllSlotsForBooking = async (
@@ -2444,7 +2496,7 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       if (method === 'cash') {
-        const totalAmount = bookableSession.priceAed * spotsBooked;
+        const totalAmount = bookableSession.priceAed * chargeableSpots;
         const booking = await storage.createBooking({
           userId: req.user.userId,
           sessionId,
@@ -2454,7 +2506,9 @@ export function registerMarketplaceRoutes(app: Express) {
           amountAed: totalAmount,
           cashPaid: false,
           spotsBooked,
+          birthdayDiscountApplied,
         });
+        await markBirthdayUsedIfConfirmedNow(); // cash booking confirms immediately
 
         // Create all slot rows (primary + guests) in booking_guests
         await createAllSlotsForBooking(booking.id, 'confirmed', true);
@@ -2485,6 +2539,7 @@ export function registerMarketplaceRoutes(app: Express) {
           bookingId: booking.id,
           paymentMethod: "cash",
           amount: totalAmount,
+          birthdayDiscountApplied,
           spotsBooked,
           booking: bookingWithDetails,
           session: {
@@ -2497,7 +2552,7 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      const totalAmount = bookableSession.priceAed * spotsBooked;
+      const totalAmount = bookableSession.priceAed * chargeableSpots;
       const totalAmountFils = totalAmount * 100;
 
       // Create booking first (pending for Ziina, confirmed for full wallet coverage)
@@ -2510,6 +2565,7 @@ export function registerMarketplaceRoutes(app: Express) {
         amountAed: totalAmount,
         cashPaid: false,
         spotsBooked,
+        birthdayDiscountApplied,
       });
 
       // Apply wallet credit if requested (uses shared deductWalletForBooking helper)
@@ -2521,9 +2577,11 @@ export function registerMarketplaceRoutes(app: Express) {
         remainingFils = walletResult.remainingFils;
       }
 
-      // If wallet fully covers the cost, confirm booking without Ziina
-      if (walletApplied > 0 && remainingFils <= 0) {
-        await storage.updateBooking(booking.id, { status: 'confirmed', paymentMethod: 'wallet' });
+      // If wallet fully covers the cost — or the birthday discount made it free
+      // (zero total, e.g. solo birthday booking) — confirm immediately without Ziina.
+      if (totalAmount === 0 || (walletApplied > 0 && remainingFils <= 0)) {
+        await storage.updateBooking(booking.id, { status: 'confirmed', paymentMethod: walletApplied > 0 ? 'wallet' : 'ziina' });
+        await markBirthdayUsedIfConfirmedNow(); // confirmed now → consume the birthday discount
         await createAllSlotsForBooking(booking.id, 'confirmed', true);
         // PR2 trigger site 4/5: full-wallet booking confirms at creation
         // (decision A — any first confirmed booking counts as the trigger).
@@ -2538,9 +2596,10 @@ export function registerMarketplaceRoutes(app: Express) {
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
         return res.json({
           bookingId: booking.id,
-          paymentMethod: "wallet",
+          paymentMethod: walletApplied > 0 ? "wallet" : "birthday_free",
           amount: totalAmount,
           walletApplied,
+          birthdayDiscountApplied,
           spotsBooked,
           booking: bookingWithDetails,
           session: {
@@ -2609,6 +2668,7 @@ export function registerMarketplaceRoutes(app: Express) {
         amount: totalAmount,
         walletApplied,
         ziinaAmount: ziinaAmountAed,
+        birthdayDiscountApplied,
         spotsBooked,
         session: {
           title: bookableSession.title,

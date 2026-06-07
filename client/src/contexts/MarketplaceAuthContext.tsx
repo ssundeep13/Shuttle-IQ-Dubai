@@ -13,6 +13,10 @@ interface MarketplaceUser {
   emailVerified: boolean;
   hasPassword: boolean;
   photoUrl?: string | null;
+  birthDay?: number | null;
+  birthMonth?: number | null;
+  birthYear?: number | null;
+  birthdayDiscountUsedAt?: string | null;
 }
 
 interface MarketplaceAuthContextType {
@@ -28,6 +32,9 @@ interface MarketplaceAuthContextType {
     gender: 'Male' | 'Female';
     assessmentAnswers: [number, number, number];
     referralCode?: string;
+    birthDay?: number | null;
+    birthMonth?: number | null;
+    birthYear?: number | null;
     remember?: boolean;
   }) => Promise<void>;
   loginWithTokens: (
@@ -203,6 +210,9 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     gender: 'Male' | 'Female';
     assessmentAnswers: [number, number, number];
     referralCode?: string;
+    birthDay?: number | null;
+    birthMonth?: number | null;
+    birthYear?: number | null;
     remember?: boolean;
   }) => {
     const remember = input.remember ?? true;
@@ -215,6 +225,9 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
         phone: input.phone,
         gender: input.gender,
         assessmentAnswers: input.assessmentAnswers,
+        birthDay: input.birthDay ?? null,
+        birthMonth: input.birthMonth ?? null,
+        birthYear: input.birthYear ?? null,
       };
       if (input.referralCode) payload.referralCode = input.referralCode;
       const response = await fetch(apiUrl('/api/marketplace/auth/signup'), {
