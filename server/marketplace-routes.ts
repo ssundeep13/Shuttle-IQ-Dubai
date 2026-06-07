@@ -2302,19 +2302,32 @@ export function registerMarketplaceRoutes(app: Express) {
       const existingBooking = await storage.getUserBookingForSession(req.user.userId, sessionId);
       if (existingBooking) {
         if (existingBooking.status === 'pending') {
-          // Check if the Ziina payment already completed before cancelling — avoids a race
-          // where the user retries while the first payment is still being processed
+          // MONEY-SAFETY: a paid booking must NEVER be cancelled by a re-book.
+          // (1) Ledger guard — if a completed payment row already exists, it's paid.
+          //     Restore/confirm it (idempotent) instead of cancelling.
+          const existingPayments = await storage.getPaymentsByBookingId(existingBooking.id);
+          if (existingPayments.some((p) => p.status === 'completed')) {
+            if (existingBooking.ziinaPaymentIntentId) {
+              await confirmZiinaBookingByIntentId(existingBooking.ziinaPaymentIntentId, 'completed').catch(() => {});
+            }
+            return res.status(400).json({ error: "You already have a paid booking for this session. Please refresh to see it." });
+          }
+          // (2) Live Ziina check — FAIL CLOSED. If we cannot verify the status,
+          //     never cancel on uncertainty: ask the user to refresh and retry.
           if (existingBooking.ziinaPaymentIntentId) {
+            let ziinaStatus;
             try {
-              const ziinaStatus = await retrieveZiinaPaymentIntent(existingBooking.ziinaPaymentIntentId);
-              if (isZiinaPaymentSuccessful(ziinaStatus.status)) {
-                return res.status(400).json({ error: "Your payment is being processed. Please wait a moment and refresh." });
-              }
-            } catch (_) {
-              // Ziina check failed — proceed with cancellation so user can retry
+              ziinaStatus = await retrieveZiinaPaymentIntent(existingBooking.ziinaPaymentIntentId);
+            } catch (_err) {
+              return res.status(503).json({ error: "Your payment may be processing. Please refresh in a moment before trying again." });
+            }
+            if (isZiinaPaymentSuccessful(ziinaStatus.status)) {
+              // Paid at Ziina — confirm (restore) the booking rather than cancel it.
+              await confirmZiinaBookingByIntentId(existingBooking.ziinaPaymentIntentId, ziinaStatus.status).catch(() => {});
+              return res.status(400).json({ error: "Your payment is being processed. Please wait a moment and refresh." });
             }
           }
-          // Payment not completed — cancel the stale pending booking and allow retry
+          // (3) Verified unpaid — safe to cancel the stale pending booking and allow retry.
           await refundBookingWalletCredit(existingBooking);
           await storage.updateBooking(existingBooking.id, { status: 'cancelled', cancelledAt: new Date(), walletAmountUsed: 0 });
         } else if (existingBooking.status !== 'cancelled') {

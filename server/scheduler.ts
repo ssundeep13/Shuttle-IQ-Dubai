@@ -1,5 +1,7 @@
 import { storage } from "./storage";
 import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendGuestBookingEmail } from "./emailClient";
+import { retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaClient";
+import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { db } from "./db";
 import { players } from "@shared/schema";
 import { sql } from "drizzle-orm";
@@ -9,6 +11,8 @@ const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const PAYMENT_WINDOW_MS = 4 * 60 * 60 * 1000; // 4-hour payment window for waitlist promotions
 const RESUME_TOKEN_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const AUTO_APPROVE_SWEEP_INTERVAL_MS = 15 * 1000; // 15 seconds — pending match suggestions auto-approve once their pendingUntil window passes
+const RECONCILE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes — Ziina payment reconciliation sweep
+const RECONCILE_WINDOW_MS = 48 * 60 * 60 * 1000; // look back 48h for paid-but-unrecorded bookings
 
 const MIN_SKILL_SCORE = 10;
 const INACTIVITY_THRESHOLD_DAYS = 14;
@@ -433,6 +437,43 @@ async function runResumeTokenCleanupJob(): Promise<void> {
   }
 }
 
+// ── Ziina payment reconciliation sweep ───────────────────────────────────────
+// Safety net for missed webhooks. Finds Ziina bookings (within the look-back
+// window) that aren't cleanly confirmed-with-payment, re-checks each intent
+// against Ziina, and for any that are actually paid runs the canonical confirm
+// path — which records the payment (idempotent), sets the booking to confirmed
+// (restoring it even if it was cancelled), and sends the confirmation email.
+// Idempotent: bookings already confirmed are no-ops, so no duplicate emails.
+async function runZiinaReconciliationJob(): Promise<void> {
+  try {
+    const candidates = await storage.getBookingsPendingZiinaReconciliation(RECONCILE_WINDOW_MS);
+    if (candidates.length === 0) return;
+
+    let rescued = 0;
+    for (const booking of candidates) {
+      const intentId = booking.ziinaPaymentIntentId;
+      if (!intentId) continue;
+      try {
+        const intent = await retrieveZiinaPaymentIntent(intentId);
+        if (!isZiinaPaymentSuccessful(intent.status)) continue; // genuinely unpaid — leave as-is
+
+        const result = await confirmZiinaBookingByIntentId(intentId, intent.status);
+        if (result.confirmed && !result.alreadyConfirmed) {
+          rescued++;
+          console.log(`[Reconcile] Rescued booking ${booking.id} (intent ${intentId}) — paid at Ziina but unrecorded →`, result);
+        }
+      } catch (err) {
+        console.error(`[Reconcile] Error reconciling booking ${booking.id} (intent ${intentId}):`, err);
+      }
+    }
+    if (rescued > 0) {
+      console.log(`[Reconcile] Sweep complete — ${rescued} booking(s) rescued of ${candidates.length} candidate(s).`);
+    }
+  } catch (err) {
+    console.error('[Reconcile] Job failed:', err);
+  }
+}
+
 export function startScheduler(): void {
   console.log('[Scheduler] Session reminder scheduler started (runs every 30 min)');
   setInterval(runReminderJob, REMINDER_INTERVAL_MS);
@@ -441,6 +482,10 @@ export function startScheduler(): void {
   console.log('[Scheduler] Waitlist payment expiry scheduler started (runs every 30 min)');
   setInterval(runExpiredPaymentJob, REMINDER_INTERVAL_MS);
   runExpiredPaymentJob();
+
+  console.log('[Scheduler] Ziina payment reconciliation sweep started (runs every 10 min)');
+  setInterval(runZiinaReconciliationJob, RECONCILE_INTERVAL_MS);
+  runZiinaReconciliationJob();
 
   console.log('[Scheduler] Inactivity decay scheduler started (runs every 24 h)');
   // Backfill first, then run the decay job (backfill is fast and idempotent)

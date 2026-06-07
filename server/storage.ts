@@ -340,6 +340,7 @@ export interface IStorage {
   getWaitlistCountForSession(sessionId: string): Promise<number>;
   getBookingsNeedingReminder(): Promise<BookingWithDetails[]>;
   getExpiredPendingPaymentBookings(olderThanMs: number): Promise<Booking[]>;
+  getBookingsPendingZiinaReconciliation(withinMs: number): Promise<Booking[]>;
 
   // Notification operations
   createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string }): Promise<MarketplaceNotification>;
@@ -2396,6 +2397,24 @@ export class DatabaseStorage implements IStorage {
         eq(bookings.status, 'pending_payment'),
         sql`${bookings.promotedAt} IS NOT NULL`,
         lt(bookings.promotedAt, cutoff),
+      ));
+  }
+
+  // Reconciliation candidates: Ziina bookings created within the look-back window
+  // that are NOT cleanly confirmed-with-payment — i.e. status is not 'confirmed'
+  // OR no completed payment row exists. The reconciliation sweep re-checks each
+  // against Ziina and rescues any that were actually paid but never recorded
+  // (e.g. a missed webhook). Window-bounded to keep the sweep cheap.
+  async getBookingsPendingZiinaReconciliation(withinMs: number): Promise<Booking[]> {
+    const cutoff = new Date(Date.now() - withinMs);
+    return db
+      .select()
+      .from(bookings)
+      .where(and(
+        isNotNull(bookings.ziinaPaymentIntentId),
+        gte(bookings.createdAt, cutoff),
+        sql`(${bookings.status} <> 'confirmed' OR NOT EXISTS (
+              SELECT 1 FROM payments WHERE payments.booking_id = ${bookings.id} AND payments.status = 'completed'))`,
       ));
   }
 
