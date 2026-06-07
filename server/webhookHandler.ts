@@ -241,8 +241,6 @@ export function registerZiinaWebhookRoute(app: Express) {
       const intentStatus: string | undefined = paymentIntent?.status;
       const eventType: string | undefined = payload.event;
 
-      // TEMP DEBUG — remove once the live payload shape is confirmed in the logs.
-      console.log('[Ziina Webhook] raw payload:', JSON.stringify(payload));
       console.log(`[Ziina Webhook] Received event="${eventType}" intentId="${intentId}" status="${intentStatus}"`);
 
       // Refund events: refund.completed | refund.failed. The webhook is the
