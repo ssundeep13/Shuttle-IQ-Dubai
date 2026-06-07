@@ -703,10 +703,18 @@ export function registerMarketplaceRoutes(app: Express) {
   });
 
   // Save the signed-in player's birthday (day + month required to qualify for the
-  // free-game discount; year optional). Pass nulls to clear. Validated 1-31 / 1-12.
+  // free-game discount; year optional). Validated 1-31 / 1-12.
+  // LOCK: birthday can only be set ONCE — once birth_day is set, the server
+  // rejects any change. This prevents gaming the free game by resetting the
+  // birthday to today. Genuine typos are fixed by an admin via the reset endpoint.
   app.patch("/api/marketplace/me/birthday", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      // Critical protection — reject if already set, even if the UI is bypassed.
+      const current = await storage.getMarketplaceUser(req.user.userId);
+      if (current?.birthDay != null) {
+        return res.status(400).json({ error: "Birthday already set and cannot be changed" });
+      }
       const schema = z.object({
         birthDay: z.number().int().min(1).max(31).nullable(),
         birthMonth: z.number().int().min(1).max(12).nullable(),
@@ -723,6 +731,21 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json({ ok: true });
     } catch (error) {
       res.status(400).json({ error: "Invalid birthday" });
+    }
+  });
+
+  // Admin: reset a player's birthday (clears day/month/year) so they can re-enter
+  // it — for fixing genuine typos. :id is the marketplace_user id. Admin auth only.
+  app.patch("/api/admin/players/:id/birthday/reset", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const target = await storage.getMarketplaceUser(req.params.id);
+      if (!target) return res.status(404).json({ error: "User not found" });
+      await storage.updateMarketplaceUser(target.id, { birthDay: null, birthMonth: null, birthYear: null });
+      console.log(`[Admin] Birthday reset for marketplace user ${target.id} (${target.email}).`);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('[Admin] birthday reset error:', error);
+      res.status(500).json({ error: "Failed to reset birthday" });
     }
   });
 

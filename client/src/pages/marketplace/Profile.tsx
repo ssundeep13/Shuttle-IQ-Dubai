@@ -36,6 +36,7 @@ function BirthdayCard({ birthDay, birthMonth, birthYear }: { birthDay?: number |
   const [day, setDay] = useState(birthDay?.toString() ?? '');
   const [month, setMonth] = useState(birthMonth?.toString() ?? '');
   const [year, setYear] = useState(birthYear?.toString() ?? '');
+  const locked = birthDay != null; // birthday is set once, then locked
   const display = birthDay && birthMonth ? `${birthDay} ${BIRTHDAY_MONTHS[birthMonth - 1]}${birthYear ? ` ${birthYear}` : ''}` : null;
 
   const save = useMutation({
@@ -45,7 +46,7 @@ function BirthdayCard({ birthDay, birthMonth, birthYear }: { birthDay?: number |
       birthYear: year ? parseInt(year, 10) : null,
     }),
     onSuccess: () => { toast({ title: 'Birthday saved' }); qc.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] }); },
-    onError: () => toast({ title: 'Could not save birthday', variant: 'destructive' }),
+    onError: (err: any) => toast({ title: err?.error || 'Could not save birthday', variant: 'destructive' }),
   });
 
   return (
@@ -53,23 +54,30 @@ function BirthdayCard({ birthDay, birthMonth, birthYear }: { birthDay?: number |
       <CardHeader>
         <CardTitle className="text-base flex items-center justify-between">
           <span>Birthday</span>
-          <span className="text-xs font-normal text-muted-foreground">Optional</span>
+          {!locked && <span className="text-xs font-normal text-muted-foreground">Optional</span>}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-xs text-muted-foreground">
-          Add your birthday and your spot is free on any session during your birthday week (4 days either side).
-          {display && <> Currently set to <span className="font-medium">{display}</span>.</>}
-        </p>
-        <div className="grid grid-cols-3 gap-2">
-          <Input type="number" min={1} max={31} placeholder="Day" value={day} onChange={(e) => setDay(e.target.value)} data-testid="input-birth-day" />
-          <select className="h-10 rounded-md border border-input bg-background px-2 text-sm" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="select-birth-month">
-            <option value="">Month</option>
-            {BIRTHDAY_MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-          </select>
-          <Input type="number" min={1900} max={new Date().getFullYear()} placeholder="Year (opt.)" value={year} onChange={(e) => setYear(e.target.value)} data-testid="input-birth-year" />
-        </div>
-        <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending} data-testid="button-save-birthday">Save birthday</Button>
+        {locked ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-birthday-locked">
+            Your birthday is locked in as <span className="font-medium text-foreground">{display}</span>. Contact us if you need to change it.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Add your birthday and your spot is free on any session during your birthday week (4 days either side). Once saved, it can&apos;t be changed.
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <Input type="number" min={1} max={31} placeholder="Day" value={day} onChange={(e) => setDay(e.target.value)} data-testid="input-birth-day" />
+              <select className="h-10 rounded-md border border-input bg-background px-2 text-sm" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="select-birth-month">
+                <option value="">Month</option>
+                {BIRTHDAY_MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+              </select>
+              <Input type="number" min={1900} max={new Date().getFullYear()} placeholder="Year (opt.)" value={year} onChange={(e) => setYear(e.target.value)} data-testid="input-birth-year" />
+            </div>
+            <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending} data-testid="button-save-birthday">Save birthday</Button>
+          </>
+        )}
       </CardContent>
     </Card>
   );
