@@ -21,6 +21,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { LogOut, Calendar, MapPin, Plus, Trash2, Eye, Users, Activity, Clock, CheckCircle, LayoutGrid, Trophy, FileDown, Search, Link2, ShoppingBag, DollarSign, Pencil, Play, Banknote, CreditCard, Flag, CheckCircle2, XCircle, ReceiptText, ExternalLink, Copy, AlertTriangle, FlaskConical, TrendingUp, Lightbulb, ThumbsUp, X, Check, Upload, ImageIcon, Loader2, Gift, Package, Menu, MoreVertical } from 'lucide-react';
 import {
@@ -1093,6 +1094,25 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     onError: () => toast({ title: 'Failed to confirm booking', variant: 'destructive' }),
   });
 
+  const paymentNotReceivedMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      const res = await fetch(apiUrl(`/api/admin/bookings/${bookingId}/payment-not-received`), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: 'Booking cancelled', description: 'Marked as payment not received — no refund, no email sent.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', linkedBookable?.id, 'bookings'] });
+    },
+    onError: (err: Error) => toast({ title: 'Could not cancel booking', description: err.message, variant: 'destructive' }),
+  });
+
   const adminPromoteMutation = useMutation({
     mutationFn: async (bookingId: string) => {
       const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/admin-promote`), {
@@ -1356,6 +1376,36 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
               <CheckCircle className="h-3 w-3" />
               Confirm Payment
             </Button>
+          )}
+          {booking.paymentMethod !== 'cash' && booking.status === 'pending' && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1 text-muted-foreground"
+                  disabled={paymentNotReceivedMutation.isPending}
+                  data-testid={`button-payment-not-received-${booking.id}`}
+                >
+                  <XCircle className="h-3 w-3" />
+                  Payment Not Received
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Payment not received?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    No payment received from Ziina? This will cancel the booking.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep booking</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => paymentNotReceivedMutation.mutate(booking.id)}>
+                    Cancel booking
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
           {booking.status === 'confirmed' && (
             <Button

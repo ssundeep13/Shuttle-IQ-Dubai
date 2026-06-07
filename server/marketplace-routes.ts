@@ -4045,6 +4045,54 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
+  // Admin: mark a pending Ziina booking as "payment not received" → cancel it.
+  // No refund (no money was taken) and no email (the player never successfully paid).
+  // Money-safety: refuses if the booking is actually paid (a completed payment row
+  // exists OR Ziina reports the intent successful) so a paid booking can never be
+  // cancelled through this path.
+  app.post("/api/admin/bookings/:id/payment-not-received", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const booking = await storage.getBooking(req.params.id);
+      if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.paymentMethod === 'cash') {
+        return res.status(400).json({ error: "This action is for Ziina bookings. Use the cash-paid toggle for cash bookings." });
+      }
+      if (booking.status !== 'pending') {
+        return res.status(400).json({ error: `Only pending bookings can be marked as payment-not-received (this one is '${booking.status}').` });
+      }
+
+      // Guard 1: a recorded completed payment means it WAS paid — never cancel here.
+      const existingPayments = await storage.getPaymentsByBookingId(booking.id);
+      if (existingPayments.some((p) => p.status === 'completed')) {
+        return res.status(409).json({ error: "This booking has a recorded payment — it was paid. Use Confirm Payment instead." });
+      }
+      // Guard 2: live Ziina check. If Ziina shows it paid, do not cancel (the
+      // reconciliation sweep will auto-confirm it). On a Ziina API error, proceed:
+      // the admin has manually verified no payment, and the sweep is the backstop.
+      if (booking.ziinaPaymentIntentId) {
+        try {
+          const intent = await retrieveZiinaPaymentIntent(booking.ziinaPaymentIntentId);
+          if (isZiinaPaymentSuccessful(intent.status)) {
+            return res.status(409).json({ error: "Ziina reports this payment as successful — it will auto-confirm shortly. Do not cancel; use Confirm Payment." });
+          }
+        } catch (zErr) {
+          console.warn(`[payment-not-received] Ziina status check failed for booking ${booking.id}:`, zErr);
+        }
+      }
+
+      const updated = await storage.updateBooking(booking.id, {
+        status: 'cancelled',
+        cancelledAt: new Date(),
+        cancellationReason: 'payment_not_received',
+      });
+      console.log(`[Admin] Booking ${booking.id} marked payment_not_received by admin (no refund, no email).`);
+      return res.json({ booking: updated });
+    } catch (error) {
+      console.error('[Admin] payment-not-received error:', error);
+      return res.status(500).json({ error: "Failed to update booking" });
+    }
+  });
+
   // Admin: force-confirm a pending Ziina booking (escape hatch when Ziina timing caused status to get stuck)
   app.post("/api/marketplace/bookings/:id/admin-confirm", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
