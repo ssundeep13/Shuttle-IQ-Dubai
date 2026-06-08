@@ -427,6 +427,11 @@ export const bookings = pgTable("bookings", {
   // Birthday free-game: primary spot waived when applied. Set at booking submit;
   // the user's birthdayDiscountUsedAt is set only on confirmation.
   birthdayDiscountApplied: boolean("birthday_discount_applied").notNull().default(false),
+  // Cancellation refund choice. refundMethod: 'wallet' | 'ziina' (null = not
+  // refunded). walletRefundedAt: set when wallet credit is issued — the
+  // idempotency guard that prevents a second refund of the same booking.
+  refundMethod: text("refund_method"),
+  walletRefundedAt: timestamp("wallet_refunded_at"),
 }, (table) => [
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)

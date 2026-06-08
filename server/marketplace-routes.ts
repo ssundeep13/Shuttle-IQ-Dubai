@@ -3285,6 +3285,10 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
       if (booking.status === "cancelled") return res.status(400).json({ error: "Already cancelled" });
+      // Double-refund guard: never refund the same booking twice.
+      if (booking.walletRefundedAt != null || booking.refundMethod != null) {
+        return res.status(400).json({ error: "This booking has already been refunded." });
+      }
 
       // Check late cancellation window (< 5 hours before session start)
       let lateFeeApplied = false;
@@ -3301,7 +3305,62 @@ export function registerMarketplaceRoutes(app: Express) {
 
       const wasConfirmed = booking.status === 'confirmed' || booking.status === 'pending_payment';
 
-      // Refund wallet credit if any was used (unless late fee retains full payment)
+      // ── Cash refund choice ─────────────────────────────────────────────────
+      // The card-captured cash (in fils) eligible for refund. Only confirmed
+      // Ziina bookings outside the late window. Fully-wallet-paid ('wallet') and
+      // legacy cash ('cash') bookings have no card charge → no choice is offered.
+      const cashToRefundFils = booking.amountAed * 100 - (booking.walletAmountUsed ?? 0);
+      const refundEligible =
+        booking.status === 'confirmed' &&
+        !lateFeeApplied &&
+        booking.paymentMethod === 'ziina' &&
+        cashToRefundFils > 0;
+      const { refundMethod } = (req.body ?? {}) as { refundMethod?: 'wallet' | 'ziina' };
+
+      let appliedRefundMethod: 'wallet' | 'ziina' | null = null;
+      let refundAmountAed: number | null = null;
+
+      if (refundEligible) {
+        if (refundMethod !== 'wallet' && refundMethod !== 'ziina') {
+          return res.status(400).json({ error: "Please choose how you'd like your refund: wallet or bank." });
+        }
+        refundAmountAed = cashToRefundFils / 100;
+
+        if (refundMethod === 'wallet') {
+          // Atomic claim (walletRefundedAt NULL → now) so a double-click can't
+          // double-credit; only the winning request credits the wallet.
+          const [claimed] = await db
+            .update(bookings)
+            .set({ walletRefundedAt: new Date(), refundMethod: 'wallet' })
+            .where(and(eq(bookings.id, booking.id), sql`${bookings.walletRefundedAt} IS NULL`))
+            .returning();
+          if (!claimed) return res.status(400).json({ error: "This booking has already been refunded." });
+          const refUser = await storage.getMarketplaceUser(booking.userId);
+          if (refUser?.linkedPlayerId) {
+            await db
+              .update(players)
+              .set({ walletBalance: sql`${players.walletBalance} + ${cashToRefundFils}` })
+              .where(eq(players.id, refUser.linkedPlayerId));
+          }
+          appliedRefundMethod = 'wallet';
+        } else {
+          // Queue an admin bank (Ziina) refund — surfaces in the Refunds dashboard
+          // (marketplace_notifications type 'refund_required'). No wallet credit.
+          await storage.updateBooking(booking.id, { refundMethod: 'ziina' });
+          await storage.createMarketplaceNotification({
+            userId: booking.userId,
+            type: 'refund_required',
+            title: 'Refund owed — player cancelled',
+            message: `${bookableSession ? `"${bookableSession.title}"` : 'A booking'} was cancelled by the player. Refund of AED ${refundAmountAed.toFixed(2)} owed to bank via Ziina dashboard (intent ${booking.ziinaPaymentIntentId}).`,
+            relatedBookingId: booking.id,
+          });
+          appliedRefundMethod = 'ziina';
+        }
+      }
+
+      // Refund any wallet credit the player SPENT on the booking (their own
+      // money) unless a late fee retains full payment. Independent of the cash
+      // refund choice above (the spent credit always returns to the wallet).
       if (!lateFeeApplied) {
         await refundBookingWalletCredit(booking);
         // PR2 clawback site 1/2: cancel with refund — claw back any referral
@@ -3397,7 +3456,14 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       }
 
-      res.json({ booking: updated, lateFeeApplied, promoted });
+      res.json({
+        booking: updated,
+        lateFeeApplied,
+        promoted,
+        refundMethod: appliedRefundMethod,
+        refundAmount: refundAmountAed,
+        walletRefundAmount: appliedRefundMethod === 'wallet' ? refundAmountAed : undefined,
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to cancel booking" });
     }
@@ -4642,6 +4708,12 @@ export function registerMarketplaceRoutes(app: Express) {
       }
       if (!refund.relatedBookingId) {
         return res.status(400).json({ error: "Refund row has no linked booking." });
+      }
+      // Block double refund: if the player already took this to their wallet,
+      // there is no card refund to process.
+      const refundBooking = await storage.getBooking(refund.relatedBookingId);
+      if (refundBooking?.refundMethod === 'wallet') {
+        return res.status(400).json({ error: "This booking was already refunded to the player's wallet." });
       }
       if (!refund.amountAed || refund.amountAed <= 0) {
         return res.status(400).json({ error: "Refund row has no amount." });

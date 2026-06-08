@@ -237,8 +237,8 @@ export default function MyBookings() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: async (bookingId: string) => {
-      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`);
+    mutationFn: async ({ bookingId, refundMethod }: { bookingId: string; refundMethod?: 'wallet' | 'ziina' }) => {
+      return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`, refundMethod ? { refundMethod } : {});
     },
     onSuccess: (data: any) => {
       if (data?.lateFeeApplied) {
@@ -247,6 +247,10 @@ export default function MyBookings() {
           description: 'You cancelled within 5 hours of the session. Your full payment has been retained.',
           variant: 'destructive',
         });
+      } else if (data?.refundMethod === 'wallet') {
+        toast({ title: 'Booking cancelled', description: `AED ${data.walletRefundAmount} added to your ShuttleIQ wallet.` });
+      } else if (data?.refundMethod === 'ziina') {
+        toast({ title: 'Booking cancelled', description: `Your refund of AED ${data.refundAmount} will be returned to your bank within 2-3 business days.` });
       } else {
         toast({ title: 'Booking cancelled' });
       }
@@ -352,6 +356,13 @@ export default function MyBookings() {
     const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && sessionEndTime(booking) >= new Date();
     const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && sessionEndTime(booking) >= new Date();
     const lateFee = !isWaitlisted && !isPendingPayment && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
+    // Cash refund choice: only confirmed Ziina bookings outside the late window
+    // with card-captured cash to return. Forces a conscious wallet-vs-bank choice.
+    const cashRefundFils = booking.amountAed * 100 - (booking.walletAmountUsed ?? 0);
+    const showRefundChoice = canCancel && !isWaitlisted && !isPendingPayment && !lateFee
+      && booking.status === 'confirmed' && booking.paymentMethod === 'ziina' && cashRefundFils > 0;
+    const cashRefundAed = cashRefundFils / 100;
+    const [refundChoice, setRefundChoice] = useState<'wallet' | 'ziina' | null>(null);
 
     return (
       <div style={{ ...cardStyle, overflow: 'hidden', opacity: isPast ? 0.75 : 1 }} data-testid={`card-booking-${booking.id}`}>
@@ -565,13 +576,29 @@ export default function MyBookings() {
                               </p>
                             </div>
                           )}
+                          {showRefundChoice && (
+                            <div className="space-y-2 p-3 rounded-md" style={{ background: 'rgba(0,30,70,0.04)', border: '1px solid rgba(0,30,70,0.10)' }}>
+                              <p style={{ fontSize: 14, fontWeight: 600, color: MKT.navy }}>
+                                AED {cashRefundAed.toLocaleString('en-US', { maximumFractionDigits: 2 })} refund — how would you like it?
+                              </p>
+                              <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 14 }}>
+                                <input type="radio" name={`refund-${booking.id}`} checked={refundChoice === 'wallet'} onChange={() => setRefundChoice('wallet')} data-testid={`radio-refund-wallet-${booking.id}`} />
+                                <span>Add to my ShuttleIQ wallet — instant</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 14 }}>
+                                <input type="radio" name={`refund-${booking.id}`} checked={refundChoice === 'ziina'} onChange={() => setRefundChoice('ziina')} data-testid={`radio-refund-ziina-${booking.id}`} />
+                                <span>Refund to my bank account — takes 2-3 business days</span>
+                              </label>
+                            </div>
+                          )}
                         </div>
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>{isWaitlisted ? 'Stay on Waitlist' : isPendingPayment ? 'Keep Spot' : 'Keep Booking'}</AlertDialogCancel>
                       <AlertDialogAction
-                        onClick={() => cancelMutation.mutate(booking.id)}
+                        onClick={() => cancelMutation.mutate({ bookingId: booking.id, refundMethod: showRefundChoice ? refundChoice ?? undefined : undefined })}
+                        disabled={showRefundChoice && !refundChoice}
                         className="bg-destructive text-destructive-foreground"
                       >
                         {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'}
