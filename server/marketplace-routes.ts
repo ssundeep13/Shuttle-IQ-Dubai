@@ -3347,35 +3347,17 @@ export function registerMarketplaceRoutes(app: Express) {
           // Find first waitlisted booking that fits the available spots
           const first = waitlisted.find(w => (w.spotsBooked ?? 1) <= spotsAvailable);
           if (first) {
-            const isZiinaPromotion = first.paymentMethod === 'ziina';
             const promotionBaseUrl = process.env.REPLIT_DOMAINS
               ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
               : 'http://localhost:5000';
 
-            if (isZiinaPromotion) {
-              // Ziina payment: hold the spot as pending_payment with a 4-hour window
-              await storage.updateBooking(first.id, {
-                status: 'pending_payment',
-                waitlistPosition: null,
-                promotedAt: new Date(),
-              });
-            } else {
-              // Cash payment: immediately confirm the spot
-              await storage.updateBooking(first.id, { status: 'confirmed', waitlistPosition: null });
-              // PR2 trigger site 5/5: cash-payment waitlist promotion (the
-              // promoted booking is now confirmed — counts as the friend's
-              // first confirmed booking). Ziina promotions go through
-              // pending_payment → /confirm and are covered by site 1.
-              fireReferralOnPayment(first.userId, first.id);
-
-              // Confirm all pending slot rows for the promoted booking
-              const promotedSlots = await storage.getBookingGuests(first.id);
-              for (const slot of promotedSlots) {
-                if (slot.status === 'pending') {
-                  await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
-                }
-              }
-            }
+            // Cash is no longer accepted — every promotion is a Ziina booking:
+            // hold the spot as pending_payment with a 4-hour payment window.
+            await storage.updateBooking(first.id, {
+              status: 'pending_payment',
+              waitlistPosition: null,
+              promotedAt: new Date(),
+            });
 
             promoted = { bookingId: first.id, userId: first.userId };
 
@@ -3384,10 +3366,8 @@ export function registerMarketplaceRoutes(app: Express) {
             await storage.createMarketplaceNotification({
               userId: first.userId,
               type: 'waitlist_promoted',
-              title: isZiinaPromotion ? 'Spot available — complete payment!' : "You're confirmed!",
-              message: isZiinaPromotion
-                ? `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`
-                : `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}.`,
+              title: 'Spot available — complete payment!',
+              message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`,
               relatedBookingId: first.id,
             });
 
@@ -3395,33 +3375,8 @@ export function registerMarketplaceRoutes(app: Express) {
             try {
               const promotedUser = await storage.getMarketplaceUser(first.userId);
               if (promotedUser) {
-                const checkoutUrl = isZiinaPromotion
-                  ? `${promotionBaseUrl}/marketplace/my-bookings`
-                  : undefined;
+                const checkoutUrl = `${promotionBaseUrl}/marketplace/my-bookings`;
                 sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession, checkoutUrl).catch(() => {});
-
-                if (!isZiinaPromotion) {
-                  // Send emails + in-app notifications to non-primary guest slots (cash only — ziina waits for payment)
-                  const confirmedSlots = await storage.getBookingGuests(first.id);
-                  for (const slot of confirmedSlots) {
-                    if (!slot.isPrimary && slot.status === 'confirmed') {
-                      if (slot.email && slot.cancellationToken) {
-                        const cancelGuestUrl = `${promotionBaseUrl}/marketplace/guests/cancel/${slot.cancellationToken}`;
-                        const signupUrl = `${promotionBaseUrl}/marketplace/signup?email=${encodeURIComponent(slot.email)}`;
-                        sendGuestBookingEmail(slot.email, slot.name, promotedUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
-                      }
-                      if (slot.linkedUserId) {
-                        await storage.createMarketplaceNotification({
-                          userId: slot.linkedUserId,
-                          type: 'guest_booking_confirmed',
-                          title: 'You have a booking!',
-                          message: `${promotedUser.name} has been confirmed for "${bookableSession.title}" on ${dateLabel} — your guest spot is also confirmed.`,
-                          relatedBookingId: first.id,
-                        });
-                      }
-                    }
-                  }
-                }
               }
             } catch (emailErr) { console.error('[Email] waitlist promotion lookup failed:', emailErr); }
 

@@ -139,7 +139,7 @@ function MapLink({ url, sessionId, small }: { url: string; sessionId: string; sm
 
 // ── Action button — preserves exact states + testids + Link target ───────────
 function ActionButton({ session, isBooked, fullWidth, compact }: { session: BookableSessionWithAvailability; isBooked: boolean; fullWidth?: boolean; compact?: boolean }) {
-  const disabled = !isBooked && session.spotsRemaining <= 0;
+  const disabled = false;
   const label = isBooked ? 'View Booking' : session.spotsRemaining > 0 ? 'View & Book' : 'Join the Waitlist';
   const testid = isBooked ? `button-view-booking-${session.id}` : `button-view-session-${session.id}`;
 
@@ -150,8 +150,7 @@ function ActionButton({ session, isBooked, fullWidth, compact }: { session: Book
     justifyContent: 'center', gap: 6, whiteSpace: 'nowrap', width: fullWidth ? '100%' : 'auto',
   };
   let kindStyle: CSSProperties;
-  if (disabled) kindStyle = { background: 'rgba(0,30,70,0.05)', color: MKT.inkMute, borderColor: 'transparent' };
-  else if (isBooked) kindStyle = { background: '#fff', color: MKT.navy, borderColor: `${MKT.navy}55` };
+  if (isBooked) kindStyle = { background: '#fff', color: MKT.navy, borderColor: `${MKT.navy}55` };
   else kindStyle = { background: MKT.navy, color: '#fff', borderColor: MKT.navy };
 
   return (

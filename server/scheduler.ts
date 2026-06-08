@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendGuestBookingEmail, sendBirthdayReminderEmail } from "./emailClient";
+import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendBirthdayReminderEmail } from "./emailClient";
 import { retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaClient";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { daysUntilBirthday, birthdayWindowRange } from "@shared/birthday";
@@ -265,63 +265,29 @@ async function runExpiredPaymentJob(): Promise<void> {
         const next = waitlisted.find(w => (w.spotsBooked ?? 1) <= spotsAvailable);
 
         if (next) {
-          const isZiinaPromotion = next.paymentMethod === 'ziina';
           const dateLabel = new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
-          if (isZiinaPromotion) {
-            await storage.updateBooking(next.id, {
-              status: 'pending_payment',
-              waitlistPosition: null,
-              promotedAt: new Date(),
-            });
-          } else {
-            await storage.updateBooking(next.id, { status: 'confirmed', waitlistPosition: null });
-            const slots = await storage.getBookingGuests(next.id);
-            for (const slot of slots) {
-              if (slot.status === 'pending') {
-                await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
-              }
-            }
-          }
+          // Cash is no longer accepted — every promotion is a Ziina booking:
+          // hold the spot as pending_payment with a 4-hour payment window.
+          await storage.updateBooking(next.id, {
+            status: 'pending_payment',
+            waitlistPosition: null,
+            promotedAt: new Date(),
+          });
 
           await storage.createMarketplaceNotification({
             userId: next.userId,
             type: 'waitlist_promoted',
-            title: isZiinaPromotion ? 'Spot available — complete payment!' : "You're confirmed!",
-            message: isZiinaPromotion
-              ? `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`
-              : `A spot opened up — you've been confirmed for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}.`,
+            title: 'Spot available — complete payment!',
+            message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`,
             relatedBookingId: next.id,
           });
 
           try {
             const nextUser = await storage.getMarketplaceUser(next.userId);
             if (nextUser) {
-              const checkoutUrl = isZiinaPromotion ? `${baseUrl}/marketplace/my-bookings` : undefined;
+              const checkoutUrl = `${baseUrl}/marketplace/my-bookings`;
               sendWaitlistPromotionEmail(nextUser.email, nextUser.name, bookableSession, checkoutUrl).catch(() => {});
-
-              if (!isZiinaPromotion) {
-                // Cash promotion: send guest confirmation emails and linked-user notifications
-                const confirmedSlots = await storage.getBookingGuests(next.id);
-                for (const slot of confirmedSlots) {
-                  if (!slot.isPrimary && slot.status === 'confirmed') {
-                    if (slot.email && slot.cancellationToken) {
-                      const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${slot.cancellationToken}`;
-                      const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(slot.email)}`;
-                      sendGuestBookingEmail(slot.email, slot.name, nextUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
-                    }
-                    if (slot.linkedUserId) {
-                      await storage.createMarketplaceNotification({
-                        userId: slot.linkedUserId,
-                        type: 'guest_booking_confirmed',
-                        title: 'You have a booking!',
-                        message: `${nextUser.name} has been confirmed for "${bookableSession.title}" on ${dateLabel} — your guest spot is also confirmed.`,
-                        relatedBookingId: next.id,
-                      });
-                    }
-                  }
-                }
-              }
             }
           } catch (emailErr) {
             console.error('[Scheduler] Failed to send promotion email:', emailErr);
@@ -334,7 +300,7 @@ async function runExpiredPaymentJob(): Promise<void> {
             await storage.updateBooking(remaining[i].id, { waitlistPosition: i + 1 });
           }
 
-          console.log(`[Scheduler] Promoted booking ${next.id} (${isZiinaPromotion ? 'pending_payment' : 'confirmed'}) for session ${booking.sessionId}`);
+          console.log(`[Scheduler] Promoted booking ${next.id} (pending_payment) for session ${booking.sessionId}`);
         }
 
         console.log(`[Scheduler] Expired pending_payment booking ${booking.id} — spot released and cascaded`);
