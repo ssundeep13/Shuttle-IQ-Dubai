@@ -70,8 +70,7 @@ export default function JoinTheCrew() {
             style={headingOnDark}
             data-testid="text-hiring-hero-title"
           >
-            Join the ShuttleIQ Crew{' '}
-            <span className="text-secondary text-2xl md:text-3xl font-semibold">(Limited Slots)</span>
+            Join the Shuttle<span className="text-secondary">IQ</span> Crew
           </motion.h1>
           <motion.p
             variants={fadeInUp}
@@ -144,11 +143,14 @@ export default function JoinTheCrew() {
             <SectionHeading
               label="Open Role"
               title="Court Captain"
-              subtitle="Session Host · Part-Time"
+              subtitle="Part-Time · Evenings & Weekends"
             />
           </motion.div>
-          <motion.p variants={fadeInUp} className="text-muted-foreground mb-8 leading-relaxed max-w-2xl">
+          <motion.p variants={fadeInUp} className="text-muted-foreground mb-3 leading-relaxed max-w-2xl">
             You are the heartbeat of the session. You don't just manage games — you create the experience.
+          </motion.p>
+          <motion.p variants={fadeInUp} className="text-sm font-semibold mb-8" style={{ color: '#006B5F' }}>
+            No prior experience needed — full training provided.
           </motion.p>
           <motion.div variants={fadeInUp}>
             <Card style={cardChrome}>
@@ -178,13 +180,12 @@ export default function JoinTheCrew() {
           variants={stagger}
         >
           <motion.div variants={fadeInUp}>
-            <SectionHeading label="Is This You?" title="Who This Is For" />
+            <SectionHeading label="Is This You?" title="Who This Is For" subtitle="Open to all. We're especially keen to hear from female players, as we're expanding our women's sessions." />
           </motion.div>
           <motion.div variants={fadeInUp}>
             <Card style={cardChrome}>
               <CardContent className="p-6">
                 <ul className="space-y-3">
-                  <BulletItem>Female badminton player (upper-intermediate+)</BulletItem>
                   <BulletItem>Confident and people-friendly</BulletItem>
                   <BulletItem>Naturally takes charge in group situations</BulletItem>
                   <BulletItem>Loves badminton and plays regularly</BulletItem>
@@ -217,9 +218,15 @@ export default function JoinTheCrew() {
                     <h3 className="font-semibold">Requirements</h3>
                   </div>
                   <ul className="space-y-3">
+                    <BulletItem>Knows badminton</BulletItem>
+                    <BulletItem>Good with people</BulletItem>
+                    <BulletItem>Organized and reliable</BulletItem>
                     <BulletItem>Own visa (mandatory)</BulletItem>
-                    <BulletItem>Valid UAE driving license</BulletItem>
-                    <BulletItem>Access to a car</BulletItem>
+                    <BulletItem>Valid UAE driving licence</BulletItem>
+                    <BulletItem>Access to a car (for moving equipment between venues)</BulletItem>
+                    <BulletItem>Available evenings and weekends</BulletItem>
+                    <BulletItem>Based in Dubai</BulletItem>
+                    <BulletItem>Around 6–8 hours per week</BulletItem>
                   </ul>
                 </CardContent>
               </Card>
@@ -234,8 +241,8 @@ export default function JoinTheCrew() {
                     <h3 className="font-semibold">Compensation</h3>
                   </div>
                   <ul className="space-y-3">
-                    <BulletItem>AED 100 per session</BulletItem>
-                    <BulletItem>AED 2,400 - AED 3,000 per month</BulletItem>
+                    <BulletItem>Performance-based — the more you fill and run, the more you make</BulletItem>
+                    <BulletItem>Active captains can earn AED 2,500–5,000 per month</BulletItem>
                     <BulletItem>Growth opportunity into a Community Manager role</BulletItem>
                   </ul>
                 </CardContent>

@@ -1,6 +1,6 @@
 import { storage } from "./storage";
 
-const BASE_URL = "https://shuttleiq.org";
+const BASE_URL = "https://shuttleiq.ai";
 const OG_IMAGE = `${BASE_URL}/icons/icon-512x512.png`;
 const DEFAULT_DESC = "Book badminton sessions across the UAE. Live rankings, ELO skill ratings, smart matchmaking, and real-time queue management. Join the community at ShuttleIQ.";
 
@@ -67,7 +67,7 @@ const staticRoutes: Record<string, PageMeta> = {
   },
   "/marketplace/join-the-crew": {
     title: "Join the Crew | ShuttleIQ",
-    description: "Become a ShuttleIQ session organizer. Run badminton sessions, manage courts, and grow your community.",
+    description: "Become a ShuttleIQ Court Captain. Run managed badminton sessions in Dubai — check players in, assign courts, and record scores.",
   },
   "/marketplace/reset-password": {
     title: "Reset Password | ShuttleIQ",
