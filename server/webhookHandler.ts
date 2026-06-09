@@ -275,6 +275,11 @@ export function registerZiinaWebhookRoute(app: Express) {
         const refundAmount: number | null =
           typeof refundObj?.amount === "number" ? refundObj.amount : null;
 
+        // Entry log — confirm in Railway logs when Ziina actually fires a refund
+        // event (e.g. after a manual dashboard-initiated refund). If this line
+        // never appears after a dashboard refund, Ziina isn't sending refund.* to us.
+        console.log(`[Webhook] Ziina refund event received: ${eventType} for intent ${refundIntentId}`);
+
         if (refundIntentId) {
           try {
             const result = await storage.markZiinaRefundFromWebhook({
@@ -285,6 +290,14 @@ export function registerZiinaWebhookRoute(app: Express) {
               refundedAt: new Date(),
             });
             console.log(`[Ziina Webhook] refund event ${eventType} intent=${refundIntentId} →`, result);
+
+            if (!result.matched) {
+              // This intent has no local payments row — likely a charge captured
+              // at Ziina but never recorded by us (e.g. re-book-guard race). The
+              // ledger cannot be updated. If write_refunds scope is granted in
+              // future, consider a reconciliation pass for ghost charges.
+              console.warn(`[Webhook] Ziina refund intent ${refundIntentId} has no local payment row — ledger not updated (ghost charge)`);
+            }
 
             // On terminal success, finalize the workflow: resolve the
             // refund_required notification and email the player. Idempotent —
