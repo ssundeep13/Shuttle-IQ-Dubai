@@ -2562,7 +2562,14 @@ export class DatabaseStorage implements IStorage {
         sql`${payments.ziinaPaymentIntentId} IS NOT NULL`,
         eq(payments.ziinaPaymentIntentId, bookings.ziinaPaymentIntentId),
       ))
-      .where(eq(marketplaceNotifications.type, 'refund_required'))
+      .where(and(
+        eq(marketplaceNotifications.type, 'refund_required'),
+        // Hide orphans: drop notifications whose related booking was hard-deleted
+        // (LEFT JOIN returns null) so they no longer render as "Unknown player /
+        // Unknown session". Keeps booking-less notifications (related_booking_id
+        // NULL) and any whose booking still exists. Non-destructive — rows remain.
+        sql`(${bookings.id} IS NOT NULL OR ${marketplaceNotifications.relatedBookingId} IS NULL)`,
+      ))
       .orderBy(desc(marketplaceNotifications.createdAt));
 
     return rows.map(row => this.mapRefundNotificationRow(row));
