@@ -96,6 +96,14 @@ export async function confirmZiinaBookingByIntentId(
     return confirmGuestByIntentId(intentId);
   }
 
+  // Defence in depth: never resurrect a booking the player deliberately
+  // cancelled. The reconciliation sweep must not re-confirm/re-waitlist or email
+  // a cancelled booking just because its Ziina intent reads "completed".
+  if (booking.cancelledAt) {
+    console.log(`[Reconcile] Skipped ${booking.id} — player-cancelled, not resurrecting`);
+    return { confirmed: false };
+  }
+
   if (booking.status === "confirmed") {
     return { confirmed: true, alreadyConfirmed: true };
   }

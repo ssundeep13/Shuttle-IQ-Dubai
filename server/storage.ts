@@ -2421,6 +2421,10 @@ export class DatabaseStorage implements IStorage {
       .where(and(
         isNotNull(bookings.ziinaPaymentIntentId),
         gte(bookings.createdAt, cutoff),
+        // Never reconcile a booking the player deliberately cancelled, and never
+        // touch cancelled/waitlisted rows — they must not be resurrected.
+        isNull(bookings.cancelledAt),
+        sql`${bookings.status} NOT IN ('cancelled', 'waitlisted')`,
         sql`(${bookings.status} <> 'confirmed' OR NOT EXISTS (
               SELECT 1 FROM payments WHERE payments.booking_id = ${bookings.id} AND payments.status = 'completed'))`,
       ));
