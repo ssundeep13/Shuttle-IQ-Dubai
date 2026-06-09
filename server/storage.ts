@@ -2426,8 +2426,14 @@ export class DatabaseStorage implements IStorage {
         // touch cancelled/waitlisted rows — they must not be resurrected.
         isNull(bookings.cancelledAt),
         sql`${bookings.status} NOT IN ('cancelled', 'waitlisted')`,
+        // A refunded payment no longer counts as a healthy completed payment
+        // worth rescuing (refund_status IS NULL added to the inner check).
         sql`(${bookings.status} <> 'confirmed' OR NOT EXISTS (
-              SELECT 1 FROM payments WHERE payments.booking_id = ${bookings.id} AND payments.status = 'completed'))`,
+              SELECT 1 FROM payments WHERE payments.booking_id = ${bookings.id} AND payments.status = 'completed' AND payments.refund_status IS NULL))`,
+        // Belt-and-suspenders: exclude entirely any booking that has a refunded
+        // payment, so a refunded booking is never selected as a rescue candidate.
+        sql`NOT EXISTS (
+              SELECT 1 FROM payments WHERE payments.booking_id = ${bookings.id} AND payments.refund_status = 'completed')`,
       ));
   }
 
