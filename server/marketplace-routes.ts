@@ -30,7 +30,7 @@ import {
   hashPassword,
   verifyRefreshToken,
 } from "./auth/utils";
-import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, registerZiinaWebhook, buildZiinaBookingMessage, createZiinaRefund, isZiinaRefundSuccessful, isZiinaRefundFailed } from "./ziinaClient";
+import { createZiinaPaymentIntent, retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful, isZiinaPaymentTerminalUnpaid, registerZiinaWebhook, buildZiinaBookingMessage, createZiinaRefund, isZiinaRefundSuccessful, isZiinaRefundFailed } from "./ziinaClient";
 import { computeZiinaRefundFils, classifyRefundReentry } from "./refundMath";
 import { isSchemeAllowed, buildOAuthCallbackRedirect } from "./oauthReturn";
 import { buildZiinaReturnUrls } from "./ziinaReturn";
@@ -2375,6 +2375,7 @@ export function registerMarketplaceRoutes(app: Express) {
           }
           // (2) Live Ziina check — FAIL CLOSED. If we cannot verify the status,
           //     never cancel on uncertainty: ask the user to refresh and retry.
+          let flagPossiblyPaid = false;
           if (existingBooking.ziinaPaymentIntentId) {
             let ziinaStatus;
             try {
@@ -2387,13 +2388,41 @@ export function registerMarketplaceRoutes(app: Express) {
               await confirmZiinaBookingByIntentId(existingBooking.ziinaPaymentIntentId, ziinaStatus.status).catch(() => {});
               return res.status(400).json({ error: "Your payment is being processed. Please wait a moment and refresh." });
             }
+
+            // Layer 1 (double-charge fix) — an "in-flight" status (not successful,
+            // not terminally unpaid) can be the pay->status propagation lag: a
+            // single read may race the capture and wrongly conclude unpaid. Wait
+            // 1s and re-check ONCE before cancelling and re-charging.
+            if (!isZiinaPaymentTerminalUnpaid(ziinaStatus.status)) {
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+              let recheck;
+              try {
+                recheck = await retrieveZiinaPaymentIntent(existingBooking.ziinaPaymentIntentId);
+              } catch (_err) {
+                // Fail closed — never cancel/re-charge when we cannot verify.
+                return res.status(503).json({ error: "Your payment may still be processing. Please wait a moment before trying again." });
+              }
+              if (isZiinaPaymentSuccessful(recheck.status)) {
+                await confirmZiinaBookingByIntentId(existingBooking.ziinaPaymentIntentId, recheck.status).catch(() => {});
+                return res.status(400).json({ error: "Your payment was received — your booking is confirmed. Please refresh to see it." });
+              }
+              ziinaStatus = recheck; // decide cancel/flag on the freshest status
+            }
+
+            // Layer 2 — about to cancel as unpaid. If the intent is not terminally
+            // unpaid it could still be captured later; flag it so any ghost charge
+            // surfaces in Pending Refunds.
+            flagPossiblyPaid = !isZiinaPaymentTerminalUnpaid(ziinaStatus.status);
           }
           // (3) Verified unpaid — safe to cancel the stale pending booking and allow retry.
           await refundBookingWalletCredit(existingBooking);
           await storage.updateBooking(existingBooking.id, { status: 'cancelled', cancelledAt: new Date(), walletAmountUsed: 0 });
-          // Ghost-charge safety: if a completed payment was recorded for this
-          // stale booking, flag the refund so it can't vanish on re-book.
-          await maybeCreateRefundNotification(existingBooking.id);
+          // Ghost-charge safety: flag for review only if the intent could still be
+          // paid (Gate 3B helper — idempotent, no-ops unless a completed payment
+          // actually exists for the booking).
+          if (flagPossiblyPaid) {
+            await maybeCreateRefundNotification(existingBooking.id);
+          }
         } else if (existingBooking.status !== 'cancelled') {
           return res.status(400).json({ error: "You already have a booking for this session" });
         }

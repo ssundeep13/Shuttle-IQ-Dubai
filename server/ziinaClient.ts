@@ -170,6 +170,16 @@ export function isZiinaPaymentSuccessful(status: string): boolean {
   return ['completed', 'paid', 'succeeded', 'success', 'authorized', 'captured', 'approved'].includes(s);
 }
 
+// Statuses where the intent will NOT become paid — terminally unpaid. Used by the
+// re-book guard to decide it's safe to cancel the stale booking without a retry
+// or a possibly-paid flag. `requires_payment_instrument` (intent created, no card
+// ever attached) is included as terminally unpaid/abandoned. Anything not
+// successful and not in this set is treated as "in flight" (could still capture).
+export function isZiinaPaymentTerminalUnpaid(status: string): boolean {
+  const s = (status || '').toLowerCase();
+  return ['failed', 'expired', 'cancelled', 'canceled', 'declined', 'rejected', 'requires_payment_instrument'].includes(s);
+}
+
 export async function registerZiinaWebhook(webhookUrl: string, secret: string): Promise<{ success: boolean; error?: string }> {
   return ziinaRequest('POST', '/webhook', { url: webhookUrl, secret });
 }
