@@ -3,6 +3,7 @@ import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendBirthdayRemin
 import { retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaClient";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { daysUntilBirthday, birthdayWindowRange } from "@shared/birthday";
+import { maybeCreateRefundNotification } from "./refundNotifications";
 import { db } from "./db";
 import { players } from "@shared/schema";
 import { sql } from "drizzle-orm";
@@ -245,6 +246,9 @@ async function runExpiredPaymentJob(): Promise<void> {
       try {
         // Cancel the expired pending_payment booking permanently
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date() });
+        // If a Ziina payment was somehow captured for this expired booking, flag
+        // the refund (idempotent). Normally pending_payment bookings are unpaid.
+        await maybeCreateRefundNotification(booking.id);
 
         // Notify the user their payment window expired
         await storage.createMarketplaceNotification({

@@ -37,6 +37,7 @@ import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhookHandler";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
+import { maybeCreateRefundNotification } from "./refundNotifications";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -2390,6 +2391,9 @@ export function registerMarketplaceRoutes(app: Express) {
           // (3) Verified unpaid — safe to cancel the stale pending booking and allow retry.
           await refundBookingWalletCredit(existingBooking);
           await storage.updateBooking(existingBooking.id, { status: 'cancelled', cancelledAt: new Date(), walletAmountUsed: 0 });
+          // Ghost-charge safety: if a completed payment was recorded for this
+          // stale booking, flag the refund so it can't vanish on re-book.
+          await maybeCreateRefundNotification(existingBooking.id);
         } else if (existingBooking.status !== 'cancelled') {
           return res.status(400).json({ error: "You already have a booking for this session" });
         }
@@ -3036,6 +3040,8 @@ export function registerMarketplaceRoutes(app: Express) {
       if (newSpots <= 0) {
         // Cancel parent booking (primary booker's spot is being removed)
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 });
+        // Idempotent — no-ops if the guest-slot path above already flagged it.
+        await maybeCreateRefundNotification(booking.id);
         res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: 0, bookingCancelled: true, refundFlaggedForAdmin });
       } else {
         await storage.updateBooking(booking.id, { spotsBooked: newSpots });
@@ -3375,6 +3381,12 @@ export function registerMarketplaceRoutes(app: Express) {
         cancelledAt: new Date(),
         lateFeeApplied,
       });
+
+      // Surface a refund in the admin Refunds dashboard whenever a paid Ziina
+      // charge remains — covers non-confirmed/waitlisted/pending_payment cancels
+      // and the wallet choice. Idempotent: no-ops if the bank-refund-choice path
+      // above already created the notification.
+      await maybeCreateRefundNotification(req.params.id);
 
       // Notify user if late fee applied
       if (lateFeeApplied && bookableSession) {

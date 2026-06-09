@@ -351,6 +351,7 @@ export interface IStorage {
   getRefundNotifications(): Promise<RefundNotificationWithDetails[]>;
   getRefundNotification(id: string): Promise<RefundNotificationWithDetails | undefined>;
   getUnresolvedRefundNotificationByBooking(bookingId: string): Promise<RefundNotificationWithDetails | undefined>;
+  getRefundNotificationByBooking(bookingId: string): Promise<{ id: string } | undefined>;
   resolveRefundNotification(id: string): Promise<boolean>;
   markRefundAsManuallyProcessed(notificationId: string): Promise<boolean>;
   // Ziina refund persistence (#231)
@@ -2657,6 +2658,21 @@ export class DatabaseStorage implements IStorage {
       .limit(1);
     if (!row) return undefined;
     return this.getRefundNotification(row.id);
+  }
+
+  // Any refund_required notification for a booking (read or unread). The
+  // idempotency guard for maybeCreateRefundNotification — a cancel must never
+  // create a second refund row for a booking that already has one.
+  async getRefundNotificationByBooking(bookingId: string): Promise<{ id: string } | undefined> {
+    const [row] = await db
+      .select({ id: marketplaceNotifications.id })
+      .from(marketplaceNotifications)
+      .where(and(
+        eq(marketplaceNotifications.type, 'refund_required'),
+        eq(marketplaceNotifications.relatedBookingId, bookingId),
+      ))
+      .limit(1);
+    return row || undefined;
   }
 
   // Atomically claim + record a Ziina refund on the payment row. The atomic
