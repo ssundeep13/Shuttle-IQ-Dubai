@@ -2182,7 +2182,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const currentReturnGames = isReturning ? RETURN_BOOST_GAMES : (player.returnGamesRemaining ?? 0);
             const newReturnGamesRemaining = Math.max(0, currentReturnGames - 1);
 
-            const skillBefore = player.skillScore || 50;
+            // Snap-back: a score below baseline is unrecovered inactivity decay
+            // (baseline re-syncs to the score at every game end, so a deficit can
+            // only come from the decay job). Restore to the baseline before
+            // applying this game's result — the decay dip evaporates on the
+            // first game back instead of being baked into the new baseline.
+            const storedScore = player.skillScore || 50;
+            const skillBefore = Math.max(storedScore, player.skillScoreBaseline ?? storedScore);
             const skillAfter = calculateSkillAdjustment(
               skillBefore,
               opponentAvgSkill,

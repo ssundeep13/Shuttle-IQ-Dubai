@@ -20,7 +20,7 @@ const BIRTHDAY_REMINDER_LEAD_DAYS = 4; // notify when birthday is within the nex
 const BIRTHDAY_EMAIL_DEDUPE_MS = 300 * 24 * 60 * 60 * 1000; // 300 days — one reminder per year
 
 const MIN_SKILL_SCORE = 10;
-const INACTIVITY_THRESHOLD_DAYS = 14;
+const INACTIVITY_THRESHOLD_DAYS = 30;
 
 function getSkillTierFromScore(score: number): string {
   if (score < 40) return 'Novice';
@@ -54,17 +54,16 @@ async function runReminderJob(): Promise<void> {
 }
 
 /**
- * Tiered decay relative to skillScoreBaseline. Strictly steeper per tier, cap −50.
- *   weeks 0–1: 0 | weeks 2–3: −3/wk | weeks 4–7: −4/wk | week 8+: −5/wk (cap −50)
+ * "Very Gentle" decay relative to skillScoreBaseline.
+ *   days 0–29: 0 (grace) | day 30+: −1 per full week elapsed past day 30 | cap −15
+ * Cap is reached around day 135. Decay is also undone on the player's first
+ * game back (snap-back at game end), so it only ever shows while inactive.
  * Idempotent: uses baseline as anchor so repeated runs don't compound the reduction.
  * Only players with a non-null lastPlayedAt are considered.
  */
 function calculateDecayPoints(daysInactive: number): number {
-  const weeks = Math.floor(daysInactive / 7);
-  if (weeks < 2) return 0;
-  if (weeks < 4) return (weeks - 1) * 3;
-  if (weeks < 8) return 6 + (weeks - 3) * 4;
-  return Math.min(22 + (weeks - 7) * 5, 50);
+  if (daysInactive < 30) return 0;
+  return Math.min(Math.floor((daysInactive - 30) / 7), 15);
 }
 
 async function runInactivityDecayJob(): Promise<void> {
