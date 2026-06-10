@@ -802,7 +802,7 @@ export default function SessionDetails() {
 
   const waitlistMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('POST', '/api/marketplace/bookings', { sessionId: id, paymentMethod: 'cash' });
+      return apiRequest('POST', '/api/marketplace/bookings', { sessionId: id, paymentMethod: 'ziina' });
     },
     onSuccess: (data: any) => {
       if (data.waitlisted) {

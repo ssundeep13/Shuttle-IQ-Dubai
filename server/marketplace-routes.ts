@@ -2346,6 +2346,16 @@ export function registerMarketplaceRoutes(app: Express) {
       const { sessionId, paymentMethod, guests: guestList, applyWallet } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
 
+      // Cash was retired platform-wide (player UI removed 2026-06-05, Ziina-only
+      // from 2026-06-08) but the server never rejected it. Block any client still
+      // sending cash — stale PWA/native builds or an old waitlist button — so no
+      // new cash booking can be created regardless of the app version on the phone.
+      if (paymentMethod === 'cash') {
+        return res.status(400).json({
+          error: 'Cash payments are no longer accepted. Please pay via card.'
+        });
+      }
+
       // Validate guest list (optional array of { name, email?, marketplaceUserId?, siqPlayerId? })
       const guestSchema = z.array(z.object({
         name: z.string().min(1).max(100),
@@ -2357,8 +2367,6 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!parsedGuests.success) return res.status(400).json({ error: "Invalid guest list" });
       const guests = parsedGuests.data ?? [];
       const spotsBooked = 1 + guests.length; // booker + guests
-
-      const method = paymentMethod === 'cash' ? 'cash' : 'ziina';
 
       const existingBooking = await storage.getUserBookingForSession(req.user.userId, sessionId);
       if (existingBooking) {
@@ -2526,7 +2534,7 @@ export function registerMarketplaceRoutes(app: Express) {
           userId: req.user.userId,
           sessionId,
           status: 'waitlisted',
-          paymentMethod: method, // preserve user's chosen payment method for promotion logic
+          paymentMethod: 'ziina', // cash retired — waitlisted bookings are always Ziina, promote to card
           ziinaPaymentIntentId: null,
           amountAed: bookableSession.priceAed * spotsBooked,
           cashPaid: false,
@@ -2541,63 +2549,6 @@ export function registerMarketplaceRoutes(app: Express) {
           waitlisted: true,
           waitlistPosition: booking.waitlistPosition,
           amount: bookableSession.priceAed * spotsBooked,
-          session: {
-            title: bookableSession.title,
-            venueName: bookableSession.venueName,
-            date: bookableSession.date,
-            startTime: bookableSession.startTime,
-            endTime: bookableSession.endTime,
-          },
-        });
-      }
-
-      if (method === 'cash') {
-        const totalAmount = bookableSession.priceAed * chargeableSpots;
-        const booking = await storage.createBooking({
-          userId: req.user.userId,
-          sessionId,
-          status: "confirmed",
-          paymentMethod: "cash",
-          ziinaPaymentIntentId: null,
-          amountAed: totalAmount,
-          cashPaid: false,
-          spotsBooked,
-          birthdayDiscountApplied,
-        });
-        await markBirthdayUsedIfConfirmedNow(); // cash booking confirms immediately
-
-        // Create all slot rows (primary + guests) in booking_guests
-        await createAllSlotsForBooking(booking.id, 'confirmed', true);
-
-        // Notify linked guests (non-primary) of their confirmed spot
-        const cashGuests = await storage.getBookingGuests(booking.id);
-        for (const g of cashGuests) {
-          if (!g.isPrimary && g.linkedUserId) {
-            await storage.createMarketplaceNotification({
-              userId: g.linkedUserId,
-              type: 'guest_booking_confirmed',
-              title: 'You have a booking!',
-              message: `${primaryUser?.name ?? 'Someone'} added you as a guest for "${bookableSession.title}" on ${new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} at ${bookableSession.venueName}.`,
-              relatedBookingId: booking.id,
-            });
-          }
-        }
-
-        // Fire-and-forget booking confirmation email (fully isolated)
-        try {
-          if (primaryUser) {
-            sendBookingConfirmationEmail(primaryUser.email, primaryUser.name, bookableSession, 'cash', totalAmount).catch(() => {});
-          }
-        } catch (emailErr) { console.error('[Email] cash booking confirm lookup failed:', emailErr); }
-
-        const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
-        return res.json({
-          bookingId: booking.id,
-          paymentMethod: "cash",
-          amount: totalAmount,
-          birthdayDiscountApplied,
-          spotsBooked,
-          booking: bookingWithDetails,
           session: {
             title: bookableSession.title,
             venueName: bookableSession.venueName,
@@ -2708,7 +2659,7 @@ export function registerMarketplaceRoutes(app: Express) {
           error: rawErr,
           rawError: intentError,
         });
-        return res.status(502).json({ error: "We couldn't start your card payment — please try again, or choose Pay at Venue." });
+        return res.status(502).json({ error: "We couldn't start your card payment — please try again or contact support." });
       }
 
       await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
@@ -2897,7 +2848,7 @@ export function registerMarketplaceRoutes(app: Express) {
           error: rawErr,
           rawError: intentError,
         });
-        return res.status(502).json({ error: "We couldn't start your card payment — please try again, or choose Pay at Venue." });
+        return res.status(502).json({ error: "We couldn't start your card payment — please try again or contact support." });
       }
 
       await storage.updateBooking(booking.id, { ziinaPaymentIntentId: paymentIntent.id });
@@ -3152,7 +3103,7 @@ export function registerMarketplaceRoutes(app: Express) {
       const bodySchema = z.object({
         guestName: z.string().min(1).max(100),
         guestEmail: z.string().email().nullable().optional(),
-        paymentMethod: z.enum(['cash', 'ziina']),
+        paymentMethod: z.enum(['ziina']), // cash retired — Ziina is the only accepted method
       });
       const parsed = bodySchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
@@ -3175,33 +3126,7 @@ export function registerMarketplaceRoutes(app: Express) {
 
       const cancellationToken = randomUUID();
 
-      if (paymentMethod === 'cash') {
-        await storage.createBookingGuest({
-          bookingId: booking.id,
-          name: guestName,
-          email: guestEmail ?? null,
-          linkedUserId,
-          isPrimary: false,
-          status: 'confirmed',
-          cancellationToken,
-        });
-        await storage.updateBooking(booking.id, {
-          spotsBooked: (booking.spotsBooked ?? 1) + 1,
-          amountAed: booking.amountAed + bookableSession.priceAed,
-        });
-
-        if (guestEmail) {
-          const primaryUser = await storage.getMarketplaceUser(req.user.userId);
-          if (primaryUser) {
-            const cancelGuestUrl = `${baseUrl}/marketplace/guests/cancel/${cancellationToken}`;
-            const signupUrl = `${baseUrl}/marketplace/signup?email=${encodeURIComponent(guestEmail)}`;
-            sendGuestBookingEmail(guestEmail, guestName, primaryUser.name, bookableSession, cancelGuestUrl, signupUrl).catch(() => {});
-          }
-        }
-
-        return res.json({ success: true });
-      }
-
+      // Cash retired — the only accepted method is Ziina.
       // Ziina path — create pending guest, then payment intent
       const pendingGuest = await storage.createBookingGuest({
         bookingId: booking.id,
@@ -3243,7 +3168,7 @@ export function registerMarketplaceRoutes(app: Express) {
           error: rawErr,
           rawError: intentError,
         });
-        return res.status(502).json({ error: "We couldn't start your card payment — please try again, or choose Pay at Venue." });
+        return res.status(502).json({ error: "We couldn't start your card payment — please try again or contact support." });
       }
 
       await storage.updateBookingGuest(pendingGuest.id, { pendingPaymentIntentId: paymentIntent.id });
