@@ -519,6 +519,14 @@ export const marketplaceNotifications = pgTable("marketplace_notifications", {
   read: boolean("read").notNull().default(false),
   relatedBookingId: varchar("related_booking_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Partial-refund accounting (guest-slot cancels). The amount owed for THIS
+  // refund_required entry, in fils — for a guest-slot cancel that's the
+  // prorated share, not the whole booking. NULL on legacy/whole-booking
+  // entries: the admin Refunds tab then falls back to the booking amount.
+  refundAmountFils: integer("refund_amount_fils"),
+  // 'wallet' | 'bank' — how the player asked to receive a partial refund.
+  // NULL on entries created before the choice existed.
+  refundPreference: text("refund_preference"),
 });
 
 export type MarketplaceNotification = typeof marketplaceNotifications.$inferSelect;
@@ -829,6 +837,11 @@ export interface RefundNotificationWithDetails {
   refundedAt: Date | null;
   refundedAmount: number | null;
   ziinaRefundId: string | null;
+  // Partial-refund accounting carried on the notification itself (guest-slot
+  // cancels). When set, the Refunds tab shows THIS amount (fils) instead of
+  // the booking's amountAed, and the preference tells Shannon wallet vs bank.
+  refundAmountFils: number | null;
+  refundPreference: string | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

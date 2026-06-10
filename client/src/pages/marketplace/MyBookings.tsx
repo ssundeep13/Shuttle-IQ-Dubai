@@ -120,7 +120,7 @@ function pill(bg: string, fg: string): CSSProperties {
 function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPending }: {
   booking: BookingWithDetails;
   canManage: boolean;
-  onCancelGuest: (guestId: string) => void;
+  onCancelGuest: (guestId: string, refundPreference?: 'wallet' | 'bank') => void;
   onEditGuest: (guestId: string, name: string, email: string) => void;
   isEditPending: boolean;
 }) {
@@ -197,16 +197,38 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Cancel Guest Spot?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will remove <strong>{guest.name}</strong>'s spot from the booking. This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Keep Spot</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => onCancelGuest(guest.id)}>Cancel Spot</AlertDialogAction>
-                      </AlertDialogFooter>
+                      {booking.paymentMethod === 'ziina' && booking.ziinaPaymentIntentId && booking.amountAed > 0 ? (
+                        <>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Cancel Guest Spot?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will remove <strong>{guest.name}</strong>'s spot from the booking and cannot be undone. Choose how you'd like the spot's refund.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel data-testid={`button-keep-guest-${guest.id}`}>Keep Spot</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => onCancelGuest(guest.id, 'wallet')} data-testid={`button-cancel-guest-wallet-${guest.id}`}>
+                              Refund to wallet
+                            </AlertDialogAction>
+                            <AlertDialogAction onClick={() => onCancelGuest(guest.id, 'bank')} data-testid={`button-cancel-guest-bank-${guest.id}`}>
+                              Refund to bank
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </>
+                      ) : (
+                        <>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Cancel Guest Spot?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will remove <strong>{guest.name}</strong>'s spot from the booking. This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Keep Spot</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => onCancelGuest(guest.id)}>Cancel Spot</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </>
+                      )}
                     </AlertDialogContent>
                   </AlertDialog>
                 </div>
@@ -265,13 +287,20 @@ export default function MyBookings() {
   });
 
   const cancelGuestMutation = useMutation({
-    mutationFn: async ({ bookingId, guestId }: { bookingId: string; guestId: string }) => {
-      return apiRequest('DELETE', `/api/marketplace/bookings/${bookingId}/guests/${guestId}`);
+    mutationFn: async ({ bookingId, guestId, refundPreference }: { bookingId: string; guestId: string; refundPreference?: 'wallet' | 'bank' }) => {
+      return apiRequest('DELETE', `/api/marketplace/bookings/${bookingId}/guests/${guestId}`, refundPreference ? { refundPreference } : undefined);
     },
-    onSuccess: () => {
-      toast({ title: 'Guest spot cancelled' });
+    onSuccess: (data: any) => {
+      if (data?.walletCredited && data?.refundAmountAed) {
+        toast({ title: 'Guest spot cancelled', description: `AED ${Number(data.refundAmountAed).toFixed(2)} added to your ShuttleIQ wallet.` });
+      } else if (data?.refundFlaggedForAdmin && data?.refundAmountAed) {
+        toast({ title: 'Guest spot cancelled', description: `Your refund of AED ${Number(data.refundAmountAed).toFixed(2)} will be returned to your bank within 2-3 business days.` });
+      } else {
+        toast({ title: 'Guest spot cancelled' });
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to cancel guest spot', description: error.message, variant: 'destructive' });
@@ -425,7 +454,7 @@ export default function MyBookings() {
               <GuestList
                 booking={booking}
                 canManage={canCancel}
-                onCancelGuest={(guestId) => cancelGuestMutation.mutate({ bookingId: booking.id, guestId })}
+                onCancelGuest={(guestId, refundPreference) => cancelGuestMutation.mutate({ bookingId: booking.id, guestId, refundPreference })}
                 onEditGuest={(guestId, name, email) => editGuestMutation.mutate({ bookingId: booking.id, guestId, name, email })}
                 isEditPending={editGuestMutation.isPending}
               />

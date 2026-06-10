@@ -38,6 +38,7 @@ import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhookHandler";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { maybeCreateRefundNotification } from "./refundNotifications";
+import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted } from "./guestSlotRefund";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -2880,21 +2881,15 @@ export function registerMarketplaceRoutes(app: Express) {
       // Cancel the guest
       await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
 
-      // Flag Ziina booking for admin refund review
-      if (booking.paymentMethod === 'ziina' && booking.ziinaPaymentIntentId) {
-        const proratedAmount = booking.amountAed / (booking.spotsBooked ?? 1);
-        await storage.createMarketplaceNotification({
-          userId: booking.userId,
-          type: 'refund_required',
-          title: 'Partial refund required',
-          message: `Guest slot cancelled on Ziina booking. A prorated refund of approximately AED ${proratedAmount.toFixed(2)} may be owed. Please process via Ziina dashboard.`,
-          relatedBookingId: booking.id,
-        });
-      }
-
-      // Decrement spotsBooked on the parent booking
+      // Money + spots in one settle: prorated (birthday-aware) refund flagged
+      // idempotently, amountAed decremented by the released share. A guest
+      // cancelling via token can't choose wallet — the refund is the payer's
+      // money, so it always goes to the bank Pending entry.
       const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
-      await storage.updateBooking(booking.id, { spotsBooked: newSpots });
+      await settleCancelledGuestSlot(booking, { newSpotsBooked: newSpots, allowWallet: false });
+
+      // The freed spot goes back to capacity — pull in the waitlist if anyone fits.
+      await promoteFirstFittingWaitlisted(booking.sessionId);
 
       res.json({ cancelled: true, guestName: guest.name });
     } catch (error: any) {
@@ -2943,19 +2938,11 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === 'cancelled') return res.status(400).json({ error: "Parent booking is already cancelled" });
       await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
-      // Flag Ziina booking for admin refund review
-      if (booking.paymentMethod === 'ziina' && booking.ziinaPaymentIntentId) {
-        const proratedAmount = booking.amountAed / (booking.spotsBooked ?? 1);
-        await storage.createMarketplaceNotification({
-          userId: booking.userId,
-          type: 'refund_required',
-          title: 'Partial refund required',
-          message: `Guest slot cancelled on Ziina booking. A prorated refund of approximately AED ${proratedAmount.toFixed(2)} may be owed. Please process via Ziina dashboard.`,
-          relatedBookingId: booking.id,
-        });
-      }
+      // Money + spots in one settle (see /guests/cancel above) — token cancels
+      // always flag to the bank Pending entry; wallet is the payer's choice only.
       const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
-      await storage.updateBooking(booking.id, { spotsBooked: newSpots });
+      await settleCancelledGuestSlot(booking, { newSpotsBooked: newSpots, allowWallet: false });
+      await promoteFirstFittingWaitlisted(booking.sessionId);
       res.json({ cancelled: true, guestName: guest.name });
     } catch (error) {
       console.error('Guest cancel error:', error);
@@ -3000,33 +2987,37 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      // For Ziina bookings: flag the cancellation for admin review (prorated refund not supported via API)
-      let refundFlaggedForAdmin = false;
-      if (booking.paymentMethod === 'ziina' && booking.ziinaPaymentIntentId) {
-        const proratedAmount = booking.amountAed / (booking.spotsBooked ?? 1);
-        // Ziina does not have a refund API; create an admin notification for manual processing
-        await storage.createMarketplaceNotification({
-          userId: booking.userId,
-          type: 'refund_required',
-          title: 'Partial refund required',
-          message: `Guest slot cancelled on Ziina booking. A prorated refund of approximately AED ${proratedAmount.toFixed(2)} may be owed. Please process via Ziina dashboard.`,
-          relatedBookingId: booking.id,
-        });
-        refundFlaggedForAdmin = true;
-      }
-
       // Decrement spots; if this was the last remaining spot, cancel the parent booking
       const newSpots = (booking.spotsBooked ?? 1) - 1;
       if (newSpots <= 0) {
-        // Cancel parent booking (primary booker's spot is being removed)
+        // Last slot removed → the whole booking is gone. Skip the partial
+        // settle: the full remaining amount is owed, and Gate 3B's helper
+        // flags exactly that (idempotently) from the untouched amountAed.
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 });
-        // Idempotent — no-ops if the guest-slot path above already flagged it.
         await maybeCreateRefundNotification(booking.id);
-        res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: 0, bookingCancelled: true, refundFlaggedForAdmin });
-      } else {
-        await storage.updateBooking(booking.id, { spotsBooked: newSpots });
-        res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: newSpots, refundFlaggedForAdmin });
+        await promoteFirstFittingWaitlisted(booking.sessionId);
+        return res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: 0, bookingCancelled: true, refundFlaggedForAdmin: true });
       }
+
+      // Partial cancel — settle the slot's money (birthday-aware proration,
+      // amountAed decrement, wallet-or-bank). Wallet moves the payer's money,
+      // so only the primary booker may choose it; a linked guest's cancel
+      // always flags to the bank Pending entry.
+      const requestedPreference = (req.body ?? {}).refundPreference as string | undefined;
+      const settle = await settleCancelledGuestSlot(booking, {
+        newSpotsBooked: newSpots,
+        refundPreference: requestedPreference,
+        allowWallet: isPrimaryBooker,
+      });
+      await promoteFirstFittingWaitlisted(booking.sessionId);
+      res.json({
+        cancelled: true,
+        guestId: guest.id,
+        newSpotsBooked: newSpots,
+        refundFlaggedForAdmin: settle.pendingFlagged,
+        walletCredited: settle.settledToWallet,
+        refundAmountAed: settle.proratedAed > 0 ? settle.proratedAed : undefined,
+      });
     } catch (error) {
       console.error('Delete guest error:', error);
       res.status(500).json({ error: "Failed to cancel guest slot" });

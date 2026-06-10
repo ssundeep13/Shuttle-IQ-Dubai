@@ -344,14 +344,15 @@ export interface IStorage {
   getBookingsPendingZiinaReconciliation(withinMs: number): Promise<Booking[]>;
 
   // Notification operations
-  createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string }): Promise<MarketplaceNotification>;
+  createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string; refundAmountFils?: number | null; refundPreference?: string | null }): Promise<MarketplaceNotification>;
   getNotificationsForUser(userId: string): Promise<MarketplaceNotification[]>;
   markNotificationRead(id: string): Promise<void>;
   markAllNotificationsRead(userId: string): Promise<void>;
   getRefundNotifications(): Promise<RefundNotificationWithDetails[]>;
   getRefundNotification(id: string): Promise<RefundNotificationWithDetails | undefined>;
   getUnresolvedRefundNotificationByBooking(bookingId: string): Promise<RefundNotificationWithDetails | undefined>;
-  getRefundNotificationByBooking(bookingId: string): Promise<{ id: string } | undefined>;
+  getRefundNotificationByBooking(bookingId: string): Promise<{ id: string; read: boolean; refundAmountFils: number | null } | undefined>;
+  updateNotificationRefundAmount(id: string, refundAmountFils: number, message: string): Promise<void>;
   resolveRefundNotification(id: string): Promise<boolean>;
   markRefundAsManuallyProcessed(notificationId: string): Promise<boolean>;
   // Ziina refund persistence (#231)
@@ -2492,11 +2493,17 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
-  async createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string }): Promise<MarketplaceNotification> {
+  async createMarketplaceNotification(data: { userId: string; type: string; title: string; message: string; relatedBookingId?: string; refundAmountFils?: number | null; refundPreference?: string | null }): Promise<MarketplaceNotification> {
     const id = randomUUID();
     const [created] = await db
       .insert(marketplaceNotifications)
-      .values({ id, ...data, relatedBookingId: data.relatedBookingId || null })
+      .values({
+        id,
+        ...data,
+        relatedBookingId: data.relatedBookingId || null,
+        refundAmountFils: data.refundAmountFils ?? null,
+        refundPreference: data.refundPreference ?? null,
+      })
       .returning();
     return created;
   }
@@ -2548,6 +2555,8 @@ export class DatabaseStorage implements IStorage {
         refundedAt: payments.refundedAt,
         refundedAmount: payments.refundedAmount,
         ziinaRefundId: payments.ziinaRefundId,
+        refundAmountFils: marketplaceNotifications.refundAmountFils,
+        refundPreference: marketplaceNotifications.refundPreference,
       })
       .from(marketplaceNotifications)
       .leftJoin(bookings, eq(marketplaceNotifications.relatedBookingId, bookings.id))
@@ -2584,6 +2593,7 @@ export class DatabaseStorage implements IStorage {
     sessionDate: Date | null; sessionVenueName: string | null; walletAmountUsed: number | null;
     paymentCompletedAt: Date | null; paymentCreatedAt: Date | null;
     refundStatus: string | null; refundedAt: Date | null; refundedAmount: number | null; ziinaRefundId: string | null;
+    refundAmountFils?: number | null; refundPreference?: string | null;
   }): RefundNotificationWithDetails {
     return {
       id: row.id,
@@ -2607,6 +2617,8 @@ export class DatabaseStorage implements IStorage {
       refundedAt: row.refundedAt ?? null,
       refundedAmount: row.refundedAmount ?? null,
       ziinaRefundId: row.ziinaRefundId ?? null,
+      refundAmountFils: row.refundAmountFils ?? null,
+      refundPreference: row.refundPreference ?? null,
     };
   }
 
@@ -2637,6 +2649,8 @@ export class DatabaseStorage implements IStorage {
         refundedAt: payments.refundedAt,
         refundedAmount: payments.refundedAmount,
         ziinaRefundId: payments.ziinaRefundId,
+        refundAmountFils: marketplaceNotifications.refundAmountFils,
+        refundPreference: marketplaceNotifications.refundPreference,
       })
       .from(marketplaceNotifications)
       .leftJoin(bookings, eq(marketplaceNotifications.relatedBookingId, bookings.id))
@@ -2676,16 +2690,33 @@ export class DatabaseStorage implements IStorage {
   // Any refund_required notification for a booking (read or unread). The
   // idempotency guard for maybeCreateRefundNotification — a cancel must never
   // create a second refund row for a booking that already has one.
-  async getRefundNotificationByBooking(bookingId: string): Promise<{ id: string } | undefined> {
+  async getRefundNotificationByBooking(bookingId: string): Promise<{ id: string; read: boolean; refundAmountFils: number | null } | undefined> {
+    // Latest first: the accumulate-or-create decision (guest-slot cancels)
+    // must look at the most recent entry's resolved state, not the oldest.
     const [row] = await db
-      .select({ id: marketplaceNotifications.id })
+      .select({
+        id: marketplaceNotifications.id,
+        read: marketplaceNotifications.read,
+        refundAmountFils: marketplaceNotifications.refundAmountFils,
+      })
       .from(marketplaceNotifications)
       .where(and(
         eq(marketplaceNotifications.type, 'refund_required'),
         eq(marketplaceNotifications.relatedBookingId, bookingId),
       ))
+      .orderBy(desc(marketplaceNotifications.createdAt))
       .limit(1);
     return row || undefined;
+  }
+
+  // Accumulate a further prorated share onto an UNRESOLVED refund_required
+  // entry (multi-guest partial cancels) — one Pending row per booking whose
+  // amount stays accurate. Never called on resolved entries.
+  async updateNotificationRefundAmount(id: string, refundAmountFils: number, message: string): Promise<void> {
+    await db
+      .update(marketplaceNotifications)
+      .set({ refundAmountFils, message })
+      .where(eq(marketplaceNotifications.id, id));
   }
 
   // Atomically claim + record a Ziina refund on the payment row. The atomic

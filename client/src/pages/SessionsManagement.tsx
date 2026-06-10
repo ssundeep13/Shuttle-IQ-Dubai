@@ -2439,8 +2439,15 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
             {r.sessionVenueName && <span> · {r.sessionVenueName}</span>}
           </div>
           <div className="text-xs text-muted-foreground flex flex-wrap gap-3 pt-0.5">
-            {r.amountAed != null && (
-              <span className="font-medium text-foreground">AED {r.amountAed.toFixed(2)}</span>
+            {/* Partial (guest-slot) refunds carry their own owed amount on the
+                notification — show that, not the whole booking's amount. */}
+            {(r.refundAmountFils != null || r.amountAed != null) && (
+              <span className="font-medium text-foreground" data-testid={`text-refund-amount-${r.id}`}>
+                AED {(r.refundAmountFils != null ? r.refundAmountFils / 100 : r.amountAed!).toFixed(2)}
+              </span>
+            )}
+            {r.refundPreference === 'bank' && (
+              <span data-testid={`text-refund-preference-${r.id}`}>Bank refund requested</span>
             )}
             {r.spotsBooked != null && r.spotsBooked > 1 && (
               <span>{r.spotsBooked} spots</span>
@@ -2571,7 +2578,7 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
                 {confirmRefund && (
                   <div className="space-y-1 rounded-md border p-3 bg-muted/40">
                     <p><span className="text-muted-foreground">Player:</span> <span className="font-medium" data-testid="text-confirm-player">{confirmRefund.playerName ?? 'Unknown'}</span></p>
-                    <p><span className="text-muted-foreground">Amount:</span> <span className="font-medium" data-testid="text-confirm-amount">AED {(confirmRefund.amountAed ?? 0).toFixed(2)}</span></p>
+                    <p><span className="text-muted-foreground">Amount:</span> <span className="font-medium" data-testid="text-confirm-amount">AED {(confirmRefund.refundAmountFils != null ? confirmRefund.refundAmountFils / 100 : confirmRefund.amountAed ?? 0).toFixed(2)}</span></p>
                     {(confirmRefund.walletAmountUsed ?? 0) > 0 && (
                       <p className="text-xs text-muted-foreground" data-testid="text-confirm-wallet-note">
                         AED {((confirmRefund.walletAmountUsed ?? 0) / 100).toFixed(2)} was paid with wallet credit and is returned to the wallet separately — only the card portion is refunded via Ziina.
