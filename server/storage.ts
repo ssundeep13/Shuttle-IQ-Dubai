@@ -369,6 +369,9 @@ export interface IStorage {
   deleteBookingGuest(id: string): Promise<void>;
   updateBookingGuest(id: string, updates: Partial<BookingGuest>): Promise<BookingGuest | undefined>;
   getActiveGuestCountForSession(sessionId: string): Promise<number>;
+  getExpiredAddGuestOrphans(olderThanMs: number): Promise<BookingGuest[]>;
+  cancelPendingGuestById(guestId: string): Promise<boolean>;
+  getInFlightPendingGuestCountForSession(sessionId: string): Promise<number>;
   linkGuestsByEmail(email: string, userId: string): Promise<void>;
   getGuestBookingsForUser(userId: string): Promise<BookingWithDetails[]>;
 
@@ -2330,6 +2333,57 @@ export class DatabaseStorage implements IStorage {
         eq(bookingGuests.status, 'confirmed')
       ));
     return guestRows.length;
+  }
+
+  // Add-guest orphans: non-primary guest slots stuck 'pending' with a Ziina
+  // intent that never paid, older than the window, on a NON-cancelled booking —
+  // abandoned extra-guest payment attempts. Excludes any intent that actually
+  // completed (defence against cancelling a paid-but-unreconciled guest).
+  // This WHERE clause is the 1:1 DB translation of isSweepableGuestOrphan() in
+  // server/guestAddGuards.ts (the unit-tested canonical spec) — keep in sync.
+  async getExpiredAddGuestOrphans(olderThanMs: number): Promise<BookingGuest[]> {
+    const cutoff = new Date(Date.now() - olderThanMs);
+    return db
+      .select()
+      .from(bookingGuests)
+      .where(and(
+        eq(bookingGuests.isPrimary, false),
+        eq(bookingGuests.status, 'pending'),
+        isNotNull(bookingGuests.pendingPaymentIntentId),
+        lt(bookingGuests.createdAt, cutoff),
+        sql`EXISTS (SELECT 1 FROM ${bookings} WHERE ${bookings.id} = ${bookingGuests.bookingId} AND ${bookings.status} <> 'cancelled')`,
+        sql`NOT EXISTS (SELECT 1 FROM ${payments} WHERE ${payments.ziinaPaymentIntentId} = ${bookingGuests.pendingPaymentIntentId} AND ${payments.status} = 'completed')`,
+      ));
+  }
+
+  // CAS cancel: flips a guest row ONLY while it is still 'pending', so it can
+  // never race the webhook/reconciliation confirm. Nulls the intent so a late
+  // webhook finds no pending guest and won't resurrect it. Returns true iff this
+  // call performed the cancel.
+  async cancelPendingGuestById(guestId: string): Promise<boolean> {
+    const [row] = await db
+      .update(bookingGuests)
+      .set({ status: 'cancelled', cancelledAt: new Date(), pendingPaymentIntentId: null })
+      .where(and(eq(bookingGuests.id, guestId), eq(bookingGuests.status, 'pending')))
+      .returning({ id: bookingGuests.id });
+    return !!row;
+  }
+
+  // In-flight pending (non-primary) guest slots across the session's
+  // non-cancelled bookings — used to reserve a provisional spot so two add-guest
+  // attempts can't both grab the last seat before either confirms.
+  async getInFlightPendingGuestCountForSession(sessionId: string): Promise<number> {
+    const rows = await db
+      .select({ id: bookingGuests.id })
+      .from(bookingGuests)
+      .innerJoin(bookings, eq(bookings.id, bookingGuests.bookingId))
+      .where(and(
+        eq(bookings.sessionId, sessionId),
+        sql`${bookings.status} <> 'cancelled'`,
+        eq(bookingGuests.isPrimary, false),
+        eq(bookingGuests.status, 'pending'),
+      ));
+    return rows.length;
   }
 
   async linkGuestsByEmail(email: string, userId: string): Promise<void> {

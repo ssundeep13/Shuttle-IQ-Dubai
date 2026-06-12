@@ -36,6 +36,7 @@ import { isSchemeAllowed, buildOAuthCallbackRedirect } from "./oauthReturn";
 import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhookHandler";
+import { findReusableInflightGuest, canAddGuest } from "./guestAddGuards";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted } from "./guestSlotRefund";
@@ -3102,7 +3103,13 @@ export function registerMarketplaceRoutes(app: Express) {
 
       const bookableSession = await storage.getBookableSessionWithAvailability(booking.sessionId);
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
-      if (bookableSession.spotsRemaining < 1) return res.status(400).json({ error: "This session is full — no spots available" });
+      // Pending guests don't yet count toward spots_booked (only confirmed ones
+      // do), so reserve a provisional spot for each in-flight pending guest on the
+      // session — otherwise two add-guest attempts could both claim the last seat.
+      const sessionInflight = await storage.getInFlightPendingGuestCountForSession(booking.sessionId);
+      if (bookableSession.spotsRemaining - sessionInflight < 1) {
+        return res.status(400).json({ error: "This session is full — no spots available" });
+      }
 
       const baseUrl = process.env.REPLIT_DOMAINS
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
@@ -3115,19 +3122,35 @@ export function registerMarketplaceRoutes(app: Express) {
         if (existingUser) linkedUserId = existingUser.id;
       }
 
-      const cancellationToken = randomUUID();
+      // Dedup + ceiling (batch 2): on retry, reuse the SAME guest's in-flight
+      // pending row instead of stacking duplicates (the 3-"Shiela" bug); otherwise
+      // allow only one in-flight guest payment per booking at a time so distinct
+      // guests can't pile up unpaid.
+      // (Pure helpers — unit-tested in tests/guest-add-guards.test.ts.)
+      const MAX_INFLIGHT_GUESTS_PER_BOOKING = 1;
+      const existingGuests = await storage.getBookingGuests(booking.id);
+      const inflightGuests = existingGuests.filter(g => !g.isPrimary && g.status === 'pending');
+      const duplicate = findReusableInflightGuest(existingGuests, guestName, guestEmail);
+      if (!canAddGuest({ inflightCount: inflightGuests.length, isDuplicate: !!duplicate, max: MAX_INFLIGHT_GUESTS_PER_BOOKING })) {
+        return res.status(409).json({ error: "You already have a guest payment in progress. Finish or cancel it before adding another." });
+      }
 
       // Cash retired — the only accepted method is Ziina.
-      // Ziina path — create pending guest, then payment intent
-      const pendingGuest = await storage.createBookingGuest({
-        bookingId: booking.id,
-        name: guestName,
-        email: guestEmail ?? null,
-        linkedUserId,
-        isPrimary: false,
-        status: 'pending',
-        cancellationToken,
-      });
+      // Ziina path — reuse the in-flight row on retry, else create a pending
+      // guest, then create the payment intent.
+      const cancellationToken = duplicate?.cancellationToken ?? randomUUID();
+      const createdFreshGuest = !duplicate;
+      const pendingGuestId = duplicate
+        ? duplicate.id
+        : (await storage.createBookingGuest({
+            bookingId: booking.id,
+            name: guestName,
+            email: guestEmail ?? null,
+            linkedUserId,
+            isPrimary: false,
+            status: 'pending',
+            cancellationToken,
+          })).id;
 
       const playerUser = await storage.getMarketplaceUser(req.user!.userId);
 
@@ -3150,8 +3173,8 @@ export function registerMarketplaceRoutes(app: Express) {
           failureUrl: ziinaUrls.failureUrl,
         });
       } catch (intentError) {
-        // Clean up the pending guest row on Ziina failure — delete it so it leaves no trace
-        await storage.deleteBookingGuest(pendingGuest.id);
+        // Clean up only a row we created in THIS request — never a reused one.
+        if (createdFreshGuest) await storage.deleteBookingGuest(pendingGuestId);
         const rawErr = intentError instanceof Error ? intentError.message : String(intentError);
         console.error('[Ziina] Intent creation failed for extra-guest add', {
           bookingId: booking.id,
@@ -3162,7 +3185,7 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(502).json({ error: "We couldn't start your card payment — please try again or contact support." });
       }
 
-      await storage.updateBookingGuest(pendingGuest.id, { pendingPaymentIntentId: paymentIntent.id });
+      await storage.updateBookingGuest(pendingGuestId, { pendingPaymentIntentId: paymentIntent.id });
       return res.json({ redirectUrl: paymentIntent.redirect_url });
     } catch (error) {
       console.error('add-guest error:', error);

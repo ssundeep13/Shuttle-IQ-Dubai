@@ -4,6 +4,7 @@ import { retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaCli
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { daysUntilBirthday, birthdayWindowRange } from "@shared/birthday";
 import { maybeCreateRefundNotification } from "./refundNotifications";
+import { runExpiredPendingGuestSweep } from "./guestOrphanSweep";
 import { db } from "./db";
 import { players } from "@shared/schema";
 import { sql } from "drizzle-orm";
@@ -494,6 +495,10 @@ export function startScheduler(): void {
   console.log('[Scheduler] Ziina payment reconciliation sweep started (runs every 10 min)');
   setInterval(runZiinaReconciliationJob, RECONCILE_INTERVAL_MS);
   runZiinaReconciliationJob();
+
+  console.log('[Scheduler] Add-guest orphan sweep started (runs every 30 min)');
+  setInterval(runExpiredPendingGuestSweep, REMINDER_INTERVAL_MS);
+  runExpiredPendingGuestSweep();
 
   console.log('[Scheduler] Birthday reminder scheduler started (daily 04:00 UTC)');
   scheduleDailyAtUtcHour(BIRTHDAY_REMINDER_UTC_HOUR, runBirthdayReminderJob);
