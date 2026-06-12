@@ -1,6 +1,7 @@
 import { eq, sql, and } from "drizzle-orm";
 import { db } from "./db";
-import { marketplaceUsers, players } from "@shared/schema";
+import { marketplaceUsers } from "@shared/schema";
+import { applyWalletDelta } from "./walletLedger";
 
 /**
  * Drain any pending wallet credit staged on a marketplace user onto a linked
@@ -41,12 +42,15 @@ export async function applyPendingWalletCredit(
       .returning();
     if (!updatedUser) return 0;
 
-    const [updatedPlayer] = await tx
-      .update(players)
-      .set({ walletBalance: sql`${players.walletBalance} + ${credit}` })
-      .where(eq(players.id, playerId))
-      .returning();
-    if (!updatedPlayer) {
+    // Ledger site #4 (signup_credit): same tx as the pending-field CAS.
+    const delta = await applyWalletDelta(tx, {
+      playerId,
+      deltaFils: credit,
+      type: 'signup_credit',
+      description: 'Staged signup credit applied at player link',
+      createdBy: 'system',
+    });
+    if (!delta) {
       throw new Error(`Player ${playerId} not found while applying pending wallet credit`);
     }
     return credit;

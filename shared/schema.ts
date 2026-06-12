@@ -486,6 +486,43 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true,
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
 
+// Wallet ledger (Layer 1) — APPEND-ONLY transaction log for players.walletBalance.
+// Every balance mutation writes one row here, in the same DB transaction as the
+// balance update. No update/delete ever (enforced by a DB trigger + no storage
+// methods exposed); corrections are new offsetting 'adjustment' entries.
+// Types are derived from the real write-site inventory, not guessed:
+export const WALLET_TRANSACTION_TYPES = [
+  'booking_payment',       // debit  — wallet applied to a booking at checkout
+  'booking_credit_return', // credit — spent wallet credit returned (booking cancelled/failed)
+  'cancellation_refund',   // credit — player chose wallet for a cancel refund (whole or guest slot)
+  'event_cancel_refund',   // credit — admin cancelled a session; spent credit returned
+  'referral_reward',       // credit — referral completion (referrer or referee)
+  'referral_clawback',     // debit  — referral reversal (may legitimately go negative)
+  'signup_credit',         // credit — staged signup credit drained to wallet at link time
+  'balance_import',        // credit — one-time opening balance (pre-ledger, origin unverifiable)
+  'adjustment',            // either — manual correction; the only way to "fix" a row
+] as const;
+export type WalletTransactionType = (typeof WALLET_TRANSACTION_TYPES)[number];
+
+export const walletTransactions = pgTable("wallet_transactions", {
+  id: varchar("id").primaryKey(),
+  playerId: varchar("player_id").notNull(),
+  amountFils: integer("amount_fils").notNull(), // signed: + credit / − debit
+  balanceAfterFils: integer("balance_after_fils").notNull(),
+  type: text("type").notNull(), // one of WALLET_TRANSACTION_TYPES
+  relatedBookingId: varchar("related_booking_id"),
+  relatedReferralId: varchar("related_referral_id"),
+  description: text("description"),
+  createdBy: text("created_by").notNull().default('system'), // 'system' | 'player' | admin user id
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index('idx_wallet_tx_player_created').on(table.playerId, table.createdAt),
+]);
+
+export const insertWalletTransactionSchema = createInsertSchema(walletTransactions).omit({ id: true, createdAt: true });
+export type InsertWalletTransaction = z.infer<typeof insertWalletTransactionSchema>;
+export type WalletTransaction = typeof walletTransactions.$inferSelect;
+
 // Score Disputes (marketplace players flagging incorrect game results)
 export const scoreDisputes = pgTable("score_disputes", {
   id: varchar("id").primaryKey(),

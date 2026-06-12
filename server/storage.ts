@@ -85,7 +85,10 @@ import {
   type MatchSuggestion,
   type MatchSuggestionPlayer,
   type InsertMatchSuggestion,
+  walletTransactions,
+  type WalletTransaction,
 } from "@shared/schema";
+import { applyWalletDelta } from "./walletLedger";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -372,6 +375,9 @@ export interface IStorage {
   getExpiredAddGuestOrphans(olderThanMs: number): Promise<BookingGuest[]>;
   cancelPendingGuestById(guestId: string): Promise<boolean>;
   getInFlightPendingGuestCountForSession(sessionId: string): Promise<number>;
+  // Wallet ledger (APPEND-ONLY — deliberately no update/delete methods).
+  getWalletTransactionsForPlayer(playerId: string, opts?: { limit?: number; offset?: number }): Promise<WalletTransaction[]>;
+  getWalletLedgerMismatches(): Promise<{ playerId: string; name: string | null; walletBalance: number; ledgerSum: number }[]>;
   linkGuestsByEmail(email: string, userId: string): Promise<void>;
   getGuestBookingsForUser(userId: string): Promise<BookingWithDetails[]>;
 
@@ -2153,10 +2159,15 @@ export class DatabaseStorage implements IStorage {
             .from(marketplaceUsers)
             .where(eq(marketplaceUsers.id, booking.userId));
           if (user?.linkedPlayerId) {
-            await tx
-              .update(players)
-              .set({ walletBalance: sql`${players.walletBalance} + ${booking.walletAmountUsed}` })
-              .where(eq(players.id, user.linkedPlayerId));
+            // Ledger site #5 (event_cancel_refund): same tx as the cancel.
+            await applyWalletDelta(tx, {
+              playerId: user.linkedPlayerId,
+              deltaFils: booking.walletAmountUsed ?? 0,
+              type: 'event_cancel_refund',
+              relatedBookingId: booking.id,
+              description: 'Session cancelled by admin — spent wallet credit returned',
+              createdBy: 'admin',
+            });
             walletRefundedCount += 1;
           }
         }
@@ -2367,6 +2378,35 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(bookingGuests.id, guestId), eq(bookingGuests.status, 'pending')))
       .returning({ id: bookingGuests.id });
     return !!row;
+  }
+
+  // Wallet ledger reads (APPEND-ONLY table — no update/delete methods exist by
+  // design; corrections are new offsetting 'adjustment' entries).
+  async getWalletTransactionsForPlayer(playerId: string, opts?: { limit?: number; offset?: number }): Promise<WalletTransaction[]> {
+    return db
+      .select()
+      .from(walletTransactions)
+      .where(eq(walletTransactions.playerId, playerId))
+      .orderBy(desc(walletTransactions.createdAt))
+      .limit(Math.min(opts?.limit ?? 50, 200))
+      .offset(opts?.offset ?? 0);
+  }
+
+  // Reconciliation: players whose wallet_balance no longer equals the sum of
+  // their ledger entries. Read-only; consumed by the scheduled wallet audit.
+  async getWalletLedgerMismatches(): Promise<{ playerId: string; name: string | null; walletBalance: number; ledgerSum: number }[]> {
+    const rows = await db.execute(sql`
+      SELECT p.id AS player_id, p.name, p.wallet_balance,
+             COALESCE(SUM(wt.amount_fils), 0)::int AS ledger_sum
+      FROM players p
+      LEFT JOIN wallet_transactions wt ON wt.player_id = p.id
+      GROUP BY p.id, p.name, p.wallet_balance
+      HAVING p.wallet_balance <> COALESCE(SUM(wt.amount_fils), 0)
+    `);
+    return (rows.rows as any[]).map(r => ({
+      playerId: r.player_id, name: r.name ?? null,
+      walletBalance: Number(r.wallet_balance), ledgerSum: Number(r.ledger_sum),
+    }));
   }
 
   // In-flight pending (non-primary) guest slots across the session's
@@ -4018,26 +4058,36 @@ export class DatabaseStorage implements IStorage {
       }
 
       // Credit the referrer's wallet.
-      const [updatedReferrer] = await tx
-        .update(players)
-        .set({ walletBalance: sql`${players.walletBalance} + ${params.creditFils}` })
-        .where(eq(players.id, completedRef.referrerId))
-        .returning();
-      if (!updatedReferrer) {
+      // Ledger site #6 (referral_reward): same tx as the referral CAS.
+      const referrerDelta = await applyWalletDelta(tx, {
+        playerId: completedRef.referrerId,
+        deltaFils: params.creditFils,
+        type: 'referral_reward',
+        relatedReferralId: params.referralId,
+        description: 'Referral reward — friend completed first paid game',
+        createdBy: 'system',
+      });
+      if (!referrerDelta) {
         // Should never happen — referrals.referrerId has an FK to players.
         throw new Error(`Referrer player ${completedRef.referrerId} not found during completion`);
       }
+      const [referrerRow] = await tx.select().from(players).where(eq(players.id, completedRef.referrerId));
+      const updatedReferrer = { ...referrerRow, walletBalance: referrerDelta.balanceAfterFils };
 
       // Credit the referee — wallet if linked, otherwise stage on the user
       // record so applyPendingWalletCredit drains it at link time.
       let refereeWasUnlinked = false;
       if (params.refereeLinkedPlayerId) {
-        const [updatedReferee] = await tx
-          .update(players)
-          .set({ walletBalance: sql`${players.walletBalance} + ${params.creditFils}` })
-          .where(eq(players.id, params.refereeLinkedPlayerId))
-          .returning();
-        if (!updatedReferee) {
+        // Ledger site #7 (referral_reward).
+        const refereeDelta = await applyWalletDelta(tx, {
+          playerId: params.refereeLinkedPlayerId,
+          deltaFils: params.creditFils,
+          type: 'referral_reward',
+          relatedReferralId: params.referralId,
+          description: 'Referral reward — welcome credit',
+          createdBy: 'system',
+        });
+        if (!refereeDelta) {
           throw new Error(`Referee player ${params.refereeLinkedPlayerId} not found during completion`);
         }
       } else {
@@ -4080,19 +4130,34 @@ export class DatabaseStorage implements IStorage {
 
       // Reverse the referrer's credit. Negative balance allowed (a future
       // top-up absorbs it) — no CHECK constraint on wallet_balance.
-      await tx
-        .update(players)
-        .set({ walletBalance: sql`${players.walletBalance} - ${params.creditFils}` })
-        .where(eq(players.id, params.referrerId));
+      // POLICY DEFERRED (Layer 2): whether clawbacks should floor at 0 instead
+      // of going negative is an open product decision — do not "fix" here.
+      // Ledger site #8 (referral_clawback, allowNegative by existing design).
+      await applyWalletDelta(tx, {
+        playerId: params.referrerId,
+        deltaFils: -params.creditFils,
+        type: 'referral_clawback',
+        relatedReferralId: params.referralId,
+        description: 'Referral reward reversed (clawback)',
+        createdBy: 'system',
+        allowNegative: true,
+      });
 
       // Reverse the referee's credit — wallet if they're linked, otherwise
       // drain the pendingSignupCreditFils staging field (floored at 0; you
       // can't owe a credit that was never delivered to a real wallet).
       if (params.refereePlayerId) {
-        await tx
-          .update(players)
-          .set({ walletBalance: sql`${players.walletBalance} - ${params.creditFils}` })
-          .where(eq(players.id, params.refereePlayerId));
+        // POLICY DEFERRED (Layer 2): floor-at-0 vs negative — see site #8 note.
+        // Ledger site #9 (referral_clawback, allowNegative by existing design).
+        await applyWalletDelta(tx, {
+          playerId: params.refereePlayerId,
+          deltaFils: -params.creditFils,
+          type: 'referral_clawback',
+          relatedReferralId: params.referralId,
+          description: 'Referral reward reversed (clawback)',
+          createdBy: 'system',
+          allowNegative: true,
+        });
       } else {
         await tx
           .update(marketplaceUsers)

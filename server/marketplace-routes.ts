@@ -37,6 +37,7 @@ import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhookHandler";
 import { findReusableInflightGuest, canAddGuest } from "./guestAddGuards";
+import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted } from "./guestSlotRefund";
@@ -120,14 +121,21 @@ async function mintPaymentResumeParam(marketplaceUserId: string, bookingId: stri
   }
 }
 
-async function refundBookingWalletCredit(booking: { walletAmountUsed: number | null; userId: string }) {
+async function refundBookingWalletCredit(booking: { id: string; walletAmountUsed: number | null; userId: string }) {
   if (!booking.walletAmountUsed || booking.walletAmountUsed <= 0) return;
   const user = await storage.getMarketplaceUser(booking.userId);
   if (!user?.linkedPlayerId) return;
-  await db
-    .update(players)
-    .set({ walletBalance: sql`${players.walletBalance} + ${booking.walletAmountUsed}` })
-    .where(eq(players.id, user.linkedPlayerId));
+  // Ledger site #1 (booking_credit_return): balance + ledger row atomically.
+  await db.transaction(async (tx) => {
+    await applyWalletDelta(tx, {
+      playerId: user.linkedPlayerId!,
+      deltaFils: booking.walletAmountUsed!,
+      type: 'booking_credit_return',
+      relatedBookingId: booking.id,
+      description: 'Wallet credit returned — booking cancelled or payment failed',
+      createdBy: 'system',
+    });
+  });
 }
 
 async function deductWalletForBooking(
@@ -150,13 +158,20 @@ async function deductWalletForBooking(
   if (!player || player.walletBalance <= 0) {
     return { walletApplied: 0, remainingFils: bookingAmountFils };
   }
-  const walletApplied = Math.min(player.walletBalance, bookingAmountFils);
-  const [updated] = await db
-    .update(players)
-    .set({ walletBalance: sql`${players.walletBalance} - ${walletApplied}` })
-    .where(and(eq(players.id, player.id), sql`${players.walletBalance} >= ${walletApplied}`))
-    .returning();
-  if (!updated) {
+  const { applied: walletApplied } = computeWalletApplication(player.walletBalance, bookingAmountFils);
+  // Ledger site #2 (booking_payment): the debit guard (never below 0) lives in
+  // applyWalletDelta — identical semantics to the old `>= walletApplied` WHERE.
+  const result = await db.transaction(async (tx) =>
+    applyWalletDelta(tx, {
+      playerId: player.id,
+      deltaFils: -walletApplied,
+      type: 'booking_payment',
+      relatedBookingId: bookingId,
+      description: 'Wallet credit applied at checkout',
+      createdBy: 'player',
+    }),
+  );
+  if (!result) {
     return { walletApplied: 0, remainingFils: bookingAmountFils, error: 'Wallet balance changed' };
   }
   await storage.updateBooking(bookingId, { walletAmountUsed: walletApplied });
@@ -3311,10 +3326,17 @@ export function registerMarketplaceRoutes(app: Express) {
           if (!claimed) return res.status(400).json({ error: "This booking has already been refunded." });
           const refUser = await storage.getMarketplaceUser(booking.userId);
           if (refUser?.linkedPlayerId) {
-            await db
-              .update(players)
-              .set({ walletBalance: sql`${players.walletBalance} + ${cashToRefundFils}` })
-              .where(eq(players.id, refUser.linkedPlayerId));
+            // Ledger site #11 (cancellation_refund): balance + ledger atomically.
+            await db.transaction(async (tx) => {
+              await applyWalletDelta(tx, {
+                playerId: refUser.linkedPlayerId!,
+                deltaFils: cashToRefundFils,
+                type: 'cancellation_refund',
+                relatedBookingId: booking.id,
+                description: 'Booking cancelled — card payment refunded to wallet (player choice)',
+                createdBy: 'player',
+              });
+            });
           }
           appliedRefundMethod = 'wallet';
         } else {

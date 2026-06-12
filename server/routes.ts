@@ -4,6 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { storage } from "./storage";
+import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals, matchSuggestions } from "@shared/schema";
 import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
 import { z } from "zod";
@@ -3826,14 +3827,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const walletApplied = Math.min(player.walletBalance, bookingAmountFils);
       const remainingToPay = bookingAmountFils - walletApplied;
 
-      // Atomic wallet deduction bound to booking (idempotent via walletAmountUsed check above)
-      const [updated] = await db
-        .update(players)
-        .set({ walletBalance: sql`${players.walletBalance} - ${walletApplied}` })
-        .where(and(eq(players.id, player.id), sql`${players.walletBalance} >= ${walletApplied}`))
-        .returning();
+      // Ledger site #3 (booking_payment): atomic deduction + ledger row in one
+      // transaction; the never-below-zero guard lives in applyWalletDelta.
+      const deltaResult = await db.transaction(async (tx) =>
+        applyWalletDelta(tx, {
+          playerId: player.id,
+          deltaFils: -walletApplied,
+          type: 'booking_payment',
+          relatedBookingId: bookingId,
+          description: 'Wallet credit applied at checkout',
+          createdBy: 'player',
+        }),
+      );
 
-      if (!updated) {
+      if (!deltaResult) {
         return res.status(409).json({ error: 'Wallet balance changed. Please try again.' });
       }
 

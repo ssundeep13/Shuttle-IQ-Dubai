@@ -15,6 +15,7 @@ const PAYMENT_WINDOW_MS = 4 * 60 * 60 * 1000; // 4-hour payment window for waitl
 const RESUME_TOKEN_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const AUTO_APPROVE_SWEEP_INTERVAL_MS = 15 * 1000; // 15 seconds — pending match suggestions auto-approve once their pendingUntil window passes
 const RECONCILE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes — Ziina payment reconciliation sweep
+const WALLET_AUDIT_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours — wallet ledger reconciliation alarm (read-only)
 const RECONCILE_WINDOW_MS = 48 * 60 * 60 * 1000; // look back 48h for paid-but-unrecorded bookings
 const BIRTHDAY_REMINDER_UTC_HOUR = 4; // 4 AM UTC = 8 AM Dubai
 const BIRTHDAY_REMINDER_LEAD_DAYS = 4; // notify when birthday is within the next 4 days
@@ -317,6 +318,35 @@ async function runExpiredPaymentJob(): Promise<void> {
   }
 }
 
+// Wallet ledger reconciliation alarm (read-only): flags any player whose
+// wallet_balance has drifted from the sum of their ledger entries. A mismatch
+// means a write path bypassed applyWalletDelta (or a manual DB edit) — it never
+// mutates anything, it only shouts in the logs. No-overlap mutex like the
+// guest sweep.
+let walletAuditRunning = false;
+async function runWalletLedgerAudit(): Promise<void> {
+  if (walletAuditRunning) return;
+  walletAuditRunning = true;
+  try {
+    const mismatches = await storage.getWalletLedgerMismatches();
+    if (mismatches.length === 0) {
+      console.log('[WalletAudit] Clean — every wallet balance matches its ledger sum');
+      return;
+    }
+    for (const m of mismatches) {
+      console.error(
+        `[WalletAudit] MISMATCH player ${m.playerId} (${m.name ?? '?'}): ` +
+        `balance=${m.walletBalance} fils, ledger sum=${m.ledgerSum} fils, drift=${m.walletBalance - m.ledgerSum}`,
+      );
+    }
+    console.error(`[WalletAudit] ${mismatches.length} player(s) out of balance — investigate before trusting wallet figures`);
+  } catch (err) {
+    console.error('[WalletAudit] Audit error:', err);
+  } finally {
+    walletAuditRunning = false;
+  }
+}
+
 // Every 15s, approve any match_suggestions whose pendingUntil has passed and
 // notify the 4 assigned players. Per-suggestion failures are isolated.
 async function runMatchSuggestionAutoApproveSweep(): Promise<void> {
@@ -499,6 +529,10 @@ export function startScheduler(): void {
   console.log('[Scheduler] Add-guest orphan sweep started (runs every 30 min)');
   setInterval(runExpiredPendingGuestSweep, REMINDER_INTERVAL_MS);
   runExpiredPendingGuestSweep();
+
+  console.log('[Scheduler] Wallet ledger audit started (runs every 6 h)');
+  setInterval(runWalletLedgerAudit, WALLET_AUDIT_INTERVAL_MS);
+  runWalletLedgerAudit();
 
   console.log('[Scheduler] Birthday reminder scheduler started (daily 04:00 UTC)');
   scheduleDailyAtUtcHour(BIRTHDAY_REMINDER_UTC_HOUR, runBirthdayReminderJob);

@@ -2,6 +2,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { players, type Booking } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
+import { applyWalletDelta } from "./walletLedger";
 import { sendWaitlistPromotionEmail } from "./emailClient";
 
 /**
@@ -80,10 +81,17 @@ export async function settleCancelledGuestSlot(
   if (opts.refundPreference === "wallet" && opts.allowWallet) {
     const payer = await storage.getMarketplaceUser(booking.userId);
     if (payer?.linkedPlayerId) {
-      await db
-        .update(players)
-        .set({ walletBalance: sql`${players.walletBalance} + ${proratedFils}` })
-        .where(eq(players.id, payer.linkedPlayerId));
+      // Ledger site #10 (cancellation_refund): balance + ledger atomically.
+      await db.transaction(async (tx) => {
+        await applyWalletDelta(tx, {
+          playerId: payer.linkedPlayerId!,
+          deltaFils: proratedFils,
+          type: "cancellation_refund",
+          relatedBookingId: booking.id,
+          description: "Cancelled guest spot refunded to wallet (payer choice)",
+          createdBy: "player",
+        });
+      });
       await storage.createMarketplaceNotification({
         userId: booking.userId,
         type: "wallet_refund_credited",
