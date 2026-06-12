@@ -1206,7 +1206,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
     // Count total active slots (primary + non-cancelled non-primary guests across active bookings)
     const confirmedSlots = fullyConfirmedBookings.reduce((sum, b) => {
-      const activeGuestCount = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled').length;
+      const activeGuestCount = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'confirmed').length;
       return sum + 1 + activeGuestCount;
     }, 0);
 
@@ -1223,7 +1223,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
       lineNum++;
 
       // Sub-lines for non-primary, non-cancelled guests — do NOT increment lineNum
-      const activeGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled');
+      const activeGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'confirmed');
       activeGuests.forEach((g: BookingGuestWithLinked) => {
         lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest)`);
       });
@@ -1232,7 +1232,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     // ⏳ Waitlisted section
     if (waitlistedBookings.length > 0) {
       const waitlistedSlots = waitlistedBookings.reduce((sum, b) => {
-        const activeGuestCount = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled').length;
+        const activeGuestCount = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'confirmed').length;
         return sum + 1 + activeGuestCount;
       }, 0);
 
@@ -1247,7 +1247,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
         lines.push(`${wNum}. ${name}${siqPart} ⏳ Waitlisted`);
         wNum++;
 
-        const activeGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status !== 'cancelled');
+        const activeGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'confirmed');
         activeGuests.forEach((g: BookingGuestWithLinked) => {
           lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest)`);
         });
@@ -1283,9 +1283,9 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             )}
           </div>
         </div>
-        {booking.guests && booking.guests.filter((g: BookingGuest) => !g.isPrimary).length > 0 && (
+        {booking.guests && booking.guests.filter((g: BookingGuest) => !g.isPrimary && g.status === 'confirmed').length > 0 && (
           <div className="text-xs space-y-0.5 pl-1">
-            {booking.guests.filter((g: BookingGuest) => !g.isPrimary).map((guest: BookingGuest) => (
+            {booking.guests.filter((g: BookingGuest) => !g.isPrimary && g.status === 'confirmed').map((guest: BookingGuest) => (
               <div
                 key={guest.id}
                 className={`flex items-center gap-1.5 ${guest.status === 'cancelled' ? 'opacity-50 line-through' : 'text-muted-foreground'}`}
