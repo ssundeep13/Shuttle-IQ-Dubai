@@ -31,11 +31,13 @@ try {
     await client.query('ROLLBACK');
   } else {
     // CAS: only while the balance is exactly -1500 (the known debt).
+    // ($3 is the negative literal — Postgres can't resolve unary minus on an
+    // untyped parameter, so pass it pre-negated.)
     const upd = await client.query(
       `UPDATE players SET wallet_balance = wallet_balance + $2
-       WHERE id = $1 AND wallet_balance = -$2
+       WHERE id = $1 AND wallet_balance = $3
        RETURNING wallet_balance`,
-      [PLAYER_ID, WAIVER_FILS]
+      [PLAYER_ID, WAIVER_FILS, -WAIVER_FILS]
     );
     if (upd.rows.length !== 1) {
       await client.query('ROLLBACK');
