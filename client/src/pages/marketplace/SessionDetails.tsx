@@ -21,6 +21,7 @@ import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
 import { useToast } from '@/hooks/use-toast';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { resolveUseWallet } from '@shared/utils/walletUtils';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
@@ -453,7 +454,11 @@ function InlineBookingPanel({
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number; paidByWallet?: boolean } | null>(null);
-  const [useWallet, setUseWallet] = useState(false);
+  // Opt-OUT default (Layer 2a): wallet credit applies unless the player turns
+  // it off. null = untouched → derived ON when credit exists (the balance
+  // loads async, so a static default can't work). Client-side only — the
+  // server still requires an explicit applyWallet=true.
+  const [useWalletOverride, setUseWalletOverride] = useState<boolean | null>(null);
 
   const maxGuests = Math.min(3, session.spotsRemaining - 1);
   const spotsBooked = 1 + guests.length;
@@ -467,6 +472,7 @@ function InlineBookingPanel({
     staleTime: 30_000,
   });
   const walletBalanceFils = walletData?.walletBalance ?? 0;
+  const useWallet = resolveUseWallet(useWalletOverride, walletBalanceFils);
   const totalFils = totalAmount * 100;
   const walletApplicableFils = Math.min(walletBalanceFils, totalFils);
   const walletCoversAll = useWallet && totalFils > 0 && walletApplicableFils >= totalFils;
@@ -653,11 +659,17 @@ function InlineBookingPanel({
               <Wallet className="h-4 w-4" style={{ color: MKT.teal }} />
               <span className="text-sm font-medium" style={{ color: MKT.ink }}>Use wallet credit</span>
             </div>
-            <Switch checked={useWallet} onCheckedChange={setUseWallet} data-testid="switch-use-wallet" />
+            <Switch checked={useWallet} onCheckedChange={setUseWalletOverride} data-testid="switch-use-wallet" />
           </div>
-          <p className="text-xs" style={{ color: MKT.inkSub }}>
-            Available: AED {(walletBalanceFils / 100).toFixed(2)}
-          </p>
+          {useWallet ? (
+            <p className="text-xs font-medium" style={{ color: MKT.tealD }} data-testid="text-wallet-callout">
+              AED {(walletApplicableFils / 100).toFixed(2)} wallet credit applied — you pay AED {remainingAfterWalletAed.toFixed(2)}
+            </p>
+          ) : (
+            <p className="text-xs" style={{ color: MKT.inkSub }} data-testid="text-wallet-callout">
+              AED {(walletBalanceFils / 100).toFixed(2)} available
+            </p>
+          )}
           {useWallet && (
             <div className="space-y-1" style={{ borderTop: `1px solid ${MKT.navy}12`, paddingTop: 8 }}>
               <div className="flex justify-between text-sm">

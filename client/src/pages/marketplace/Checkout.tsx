@@ -14,6 +14,7 @@ import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 import { isBirthdayDiscountAvailable } from '@shared/birthday';
+import { resolveUseWallet } from '@shared/utils/walletUtils';
 
 interface Guest {
   name: string;
@@ -215,7 +216,11 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
-  const [useWallet, setUseWallet] = useState(false);
+  // Opt-OUT default (Layer 2a): wallet credit applies unless the player turns
+  // it off. null = untouched → derived ON when credit exists. Client-side
+  // only — the server still requires an explicit applyWallet=true.
+  const [useWalletOverride, setUseWalletOverride] = useState<boolean | null>(null);
+  const useWallet = resolveUseWallet(useWalletOverride, walletBalanceFils);
   const { toast } = useToast();
 
   const { user } = useMarketplaceAuth();
@@ -341,13 +346,19 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
               </div>
               <Switch
                 checked={useWallet}
-                onCheckedChange={setUseWallet}
+                onCheckedChange={setUseWalletOverride}
                 data-testid="switch-use-wallet"
               />
             </div>
-            <p className="text-xs" style={{ color: MKT.inkSub }}>
-              Available: AED {(walletBalanceFils / 100).toFixed(2)}
-            </p>
+            {useWallet ? (
+              <p className="text-xs font-medium" style={{ color: MKT.tealD }} data-testid="text-wallet-callout">
+                AED {walletApplicableAed.toFixed(2)} wallet credit applied — you pay AED {Math.max(0, remainingAfterWallet).toFixed(2)}
+              </p>
+            ) : (
+              <p className="text-xs" style={{ color: MKT.inkSub }} data-testid="text-wallet-callout">
+                AED {(walletBalanceFils / 100).toFixed(2)} available
+              </p>
+            )}
             {useWallet && (
               <div className="space-y-1" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 8 }}>
                 <div className="flex justify-between text-sm">
