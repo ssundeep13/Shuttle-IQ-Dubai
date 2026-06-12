@@ -88,7 +88,7 @@ import {
   walletTransactions,
   type WalletTransaction,
 } from "@shared/schema";
-import { applyWalletDelta } from "./walletLedger";
+import { applyWalletDelta, applyClawbackWithFloor } from "./walletLedger";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -493,7 +493,8 @@ export interface IStorage {
   findCompletedReferralForBooking(bookingId: string): Promise<Referral | undefined>;
 
   // applyReferralClawbackAtomic: CAS-flip completed→clawed_back and reverse
-  // both credits (negative balance OK; pendingSignupCreditFils floored at 0).
+  // both credits (wallet floored at 0 with shortfall write-off;
+  // pendingSignupCreditFils also floored at 0).
   applyReferralClawbackAtomic(params: {
     referralId: string;
     referrerId: string;
@@ -4128,35 +4129,28 @@ export class DatabaseStorage implements IStorage {
         .returning();
       if (!clawedRef) return { clawedBack: false };
 
-      // Reverse the referrer's credit. Negative balance allowed (a future
-      // top-up absorbs it) — no CHECK constraint on wallet_balance.
-      // POLICY DEFERRED (Layer 2): whether clawbacks should floor at 0 instead
-      // of going negative is an open product decision — do not "fix" here.
-      // Ledger site #8 (referral_clawback, allowNegative by existing design).
-      await applyWalletDelta(tx, {
+      // Reverse the referrer's credit — POLICY (decided 2026-06-13): clawbacks
+      // FLOOR AT 0, never drive a balance negative; the unrecoverable remainder
+      // is written off via an offsetting 'adjustment' ledger entry. Backed by
+      // the players_wallet_balance_non_negative CHECK constraint.
+      // Ledger site #8 (referral_clawback + shortfall write-off pair).
+      await applyClawbackWithFloor(tx, {
         playerId: params.referrerId,
-        deltaFils: -params.creditFils,
-        type: 'referral_clawback',
+        clawbackFils: params.creditFils,
         relatedReferralId: params.referralId,
         description: 'Referral reward reversed (clawback)',
-        createdBy: 'system',
-        allowNegative: true,
       });
 
       // Reverse the referee's credit — wallet if they're linked, otherwise
       // drain the pendingSignupCreditFils staging field (floored at 0; you
       // can't owe a credit that was never delivered to a real wallet).
       if (params.refereePlayerId) {
-        // POLICY DEFERRED (Layer 2): floor-at-0 vs negative — see site #8 note.
-        // Ledger site #9 (referral_clawback, allowNegative by existing design).
-        await applyWalletDelta(tx, {
+        // Ledger site #9 (referral_clawback + shortfall write-off pair).
+        await applyClawbackWithFloor(tx, {
           playerId: params.refereePlayerId,
-          deltaFils: -params.creditFils,
-          type: 'referral_clawback',
+          clawbackFils: params.creditFils,
           relatedReferralId: params.referralId,
           description: 'Referral reward reversed (clawback)',
-          createdBy: 'system',
-          allowNegative: true,
         });
       } else {
         await tx
