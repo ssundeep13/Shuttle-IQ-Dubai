@@ -106,17 +106,22 @@ function PlayerRow({
 }) {
   return (
     <div
-      className="flex items-center gap-1.5 py-0.5"
+      className="flex items-start gap-1.5 py-0.5 min-w-0"
       data-testid={`player-row-${player.id}-${testIdSuffix}`}
     >
-      <span className="text-sm font-medium leading-none">{player.name}</span>
-      <span className="text-xs text-muted-foreground shrink-0">
-        {player.gender?.[0]} · {getTierDisplayName(player.level || "lower_intermediate")} · {player.skillScore ?? 90}
-      </span>
+      {/* Name on its own line, with the gender · tier · skill meta tidily
+          beneath it. min-w-0 + flex-1 lets a long name wrap inside its column
+          instead of overflowing into the centre "vs" divider. */}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium leading-tight break-words">{player.name}</p>
+        <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+          {player.gender?.[0]} · {getTierDisplayName(player.level || "lower_intermediate")} · {player.skillScore ?? 90}
+        </p>
+      </div>
       {(player.gamesWaited ?? 0) >= 4 && (
         <Badge
           variant="outline"
-          className="text-red-600 border-red-300 text-xs px-1 py-0 h-4 ml-auto shrink-0"
+          className="text-red-600 border-red-300 text-xs px-1 py-0 h-4 shrink-0 mt-0.5"
           data-testid={`badge-waited-${player.id}-${testIdSuffix}`}
         >
           <Clock className="h-2.5 w-2.5 mr-0.5" />
@@ -263,9 +268,9 @@ function SuggestionCard({
 
       <CardContent className="px-4 pb-4 space-y-3">
         {/* VS matchup grid */}
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-start">
+        <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-start">
           {/* Team 1 */}
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0">
             <p className="text-xs font-semibold text-primary uppercase tracking-wide flex items-center gap-1">
               Team 1
               <span className={`font-normal normal-case tracking-normal ${getSpreadColor(suggestion.withinTeamSpread1 ?? 0)}`}
@@ -293,7 +298,7 @@ function SuggestionCard({
           </div>
 
           {/* Team 2 */}
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0">
             <p className="text-xs font-semibold text-secondary uppercase tracking-wide flex items-center gap-1">
               Team 2
               <span className={`font-normal normal-case tracking-normal ${getSpreadColor(suggestion.withinTeamSpread2 ?? 0)}`}
