@@ -722,8 +722,9 @@ function InlineBookingPanel({
           <p className="text-sm font-medium" style={{ color: MKT.ink }}>Wallet credit covers the full amount</p>
           <button
             type="button"
+            disabled={processing}
             style={{ ...navyBtnStyle('lg'), width: '100%', cursor: processing ? 'wait' : 'pointer' }}
-            onClick={() => !processing && makeBooking('cash', true)}
+            onClick={() => !processing && makeBooking('ziina', true)}
             data-testid="button-pay-wallet"
           >
             {processing ? (
