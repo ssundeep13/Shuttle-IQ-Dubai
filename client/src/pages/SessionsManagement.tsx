@@ -1862,6 +1862,8 @@ function MarketplaceUsersSubTab() {
   const [linkingUser, setLinkingUser] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<PlayerSearchResult[]>([]);
+  // Client-side filter for the rendered user list (name / email / phone).
+  const [userSearch, setUserSearch] = useState('');
   const [conflict, setConflict] = useState<{
     marketplaceUserId: string;
     playerId: number;
@@ -1879,6 +1881,15 @@ function MarketplaceUsersSubTab() {
       return res.json();
     },
   });
+
+  // Case-insensitive client-side filter across name / email / phone. Empty box
+  // (after trim) shows everyone.
+  const userQuery = userSearch.trim().toLowerCase();
+  const filteredUsers = userQuery
+    ? (users ?? []).filter((u) =>
+        [u.name, u.email, u.phone].some((f) => (f ?? '').toLowerCase().includes(userQuery)),
+      )
+    : (users ?? []);
 
   const searchPlayers = async (query: string) => {
     if (query.length < 2) { setSearchResults([]); return; }
@@ -1972,7 +1983,7 @@ function MarketplaceUsersSubTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold">Marketplace Users</h2>
-        <Badge variant="outline">{users?.length || 0} users</Badge>
+        <Badge variant="outline">{filteredUsers.length} users</Badge>
       </div>
       {isLoading ? (
         <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-16" />)}</div>
@@ -1983,8 +1994,25 @@ function MarketplaceUsersSubTab() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {users.map((user) => (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+            <Input
+              placeholder="Search users by name, email, or phone..."
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              data-testid="input-search-marketplace-users"
+            />
+          </div>
+          {filteredUsers.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-muted-foreground" data-testid="text-no-users-found">
+                No users found for "{userSearch.trim()}".
+              </CardContent>
+            </Card>
+          ) : (
+          <div className="space-y-2">
+          {filteredUsers.map((user) => (
             <Card key={user.id} data-testid={`card-admin-user-${user.id}`}>
               <CardContent className="p-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -2050,6 +2078,8 @@ function MarketplaceUsersSubTab() {
               </CardContent>
             </Card>
           ))}
+          </div>
+          )}
         </div>
       )}
       <AlertDialog open={!!conflict} onOpenChange={(open) => { if (!open) setConflict(null); }}>
