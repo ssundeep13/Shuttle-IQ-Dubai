@@ -449,6 +449,7 @@ export const bookingGuests = pgTable("booking_guests", {
   name: text("name").notNull(),
   email: text("email"),
   linkedUserId: varchar("linked_user_id"), // if they later sign up / match a marketplace account
+  linkedPlayerId: varchar("linked_player_id"), // direct Player link set when a guest is checked in (esp. an auto-created pure-guest player); account guests still resolve via linkedUserId → marketplaceUsers.linkedPlayerId
   isPrimary: boolean("is_primary").notNull().default(false), // true for the primary booker slot
   status: text("status").notNull().default('confirmed'), // 'confirmed' | 'cancelled' | 'pending'
   cancelledAt: timestamp("cancelled_at"),

@@ -485,6 +485,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             linkedPlayerId: b.user.linkedPlayerId,
           } : null,
           player: player || null,
+          // Extra paid spots with no booker profile of their own. linkedPlayerId
+          // is the effective player (account guest, or an auto-created pure-guest
+          // player); null = a pure guest who still needs a player on check-in.
+          guests: (b.guests ?? [])
+            .filter(g => !g.isPrimary && g.status === 'confirmed')
+            .map(g => ({ guestId: g.id, name: g.name, linkedPlayerId: g.linkedPlayerId ?? null })),
         };
       }));
 
@@ -492,6 +498,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Get session bookings error:', error);
       res.status(500).json({ error: "Failed to fetch session bookings" });
+    }
+  });
+
+  // Ensure a Player exists for a booked GUEST slot so the captain can queue +
+  // check them in. Idempotent: reuses an already-linked player (account guest, or
+  // a guest linked on a prior check-in); for a pure guest with no account/link it
+  // auto-creates a lightweight Intermediate player and attaches it to the guest
+  // row via CAS, so re-opening the modal never creates a duplicate.
+  app.post("/api/sessions/:id/guests/:guestId/ensure-player", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const sessionId = req.params.id;
+      const guestId = req.params.guestId;
+
+      const bookableSession = await storage.getBookableSessionByLinkedSessionId(sessionId);
+      if (!bookableSession) return res.status(404).json({ error: "No linked bookable session found" });
+
+      const guest = await storage.getBookingGuestById(guestId);
+      if (!guest) return res.status(404).json({ error: "Guest not found" });
+      if (guest.isPrimary || guest.status !== 'confirmed') {
+        return res.status(400).json({ error: "Not a confirmed guest slot" });
+      }
+      const booking = await storage.getBooking(guest.bookingId);
+      if (!booking || booking.sessionId !== bookableSession.id) {
+        return res.status(404).json({ error: "Guest does not belong to this session" });
+      }
+
+      // Reuse an existing link (account guest or already-checked-in guest).
+      if (guest.linkedPlayerId) {
+        return res.json({ playerId: guest.linkedPlayerId, created: false });
+      }
+
+      // Pure guest → the captain picks the gender at check-in (no 'unknown').
+      const gender = (req.body?.gender ?? '').toString();
+      if (gender !== 'Male' && gender !== 'Female') {
+        return res.status(400).json({ error: "A gender (Male or Female) is required for a new guest player" });
+      }
+
+      // Auto-create a lightweight Intermediate player (mirrors the POST /api/players
+      // "Intermediate" mapping: level lower_intermediate, score 80).
+      const newPlayer = await storage.createPlayer({
+        name: guest.name,
+        gender,
+        level: 'lower_intermediate',
+        skillScore: 80,
+        gamesPlayed: 0,
+        wins: 0,
+        status: 'waiting',
+      });
+      // CAS link — if a concurrent request linked one first, keep theirs and drop
+      // this duplicate (it never entered the queue).
+      const linked = await storage.linkPlayerToGuest(guestId, newPlayer.id);
+      if (!linked) {
+        const fresh = await storage.getBookingGuestById(guestId);
+        return res.json({ playerId: fresh?.linkedPlayerId ?? newPlayer.id, created: false });
+      }
+      return res.json({ playerId: newPlayer.id, created: true });
+    } catch (error) {
+      console.error('Ensure guest player error:', error);
+      res.status(500).json({ error: "Failed to prepare guest player" });
     }
   });
 

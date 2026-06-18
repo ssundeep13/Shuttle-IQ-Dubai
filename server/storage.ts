@@ -367,6 +367,8 @@ export interface IStorage {
   // Booking Guest operations
   createBookingGuest(guest: InsertBookingGuest): Promise<BookingGuest>;
   getBookingGuests(bookingId: string): Promise<import("@shared/schema").BookingGuestWithLinked[]>;
+  getBookingGuestById(guestId: string): Promise<import("@shared/schema").BookingGuestWithLinked | undefined>;
+  linkPlayerToGuest(guestId: string, playerId: string): Promise<boolean>;
   getBookingGuestByToken(token: string): Promise<BookingGuest | undefined>;
   getBookingGuestByPendingPaymentIntentId(intentId: string): Promise<BookingGuest | undefined>;
   deleteBookingGuest(id: string): Promise<void>;
@@ -2287,13 +2289,54 @@ export class DatabaseStorage implements IStorage {
         cancelledAt: bookingGuests.cancelledAt,
         cancellationToken: bookingGuests.cancellationToken,
         createdAt: bookingGuests.createdAt,
-        linkedPlayerId: marketplaceUsers.linkedPlayerId,
+        // Effective linked player: the guest's own direct link (set on check-in,
+        // incl. auto-created pure guests) OR, for account guests, the player on
+        // their linked marketplace account.
+        linkedPlayerId: sql<string | null>`COALESCE(${bookingGuests.linkedPlayerId}, ${marketplaceUsers.linkedPlayerId})`,
       })
       .from(bookingGuests)
       .leftJoin(marketplaceUsers, eq(bookingGuests.linkedUserId, marketplaceUsers.id))
       .where(eq(bookingGuests.bookingId, bookingId))
       .orderBy(asc(bookingGuests.createdAt));
     return rows;
+  }
+
+  // Single guest row with the SAME effective linkedPlayerId coalesce as
+  // getBookingGuests — used by the admin guest check-in endpoint.
+  async getBookingGuestById(guestId: string): Promise<import("@shared/schema").BookingGuestWithLinked | undefined> {
+    const [row] = await db
+      .select({
+        id: bookingGuests.id,
+        bookingId: bookingGuests.bookingId,
+        name: bookingGuests.name,
+        email: bookingGuests.email,
+        linkedUserId: bookingGuests.linkedUserId,
+        isPrimary: bookingGuests.isPrimary,
+        status: bookingGuests.status,
+        cancelledAt: bookingGuests.cancelledAt,
+        cancellationToken: bookingGuests.cancellationToken,
+        createdAt: bookingGuests.createdAt,
+        linkedPlayerId: sql<string | null>`COALESCE(${bookingGuests.linkedPlayerId}, ${marketplaceUsers.linkedPlayerId})`,
+      })
+      .from(bookingGuests)
+      .leftJoin(marketplaceUsers, eq(bookingGuests.linkedUserId, marketplaceUsers.id))
+      .where(eq(bookingGuests.id, guestId))
+      .limit(1);
+    // Cast mirrors the existing getBookingGuests shape (sql-coalesced
+    // linkedPlayerId) and avoids re-introducing its pre-existing inference quirk.
+    return row as import("@shared/schema").BookingGuestWithLinked | undefined;
+  }
+
+  // Idempotent CAS: attach a Player to a guest slot only while its DIRECT
+  // linked_player_id is still null, so two concurrent check-ins can never create
+  // (or attach) two players for the same guest. Returns true iff this call set it.
+  async linkPlayerToGuest(guestId: string, playerId: string): Promise<boolean> {
+    const [row] = await db
+      .update(bookingGuests)
+      .set({ linkedPlayerId: playerId })
+      .where(and(eq(bookingGuests.id, guestId), isNull(bookingGuests.linkedPlayerId)))
+      .returning({ id: bookingGuests.id });
+    return !!row;
   }
 
   async getBookingGuestByToken(token: string): Promise<BookingGuest | undefined> {

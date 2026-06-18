@@ -61,6 +61,10 @@ interface BookedEntry {
     linkedPlayerId: string | null;
   } | null;
   player: Player | null;
+  // Extra paid spots with no booker profile. linkedPlayerId is the effective
+  // player (account guest, or one auto-created on a prior check-in); null = a
+  // pure guest who needs a player minted on check-in.
+  guests: { guestId: string; name: string; linkedPlayerId: string | null }[];
 }
 
 interface BookingsResponse {
@@ -99,6 +103,15 @@ export function AddPlayerModal({
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [selectedBookedPlayerIds, setSelectedBookedPlayerIds] = useState<string[]>([]);
   const [bookedBookingMap, setBookedBookingMap] = useState<Record<string, string>>({});
+  // Guest slots are selected by guestId (they may have no player yet).
+  const [selectedGuestIds, setSelectedGuestIds] = useState<string[]>([]);
+  const [guestSelectionMap, setGuestSelectionMap] = useState<
+    Record<string, { bookingId: string; linkedPlayerId: string | null }>
+  >({});
+  // Captain-picked gender for PURE guests only (no profile yet). Required before
+  // a selected pure guest can be added; linked guests already have a gender.
+  const [guestGenderMap, setGuestGenderMap] = useState<Record<string, "Male" | "Female">>({});
+  const [isSubmittingBooked, setIsSubmittingBooked] = useState(false);
   const { toast } = useToast();
 
   const hasActiveSession = !!sessionId;
@@ -201,19 +214,53 @@ export function AddPlayerModal({
   };
 
   const handleAddBookedPlayers = async () => {
-    if (selectedBookedPlayerIds.length === 0) return;
+    if (selectedBookedPlayerIds.length === 0 && selectedGuestIds.length === 0) return;
+    if (isSubmittingBooked) return;
+    setIsSubmittingBooked(true);
     let successCount = 0;
-    for (const playerId of selectedBookedPlayerIds) {
-      try {
-        await addToQueueMutation.mutateAsync(playerId);
-        const bookingId = bookedBookingMap[playerId];
-        if (bookingId) await checkinMutation.mutateAsync({ bookingId });
-        successCount++;
-      } catch {}
+    try {
+      // Registered bookers — unchanged path.
+      for (const playerId of selectedBookedPlayerIds) {
+        try {
+          await addToQueueMutation.mutateAsync(playerId);
+          const bookingId = bookedBookingMap[playerId];
+          if (bookingId) await checkinMutation.mutateAsync({ bookingId });
+          successCount++;
+        } catch {}
+      }
+      // Guests — linked guest reuses its player id; pure guest is minted server-
+      // side (idempotent ensure-player), then both go through the same queue +
+      // booking-level check-in path.
+      for (const guestId of selectedGuestIds) {
+        try {
+          const sel = guestSelectionMap[guestId];
+          if (!sel) continue;
+          let playerId = sel.linkedPlayerId;
+          if (!playerId) {
+            // Pure guest — needs the captain's gender choice. (UI blocks submit
+            // without it; this is a defensive skip.)
+            const gender = guestGenderMap[guestId];
+            if (!gender) continue;
+            const resp = await apiRequest<{ playerId: string }>(
+              "POST",
+              `/api/sessions/${sessionId}/guests/${guestId}/ensure-player`,
+              { gender },
+            );
+            playerId = resp.playerId;
+          }
+          if (!playerId) continue;
+          await addToQueueMutation.mutateAsync(playerId);
+          await checkinMutation.mutateAsync({ bookingId: sel.bookingId });
+          successCount++;
+        } catch {}
+      }
+    } finally {
+      setIsSubmittingBooked(false);
     }
     if (successCount > 0) {
       queryClient.invalidateQueries({ queryKey: ["/api/queue"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/players"], exact: false });
       queryClient.invalidateQueries({
         queryKey: ["/api/sessions", sessionId, "bookings"],
       });
@@ -224,6 +271,9 @@ export function AddPlayerModal({
     }
     setSelectedBookedPlayerIds([]);
     setBookedBookingMap({});
+    setSelectedGuestIds([]);
+    setGuestSelectionMap({});
+    setGuestGenderMap({});
     onClose();
   };
 
@@ -238,6 +288,9 @@ export function AddPlayerModal({
     setSelectedPlayerIds([]);
     setSelectedBookedPlayerIds([]);
     setBookedBookingMap({});
+    setSelectedGuestIds([]);
+    setGuestSelectionMap({});
+    setGuestGenderMap({});
     setSearchQuery("");
     setActiveTab(sessionId ? "registry" : "new");
     onClose();
@@ -266,16 +319,54 @@ export function AddPlayerModal({
   const selectableBookedEntries = bookedEntries.filter(
     (e) => e.player && !isPlayerInQueue(e.player.id) && !e.attendedAt,
   );
+  // Guest slots (extra paid spots). Selectable unless the booking is already
+  // checked in, or a linked guest's player is already queued.
+  const allGuests = bookedEntries.flatMap((e) =>
+    e.guests.map((g) => ({ ...g, bookingId: e.bookingId, attendedAt: e.attendedAt })),
+  );
+  const selectableGuests = allGuests.filter(
+    (g) => !g.attendedAt && !(g.linkedPlayerId && isPlayerInQueue(g.linkedPlayerId)),
+  );
+  const toggleGuestSelection = (
+    guestId: string,
+    bookingId: string,
+    linkedPlayerId: string | null,
+  ) => {
+    setSelectedGuestIds((prev) => {
+      if (prev.includes(guestId)) {
+        setGuestSelectionMap((m) => {
+          const next = { ...m };
+          delete next[guestId];
+          return next;
+        });
+        return prev.filter((id) => id !== guestId);
+      }
+      setGuestSelectionMap((m) => ({ ...m, [guestId]: { bookingId, linkedPlayerId } }));
+      return [...prev, guestId];
+    });
+  };
+
+  const setGuestGender = (guestId: string, gender: "Male" | "Female") => {
+    setGuestGenderMap((m) => ({ ...m, [guestId]: gender }));
+  };
+
+  // Selected PURE guests (no profile) still missing a gender choice block submit.
+  const pureGuestsNeedingGender = selectedGuestIds.filter(
+    (gid) => !guestSelectionMap[gid]?.linkedPlayerId && !guestGenderMap[gid],
+  );
+
+  const totalSelectable = selectableBookedEntries.length + selectableGuests.length;
   const allBookedSelected =
-    selectableBookedEntries.length > 0 &&
-    selectableBookedEntries.every((e) =>
-      selectedBookedPlayerIds.includes(e.player!.id),
-    );
+    totalSelectable > 0 &&
+    selectableBookedEntries.every((e) => selectedBookedPlayerIds.includes(e.player!.id)) &&
+    selectableGuests.every((g) => selectedGuestIds.includes(g.guestId));
 
   const toggleSelectAllBooked = () => {
     if (allBookedSelected) {
       setSelectedBookedPlayerIds([]);
       setBookedBookingMap({});
+      setSelectedGuestIds([]);
+      setGuestSelectionMap({});
     } else {
       const ids: string[] = [];
       const map: Record<string, string> = {};
@@ -287,6 +378,14 @@ export function AddPlayerModal({
       });
       setSelectedBookedPlayerIds(ids);
       setBookedBookingMap(map);
+      const gids: string[] = [];
+      const gmap: Record<string, { bookingId: string; linkedPlayerId: string | null }> = {};
+      selectableGuests.forEach((g) => {
+        gids.push(g.guestId);
+        gmap[g.guestId] = { bookingId: g.bookingId, linkedPlayerId: g.linkedPlayerId };
+      });
+      setSelectedGuestIds(gids);
+      setGuestSelectionMap(gmap);
     }
   };
 
@@ -488,7 +587,7 @@ export function AddPlayerModal({
             value="booked"
             className="flex-1 flex flex-col min-h-0 mt-3 px-6 space-y-3"
           >
-            {selectableBookedEntries.length > 0 && (
+            {totalSelectable > 0 && (
               <div className="flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2">
                   <Checkbox
@@ -497,12 +596,12 @@ export function AddPlayerModal({
                     data-testid="checkbox-select-all-booked"
                   />
                   <span className="text-sm text-muted-foreground">
-                    Select all ({selectableBookedEntries.length})
+                    Select all ({totalSelectable})
                   </span>
                 </div>
-                {selectedBookedPlayerIds.length > 0 && (
+                {selectedBookedPlayerIds.length + selectedGuestIds.length > 0 && (
                   <Badge variant="secondary" data-testid="badge-booked-selected-count">
-                    {selectedBookedPlayerIds.length} selected
+                    {selectedBookedPlayerIds.length + selectedGuestIds.length} selected
                   </Badge>
                 )}
               </div>
@@ -537,8 +636,8 @@ export function AddPlayerModal({
                     const isSelected =
                       hasPlayer && selectedBookedPlayerIds.includes(entry.player!.id);
                     return (
+                      <div key={entry.bookingId} className="space-y-1">
                       <div
-                        key={entry.bookingId}
                         className={cn(
                           "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors min-h-[52px]",
                           isDisabled
@@ -623,12 +722,110 @@ export function AddPlayerModal({
                           )}
                         </div>
                       </div>
+
+                      {/* Guest spots under this booker — extra paid players */}
+                      {entry.guests.map((guest) => {
+                        const checkedIn = !!entry.attendedAt;
+                        const linkedInQueue =
+                          !!guest.linkedPlayerId && isPlayerInQueue(guest.linkedPlayerId);
+                        const gDisabled = checkedIn || linkedInQueue;
+                        const gSelected = selectedGuestIds.includes(guest.guestId);
+                        return (
+                          <div
+                            key={guest.guestId}
+                            className={cn(
+                              "flex items-center gap-3 px-3 py-2 ml-6 rounded-lg transition-colors min-h-[44px]",
+                              gDisabled
+                                ? "bg-muted/50 opacity-60"
+                                : gSelected
+                                  ? "bg-primary/8 border border-primary/20"
+                                  : "hover-elevate cursor-pointer",
+                            )}
+                            onClick={() =>
+                              !gDisabled &&
+                              toggleGuestSelection(guest.guestId, entry.bookingId, guest.linkedPlayerId)
+                            }
+                            data-testid={`booked-guest-${guest.guestId}`}
+                          >
+                            <Checkbox
+                              checked={gSelected}
+                              disabled={gDisabled}
+                              onCheckedChange={() =>
+                                toggleGuestSelection(guest.guestId, entry.bookingId, guest.linkedPlayerId)
+                              }
+                              onClick={(e) => e.stopPropagation()}
+                              data-testid={`checkbox-guest-${guest.guestId}`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium text-sm truncate">{guest.name}</span>
+                                <Badge variant="outline" className="text-xs shrink-0 gap-1">
+                                  <Users className="h-3 w-3" />
+                                  Guest
+                                </Badge>
+                                {(checkedIn || linkedInQueue) && (
+                                  <Badge className="bg-info/10 text-info border-info/20 text-xs shrink-0">
+                                    <UserCheck className="h-3 w-3 mr-1" />
+                                    {checkedIn ? "Checked In" : "In Queue"}
+                                  </Badge>
+                                )}
+                              </div>
+                              {guest.linkedPlayerId ? (
+                                <div className="flex items-center gap-1 mt-0.5 text-xs text-muted-foreground">
+                                  <Check className="h-3 w-3" />
+                                  Registered profile — uses existing skill score
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 flex-wrap mt-0.5 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <UserPlus className="h-3 w-3" />
+                                    New guest — Intermediate. Pick gender:
+                                  </span>
+                                  <div
+                                    className="flex items-center gap-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {(["Male", "Female"] as const).map((g) => (
+                                      <button
+                                        key={g}
+                                        type="button"
+                                        onClick={() => setGuestGender(guest.guestId, g)}
+                                        className={cn(
+                                          "px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors",
+                                          guestGenderMap[guest.guestId] === g
+                                            ? "bg-primary text-primary-foreground border-primary"
+                                            : "border-border text-muted-foreground hover:bg-muted",
+                                        )}
+                                        data-testid={`guest-gender-${g.toLowerCase()}-${guest.guestId}`}
+                                      >
+                                        {g === "Male" ? "M" : "F"}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {gSelected && !guestGenderMap[guest.guestId] && (
+                                    <span className="text-amber-600">gender required</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      </div>
                     );
                   })}
                 </div>
               )}
             </div>
 
+            {pureGuestsNeedingGender.length > 0 && (
+              <p
+                className="text-xs text-amber-600 shrink-0"
+                data-testid="text-guest-gender-required"
+              >
+                Pick a gender for each selected new guest to continue.
+              </p>
+            )}
             <div className="flex gap-2 pb-4 shrink-0 pt-1">
               <Button
                 variant="outline"
@@ -640,18 +837,23 @@ export function AddPlayerModal({
               </Button>
               <Button
                 onClick={handleAddBookedPlayers}
-                disabled={selectedBookedPlayerIds.length === 0 || isAddingBooked}
+                disabled={
+                  (selectedBookedPlayerIds.length === 0 && selectedGuestIds.length === 0) ||
+                  pureGuestsNeedingGender.length > 0 ||
+                  isAddingBooked ||
+                  isSubmittingBooked
+                }
                 className="flex-1 min-h-11"
                 data-testid="button-add-checkin-booked"
               >
-                {isAddingBooked ? (
+                {isAddingBooked || isSubmittingBooked ? (
                   "Adding…"
                 ) : (
                   <>
                     <UserCheck className="h-4 w-4 mr-2" />
                     Add & Check In
-                    {selectedBookedPlayerIds.length > 0 &&
-                      ` (${selectedBookedPlayerIds.length})`}
+                    {selectedBookedPlayerIds.length + selectedGuestIds.length > 0 &&
+                      ` (${selectedBookedPlayerIds.length + selectedGuestIds.length})`}
                   </>
                 )}
               </Button>
