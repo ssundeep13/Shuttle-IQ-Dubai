@@ -40,7 +40,7 @@ import { findReusableInflightGuest, canAddGuest } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { maybeCreateRefundNotification } from "./refundNotifications";
-import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted } from "./guestSlotRefund";
+import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, isWithinLateCancelWindow } from "./guestSlotRefund";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -2894,13 +2894,16 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === 'cancelled') return res.status(400).json({ error: "Parent booking is already cancelled" });
 
-      // Cancel the guest
-      await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
+      // Atomic claim: only the call that flips the slot active→cancelled settles
+      // the money (per-slot idempotency — a double-submit no-ops here).
+      const claimed = await storage.markGuestSlotCancelled(guest.id);
+      if (!claimed) return res.json({ alreadyCancelled: true });
 
-      // Money + spots in one settle: prorated (birthday-aware) refund flagged
-      // idempotently, amountAed decremented by the released share. A guest
-      // cancelling via token can't choose wallet — the refund is the payer's
-      // money, so it always goes to the bank Pending entry.
+      // Money + spots in one settle: forfeit within 5h, else prorated refund
+      // (wallet-funded share to the payer's wallet, card share to bank); both
+      // amount columns decremented for the released spot. allowWallet:false — a
+      // token canceller can't divert a CARD refund to wallet, but a wallet
+      // booking still refunds to the payer's wallet (decided inside settle).
       const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
       await settleCancelledGuestSlot(booking, { newSpotsBooked: newSpots, allowWallet: false });
 
@@ -2953,9 +2956,11 @@ export function registerMarketplaceRoutes(app: Express) {
       const booking = await storage.getBooking(guest.bookingId);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === 'cancelled') return res.status(400).json({ error: "Parent booking is already cancelled" });
-      await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
-      // Money + spots in one settle (see /guests/cancel above) — token cancels
-      // always flag to the bank Pending entry; wallet is the payer's choice only.
+      // Atomic claim → settle exactly once per slot (see /guests/cancel above).
+      const claimed = await storage.markGuestSlotCancelled(guest.id);
+      if (!claimed) return res.json({ alreadyCancelled: true });
+      // Forfeit within 5h, else prorated refund; a wallet booking refunds to the
+      // payer's wallet regardless of allowWallet (decided inside settle).
       const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
       await settleCancelledGuestSlot(booking, { newSpotsBooked: newSpots, allowWallet: false });
       await promoteFirstFittingWaitlisted(booking.sessionId);
@@ -2987,7 +2992,10 @@ export function registerMarketplaceRoutes(app: Express) {
         return res.status(403).json({ error: "Not authorized" });
       }
 
-      await storage.updateBookingGuest(guest.id, { status: 'cancelled', cancelledAt: new Date() });
+      // Atomic claim: only the winning active→cancelled transition proceeds to
+      // settle (per-slot idempotency — concurrent double-submit no-ops here).
+      const claimed = await storage.markGuestSlotCancelled(guest.id);
+      if (!claimed) return res.status(400).json({ error: "Guest slot already cancelled" });
 
       // If primary booker cancelled this slot, notify the linked guest
       if (isPrimaryBooker && isLinkedGuest === false && guest.linkedUserId) {
@@ -3283,11 +3291,8 @@ export function registerMarketplaceRoutes(app: Express) {
       let lateFeeApplied = false;
       const bookableSession = await storage.getBookableSession(booking.sessionId);
       if (bookableSession && booking.status === 'confirmed') {
-        const [hours, minutes] = bookableSession.startTime.split(':').map(Number);
-        const sessionStartAt = new Date(bookableSession.date);
-        sessionStartAt.setHours(hours, minutes, 0, 0);
-        const cutoff = new Date(sessionStartAt.getTime() - 5 * 60 * 60 * 1000);
-        if (new Date() >= cutoff) {
+        // Single source of truth for the 5h rule (shared with the guest-cancel path).
+        if (isWithinLateCancelWindow(bookableSession)) {
           lateFeeApplied = true;
         }
       }

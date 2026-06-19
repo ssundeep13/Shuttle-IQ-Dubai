@@ -373,6 +373,7 @@ export interface IStorage {
   getBookingGuestByPendingPaymentIntentId(intentId: string): Promise<BookingGuest | undefined>;
   deleteBookingGuest(id: string): Promise<void>;
   updateBookingGuest(id: string, updates: Partial<BookingGuest>): Promise<BookingGuest | undefined>;
+  markGuestSlotCancelled(id: string): Promise<BookingGuest | undefined>;
   getActiveGuestCountForSession(sessionId: string): Promise<number>;
   getExpiredAddGuestOrphans(olderThanMs: number): Promise<BookingGuest[]>;
   cancelPendingGuestById(guestId: string): Promise<boolean>;
@@ -2367,6 +2368,20 @@ export class DatabaseStorage implements IStorage {
       .where(eq(bookingGuests.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  // Atomic claim: flip an ACTIVE guest slot to cancelled, returning the row ONLY
+  // if this call performed the transition. A concurrent double-submit (or retry)
+  // finds it already 'cancelled' and gets undefined, so the caller settles the
+  // money exactly once — the per-slot equivalent of the whole-booking
+  // walletRefundedAt claim.
+  async markGuestSlotCancelled(id: string): Promise<BookingGuest | undefined> {
+    const [claimed] = await db
+      .update(bookingGuests)
+      .set({ status: 'cancelled', cancelledAt: new Date() })
+      .where(and(eq(bookingGuests.id, id), sql`${bookingGuests.status} <> 'cancelled'`))
+      .returning();
+    return claimed || undefined;
   }
 
   async getActiveGuestCountForSession(sessionId: string): Promise<number> {
