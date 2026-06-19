@@ -3314,10 +3314,26 @@ export function registerMarketplaceRoutes(app: Express) {
       let appliedRefundMethod: 'wallet' | 'ziina' | null = null;
       let refundAmountAed: number | null = null;
 
+      // Validate the refund choice up front — BEFORE committing to cancel — so a
+      // missing choice can't cancel the booking and then error out.
+      if (refundEligible && refundMethod !== 'wallet' && refundMethod !== 'ziina') {
+        return res.status(400).json({ error: "Please choose how you'd like your refund: wallet or bank." });
+      }
+
+      // Atomic cancel claim: flip not-yet-cancelled → cancelled in ONE CAS, so only
+      // the winning request runs ANY refund/credit below. A concurrent double-cancel
+      // (double-tap, retry, two devices) loses the claim and bails here — this is
+      // what closes the P1-4 double-credit on the spent-wallet return. Reuses the
+      // walletRefundedAt / markGuestSlotCancelled claim pattern; `updated` is the
+      // cancelled row used in the response.
+      const [updated] = await db
+        .update(bookings)
+        .set({ status: 'cancelled', cancelledAt: new Date(), lateFeeApplied })
+        .where(and(eq(bookings.id, booking.id), sql`${bookings.status} <> 'cancelled'`))
+        .returning();
+      if (!updated) return res.status(400).json({ error: "Already cancelled" });
+
       if (refundEligible) {
-        if (refundMethod !== 'wallet' && refundMethod !== 'ziina') {
-          return res.status(400).json({ error: "Please choose how you'd like your refund: wallet or bank." });
-        }
         refundAmountAed = cashToRefundFils / 100;
 
         if (refundMethod === 'wallet') {
@@ -3370,12 +3386,7 @@ export function registerMarketplaceRoutes(app: Express) {
         fireReferralClawback(booking.id);
       }
 
-      // Cancel the booking
-      const updated = await storage.updateBooking(req.params.id, {
-        status: "cancelled",
-        cancelledAt: new Date(),
-        lateFeeApplied,
-      });
+      // (Booking already flipped to cancelled by the atomic claim above.)
 
       // Surface a refund in the admin Refunds dashboard whenever a paid Ziina
       // charge remains — covers non-confirmed/waitlisted/pending_payment cancels
@@ -4743,20 +4754,35 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
-      // Money-out amount: SERVER-COMPUTED captured-cash cap. Never amountAed.
+      // Money-out BASE depends on the refund type; the captured cash is only the
+      // upper CAP (never the base). payments.amount is whole AED → *100 to fils.
       const payment = await storage.getPaymentByBookingId(refund.relatedBookingId);
       if (!payment || payment.ziinaPaymentIntentId !== refund.ziinaPaymentIntentId) {
         return res.status(400).json({ error: "No matching Ziina payment record found for this booking." });
       }
-      const amountFils = computeZiinaRefundFils({
-        amountAedTotal: refund.amountAed,
-        walletAmountUsedFils: refund.walletAmountUsed ?? 0,
-        // payments.amount is stored in whole AED (see createPayment sites:
-        // webhookHandler.ts amount: priceAed / booking.amountAed). Convert to
-        // fils so the captured-cash cap is in the same unit as the rest of the
-        // computation. Without *100 the cap would slash every refund ~100x.
-        paymentCapturedFils: payment.amount * 100,
-      });
+      // payments.amount is stored in whole AED (see createPayment sites:
+      // webhookHandler.ts amount: priceAed / booking.amountAed). Convert to fils
+      // so the captured-cash cap is in the same unit. Without *100 the cap would
+      // slash every refund ~100x.
+      const paymentCapturedFils = payment.amount * 100;
+      let amountFils: number;
+      if (refund.refundAmountFils != null && refund.refundAmountFils > 0) {
+        // Partial (guest-slot) refund: the notification already carries the exact
+        // prorated CASH share owed — the wallet portion was excluded when the slot
+        // was cancelled. Use it directly as the base, NOT bookings.amountAed, which
+        // by now reflects only the spots the player is still KEEPING (the P0-1 bug).
+        // Still capped at the cash Ziina actually captured.
+        amountFils = Math.min(refund.refundAmountFils, paymentCapturedFils);
+      } else {
+        // Whole-booking refund (refundAmountFils null): base on the full remaining
+        // bookings.amountAed minus any wallet portion, capped at captured cash.
+        // Verified already correct — unchanged.
+        amountFils = computeZiinaRefundFils({
+          amountAedTotal: refund.amountAed,
+          walletAmountUsedFils: refund.walletAmountUsed ?? 0,
+          paymentCapturedFils,
+        });
+      }
       if (amountFils <= 0) {
         return res.status(400).json({ error: "Computed refund amount is zero (the booking was fully covered by wallet credit, which is refunded to the wallet, not via Ziina)." });
       }
