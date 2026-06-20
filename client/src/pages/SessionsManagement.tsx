@@ -1188,6 +1188,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
   const activeBookings = bookings?.filter(b => b.status === 'confirmed' || b.status === 'attended') || [];
   const pendingBookings = bookings?.filter(b => b.status === 'pending') || [];
+  const awaitingPaymentBookings = bookings?.filter(b => b.status === 'pending_payment') || [];
   const waitlistedBookings = bookings?.filter(b => b.status === 'waitlisted') || [];
   const cancelledBookings = bookings?.filter(b => b.status === 'cancelled') || [];
 
@@ -1540,6 +1541,30 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                     </div>
                     <div className="space-y-2">
                       {pendingBookings.map(b => <BookingRow key={b.id} booking={b} />)}
+                    </div>
+                  </div>
+                )}
+
+                {awaitingPaymentBookings.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                        Awaiting Payment
+                      </p>
+                      <Badge variant="outline" className="text-xs border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400">{awaitingPaymentBookings.length}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {awaitingPaymentBookings.map(b => (
+                        <div key={b.id} className="space-y-1">
+                          <BookingRow booking={b} />
+                          {b.promotedAt && (
+                            <div className="flex items-center gap-1.5 pl-1 text-xs text-amber-700 dark:text-amber-400" data-testid={`text-awaiting-deadline-${b.id}`}>
+                              <Clock className="h-3 w-3 shrink-0" />
+                              <span>Hold expires {format(new Date(new Date(b.promotedAt).getTime() + 4 * 60 * 60 * 1000), 'MMM d, h:mm a')}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
