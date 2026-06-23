@@ -4,6 +4,7 @@ import { players, type Booking } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { applyWalletDelta } from "./walletLedger";
 import { sendWaitlistPromotionEmail } from "./emailClient";
+import { sessionStartEpochMs } from "@shared/sessionTime";
 
 /**
  * Shared money + capacity logic for cancelling a single guest slot on a
@@ -24,11 +25,10 @@ export function isWithinLateCancelWindow(
   session: { date: Date | string; startTime: string },
   at: Date = new Date(),
 ): boolean {
-  const [hours, minutes] = session.startTime.split(':').map(Number);
-  const sessionStartAt = new Date(session.date);
-  sessionStartAt.setHours(hours, minutes, 0, 0);
-  const cutoff = new Date(sessionStartAt.getTime() - 5 * 60 * 60 * 1000);
-  return at >= cutoff;
+  // Timezone-explicit (Asia/Dubai) via the shared helper, so the server and the
+  // client compute the same cutoff instant to the millisecond (fixes P0-3).
+  const cutoffMs = sessionStartEpochMs(session.date, session.startTime) - 5 * 60 * 60 * 1000;
+  return at.getTime() >= cutoffMs;
 }
 
 /**

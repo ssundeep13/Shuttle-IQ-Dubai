@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { sessionStartEpochMs } from '@shared/sessionTime';
 import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
@@ -88,11 +89,10 @@ function usePaymentCountdown(promotedAt: string | Date | null): { label: string;
 }
 
 function isWithin5Hours(sessionDate: Date | string, startTime: string): boolean {
-  const [hours, minutes] = startTime.split(':').map(Number);
-  const sessionStartAt = new Date(sessionDate);
-  sessionStartAt.setHours(hours, minutes, 0, 0);
-  const cutoff = new Date(sessionStartAt.getTime() - 5 * 60 * 60 * 1000);
-  return new Date() >= cutoff;
+  // Same shared, timezone-explicit (Asia/Dubai) helper the server uses, so the
+  // forfeit warning shown here matches server enforcement exactly (fixes P0-3).
+  const cutoffMs = sessionStartEpochMs(sessionDate, startTime) - 5 * 60 * 60 * 1000;
+  return Date.now() >= cutoffMs;
 }
 
 // ── Shared styled primitives (look only) ─────────────────────────────────────
