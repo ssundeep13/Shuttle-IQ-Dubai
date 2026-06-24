@@ -3119,10 +3119,15 @@ export function registerMarketplaceRoutes(app: Express) {
         guestName: z.string().min(1).max(100),
         guestEmail: z.string().email().nullable().optional(),
         paymentMethod: z.enum(['ziina']), // cash retired — Ziina is the only accepted method
+        // Optional — set when the guest was picked from the player-search dropdown,
+        // so we can link the same way the booking-create flow does. Absent for
+        // free-text / legacy callers (backward compatible).
+        marketplaceUserId: z.string().nullable().optional(),
+        siqPlayerId: z.string().nullable().optional(),
       });
       const parsed = bodySchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
-      const { guestName, guestEmail, paymentMethod } = parsed.data;
+      const { guestName, guestEmail, paymentMethod, marketplaceUserId, siqPlayerId } = parsed.data;
 
       const bookableSession = await storage.getBookableSessionWithAvailability(booking.sessionId);
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
@@ -3138,11 +3143,22 @@ export function registerMarketplaceRoutes(app: Express) {
         ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
         : 'http://localhost:5000';
 
-      // Resolve linked marketplace user by email if possible
+      // Resolve linked marketplace user — same 3-step priority as the booking-create
+      // flow (createAllSlotsForBooking): (1) picked marketplaceUserId, (2) guestEmail,
+      // (3) picked siqPlayerId → its linked marketplace account. If none resolve,
+      // linkedUserId stays null and the guest is created as free text, exactly as before.
       let linkedUserId: string | null = null;
-      if (guestEmail) {
+      if (marketplaceUserId) {
+        const mpUser = await storage.getMarketplaceUser(marketplaceUserId);
+        if (mpUser) linkedUserId = mpUser.id;
+      }
+      if (!linkedUserId && guestEmail) {
         const existingUser = await storage.getMarketplaceUserByEmail(guestEmail);
         if (existingUser) linkedUserId = existingUser.id;
+      }
+      if (!linkedUserId && siqPlayerId) {
+        const mpUserViaSiq = await storage.getMarketplaceUserByLinkedPlayerId(siqPlayerId);
+        if (mpUserViaSiq) linkedUserId = mpUserViaSiq.id;
       }
 
       // Dedup + ceiling (batch 2): on retry, reuse the SAME guest's in-flight
