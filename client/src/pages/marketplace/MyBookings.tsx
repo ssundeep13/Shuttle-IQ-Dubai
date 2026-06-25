@@ -35,9 +35,11 @@ import { useReducedMotion } from 'framer-motion';
 import type { BookingWithDetails, BookingGuest } from '@shared/schema';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
+import { GuestRow, type Guest } from '@/components/marketplace/GuestRow';
 
 const WIN_GREEN = '#1F8A5B';
 const LOSS_RED = '#B23A2E';
+const EMPTY_GUEST: Guest = { name: '', email: '', linkedFromSearch: false };
 const AMBER = '#C97B17';
 
 const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
@@ -335,20 +337,21 @@ export default function MyBookings() {
   });
 
   const [addGuestBooking, setAddGuestBooking] = useState<BookingWithDetails | null>(null);
-  const [addGuestName, setAddGuestName] = useState('');
-  const [addGuestEmail, setAddGuestEmail] = useState('');
+  const [addGuest, setAddGuest] = useState<Guest>(EMPTY_GUEST);
   // Player-facing cash option removed — add-guest is card-only now. The 'cash'
   // union member and the server cash path are retained for admin/SaaS use.
   const [addGuestPaymentMethod, setAddGuestPaymentMethod] = useState<'cash' | 'ziina'>('ziina');
 
   const addGuestMutation = useMutation({
-    mutationFn: async ({ bookingId, guestName, guestEmail, paymentMethod }: {
-      bookingId: string; guestName: string; guestEmail: string; paymentMethod: 'cash' | 'ziina';
+    mutationFn: async ({ bookingId, guestName, guestEmail, marketplaceUserId, siqPlayerId, paymentMethod }: {
+      bookingId: string; guestName: string; guestEmail: string | null;
+      marketplaceUserId: string | null; siqPlayerId: string | null;
+      paymentMethod: 'cash' | 'ziina';
     }) => {
       return apiRequest<{ success?: boolean; redirectUrl?: string }>(
         'POST',
         `/api/marketplace/bookings/${bookingId}/add-guest`,
-        { guestName, guestEmail: guestEmail || null, paymentMethod, ...nativeReturnFields() }
+        { guestName, guestEmail: guestEmail || null, marketplaceUserId, siqPlayerId, paymentMethod, ...nativeReturnFields() }
       );
     },
     onSuccess: (data) => {
@@ -358,8 +361,7 @@ export default function MyBookings() {
       }
       toast({ title: 'Guest added successfully' });
       setAddGuestBooking(null);
-      setAddGuestName('');
-      setAddGuestEmail('');
+      setAddGuest(EMPTY_GUEST);
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
     },
@@ -465,8 +467,7 @@ export default function MyBookings() {
                 className="mt-2"
                 onClick={() => {
                   setAddGuestBooking(booking);
-                  setAddGuestName('');
-                  setAddGuestEmail('');
+                  setAddGuest(EMPTY_GUEST);
                   setAddGuestPaymentMethod('ziina');
                 }}
                 data-testid={`button-add-guest-${booking.id}`}
@@ -758,27 +759,7 @@ export default function MyBookings() {
           <p className="text-sm text-muted-foreground">
             Adding a guest to: <strong>{addGuestBooking?.session.title}</strong>
           </p>
-          <div className="space-y-1.5">
-            <Label htmlFor="add-guest-name">Guest name <span className="text-destructive">*</span></Label>
-            <Input
-              id="add-guest-name"
-              placeholder="Full name"
-              value={addGuestName}
-              onChange={e => setAddGuestName(e.target.value)}
-              data-testid="input-add-guest-name"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="add-guest-email">Guest email <span className="text-muted-foreground text-xs">(optional)</span></Label>
-            <Input
-              id="add-guest-email"
-              type="email"
-              placeholder="They'll receive a booking notification"
-              value={addGuestEmail}
-              onChange={e => setAddGuestEmail(e.target.value)}
-              data-testid="input-add-guest-email"
-            />
-          </div>
+          <GuestRow idx={0} guest={addGuest} onChange={setAddGuest} onRemove={() => setAddGuest(EMPTY_GUEST)} />
           <div className="space-y-1.5">
             <Label>Payment method</Label>
             {/* Player-facing "Pay at Venue" (cash) option removed; card-only.
@@ -815,18 +796,20 @@ export default function MyBookings() {
           </button>
           <button
             type="button"
-            disabled={!addGuestName.trim() || addGuestMutation.isPending}
+            disabled={!addGuest.name.trim() || addGuestMutation.isPending}
             onClick={() => {
-              if (!addGuestBooking || !addGuestName.trim()) return;
+              if (!addGuestBooking || !addGuest.name.trim()) return;
               addGuestMutation.mutate({
                 bookingId: addGuestBooking.id,
-                guestName: addGuestName.trim(),
-                guestEmail: addGuestEmail.trim(),
+                guestName: addGuest.name.trim(),
+                guestEmail: addGuest.email.trim() || null,
+                marketplaceUserId: addGuest.marketplaceUserId ?? null,
+                siqPlayerId: addGuest.siqPlayerId ?? null,
                 paymentMethod: addGuestPaymentMethod,
               });
             }}
             data-testid="button-add-guest-submit"
-            style={{ ...navyBtn('md'), opacity: (!addGuestName.trim() || addGuestMutation.isPending) ? 0.6 : 1 }}
+            style={{ ...navyBtn('md'), opacity: (!addGuest.name.trim() || addGuestMutation.isPending) ? 0.6 : 1 }}
           >
             {addGuestMutation.isPending
               ? 'Please wait...'
