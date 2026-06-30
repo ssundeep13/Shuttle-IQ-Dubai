@@ -72,6 +72,11 @@ function AssignSheet({
   const assigned = team1Players.length + team2Players.length;
   const ready = team1Players.length === 2 && team2Players.length === 2;
 
+  // Display-only: alphabetical by name. Does not mutate the queuePlayers prop.
+  const sortedQueuePlayers = [...queuePlayers].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+
   const handleStart = () => {
     onAssignPlayers(court.id);
     onClose();
@@ -112,7 +117,7 @@ function AssignSheet({
               No players in the queue.
             </p>
           ) : (
-            queuePlayers.map((player) => {
+            sortedQueuePlayers.map((player) => {
               const inT1 = team1Players.includes(player.id);
               const inT2 = team2Players.includes(player.id);
               const t1Full = team1Players.length >= 2 && !inT1;
