@@ -31,3 +31,37 @@ export function sessionStartEpochMs(date: Date | string, startTime: string): num
   const utcMidnightOfDay = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   return utcMidnightOfDay + (hours * 60 + minutes) * 60 * 1000 - DUBAI_UTC_OFFSET_MS;
 }
+
+/**
+ * Session duration in DECIMAL HOURS from the two "HH:MM" Dubai-local time strings
+ * (e.g. "18:00","21:00" → 3; "18:30","21:00" → 2.5; "20:00","22:15" → 2.25).
+ *
+ * Same-day assumption. start and end are on the SAME Dubai calendar day, so the
+ * Asia/Dubai UTC+4 offset cancels out of the DIFFERENCE — duration is offset-
+ * independent — and we compute it straight from the HH:MM minute-of-day values.
+ * (sessionStartEpochMs handles the absolute instant, where the offset matters.)
+ *
+ * We do NOT silently wrap past midnight: if endTime <= startTime (or either string
+ * is unparseable) this returns NaN and logs an error, so a bad/cross-midnight
+ * session surfaces loudly instead of producing a wrong cost. If real cross-midnight
+ * sessions ever appear, add explicit next-day handling keyed on the venue.
+ *
+ * @param startTime "HH:MM" in Asia/Dubai local time
+ * @param endTime   "HH:MM" in Asia/Dubai local time
+ */
+export function sessionDurationHours(startTime: string, endTime: string): number {
+  const toMinutes = (t: string): number => {
+    const [h, m] = String(t).split(':').map(Number);
+    return h * 60 + m;
+  };
+  const startMin = toMinutes(startTime);
+  const endMin = toMinutes(endTime);
+  if (!Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin) {
+    console.error(
+      `[sessionDurationHours] non-positive/invalid duration: start="${startTime}" ` +
+      `end="${endTime}" → NaN (no midnight wrap).`,
+    );
+    return NaN;
+  }
+  return (endMin - startMin) / 60;
+}
