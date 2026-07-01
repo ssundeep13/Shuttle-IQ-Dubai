@@ -45,7 +45,7 @@ import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from 
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and, inArray, desc, asc, gt } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults } from "@shared/schema";
+import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, type BookableSession } from "@shared/schema";
 import { applyPendingWalletCredit } from "./promos";
 import {
   generateBracketedLineups,
@@ -2312,12 +2312,48 @@ export function registerMarketplaceRoutes(app: Express) {
 
   app.patch("/api/marketplace/sessions/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const updates = req.body;
-      if (updates.date) updates.date = new Date(updates.date);
+      // Validated partial update. Covers exactly the fields EditSessionModal sends today
+      // (all optional), plus optional passthrough for the STEP 3/4 cost/captain fields so
+      // the schema won't reject them once the forms send them — these are parsed here but
+      // NOT written yet (no session_costs write until gate d steps 3–4). Unknown keys are
+      // stripped (zod object default), not 500'd.
+      const schema = z.object({
+        title: z.string().min(1).max(200).optional(),
+        description: z.string().nullable().optional(),
+        venueName: z.string().min(1).max(200).optional(),
+        venueLocation: z.string().nullable().optional(),
+        venueMapUrl: z.string().nullable().optional(),
+        date: z.union([z.string(), z.date()]).optional(),
+        startTime: z.string().optional(),
+        endTime: z.string().optional(),
+        courtCount: z.number().int().min(1).optional(),
+        capacity: z.number().int().min(1).optional(),
+        priceAed: z.number().int().min(0).optional(),
+        // STEP 3/4 passthrough — validated, not acted on this step:
+        captainId: z.string().nullable().optional(),
+        courtCostAed: z.number().min(0).nullable().optional(),
+        shuttleCostAed: z.number().min(0).nullable().optional(),
+        waterCostAed: z.number().min(0).nullable().optional(),
+        courtCostOverridden: z.boolean().optional(),
+      }).strip();
+
+      const parsed = schema.parse(req.body);
+
+      // Split the future cost/captain fields (not written this step) off from the
+      // bookable_sessions columns, preserving the existing date-normalisation behaviour.
+      const {
+        captainId, courtCostAed, shuttleCostAed, waterCostAed, courtCostOverridden,
+        date, ...sessionFields
+      } = parsed;
+
+      const updates: Partial<BookableSession> = { ...sessionFields };
+      if (date !== undefined) updates.date = typeof date === 'string' ? new Date(date) : date;
+
       const session = await storage.updateBookableSession(req.params.id, updates);
       if (!session) return res.status(404).json({ error: "Session not found" });
       res.json(session);
     } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       console.error('Failed to update marketplace session:', error);
       res.status(500).json({ error: "Failed to update session" });
     }

@@ -278,7 +278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sessions/unified", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const { marketplace, ...sessionData } = req.body;
+      const { marketplace: rawMarketplace, ...sessionData } = req.body;
       
       const requestData = {
         ...sessionData,
@@ -286,6 +286,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       const validated = insertSessionSchema.parse(requestData);
+
+      // Validate the marketplace block (was previously spread unvalidated). Covers the
+      // fields the create wizard sends today + optional STEP 3/4 passthrough (captain/
+      // costs) that later steps will write — parsed here but NOT acted on this step.
+      // Bad input throws ZodError → the existing catch returns 400.
+      const marketplaceSchema = z.object({
+        enabled: z.boolean().optional(),
+        title: z.string().min(1).max(200).optional(),
+        description: z.string().nullable().optional(),
+        startTime: z.string().optional(),
+        endTime: z.string().optional(),
+        capacity: z.number().int().min(1).optional(),
+        priceAed: z.number().int().min(0).optional(),
+        captainId: z.string().nullable().optional(),
+        courtCostAed: z.number().min(0).nullable().optional(),
+        shuttleCostAed: z.number().min(0).nullable().optional(),
+        waterCostAed: z.number().min(0).nullable().optional(),
+        courtCostOverridden: z.boolean().optional(),
+      }).strip();
+      const marketplace = rawMarketplace ? marketplaceSchema.parse(rawMarketplace) : undefined;
 
       // Reject sandbox + marketplace combination before any DB write
       if (validated.isSandbox && marketplace && marketplace.enabled) {
