@@ -63,6 +63,8 @@ import {
   expenseCategories,
   expenses,
   venues,
+  sessionRunners,
+  sessionCosts,
   referrals,
   type ExpenseCategory,
   type InsertExpenseCategory,
@@ -71,6 +73,8 @@ import {
   type ExpenseWithCategory,
   type FinanceSummary,
   type Venue,
+  type SessionRunner,
+  type SessionCost,
   type BlogPost,
   type InsertBlogPost,
   blogPosts,
@@ -464,6 +468,10 @@ export interface IStorage {
   getVenueByName(name: string): Promise<Venue | undefined>;
   createVenue(data: { name: string; courtRateFilsPerHour: number; isActive?: boolean }): Promise<Venue>;
   updateVenue(id: string, updates: Partial<Pick<Venue, 'name' | 'courtRateFilsPerHour' | 'isActive'>>): Promise<Venue | undefined>;
+
+  // Session runners + costs (Phase 1 — reads for the session-cost form)
+  listSessionRunners(): Promise<SessionRunner[]>;
+  getSessionCosts(sessionId: string): Promise<SessionCost | undefined>;
 
   // Blog operations
   createBlogPost(data: InsertBlogPost): Promise<BlogPost>;
@@ -3667,6 +3675,18 @@ export class DatabaseStorage implements IStorage {
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(venues.id, id))
       .returning();
+    return row;
+  }
+
+  // ─── Session runners + costs (Phase 1 — reads for the session-cost form) ────
+  // Returns ALL runners (active AND inactive) so the edit form can still DISPLAY an
+  // already-stored inactive runner on an old session; the picker filters to active.
+  async listSessionRunners(): Promise<SessionRunner[]> {
+    return db.select().from(sessionRunners).orderBy(asc(sessionRunners.name));
+  }
+
+  async getSessionCosts(sessionId: string): Promise<SessionCost | undefined> {
+    const [row] = await db.select().from(sessionCosts).where(eq(sessionCosts.sessionId, sessionId));
     return row;
   }
 
