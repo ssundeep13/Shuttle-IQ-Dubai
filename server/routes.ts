@@ -54,6 +54,7 @@ import {
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
 import { registerFinanceRoutes, seedExpenseCategories } from "./financeRoutes";
+import { registerVenueRoutes } from "./venueRoutes";
 
 // ─── Tier buffer helper ───────────────────────────────────────────────────────
 // After each game, a player's confirmed level (stored in DB) only changes after
@@ -114,6 +115,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register finance routes + seed default expense categories
   registerFinanceRoutes(app);
   await seedExpenseCategories();
+
+  // Register venue routes (Phase 1 — super-admin venue price book)
+  registerVenueRoutes(app);
 
   // Auth routes
   app.post("/api/auth/login", async (req, res) => {

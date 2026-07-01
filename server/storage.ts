@@ -62,6 +62,7 @@ import {
   tagSuggestionVotes,
   expenseCategories,
   expenses,
+  venues,
   referrals,
   type ExpenseCategory,
   type InsertExpenseCategory,
@@ -69,6 +70,7 @@ import {
   type InsertExpense,
   type ExpenseWithCategory,
   type FinanceSummary,
+  type Venue,
   type BlogPost,
   type InsertBlogPost,
   blogPosts,
@@ -456,6 +458,12 @@ export interface IStorage {
   deleteExpense(id: string): Promise<void>;
 
   getFinanceSummary(from: Date, to: Date): Promise<FinanceSummary>;
+
+  // Venues (Phase 1 — per-session cost foundation)
+  listVenues(): Promise<Venue[]>;
+  getVenueByName(name: string): Promise<Venue | undefined>;
+  createVenue(data: { name: string; courtRateFilsPerHour: number; isActive?: boolean }): Promise<Venue>;
+  updateVenue(id: string, updates: Partial<Pick<Venue, 'name' | 'courtRateFilsPerHour' | 'isActive'>>): Promise<Venue | undefined>;
 
   // Blog operations
   createBlogPost(data: InsertBlogPost): Promise<BlogPost>;
@@ -3632,6 +3640,34 @@ export class DatabaseStorage implements IStorage {
 
   async deleteExpenseCategory(id: string): Promise<void> {
     await db.delete(expenseCategories).where(eq(expenseCategories.id, id));
+  }
+
+  // ─── Venues (Phase 1 — per-session cost foundation) ───────────────────────
+  async listVenues(): Promise<Venue[]> {
+    return db.select().from(venues).orderBy(asc(venues.name));
+  }
+
+  async getVenueByName(name: string): Promise<Venue | undefined> {
+    const [row] = await db.select().from(venues).where(eq(venues.name, name));
+    return row;
+  }
+
+  async createVenue(data: { name: string; courtRateFilsPerHour: number; isActive?: boolean }): Promise<Venue> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(venues)
+      .values({ id, name: data.name, courtRateFilsPerHour: data.courtRateFilsPerHour, isActive: data.isActive ?? true })
+      .returning();
+    return row;
+  }
+
+  async updateVenue(id: string, updates: Partial<Pick<Venue, 'name' | 'courtRateFilsPerHour' | 'isActive'>>): Promise<Venue | undefined> {
+    const [row] = await db
+      .update(venues)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(venues.id, id))
+      .returning();
+    return row;
   }
 
   async createExpense(data: InsertExpense): Promise<Expense> {
