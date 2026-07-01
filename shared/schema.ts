@@ -680,6 +680,62 @@ export const insertExpenseSchema = createInsertSchema(expenses)
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type Expense = typeof expenses.$inferSelect;
 
+// ─── Phase 1 — Per-session cost foundation ──────────────────────────────────────
+// Finance-domain tables, deliberately kept OFF the player-facing bookableSessions
+// table so the finance surface can be walled off cleanly later (Phase 6).
+// MONEY UNIT: all amounts here are in FILS (1 AED = 100 fils), matching the wallet
+// convention (players.walletBalance, payments.refundedAmount). The bridge to the
+// whole-AED columns (bookings.amountAed) is an exact ×100 at read time.
+
+// Venues + their court hire rate, stored PER COURT, PER HOUR, in fils. Sessions still
+// carry venueName as free text; a venue is matched to a session by name (venues.name
+// is unique), which is also how the backfill (gate e) finds each session's rate.
+export const venues = pgTable("venues", {
+  id: varchar("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  courtRateFilsPerHour: integer("court_rate_fils_per_hour").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export const insertVenueSchema = createInsertSchema(venues).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertVenue = z.infer<typeof insertVenueSchema>;
+export type Venue = typeof venues.$inferSelect;
+
+// Controlled list of people who can RUN a session (the captain). Pay attribution
+// (Phase 3) groups by session_runners.id, so renaming a runner never breaks history.
+// No pay-rule / percentage fields here — who-ran-it only; pay rules are Phase 3.
+export const sessionRunners = pgTable("session_runners", {
+  id: varchar("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export const insertSessionRunnerSchema = createInsertSchema(sessionRunners).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSessionRunner = z.infer<typeof insertSessionRunnerSchema>;
+export type SessionRunner = typeof sessionRunners.$inferSelect;
+
+// One cost row per bookable session. court cost auto-fills from the venue rate
+// (gate b/d) but is editable; courtCostOverridden latches true once an admin edits it
+// so the auto-fill never overwrites a one-off override. captainId = who RAN the session
+// (app-level ref to session_runners.id; Shannon's-pay attribution); capturedBy = which
+// admin saved the row (audit) — kept separate from captainId on purpose.
+export const sessionCosts = pgTable("session_costs", {
+  id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull().unique(), // → bookableSessions.id (by convention; app-level integrity, house style)
+  courtCostFils: integer("court_cost_fils").notNull().default(0),
+  shuttleCostFils: integer("shuttle_cost_fils").notNull().default(0),
+  waterCostFils: integer("water_cost_fils").notNull().default(0),
+  courtCostOverridden: boolean("court_cost_overridden").notNull().default(false),
+  captainId: varchar("captain_id"), // → session_runners.id (by convention; nullable)
+  capturedBy: text("captured_by"),
+  capturedAt: timestamp("captured_at").notNull().defaultNow(),
+});
+export const insertSessionCostSchema = createInsertSchema(sessionCosts).omit({ id: true, capturedAt: true });
+export type InsertSessionCost = z.infer<typeof insertSessionCostSchema>;
+export type SessionCost = typeof sessionCosts.$inferSelect;
+
 // Session rest state persistence (survives server restarts)
 export const sessionRestStatesTable = pgTable("session_rest_states", {
   id: varchar("id").primaryKey(),
