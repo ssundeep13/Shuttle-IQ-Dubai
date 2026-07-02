@@ -1,8 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +34,8 @@ import { Separator } from "@/components/ui/separator";
 import { CalendarIcon, Building2, MapPin, LayoutGrid, ShoppingBag, Clock, DollarSign, Users, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Session, BookableSessionWithAvailability } from "@shared/schema";
+import { sessionDurationHours } from "@shared/sessionTime";
+import type { Session, BookableSessionWithAvailability, Venue, SessionRunner } from "@shared/schema";
 
 interface EditSessionModalProps {
   open: boolean;
@@ -83,6 +84,49 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
     },
   });
 
+  const { data: venues = [] } = useQuery<Venue[]>({ queryKey: ['/api/venues'], queryFn: () => apiRequest<Venue[]>('GET', '/api/venues') });
+  const { data: runners = [] } = useQuery<SessionRunner[]>({ queryKey: ['/api/session-runners'], queryFn: () => apiRequest<SessionRunner[]>('GET', '/api/session-runners') });
+  const activeVenues = venues.filter(v => v.isActive);
+  const activeRunners = runners.filter(r => r.isActive);
+
+  const { data: costs } = useQuery<{ courtCostFils: number; shuttleCostFils: number; waterCostFils: number; captainId: string | null; courtCostOverridden: boolean } | null>({
+    queryKey: ['/api/sessions', linkedBookable?.id, 'costs'],
+    queryFn: () => apiRequest('GET', `/api/sessions/${linkedBookable!.id}/costs`),
+    enabled: open && !!linkedBookable,
+  });
+
+  const [captainId, setCaptainId] = useState<string | null>(null);
+  const [shuttleCostAed, setShuttleCostAed] = useState(0);
+  const [waterCostAed, setWaterCostAed] = useState(0);
+  const [courtCostAed, setCourtCostAed] = useState<number | null>(null); // prefilled; null = no row yet
+  const [courtCostDirty, setCourtCostDirty] = useState(false); // only send courtCostAed if the admin edits it
+
+  // Prefill cost state from GET /api/sessions/:id/costs (null on a legacy session with no row).
+  useEffect(() => {
+    if (!open) return;
+    setCourtCostDirty(false);
+    if (costs) {
+      setCaptainId(costs.captainId ?? null);
+      setShuttleCostAed(costs.shuttleCostFils / 100);
+      setWaterCostAed(costs.waterCostFils / 100);
+      setCourtCostAed(costs.courtCostFils / 100);
+    } else {
+      setCaptainId(null); setShuttleCostAed(0); setWaterCostAed(0); setCourtCostAed(null);
+    }
+  }, [costs, open]);
+
+  // Court-cost auto preview (client mirror of the server auto-fill), reactive to the form.
+  const wVenue = form.watch('venueName');
+  const wCourts = form.watch('courtCount');
+  const wStart = form.watch('startTime');
+  const wEnd = form.watch('endTime');
+  const selVenue = activeVenues.find(v => v.name === wVenue);
+  const durH = sessionDurationHours(wStart || '', wEnd || '');
+  const autoCourtAed = (selVenue && selVenue.courtRateFilsPerHour > 0 && Number.isFinite(durH))
+    ? (selVenue.courtRateFilsPerHour / 100) * (wCourts || 0) * durH
+    : 0;
+  const courtCostShown = courtCostAed != null ? courtCostAed : autoCourtAed;
+
   useEffect(() => {
     if (session && open) {
       const dateStr = new Date(session.date).toISOString().split('T')[0];
@@ -127,6 +171,10 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
           courtCount: values.courtCount,
           capacity: values.capacity,
           priceAed: values.priceAed,
+          captainId,
+          shuttleCostAed,
+          waterCostAed,
+          ...(courtCostDirty ? { courtCostAed } : {}),
         };
 
         await apiRequest('PATCH', `/api/marketplace/sessions/${linkedBookable.id}`, marketplaceUpdates);
@@ -173,23 +221,38 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
             <FormField
               control={form.control}
               name="venueName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4" />
-                    Venue Name
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="e.g., Downtown Sports Center"
-                      className="min-h-12 sm:min-h-10"
-                      data-testid="input-edit-venue-name"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={({ field }) => {
+                const known = activeVenues.some(v => v.name === field.value);
+                return (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      Venue
+                    </FormLabel>
+                    <Select value={field.value || undefined} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="min-h-12 sm:min-h-10" data-testid="select-edit-venue-name">
+                          <SelectValue placeholder="Select a venue" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {!known && field.value ? (
+                          <SelectItem value={field.value}>{field.value} (not in venue list)</SelectItem>
+                        ) : null}
+                        {activeVenues.map((v) => (
+                          <SelectItem key={v.id} value={v.name}>
+                            {v.name}{v.courtRateFilsPerHour > 0 ? ` — AED ${v.courtRateFilsPerHour / 100}/court/hr` : ' (price not set)'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!known && field.value ? (
+                      <p className="text-xs text-amber-600">Legacy venue name — not linked to a priced venue; court cost won't auto-fill until you pick one.</p>
+                    ) : null}
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
             />
 
             <FormField
@@ -438,6 +501,62 @@ export function EditSessionModal({ open, onClose, session, linkedBookable }: Edi
                       </FormItem>
                     )}
                   />
+                </div>
+
+                {/* ── Session costs + captain (Phase 1 gate d) ── */}
+                <Separator />
+                <Label className="flex items-center gap-2 text-sm font-semibold">
+                  <DollarSign className="h-4 w-4" />
+                  Session costs &amp; captain
+                </Label>
+
+                <div className="space-y-2">
+                  <Label>Captain / who ran it</Label>
+                  <Select value={captainId ?? '__none__'} onValueChange={(v) => setCaptainId(v === '__none__' ? null : v)}>
+                    <SelectTrigger className="min-h-12 sm:min-h-10" data-testid="select-edit-captain">
+                      <SelectValue placeholder="Not set" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Not set</SelectItem>
+                      {activeRunners.map((r) => (<SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>))}
+                      {captainId && !activeRunners.some(r => r.id === captainId) && runners.find(r => r.id === captainId) ? (
+                        <SelectItem value={captainId}>{runners.find(r => r.id === captainId)!.name} (inactive)</SelectItem>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>
+                    Court cost (AED)
+                    <span className="text-xs font-normal text-muted-foreground"> — auto from venue rate; edit to override</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={Number.isFinite(courtCostShown) ? Math.round(courtCostShown * 100) / 100 : 0}
+                    onChange={(e) => { setCourtCostAed(e.target.value === '' ? 0 : (parseFloat(e.target.value) || 0)); setCourtCostDirty(true); }}
+                    className="min-h-12 sm:min-h-10"
+                    data-testid="input-edit-court-cost"
+                  />
+                  {!courtCostDirty && courtCostAed == null && (
+                    <p className="text-xs text-muted-foreground">
+                      {selVenue && selVenue.courtRateFilsPerHour > 0 && Number.isFinite(durH)
+                        ? `Auto: AED ${Math.round(autoCourtAed * 100) / 100}`
+                        : 'Auto: AED 0 — venue rate not set, or times invalid'}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Shuttle cost (AED)</Label>
+                    <Input type="number" min={0} value={shuttleCostAed} onChange={(e) => setShuttleCostAed(parseFloat(e.target.value) || 0)} className="min-h-12 sm:min-h-10" data-testid="input-edit-shuttle-cost" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Water cost (AED)</Label>
+                    <Input type="number" min={0} value={waterCostAed} onChange={(e) => setWaterCostAed(parseFloat(e.target.value) || 0)} className="min-h-12 sm:min-h-10" data-testid="input-edit-water-cost" />
+                  </div>
                 </div>
               </>
             )}

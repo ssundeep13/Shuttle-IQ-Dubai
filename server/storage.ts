@@ -472,6 +472,8 @@ export interface IStorage {
   // Session runners + costs (Phase 1 — reads for the session-cost form)
   listSessionRunners(): Promise<SessionRunner[]>;
   getSessionCosts(sessionId: string): Promise<SessionCost | undefined>;
+  createSessionCostsIfAbsent(data: { sessionId: string; courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null; capturedBy: string | null }): Promise<void>;
+  upsertSessionCosts(data: { sessionId: string; courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null; capturedBy: string | null }): Promise<void>;
 
   // Blog operations
   createBlogPost(data: InsertBlogPost): Promise<BlogPost>;
@@ -3688,6 +3690,34 @@ export class DatabaseStorage implements IStorage {
   async getSessionCosts(sessionId: string): Promise<SessionCost | undefined> {
     const [row] = await db.select().from(sessionCosts).where(eq(sessionCosts.sessionId, sessionId));
     return row;
+  }
+
+  // Insert one session_costs row, keyed on the UNIQUE session_id. If a row already
+  // exists (concurrent create, or a prior create), do NOTHING — never duplicate.
+  async createSessionCostsIfAbsent(data: { sessionId: string; courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null; capturedBy: string | null }): Promise<void> {
+    await db.insert(sessionCosts)
+      .values({ id: randomUUID(), ...data })
+      .onConflictDoNothing({ target: sessionCosts.sessionId });
+  }
+
+  // Insert-or-update the session_costs row for a session (edit path). The caller has
+  // already merged with any existing row (keep-unchanged / override-latch logic), so this
+  // writes the resolved values and refreshes captured_at.
+  async upsertSessionCosts(data: { sessionId: string; courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null; capturedBy: string | null }): Promise<void> {
+    await db.insert(sessionCosts)
+      .values({ id: randomUUID(), ...data })
+      .onConflictDoUpdate({
+        target: sessionCosts.sessionId,
+        set: {
+          courtCostFils: data.courtCostFils,
+          shuttleCostFils: data.shuttleCostFils,
+          waterCostFils: data.waterCostFils,
+          courtCostOverridden: data.courtCostOverridden,
+          captainId: data.captainId,
+          capturedBy: data.capturedBy,
+          capturedAt: new Date(),
+        },
+      });
   }
 
   async createExpense(data: InsertExpense): Promise<Expense> {

@@ -6,6 +6,7 @@ import fs from "fs";
 import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals, matchSuggestions } from "@shared/schema";
+import { autoFillCourtCostFils } from "./sessionCostCompute";
 import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
 import { z } from "zod";
 import { randomUUID } from "crypto";
@@ -344,6 +345,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // STEP 3 — best-effort session-cost capture on create. Court cost AUTO-FILLS from
+      // the venue rate; shuttle/water/captain come from the validated marketplace
+      // passthrough. A failure here MUST NOT break session creation (log + continue;
+      // backfillable). session_costs.session_id is UNIQUE → insert-if-absent.
+      if (bookableSession) {
+        try {
+          const { courtCostFils, reason } = await autoFillCourtCostFils(bookableSession.venueName, bookableSession.courtCount, bookableSession.startTime, bookableSession.endTime);
+          console.log(`[SessionCost] create ${bookableSession.id}: court cost ${courtCostFils} fils (${reason})`);
+          const shuttleCostFils = marketplace?.shuttleCostAed != null ? Math.round(marketplace.shuttleCostAed * 100) : 0;
+          const waterCostFils = marketplace?.waterCostAed != null ? Math.round(marketplace.waterCostAed * 100) : 0;
+          await storage.createSessionCostsIfAbsent({
+            sessionId: bookableSession.id,
+            courtCostFils,
+            shuttleCostFils,
+            waterCostFils,
+            courtCostOverridden: false,
+            captainId: marketplace?.captainId ?? null,
+            capturedBy: req.user?.userId ?? null,
+          });
+        } catch (costErr) {
+          console.error(`[SessionCost] create — cost capture failed for session ${bookableSession.id} (session still created; backfillable):`, costErr instanceof Error ? costErr.message : costErr);
+        }
+      }
+
       res.status(201).json({ session, bookableSession });
     } catch (error) {
       if (error instanceof z.ZodError) {

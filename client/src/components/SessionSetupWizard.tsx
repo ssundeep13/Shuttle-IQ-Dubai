@@ -13,8 +13,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X, ShoppingBag, DollarSign, Clock } from "lucide-react";
-import { insertSessionSchema } from "@shared/schema";
+import { insertSessionSchema, type Venue, type SessionRunner } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
+import { sessionDurationHours } from "@shared/sessionTime";
 
 interface SessionSetupWizardProps {
   onSessionCreated: () => void;
@@ -40,6 +42,10 @@ interface MarketplaceData {
   endTime: string;
   capacity: number;
   priceAed: number;
+  captainId: string | null;
+  shuttleCostAed: number;
+  waterCostAed: number;
+  courtCostAedManual: number | null; // null = use server auto-fill; a number = admin override
 }
 
 export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWizardProps) {
@@ -54,6 +60,10 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     endTime: '21:00',
     capacity: 16,
     priceAed: 50,
+    captainId: null,
+    shuttleCostAed: 0,
+    waterCostAed: 0,
+    courtCostAedManual: null,
   });
   const [createdSessionId, setCreatedSessionId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -73,6 +83,28 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
       courtCount: 2,
     } as SessionFormData,
   });
+
+  const { data: venues = [] } = useQuery<Venue[]>({
+    queryKey: ['/api/venues'],
+    queryFn: () => apiRequest<Venue[]>('GET', '/api/venues'),
+  });
+  const { data: runners = [] } = useQuery<SessionRunner[]>({
+    queryKey: ['/api/session-runners'],
+    queryFn: () => apiRequest<SessionRunner[]>('GET', '/api/session-runners'),
+  });
+  const activeVenues = venues.filter(v => v.isActive);
+  const activeRunners = runners.filter(r => r.isActive);
+
+  // Court-cost preview (client mirror of the server auto-fill). venue/courtCount are
+  // watched so the preview updates live; times come from marketplace state.
+  const watchedVenueName = form.watch('venueName');
+  const watchedCourtCount = form.watch('courtCount');
+  const selectedVenue = activeVenues.find(v => v.name === watchedVenueName);
+  const previewDurH = sessionDurationHours(marketplaceData.startTime, marketplaceData.endTime);
+  const autoCourtCostAed = (selectedVenue && selectedVenue.courtRateFilsPerHour > 0 && Number.isFinite(previewDurH))
+    ? (selectedVenue.courtRateFilsPerHour / 100) * (watchedCourtCount || 0) * previewDurH
+    : 0;
+  const courtCostAedShown = marketplaceData.courtCostAedManual != null ? marketplaceData.courtCostAedManual : autoCourtCostAed;
 
   useEffect(() => {
     setCreatedSessionId(null);
@@ -149,6 +181,10 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
           endTime: marketplaceData.endTime,
           capacity: marketplaceData.capacity,
           priceAed: marketplaceData.priceAed,
+          captainId: marketplaceData.captainId,
+          shuttleCostAed: marketplaceData.shuttleCostAed,
+          waterCostAed: marketplaceData.waterCostAed,
+          ...(marketplaceData.courtCostAedManual != null ? { courtCostAed: marketplaceData.courtCostAedManual } : {}),
         } : undefined,
       };
 
@@ -397,16 +433,22 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                     <FormItem>
                       <FormLabel className="flex items-center gap-2">
                         <Building2 className="h-4 w-4" />
-                        Venue Name
+                        Venue
                       </FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="e.g., Downtown Sports Center"
-                          {...field}
-                          className="min-h-12 sm:min-h-10"
-                          data-testid="input-venue-name"
-                        />
-                      </FormControl>
+                      <Select value={field.value || undefined} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger className="min-h-12 sm:min-h-10" data-testid="select-venue-name">
+                            <SelectValue placeholder="Select a venue" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {activeVenues.map((v) => (
+                            <SelectItem key={v.id} value={v.name}>
+                              {v.name}{v.courtRateFilsPerHour > 0 ? ` — AED ${v.courtRateFilsPerHour / 100}/court/hr` : ' (price not set)'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -624,6 +666,78 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                         className="min-h-12 sm:min-h-10"
                         data-testid="input-marketplace-price"
                       />
+                    </div>
+                  </div>
+
+                  {/* ── Session costs + captain (Phase 1 gate d) — all optional ── */}
+                  <div className="rounded-lg border p-3 space-y-3 bg-muted/30">
+                    <Label className="flex items-center gap-2 text-sm font-semibold">
+                      <DollarSign className="h-4 w-4" />
+                      Session costs &amp; captain
+                      <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                    </Label>
+
+                    <div className="space-y-2">
+                      <Label>Captain / who ran it</Label>
+                      <Select
+                        value={marketplaceData.captainId ?? '__none__'}
+                        onValueChange={(v) => setMarketplaceData(prev => ({ ...prev, captainId: v === '__none__' ? null : v }))}
+                      >
+                        <SelectTrigger className="min-h-12 sm:min-h-10" data-testid="select-create-captain">
+                          <SelectValue placeholder="Not set" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Not set</SelectItem>
+                          {activeRunners.map((r) => (<SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>
+                        Court cost (AED)
+                        <span className="text-xs font-normal text-muted-foreground"> — auto from venue rate; edit to override</span>
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={Number.isFinite(courtCostAedShown) ? Math.round(courtCostAedShown * 100) / 100 : 0}
+                        onChange={(e) => setMarketplaceData(prev => ({ ...prev, courtCostAedManual: e.target.value === '' ? null : (parseFloat(e.target.value) || 0) }))}
+                        className="min-h-12 sm:min-h-10"
+                        data-testid="input-create-court-cost"
+                      />
+                      {marketplaceData.courtCostAedManual == null && (
+                        <p className="text-xs text-muted-foreground">
+                          {selectedVenue && selectedVenue.courtRateFilsPerHour > 0 && Number.isFinite(previewDurH)
+                            ? `Auto: AED ${Math.round(autoCourtCostAed * 100) / 100}  (${selectedVenue.courtRateFilsPerHour / 100}/court/hr × ${watchedCourtCount} courts × ${previewDurH}h)`
+                            : 'Auto: AED 0 — venue rate not set, or start/end time invalid'}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Shuttle cost (AED)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={marketplaceData.shuttleCostAed}
+                          onChange={(e) => setMarketplaceData(prev => ({ ...prev, shuttleCostAed: parseFloat(e.target.value) || 0 }))}
+                          className="min-h-12 sm:min-h-10"
+                          data-testid="input-create-shuttle-cost"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Water cost (AED)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={marketplaceData.waterCostAed}
+                          onChange={(e) => setMarketplaceData(prev => ({ ...prev, waterCostAed: parseFloat(e.target.value) || 0 }))}
+                          className="min-h-12 sm:min-h-10"
+                          data-testid="input-create-water-cost"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

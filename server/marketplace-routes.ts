@@ -47,6 +47,7 @@ import { db } from "./db";
 import { sql, eq, and, inArray, desc, asc, gt } from "drizzle-orm";
 import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, type BookableSession } from "@shared/schema";
 import { applyPendingWalletCredit } from "./promos";
+import { autoFillCourtCostFils } from "./sessionCostCompute";
 import {
   generateBracketedLineups,
   buildRestStatesFromHistory,
@@ -2339,8 +2340,8 @@ export function registerMarketplaceRoutes(app: Express) {
 
       const parsed = schema.parse(req.body);
 
-      // Split the future cost/captain fields (not written this step) off from the
-      // bookable_sessions columns, preserving the existing date-normalisation behaviour.
+      // Split the cost/captain fields off from the bookable_sessions columns (they go to
+      // session_costs below), preserving the existing date-normalisation behaviour.
       const {
         captainId, courtCostAed, shuttleCostAed, waterCostAed, courtCostOverridden,
         date, ...sessionFields
@@ -2351,6 +2352,45 @@ export function registerMarketplaceRoutes(app: Express) {
 
       const session = await storage.updateBookableSession(req.params.id, updates);
       if (!session) return res.status(404).json({ error: "Session not found" });
+
+      // STEP 4 — best-effort session_costs upsert (must NOT break the edit). shuttle/water/
+      // captain change only when the request carried a value; else keep existing. Court-cost
+      // override latch: a manual courtCostAed → store verbatim + latch; else if already
+      // overridden → keep; else recompute auto-fill from the POST-update session.
+      try {
+        const existing = await storage.getSessionCosts(session.id);
+        const shuttleCostFils = typeof shuttleCostAed === 'number' ? Math.round(shuttleCostAed * 100) : (existing?.shuttleCostFils ?? 0);
+        const waterCostFils = typeof waterCostAed === 'number' ? Math.round(waterCostAed * 100) : (existing?.waterCostFils ?? 0);
+        const nextCaptainId = captainId !== undefined ? captainId : (existing?.captainId ?? null);
+        let nextCourtCostFils: number;
+        let nextOverridden: boolean;
+        if (typeof courtCostAed === 'number') {
+          nextCourtCostFils = Math.round(courtCostAed * 100);
+          nextOverridden = true;
+          console.log(`[SessionCost] edit ${session.id}: manual court cost ${nextCourtCostFils} fils → override latched`);
+        } else if (existing?.courtCostOverridden) {
+          nextCourtCostFils = existing.courtCostFils;
+          nextOverridden = true;
+          console.log(`[SessionCost] edit ${session.id}: override already set → court cost ${nextCourtCostFils} fils kept`);
+        } else {
+          const auto = await autoFillCourtCostFils(session.venueName, session.courtCount, session.startTime, session.endTime);
+          nextCourtCostFils = auto.courtCostFils;
+          nextOverridden = false;
+          console.log(`[SessionCost] edit ${session.id}: recompute court cost ${auto.courtCostFils} fils (${auto.reason})`);
+        }
+        await storage.upsertSessionCosts({
+          sessionId: session.id,
+          courtCostFils: nextCourtCostFils,
+          shuttleCostFils,
+          waterCostFils,
+          courtCostOverridden: nextOverridden,
+          captainId: nextCaptainId,
+          capturedBy: req.user?.userId ?? null,
+        });
+      } catch (costErr) {
+        console.error(`[SessionCost] edit — cost upsert failed for session ${session.id} (edit still applied):`, costErr instanceof Error ? costErr.message : costErr);
+      }
+
       res.json(session);
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
