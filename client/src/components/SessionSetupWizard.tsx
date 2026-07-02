@@ -43,7 +43,7 @@ interface MarketplaceData {
   capacity: number;
   priceAed: number;
   captainId: string | null;
-  shuttleCostAed: number;
+  shuttleCostAedManual: number | null; // null = auto-suggest (2/3 tubes from courtCount); a number = admin override
   waterCostAed: number;
   courtCostAedManual: number | null; // null = use server auto-fill; a number = admin override
 }
@@ -61,7 +61,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     capacity: 16,
     priceAed: 50,
     captainId: null,
-    shuttleCostAed: 0,
+    shuttleCostAedManual: null,
     waterCostAed: 0,
     courtCostAedManual: null,
   });
@@ -105,6 +105,13 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
     ? (selectedVenue.courtRateFilsPerHour / 100) * (watchedCourtCount || 0) * previewDurH
     : 0;
   const courtCostAedShown = marketplaceData.courtCostAedManual != null ? marketplaceData.courtCostAedManual : autoCourtCostAed;
+
+  // Shuttle auto-suggest (client-side): <=4 courts → 2 tubes (AED 140), >=5 → 3 tubes (AED 210),
+  // AED 70/tube. Recomputes with courtCount UNLESS the admin has typed a value (manual != null).
+  // The server does NOT auto-fill shuttle, so we always send the shown value.
+  const autoShuttleTubes = (watchedCourtCount || 0) >= 5 ? 3 : 2;
+  const autoShuttleAed = autoShuttleTubes * 70;
+  const shuttleCostAedShown = marketplaceData.shuttleCostAedManual != null ? marketplaceData.shuttleCostAedManual : autoShuttleAed;
 
   useEffect(() => {
     setCreatedSessionId(null);
@@ -182,7 +189,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
           capacity: marketplaceData.capacity,
           priceAed: marketplaceData.priceAed,
           captainId: marketplaceData.captainId,
-          shuttleCostAed: marketplaceData.shuttleCostAed,
+          shuttleCostAed: shuttleCostAedShown,
           waterCostAed: marketplaceData.waterCostAed,
           ...(marketplaceData.courtCostAedManual != null ? { courtCostAed: marketplaceData.courtCostAedManual } : {}),
         } : undefined,
@@ -724,18 +731,23 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
+                      <div className="space-y-1">
                         <Label>Shuttle cost (AED)</Label>
                         <Input
                           type="number"
                           min={0}
-                          value={marketplaceData.shuttleCostAed}
-                          onChange={(e) => setMarketplaceData(prev => ({ ...prev, shuttleCostAed: parseFloat(e.target.value) || 0 }))}
+                          value={Number.isFinite(shuttleCostAedShown) ? shuttleCostAedShown : 0}
+                          onChange={(e) => setMarketplaceData(prev => ({ ...prev, shuttleCostAedManual: e.target.value === '' ? null : (parseFloat(e.target.value) || 0) }))}
                           className="min-h-12 sm:min-h-10"
                           data-testid="input-create-shuttle-cost"
                         />
+                        {marketplaceData.shuttleCostAedManual == null && (
+                          <p className="text-xs text-muted-foreground">
+                            Auto: AED {autoShuttleAed} ({autoShuttleTubes} tubes for {watchedCourtCount || 0} courts) — edit to override
+                          </p>
+                        )}
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-1">
                         <Label>Water cost (AED)</Label>
                         <Input
                           type="number"
@@ -745,6 +757,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                           className="min-h-12 sm:min-h-10"
                           data-testid="input-create-water-cost"
                         />
+                        <p className="text-xs text-muted-foreground">Rule of thumb: AED 1 × players (settled after the session)</p>
                       </div>
                     </div>
                   </div>
