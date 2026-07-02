@@ -65,6 +65,7 @@ import {
   venues,
   sessionRunners,
   sessionCosts,
+  portalUsers,
   referrals,
   type ExpenseCategory,
   type InsertExpenseCategory,
@@ -75,6 +76,7 @@ import {
   type Venue,
   type SessionRunner,
   type SessionCost,
+  type PortalUser,
   type BlogPost,
   type InsertBlogPost,
   blogPosts,
@@ -474,6 +476,9 @@ export interface IStorage {
   getSessionCosts(sessionId: string): Promise<SessionCost | undefined>;
   createSessionCostsIfAbsent(data: { sessionId: string; courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null; capturedBy: string | null }): Promise<void>;
   upsertSessionCosts(data: { sessionId: string; courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null; capturedBy: string | null }): Promise<void>;
+
+  // Finance Portal (Phase 2 — login lookup)
+  getPortalUserByEmail(email: string): Promise<PortalUser | undefined>;
 
   // Blog operations
   createBlogPost(data: InsertBlogPost): Promise<BlogPost>;
@@ -3718,6 +3723,14 @@ export class DatabaseStorage implements IStorage {
           capturedAt: new Date(),
         },
       });
+  }
+
+  // ── Finance Portal identity (Phase 2) ──────────────────────────────────────
+  // Read-only lookup used by the portal login. Email is compared lowercased
+  // (rows are seeded lowercased by the hand-run migration).
+  async getPortalUserByEmail(email: string): Promise<PortalUser | undefined> {
+    const [row] = await db.select().from(portalUsers).where(eq(portalUsers.email, email.toLowerCase()));
+    return row;
   }
 
   async createExpense(data: InsertExpense): Promise<Expense> {

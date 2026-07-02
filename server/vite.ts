@@ -6,6 +6,7 @@ import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
 import { getMetaForUrl, injectMeta } from "./seoMeta";
+import { isPortalHost } from "./portal/hostGate";
 
 const viteLogger = createLogger();
 
@@ -72,22 +73,46 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(import.meta.dirname, "public");
+  // Main app → dist/public ; finance portal → dist/portal (Phase 2). The host wall in
+  // server/index.ts has already 404'd any cross-host API before we reach here, so this
+  // only needs to serve the right SPA + assets per host.
+  const mainDist = path.resolve(import.meta.dirname, "public");
+  const portalDist = path.resolve(import.meta.dirname, "portal");
 
-  if (!fs.existsSync(distPath)) {
+  if (!fs.existsSync(mainDist)) {
     throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`,
+      `Could not find the build directory: ${mainDist}, make sure to build the client first`,
     );
   }
+  const portalExists = fs.existsSync(portalDist);
+  if (!portalExists) {
+    // Non-fatal: the main app still serves. The portal host will 503 until the
+    // portal build (vite.portal.config.ts → dist/portal) has run.
+    console.warn(`[Portal] build dir not found: ${portalDist} — finance.shuttleiq.ai will not serve until it is built.`);
+  }
 
-  app.use(express.static(distPath));
+  const serveMainStatic = express.static(mainDist);
+  const servePortalStatic = portalExists ? express.static(portalDist) : null;
+
+  app.use((req, res, next) => {
+    if (isPortalHost(req.hostname) && servePortalStatic) return servePortalStatic(req, res, next);
+    return serveMainStatic(req, res, next);
+  });
 
   app.use("*", async (req, res) => {
-    const indexPath = path.resolve(distPath, "index.html");
+    const portal = isPortalHost(req.hostname);
+    if (portal && !portalExists) {
+      return res.status(503).send("Finance portal is not built yet.");
+    }
+    const dir = portal ? portalDist : mainDist;
+    const indexPath = path.resolve(dir, "index.html");
     let html = await fs.promises.readFile(indexPath, "utf-8");
 
-    const meta = await getMetaForUrl(req.originalUrl);
-    html = injectMeta(html, meta);
+    // SEO meta injection is main-app only; the portal is a private login surface.
+    if (!portal) {
+      const meta = await getMetaForUrl(req.originalUrl);
+      html = injectMeta(html, meta);
+    }
 
     res.status(200).set({ "Content-Type": "text/html" }).end(html);
   });

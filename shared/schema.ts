@@ -738,6 +738,20 @@ export const insertSessionCostSchema = createInsertSchema(sessionCosts).omit({ i
 export type InsertSessionCost = z.infer<typeof insertSessionCostSchema>;
 export type SessionCost = typeof sessionCosts.$inferSelect;
 
+// ─── Finance Portal identity (Phase 2) ────────────────────────────────────
+// DELIBERATELY separate from the main app's users/roles: the finance portal
+// (finance.shuttleiq.ai) has its own tiny login. Rows are seeded only by the
+// hand-run migration (scripts/phase2-portal-migrate.mjs); passwords are bcrypt
+// hashes and never written from app code.
+export const portalUsers = pgTable("portal_users", {
+  id: varchar("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type PortalUser = typeof portalUsers.$inferSelect;
+
 // Session rest state persistence (survives server restarts)
 export const sessionRestStatesTable = pgTable("session_rest_states", {
   id: varchar("id").primaryKey(),

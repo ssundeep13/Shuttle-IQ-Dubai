@@ -7,6 +7,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./scheduler";
 import { seedTags } from "./tagSeed";
 import { registerZiinaWebhookRoute } from "./webhookHandler";
+import { shouldBlockCrossHost } from "./portal/hostGate";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -23,6 +24,17 @@ app.use((req, res, next) => {
   const host = req.hostname?.toLowerCase();
   if (host && LEGACY_REDIRECT_HOSTS.has(host)) {
     return res.redirect(301, `https://shuttleiq.ai${req.originalUrl}`);
+  }
+  next();
+});
+
+// Host wall (Phase 2). Registered before every route/static handler so a request
+// that crosses the wall (main-app API on the portal host, or a portal API on a main
+// host, or /uploads on the portal host) is 404'd here and never reaches the app.
+// /api/health is exempt on every host. See server/portal/hostGate.ts.
+app.use((req, res, next) => {
+  if (shouldBlockCrossHost(req.hostname, req.path)) {
+    return res.status(404).json({ error: "Not found" });
   }
   next();
 });
@@ -100,6 +112,7 @@ const authLimiter = rateLimit({
 app.use('/api/auth/login', authLimiter);
 app.use('/api/marketplace/auth/login', authLimiter);
 app.use('/api/marketplace/auth/signup', authLimiter);
+app.use('/api/portal/auth/login', authLimiter);
 
 // Lightweight health-check — responds instantly without touching the DB.
 // External uptime monitors (e.g. UptimeRobot) can ping this every 5 minutes
