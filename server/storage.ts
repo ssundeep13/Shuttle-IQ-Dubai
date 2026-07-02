@@ -466,8 +466,8 @@ export interface IStorage {
   // Venues (Phase 1 — per-session cost foundation)
   listVenues(): Promise<Venue[]>;
   getVenueByName(name: string): Promise<Venue | undefined>;
-  createVenue(data: { name: string; courtRateFilsPerHour: number; isActive?: boolean }): Promise<Venue>;
-  updateVenue(id: string, updates: Partial<Pick<Venue, 'name' | 'courtRateFilsPerHour' | 'isActive'>>): Promise<Venue | undefined>;
+  createVenue(data: { name: string; courtRateFilsPerHour: number; isActive?: boolean; location?: string | null; mapUrl?: string | null }): Promise<Venue>;
+  updateVenue(id: string, updates: Partial<Pick<Venue, 'name' | 'courtRateFilsPerHour' | 'isActive' | 'location' | 'mapUrl'>>): Promise<Venue | undefined>;
 
   // Session runners + costs (Phase 1 — reads for the session-cost form)
   listSessionRunners(): Promise<SessionRunner[]>;
@@ -3662,16 +3662,16 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
-  async createVenue(data: { name: string; courtRateFilsPerHour: number; isActive?: boolean }): Promise<Venue> {
+  async createVenue(data: { name: string; courtRateFilsPerHour: number; isActive?: boolean; location?: string | null; mapUrl?: string | null }): Promise<Venue> {
     const id = randomUUID();
     const [row] = await db
       .insert(venues)
-      .values({ id, name: data.name, courtRateFilsPerHour: data.courtRateFilsPerHour, isActive: data.isActive ?? true })
+      .values({ id, name: data.name, courtRateFilsPerHour: data.courtRateFilsPerHour, isActive: data.isActive ?? true, location: data.location ?? null, mapUrl: data.mapUrl ?? null })
       .returning();
     return row;
   }
 
-  async updateVenue(id: string, updates: Partial<Pick<Venue, 'name' | 'courtRateFilsPerHour' | 'isActive'>>): Promise<Venue | undefined> {
+  async updateVenue(id: string, updates: Partial<Pick<Venue, 'name' | 'courtRateFilsPerHour' | 'isActive' | 'location' | 'mapUrl'>>): Promise<Venue | undefined> {
     const [row] = await db
       .update(venues)
       .set({ ...updates, updatedAt: new Date() })

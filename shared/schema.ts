@@ -694,6 +694,8 @@ export const venues = pgTable("venues", {
   id: varchar("id").primaryKey(),
   name: text("name").notNull().unique(),
   courtRateFilsPerHour: integer("court_rate_fils_per_hour").notNull().default(0),
+  location: text("location"),      // saved venue location; auto-fills the session's venueLocation
+  mapUrl: text("map_url"),          // saved Google Maps link; auto-fills the session's venueMapUrl
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

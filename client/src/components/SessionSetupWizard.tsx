@@ -435,7 +435,15 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                         <Building2 className="h-4 w-4" />
                         Venue
                       </FormLabel>
-                      <Select value={field.value || undefined} onValueChange={field.onChange}>
+                      <Select
+                        value={field.value || undefined}
+                        onValueChange={(name) => {
+                          field.onChange(name);
+                          const picked = activeVenues.find((x) => x.name === name);
+                          if (picked?.location) form.setValue('venueLocation', picked.location);
+                          if (picked?.mapUrl) form.setValue('venueMapUrl', picked.mapUrl);
+                        }}
+                      >
                         <FormControl>
                           <SelectTrigger className="min-h-12 sm:min-h-10" data-testid="select-venue-name">
                             <SelectValue placeholder="Select a venue" />

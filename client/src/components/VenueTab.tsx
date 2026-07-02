@@ -41,24 +41,28 @@ export default function VenueTab() {
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
   const [newAed, setNewAed] = useState('');
+  const [newLocation, setNewLocation] = useState('');
+  const [newMapUrl, setNewMapUrl] = useState('');
 
-  // Inline price edit (per row)
+  // Inline edit (per row): price + location + map link
   const [editId, setEditId] = useState<string | null>(null);
   const [editAed, setEditAed] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editMapUrl, setEditMapUrl] = useState('');
 
   const createMutation = useMutation({
-    mutationFn: (body: { name: string; courtRateFilsPerHour: number }) =>
+    mutationFn: (body: { name: string; courtRateFilsPerHour: number; location: string | null; mapUrl: string | null }) =>
       apiRequest('POST', '/api/venues', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['/api/venues'] });
-      setShowAdd(false); setNewName(''); setNewAed('');
+      setShowAdd(false); setNewName(''); setNewAed(''); setNewLocation(''); setNewMapUrl('');
       toast({ title: 'Venue added' });
     },
     onError: (err) => toast({ title: 'Could not add venue', description: errMsg(err), variant: 'destructive' }),
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, updates }: { id: string; updates: Partial<{ courtRateFilsPerHour: number; isActive: boolean }> }) =>
+    mutationFn: ({ id, updates }: { id: string; updates: Partial<{ courtRateFilsPerHour: number; isActive: boolean; location: string | null; mapUrl: string | null }> }) =>
       apiRequest('PATCH', `/api/venues/${id}`, updates),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['/api/venues'] });
@@ -70,15 +74,22 @@ export default function VenueTab() {
   const startEdit = (v: Venue) => {
     setEditId(v.id);
     setEditAed(v.courtRateFilsPerHour ? String(filsToAed(v.courtRateFilsPerHour)) : '');
+    setEditLocation(v.location ?? '');
+    setEditMapUrl(v.mapUrl ?? '');
   };
 
-  const savePrice = (id: string) => {
+  const saveDetails = (id: string) => {
     const aed = parseFloat(editAed);
     if (editAed.trim() === '' || isNaN(aed) || aed < 0) {
       toast({ title: 'Enter a valid price', description: 'Price must be 0 or more (AED).', variant: 'destructive' });
       return;
     }
-    updateMutation.mutate({ id, updates: { courtRateFilsPerHour: aedToFils(aed) } });
+    const mapUrl = editMapUrl.trim();
+    if (mapUrl && !/^https?:\/\/.+/.test(mapUrl)) {
+      toast({ title: 'Invalid Google Maps link', description: 'Must start with http:// or https://', variant: 'destructive' });
+      return;
+    }
+    updateMutation.mutate({ id, updates: { courtRateFilsPerHour: aedToFils(aed), location: editLocation.trim() || null, mapUrl: mapUrl || null } });
     setEditId(null);
   };
 
@@ -93,7 +104,12 @@ export default function VenueTab() {
       toast({ title: 'Enter a valid price', description: 'Price must be 0 or more (AED).', variant: 'destructive' });
       return;
     }
-    createMutation.mutate({ name, courtRateFilsPerHour: aedToFils(aed) });
+    const mapUrl = newMapUrl.trim();
+    if (mapUrl && !/^https?:\/\/.+/.test(mapUrl)) {
+      toast({ title: 'Invalid Google Maps link', description: 'Must start with http:// or https://', variant: 'destructive' });
+      return;
+    }
+    createMutation.mutate({ name, courtRateFilsPerHour: aedToFils(aed), location: newLocation.trim() || null, mapUrl: mapUrl || null });
   };
 
   return (
@@ -142,11 +158,19 @@ export default function VenueTab() {
                 />
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-venue-location">Location <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+              <Input id="new-venue-location" placeholder="e.g. Al Nasr, Dubai" value={newLocation} onChange={(e) => setNewLocation(e.target.value)} data-testid="input-venue-new-location" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-venue-mapurl">Google Maps link <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+              <Input id="new-venue-mapurl" placeholder="https://maps.app.goo.gl/..." value={newMapUrl} onChange={(e) => setNewMapUrl(e.target.value)} data-testid="input-venue-new-mapurl" />
+            </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={submitAdd} disabled={createMutation.isPending} data-testid="button-venue-create">
                 <Check className="w-4 h-4 mr-1" /> Save venue
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setShowAdd(false); setNewName(''); setNewAed(''); }}>
+              <Button size="sm" variant="ghost" onClick={() => { setShowAdd(false); setNewName(''); setNewAed(''); setNewLocation(''); setNewMapUrl(''); }}>
                 <X className="w-4 h-4 mr-1" /> Cancel
               </Button>
             </div>
@@ -170,56 +194,74 @@ export default function VenueTab() {
               const isEditing = editId === v.id;
               const notSet = !v.courtRateFilsPerHour; // 0 or falsy
               return (
-                <div key={v.id} className="flex items-center gap-3 p-3" data-testid={`row-venue-${v.id}`}>
-                  <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
-                  <span className="flex-1 text-sm font-medium truncate" title={v.name}>{v.name}</span>
-
-                  {/* Price */}
-                  {isEditing ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">AED</span>
-                      <Input
-                        type="number" min="0" step="1" inputMode="numeric"
-                        className="h-8 w-24"
-                        value={editAed}
-                        onChange={(e) => setEditAed(e.target.value)}
-                        autoFocus
-                        data-testid={`input-venue-price-${v.id}`}
-                      />
-                      <Button size="sm" className="h-8" onClick={() => savePrice(v.id)} disabled={updateMutation.isPending} data-testid={`button-venue-save-${v.id}`}>
-                        <Check className="w-4 h-4" />
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditId(null)}>
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      {notSet ? (
-                        <Badge variant="outline" className="text-amber-600 border-amber-300" data-testid={`badge-venue-unset-${v.id}`}>
-                          Not set yet
-                        </Badge>
-                      ) : (
-                        <span className="text-sm font-semibold tabular-nums" data-testid={`text-venue-price-${v.id}`}>
-                          AED {filsToAed(v.courtRateFilsPerHour)}
-                          <span className="text-xs font-normal text-muted-foreground"> / court / hour</span>
+                <div key={v.id} className="p-3 space-y-2" data-testid={`row-venue-${v.id}`}>
+                  <div className="flex items-center gap-3">
+                    <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium truncate block" title={v.name}>{v.name}</span>
+                      {!isEditing && (v.location || v.mapUrl) ? (
+                        <span className="text-xs text-muted-foreground truncate block">
+                          {v.location || ''}{v.location && v.mapUrl ? ' · ' : ''}
+                          {v.mapUrl ? (
+                            <a href={v.mapUrl} target="_blank" rel="noreferrer" className="underline hover:text-foreground" data-testid={`link-venue-map-${v.id}`}>Map</a>
+                          ) : null}
                         </span>
-                      )}
-                      <Button size="sm" variant="ghost" className="h-8" onClick={() => startEdit(v)} data-testid={`button-venue-edit-${v.id}`}>
-                        <Pencil className="w-3.5 h-3.5 mr-1" /> {notSet ? 'Set price' : 'Edit'}
-                      </Button>
+                      ) : null}
+                    </div>
+
+                    {!isEditing && (
+                      <div className="flex items-center gap-2">
+                        {notSet ? (
+                          <Badge variant="outline" className="text-amber-600 border-amber-300" data-testid={`badge-venue-unset-${v.id}`}>
+                            Not set yet
+                          </Badge>
+                        ) : (
+                          <span className="text-sm font-semibold tabular-nums" data-testid={`text-venue-price-${v.id}`}>
+                            AED {filsToAed(v.courtRateFilsPerHour)}
+                            <span className="text-xs font-normal text-muted-foreground"> / court / hour</span>
+                          </span>
+                        )}
+                        <Button size="sm" variant="ghost" className="h-8" onClick={() => startEdit(v)} data-testid={`button-venue-edit-${v.id}`}>
+                          <Pencil className="w-3.5 h-3.5 mr-1" /> {notSet ? 'Set price' : 'Edit'}
+                        </Button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1.5 shrink-0 pl-2">
+                      <Switch
+                        checked={v.isActive}
+                        onCheckedChange={(val) => updateMutation.mutate({ id: v.id, updates: { isActive: val } })}
+                        data-testid={`switch-venue-active-${v.id}`}
+                      />
+                      <span className="text-xs text-muted-foreground w-12">{v.isActive ? 'Active' : 'Hidden'}</span>
+                    </div>
+                  </div>
+
+                  {isEditing && (
+                    <div className="pl-7 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-28 shrink-0">AED / court / hour</span>
+                        <Input
+                          type="number" min="0" step="1" inputMode="numeric"
+                          className="h-8 w-28"
+                          value={editAed}
+                          onChange={(e) => setEditAed(e.target.value)}
+                          autoFocus
+                          data-testid={`input-venue-price-${v.id}`}
+                        />
+                      </div>
+                      <Input className="h-8" placeholder="Location (optional)" value={editLocation} onChange={(e) => setEditLocation(e.target.value)} data-testid={`input-venue-location-${v.id}`} />
+                      <Input className="h-8" placeholder="Google Maps link (optional)" value={editMapUrl} onChange={(e) => setEditMapUrl(e.target.value)} data-testid={`input-venue-mapurl-${v.id}`} />
+                      <div className="flex gap-2">
+                        <Button size="sm" className="h-8" onClick={() => saveDetails(v.id)} disabled={updateMutation.isPending} data-testid={`button-venue-save-${v.id}`}>
+                          <Check className="w-4 h-4 mr-1" /> Save
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditId(null)}>
+                          <X className="w-4 h-4 mr-1" /> Cancel
+                        </Button>
+                      </div>
                     </div>
                   )}
-
-                  {/* Active toggle */}
-                  <div className="flex items-center gap-1.5 shrink-0 pl-2">
-                    <Switch
-                      checked={v.isActive}
-                      onCheckedChange={(val) => updateMutation.mutate({ id: v.id, updates: { isActive: val } })}
-                      data-testid={`switch-venue-active-${v.id}`}
-                    />
-                    <span className="text-xs text-muted-foreground w-12">{v.isActive ? 'Active' : 'Hidden'}</span>
-                  </div>
                 </div>
               );
             })}
