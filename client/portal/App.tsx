@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, FormEvent } from "react";
 import { PnlPage, WeeklyPage, SessionsPage, RunnerPayPage } from "./pages";
 import { ReconcilePage } from "./ReconcilePage";
+import { GrowthPage } from "./GrowthPage";
 
 const TOKEN_KEY = "siq_portal_token";
 
-type PageKey = "pnl" | "weekly" | "sessions" | "pay" | "reconcile";
+type PageKey = "pnl" | "weekly" | "sessions" | "pay" | "reconcile" | "growth";
 
 const NAV: Array<{ key: PageKey; title: string }> = [
   { key: "pnl", title: "P&L" },
@@ -12,6 +13,7 @@ const NAV: Array<{ key: PageKey; title: string }> = [
   { key: "sessions", title: "Sessions" },
   { key: "pay", title: "Runner Pay" },
   { key: "reconcile", title: "Reconciliation" },
+  { key: "growth", title: "Growth" },
 ];
 
 function Wordmark() {
@@ -149,6 +151,7 @@ export function PortalApp() {
         {page === "sessions" && <SessionsPage token={token} onAuthFail={logout} />}
         {page === "pay" && <RunnerPayPage token={token} onAuthFail={logout} />}
         {page === "reconcile" && <ReconcilePage token={token} onAuthFail={logout} />}
+        {page === "growth" && <GrowthPage token={token} onAuthFail={logout} />}
       </main>
     </div>
   );

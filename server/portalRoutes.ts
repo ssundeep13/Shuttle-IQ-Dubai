@@ -16,6 +16,7 @@ import {
   filterRunnerPayWeeksForRunner,
 } from "./portalFinance";
 import { reconcileZiinaCsv, loadReconcileInput } from "./portalReconcile";
+import { buildGrowthReport } from "./portalGrowth";
 
 // fils → AED at the API edge (integer fils, so /100 is exact to 2dp).
 const filsToAed = (f: number) => Math.round(f) / 100;
@@ -233,6 +234,20 @@ export function registerPortalRoutes(app: Express): void {
     } catch (err: unknown) {
       console.error("[Portal] runner-pay error:", err instanceof Error ? err.message : err);
       res.status(500).json({ error: "Failed to load runner pay." });
+    }
+  });
+
+  // Phase 5 — growth reports. READ-ONLY aggregation over existing data; owner-only.
+  // One endpoint carries all 8 metric blocks; ?lapsedDays tunes the lapsed cutoff.
+  app.get("/api/portal/growth", requirePortalAuth, requirePortalOwner, async (req: Request, res: Response) => {
+    try {
+      const parsed = parseInt(String(req.query.lapsedDays ?? "30"), 10);
+      const lapsedDays = Number.isFinite(parsed) && parsed > 0 && parsed <= 365 ? parsed : 30;
+      const report = await buildGrowthReport(lapsedDays, new Date().toISOString().slice(0, 10));
+      res.json(report);
+    } catch (err: unknown) {
+      console.error("[Portal] growth error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load growth report." });
     }
   });
 

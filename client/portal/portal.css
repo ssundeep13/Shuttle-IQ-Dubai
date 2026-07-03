@@ -377,6 +377,42 @@ td.wrap {
   padding: 0 14px 12px;
 }
 
+/* ── Growth (Phase 5) ─────────────────────────────────────────────────── */
+.tabs.subtabs {
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+.tabs.subtabs .tab {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 6px 11px;
+}
+.tabs.subtabs .tab:hover {
+  color: var(--ink);
+  background: rgba(0, 62, 140, 0.06);
+}
+.tabs.subtabs .tab.active {
+  color: #ffffff;
+  background: var(--navy);
+}
+.growth-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+@media (max-width: 860px) {
+  .growth-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.note select {
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf7;
+  padding: 2px 6px;
+}
+
 /* Skeleton for loading states. */
 .skeleton {
   height: 40px;
