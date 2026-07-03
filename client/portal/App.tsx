@@ -1,11 +1,16 @@
-import { useEffect, useState, useCallback, FormEvent } from "react";
+import { useState, useCallback, FormEvent } from "react";
+import { PnlPage, WeeklyPage, SessionsPage, RunnerPayPage } from "./pages";
 
 const TOKEN_KEY = "siq_portal_token";
 
-interface Summary {
-  collectedAed: number;
-  month: string; // YYYY-MM
-}
+type PageKey = "pnl" | "weekly" | "sessions" | "pay";
+
+const NAV: Array<{ key: PageKey; title: string }> = [
+  { key: "pnl", title: "P&L" },
+  { key: "weekly", title: "Weekly" },
+  { key: "sessions", title: "Sessions" },
+  { key: "pay", title: "Runner Pay" },
+];
 
 function Wordmark() {
   return (
@@ -18,62 +23,20 @@ function Wordmark() {
   );
 }
 
-function formatMonth(ym: string): string {
-  // "2026-07" → "July 2026"
-  const [y, m] = ym.split("-").map(Number);
-  if (!y || !m) return ym;
-  const name = new Date(Date.UTC(y, m - 1, 1)).toLocaleString("en-US", {
-    month: "long",
-    timeZone: "UTC",
-  });
-  return `${name} ${y}`;
-}
-
 export function PortalApp() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [loadingSummary, setLoadingSummary] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [page, setPage] = useState<PageKey>("pnl");
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
-    setSummary(null);
     setPassword("");
+    setPage("pnl");
   }, []);
-
-  const loadSummary = useCallback(
-    async (jwt: string) => {
-      setLoadingSummary(true);
-      setSummaryError(null);
-      try {
-        const res = await fetch("/api/portal/finance/summary", {
-          headers: { Authorization: `Bearer ${jwt}` },
-        });
-        if (res.status === 401) {
-          logout();
-          return;
-        }
-        if (!res.ok) throw new Error("request failed");
-        const data = (await res.json()) as Summary;
-        setSummary(data);
-      } catch {
-        setSummaryError("Couldn't load the figure. Try again.");
-      } finally {
-        setLoadingSummary(false);
-      }
-    },
-    [logout],
-  );
-
-  useEffect(() => {
-    if (token) loadSummary(token);
-  }, [token, loadSummary]);
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
@@ -99,11 +62,10 @@ export function PortalApp() {
     }
   }
 
-  return (
-    <div className="portal-shell">
-      <Wordmark />
-
-      {!token ? (
+  if (!token) {
+    return (
+      <div className="portal-shell">
+        <Wordmark />
         <form className="card" onSubmit={handleLogin} noValidate>
           <div className="field">
             <label htmlFor="portal-email">Email</label>
@@ -132,36 +94,38 @@ export function PortalApp() {
             {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
-      ) : (
-        <div className="card">
-          <p className="dash-label">Collected revenue this month</p>
-          {loadingSummary ? (
-            <div className="skeleton" />
-          ) : summaryError ? (
-            <>
-              <div className="error">{summaryError}</div>
-              <button className="btn" onClick={() => token && loadSummary(token)}>
-                Retry
-              </button>
-            </>
-          ) : summary ? (
-            <>
-              <div className="dash-figure">
-                <span className="cur">AED</span>
-                {summary.collectedAed.toLocaleString("en-US")}
-              </div>
-              <p className="dash-month">{formatMonth(summary.month)}</p>
-            </>
-          ) : null}
+      </div>
+    );
+  }
 
-          <div className="dash-foot">
-            <span className="dash-user">Signed in</span>
-            <button className="linkbtn" onClick={logout}>
-              Sign out
-            </button>
-          </div>
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="wordmark small">
+          Shuttle<span className="iq">IQ</span>
+          <span className="topbar-sub">Finance</span>
         </div>
-      )}
+        <nav className="tabs">
+          {NAV.map((n) => (
+            <button
+              key={n.key}
+              className={page === n.key ? "tab active" : "tab"}
+              onClick={() => setPage(n.key)}
+            >
+              {n.title}
+            </button>
+          ))}
+        </nav>
+        <button className="linkbtn light" onClick={logout}>
+          Sign out
+        </button>
+      </header>
+      <main className="content">
+        {page === "pnl" && <PnlPage token={token} onAuthFail={logout} />}
+        {page === "weekly" && <WeeklyPage token={token} onAuthFail={logout} />}
+        {page === "sessions" && <SessionsPage token={token} onAuthFail={logout} />}
+        {page === "pay" && <RunnerPayPage token={token} onAuthFail={logout} />}
+      </main>
     </div>
   );
 }

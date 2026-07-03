@@ -14,7 +14,7 @@
 // top-level import would make the pure function un-importable in a DB-less test.
 
 import { bookings, payments, sessionCosts } from "@shared/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, inArray, sql } from "drizzle-orm";
 
 export interface ProfitInputsFils {
   revenueFils: number;
@@ -67,20 +67,40 @@ export function computeProfitFils(inputs: ProfitInputsFils): number {
 //
 // COSTS come from the session_costs row; if none exists yet, all three are 0.
 // sessionId anchors to bookableSessions.id (what bookings.sessionId points at).
+//
+// SINGLE vs BATCH: computeSessionProfitFils(sessionId) DELEGATES to the batch of one,
+// so there is exactly ONE implementation of the revenue/refund/cost assembly — the
+// portal's report endpoints (Phase 3) use the batch over ~20+ sessions in 3 queries
+// total instead of 3 queries per session, and the numbers cannot diverge.
 export async function computeSessionProfitFils(sessionId: string): Promise<ProfitBreakdownFils> {
+  const map = await computeSessionProfitsBatchFils([sessionId]);
+  return map.get(sessionId)!; // batch guarantees an entry (zeros) for every requested id
+}
+
+export async function computeSessionProfitsBatchFils(
+  sessionIds: string[],
+): Promise<Map<string, ProfitBreakdownFils>> {
   const { db } = await import("./db"); // lazy — keeps computeProfitFils DB-import-free
+
+  // Every requested id gets an entry, defaulting to all-zeros (no bookings, no costs).
+  const result = new Map<string, ProfitBreakdownFils>();
+  for (const id of sessionIds) {
+    result.set(id, { revenueFils: 0, courtCostFils: 0, shuttleCostFils: 0, waterCostFils: 0, profitFils: 0 });
+  }
+  if (sessionIds.length === 0) return result;
 
   // 1) confirmed/attended bookings → keep only COLLECTED for gross revenue (fils)
   const bookingRows = await db
     .select({
       id: bookings.id,
+      sessionId: bookings.sessionId,
       amountAed: bookings.amountAed,
       paymentMethod: bookings.paymentMethod,
       cashPaid: bookings.cashPaid,
     })
     .from(bookings)
     .where(and(
-      eq(bookings.sessionId, sessionId),
+      inArray(bookings.sessionId, sessionIds),
       inArray(bookings.status, ['confirmed', 'attended']),
     ));
 
@@ -90,43 +110,54 @@ export async function computeSessionProfitFils(sessionId: string): Promise<Profi
     b.paymentMethod === 'ziina' || (b.paymentMethod === 'cash' && b.cashPaid);
   const collectedRows = bookingRows.filter(isCollected);
 
-  const grossFils = collectedRows.reduce((sum, b) => sum + b.amountAed * 100, 0);
+  const grossFilsBySession = new Map<string, number>();
+  const sessionByBookingId = new Map<string, string>();
+  for (const b of collectedRows) {
+    grossFilsBySession.set(b.sessionId, (grossFilsBySession.get(b.sessionId) ?? 0) + b.amountAed * 100);
+    sessionByBookingId.set(b.id, b.sessionId);
+  }
 
   // 2) refunds (fils) for the COLLECTED bookings, excluding failed refunds
-  let refundedFils = 0;
+  const refundedFilsBySession = new Map<string, number>();
   if (collectedRows.length > 0) {
-    const bookingIds = collectedRows.map((b) => b.id);
-    const [row] = await db
+    const refundRows = await db
       .select({
-        refunded: sql<number>`cast(coalesce(sum(${payments.refundedAmount}), 0) as integer)`,
+        bookingId: payments.bookingId,
+        refundedAmount: payments.refundedAmount,
       })
       .from(payments)
       .where(and(
-        inArray(payments.bookingId, bookingIds),
+        inArray(payments.bookingId, Array.from(sessionByBookingId.keys())),
         sql`${payments.refundStatus} IS DISTINCT FROM 'failed'`,
       ));
-    refundedFils = row?.refunded ?? 0;
+    for (const r of refundRows) {
+      const sid = r.bookingId ? sessionByBookingId.get(r.bookingId) : undefined;
+      if (!sid) continue;
+      refundedFilsBySession.set(sid, (refundedFilsBySession.get(sid) ?? 0) + (r.refundedAmount ?? 0));
+    }
   }
 
-  const revenueFils = grossFils - refundedFils;
-
   // 3) per-session costs (0 if no session_costs row yet)
-  const [costRow] = await db
+  const costRows = await db
     .select({
+      sessionId: sessionCosts.sessionId,
       court: sessionCosts.courtCostFils,
       shuttle: sessionCosts.shuttleCostFils,
       water: sessionCosts.waterCostFils,
     })
     .from(sessionCosts)
-    .where(eq(sessionCosts.sessionId, sessionId));
+    .where(inArray(sessionCosts.sessionId, sessionIds));
+  const costsBySession = new Map(costRows.map((c) => [c.sessionId, c]));
 
-  const courtCostFils = costRow?.court ?? 0;
-  const shuttleCostFils = costRow?.shuttle ?? 0;
-  const waterCostFils = costRow?.water ?? 0;
+  for (const id of sessionIds) {
+    const revenueFils = (grossFilsBySession.get(id) ?? 0) - (refundedFilsBySession.get(id) ?? 0);
+    const cost = costsBySession.get(id);
+    const courtCostFils = cost?.court ?? 0;
+    const shuttleCostFils = cost?.shuttle ?? 0;
+    const waterCostFils = cost?.water ?? 0;
+    const profitFils = computeProfitFils({ revenueFils, courtCostFils, shuttleCostFils, waterCostFils });
+    result.set(id, { revenueFils, courtCostFils, shuttleCostFils, waterCostFils, profitFils });
+  }
 
-  const profitFils = computeProfitFils({
-    revenueFils, courtCostFils, shuttleCostFils, waterCostFils,
-  });
-
-  return { revenueFils, courtCostFils, shuttleCostFils, waterCostFils, profitFils };
+  return result;
 }

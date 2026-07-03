@@ -7,6 +7,16 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { signPortalToken, verifyPortalToken, isPortalConfigured } from "./portal/portalAuth";
+import {
+  loadSessionFinanceRows,
+  loadGeneralExpenseRows,
+  aggregateMonthlyPnl,
+  aggregateWeeklyPnl,
+  aggregateRunnerPay,
+} from "./portalFinance";
+
+// fils → AED at the API edge (integer fils, so /100 is exact to 2dp).
+const filsToAed = (f: number) => Math.round(f) / 100;
 
 // Attach the verified portal identity to the request.
 export interface PortalRequest extends Request {
@@ -85,6 +95,104 @@ export function registerPortalRoutes(app: Express): void {
     } catch (err: unknown) {
       console.error("[Portal] finance summary error:", err instanceof Error ? err.message : err);
       res.status(500).json({ error: "Failed to load finance summary." });
+    }
+  });
+
+  // ── Phase 3 reports — all attributed BY SESSION DATE (differs from the main
+  // app's created_at-based finance tab by design; locked decision 3) ──────────
+
+  // Monthly P&L, June 2026 → current month.
+  // net = collected revenue − session costs − general expenses (NOT floored).
+  app.get("/api/portal/finance/pnl", requirePortalAuth, async (_req: Request, res: Response) => {
+    try {
+      const [rows, expensesRows] = await Promise.all([loadSessionFinanceRows(), loadGeneralExpenseRows()]);
+      const months = aggregateMonthlyPnl(rows, expensesRows, new Date().toISOString().slice(0, 7));
+      res.json({
+        months: months.map((p) => ({
+          month: p.month,
+          collectedRevenueAed: filsToAed(p.collectedRevenueFils),
+          sessionCostsAed: filsToAed(p.sessionCostsFils),
+          generalExpensesAed: filsToAed(p.generalExpensesFils),
+          netProfitAed: filsToAed(p.netProfitFils),
+        })),
+      });
+    } catch (err: unknown) {
+      console.error("[Portal] pnl error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load P&L." });
+    }
+  });
+
+  // Weekly P&L, ISO weeks (Mon–Sun), June 2026 onwards.
+  app.get("/api/portal/finance/weekly", requirePortalAuth, async (_req: Request, res: Response) => {
+    try {
+      const [rows, expensesRows] = await Promise.all([loadSessionFinanceRows(), loadGeneralExpenseRows()]);
+      const weeks = aggregateWeeklyPnl(rows, expensesRows);
+      res.json({
+        weeks: weeks.map((w) => ({
+          label: w.label,
+          weekStart: w.weekStart,
+          weekEnd: w.weekEnd,
+          collectedRevenueAed: filsToAed(w.collectedRevenueFils),
+          sessionCostsAed: filsToAed(w.sessionCostsFils),
+          generalExpensesAed: filsToAed(w.generalExpensesFils),
+          netProfitAed: filsToAed(w.netProfitFils),
+        })),
+      });
+    } catch (err: unknown) {
+      console.error("[Portal] weekly error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load weekly report." });
+    }
+  });
+
+  // Per-session reconciliation table, June 2026 onwards.
+  app.get("/api/portal/finance/sessions", requirePortalAuth, async (_req: Request, res: Response) => {
+    try {
+      const rows = await loadSessionFinanceRows();
+      res.json({
+        sessions: rows.map((r) => ({
+          sessionId: r.sessionId,
+          date: r.dateIso,
+          venue: r.venue,
+          captain: r.captainName ?? (r.captainId ? "(unknown runner)" : "Unassigned"),
+          collectedAed: filsToAed(r.revenueFils),
+          courtAed: filsToAed(r.courtCostFils),
+          shuttleAed: filsToAed(r.shuttleCostFils),
+          waterAed: filsToAed(r.waterCostFils),
+          profitAed: filsToAed(r.profitFils),
+        })),
+      });
+    } catch (err: unknown) {
+      console.error("[Portal] sessions error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load sessions." });
+    }
+  });
+
+  // Runner pay: per ISO week per runner, 25% of each session's profit
+  // (zero-floored PER SESSION), null captains under 'Unassigned'.
+  app.get("/api/portal/finance/runner-pay", requirePortalAuth, async (_req: Request, res: Response) => {
+    try {
+      const rows = await loadSessionFinanceRows();
+      const weeks = aggregateRunnerPay(rows);
+      res.json({
+        weeks: weeks.map((w) => ({
+          label: w.label,
+          weekStart: w.weekStart,
+          weekEnd: w.weekEnd,
+          runners: w.runners.map((r) => ({
+            runnerName: r.runnerName,
+            totalPayAed: filsToAed(r.totalPayFils),
+            sessions: r.sessions.map((s) => ({
+              date: s.dateIso,
+              venue: s.venue,
+              profitAed: filsToAed(s.profitFils),
+              payAed: filsToAed(s.payFils),
+            })),
+          })),
+        })),
+      });
+    } catch (err: unknown) {
+      console.error("[Portal] runner-pay error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load runner pay." });
     }
   });
 }
