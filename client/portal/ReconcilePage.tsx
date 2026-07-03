@@ -6,7 +6,7 @@ import { fmtAed } from "./pages";
 // browser storage. The advisory lives inline on this page, right beside the phantom
 // bucket whose drilldown justifies it.
 
-interface BucketRow { date: string; amountAed: number; customer: string; detail: string }
+interface BucketRow { date: string; amountAed: number; deltaAed?: number; customer: string; detail: string }
 interface Bucket { count: number; totalAed: number; rows: BucketRow[] }
 interface ReconcileResult {
   meta: {
@@ -96,6 +96,12 @@ export function ReconcilePage({ token }: { token: string; onAuthFail: () => void
     const rows = filt(b.rows);
     return { count: rows.length, totalAed: rows.reduce((s, r) => s + r.amountAed, 0), rows };
   };
+  // Over/under headers show HOW MUCH was over-/under-charged (the per-row delta), not the
+  // gross charged sum — summing amountAed here was the live 147-vs-245 display bug.
+  const bucketDelta = (b: Bucket): Bucket => {
+    const rows = filt(b.rows);
+    return { count: rows.length, totalAed: rows.reduce((s, r) => s + (r.deltaAed ?? r.amountAed), 0), rows };
+  };
 
   return (
     <div className="report">
@@ -137,12 +143,12 @@ export function ReconcilePage({ token }: { token: string; onAuthFail: () => void
           <Section title="Matched & consistent" tone="ok" {...bucket(result.matchedConsistent)}>
             <RowsTable rows={filt(result.matchedConsistent.rows)} />
           </Section>
-          <Section title="Over-capture (Ziina charged MORE than the booking)" tone="bad" {...bucket(result.overCapture)}
-            note="Customer likely owed a refund/credit.">
+          <Section title="Over-capture (Ziina charged MORE than the booking)" tone="bad" {...bucketDelta(result.overCapture)}
+            note="Header total = amount over-charged. Customer likely owed a refund/credit.">
             <RowsTable rows={filt(result.overCapture.rows)} />
           </Section>
-          <Section title="Under-collection (Ziina charged LESS than the booking)" tone="bad" {...bucket(result.underCollection)}
-            note="Spots on the booking were never paid — the card-side cousin of unpaid cash.">
+          <Section title="Under-collection (Ziina charged LESS than the booking)" tone="bad" {...bucketDelta(result.underCollection)}
+            note="Header total = amount never collected — the card-side cousin of unpaid cash.">
             <RowsTable rows={filt(result.underCollection.rows)} />
           </Section>
 

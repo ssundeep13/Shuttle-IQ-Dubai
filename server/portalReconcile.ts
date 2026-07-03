@@ -147,7 +147,15 @@ export async function loadReconcileInput(): Promise<ReconcileDbInput> {
     LEFT JOIN bookable_sessions s ON s.id = b.session_id
     LEFT JOIN marketplace_users mu ON mu.id = b.user_id
     WHERE b.ziina_payment_intent_id IS NOT NULL`);
-  const d = (v: unknown): Date | null => (v ? new Date(v as string) : null);
+  // Postgres `timestamp` (no tz) columns arrive as NAIVE strings from raw execute, and
+  // our columns hold true UTC. Parsing them with plain new Date() would adopt the
+  // SERVER-LOCAL timezone (correct on Railway/UTC, 4h skewed on a Dubai dev machine) —
+  // pin them to UTC explicitly so every environment reads the same instant.
+  const d = (v: unknown): Date | null => {
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    return new Date(String(v).replace(" ", "T") + "Z");
+  };
   return {
     payments: (pRes.rows as any[]).map((r) => ({
       paymentId: r.payment_id, bookingId: r.booking_id, intent: r.intent,
@@ -170,7 +178,9 @@ export async function loadReconcileInput(): Promise<ReconcileDbInput> {
 // ── Result shape ──────────────────────────────────────────────────────────────
 interface BucketRow {
   date: string;             // display/filter date (session date when known, else CSV date)
-  amountAed: number;
+  amountAed: number;        // gross CSV sum for the row
+  deltaAed?: number;        // over/under rows only: the amount OVER- or UNDER-charged —
+                            // headers must sum THIS, not the gross (live display bug fix)
   customer: string;         // masked
   detail: string;
 }
@@ -288,8 +298,8 @@ export function reconcileZiinaCsv(csvText: string, dbIn: ReconcileDbInput): Reco
       detail: `booking ${short(bookingId)} · ${list.length} charge(s) AED ${aed(sumFils)} vs booking AED ${expected == null ? "?" : aed(expected)}`,
     };
     if (expected == null || sumFils === expected) { consistent.push(row); consistentFils += sumFils; }
-    else if (sumFils > expected) { overFils += sumFils - expected; over.push({ ...row, detail: row.detail + ` → OVER by AED ${aed(sumFils - expected)}` }); }
-    else { underFils += expected - sumFils; under.push({ ...row, detail: row.detail + ` → UNDER by AED ${aed(expected - sumFils)}` }); }
+    else if (sumFils > expected) { overFils += sumFils - expected; over.push({ ...row, deltaAed: aed(sumFils - expected), detail: row.detail + ` → OVER by AED ${aed(sumFils - expected)}` }); }
+    else { underFils += expected - sumFils; under.push({ ...row, deltaAed: aed(expected - sumFils), detail: row.detail + ` → UNDER by AED ${aed(expected - sumFils)}` }); }
   }
 
   // 4) in-Ziina-no-app-record, grouped; manual/off-app first-class, informational

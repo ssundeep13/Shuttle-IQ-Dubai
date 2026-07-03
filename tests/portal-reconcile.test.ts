@@ -97,6 +97,14 @@ describe('reconcileZiinaCsv — matching + buckets', () => {
     expect(r.overCapture.totalAed).toBe(49);
     expect(r.underCollection.count).toBe(1);
     expect(r.underCollection.totalAed).toBe(147);
+    // Header-semantics pin (live 147-vs-245 display bug): every over/under row carries
+    // deltaAed (the over-/under-charge), and the bucket total equals the DELTA sum —
+    // never the gross charged sum. The UI header sums deltaAed.
+    expect(r.overCapture.rows[0].deltaAed).toBe(49);        // gross 98, delta 49
+    expect(r.overCapture.rows[0].amountAed).toBe(98);
+    expect(r.underCollection.rows[0].deltaAed).toBe(147);   // gross 49, delta 147
+    expect(r.overCapture.totalAed).toBe(r.overCapture.rows.reduce((s, x) => s + (x.deltaAed ?? 0), 0));
+    expect(r.underCollection.totalAed).toBe(r.underCollection.rows.reduce((s, x) => s + (x.deltaAed ?? 0), 0));
   });
 
   it('compares against amountAed − wallet, never payments.amount (partial-wallet hazard)', () => {
