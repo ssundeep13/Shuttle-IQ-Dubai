@@ -2424,6 +2424,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('[queued-transition] admin-end-game unhandled:', flipErr);
       }
 
+      // Fire-and-forget session-wide matchmaking (parity with the player
+      // submit-score path in marketplace-routes.ts). The orchestrator decides
+      // which courts get a fresh suggestion (the just-vacated one plus any
+      // others currently free) and never re-suggests an in-flight court.
+      // Best-effort: never blocks or breaks the end-game response.
+      setImmediate(() => {
+        import('./auto-matchmaking')
+          .then(({ tryAutoMatchmaking }) => tryAutoMatchmaking(activeSession.id))
+          .catch(err => {
+            console.error('[auto-matchmaking] post-admin-end-game unhandled:', err);
+          });
+      });
+
       res.json({ ...updatedCourt, players: [] });
     } catch (error) {
       console.error(`[END-GAME] Error ending game:`, error);

@@ -459,20 +459,32 @@ export async function tryAutoMatchmaking(sessionId: string): Promise<void> {
 }
 
 // ─── Queued (next-round) orchestrator ───────────────────────────────────────
-// Builds 'queued' suggestions for any 'playing' court that doesn't already
+// Builds 'queued' suggestions for any OCCUPIED court that doesn't already
 // have one. Uses the standard bracket generator for a single court, and the
 // player-flow Claude prompt (batched, single API call) when 2+ courts need
 // queued at the same time.
+
+// Pure court selection — exported for tests. Courts mid-game are 'occupied':
+// the courts table's status vocabulary is 'available' | 'occupied'
+// (shared/schema.ts); 'playing' belongs to matchSuggestions/players. The
+// original filter here checked 'playing' and therefore never matched — the
+// orchestrator had never fired in production.
+export function selectCourtsNeedingQueued<T extends { id: string; status: string }>(
+  allCourts: T[],
+  courtsWithQueued: Set<string>,
+): T[] {
+  return allCourts.filter(c => c.status === 'occupied' && !courtsWithQueued.has(c.id));
+}
+
 async function runQueuedOrchestrator(
   sessionId: string,
   allPlayers: Awaited<ReturnType<typeof storage.getAllPlayers>>,
 ): Promise<void> {
   const allCourts = await storage.getCourtsBySession(sessionId);
-  const playingCourts = allCourts.filter(c => c.status === 'playing');
-  if (playingCourts.length === 0) return;
+  if (!allCourts.some(c => c.status === 'occupied')) return;
 
   const courtsWithQueued = await getCourtsWithQueuedSuggestions(sessionId);
-  const courtsNeedingQueued = playingCourts.filter(c => !courtsWithQueued.has(c.id));
+  const courtsNeedingQueued = selectCourtsNeedingQueued(allCourts, courtsWithQueued);
   if (courtsNeedingQueued.length === 0) return;
 
   // Pool: queue minus sitting-out minus anyone already on a non-terminal
