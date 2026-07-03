@@ -271,6 +271,12 @@ tfoot td {
   font-weight: 500;
   color: var(--muted);
 }
+.sub.flag {
+  color: var(--danger);
+}
+.note.footnote {
+  margin: 12px 0 0;
+}
 .amt.neg {
   color: var(--danger);
 }

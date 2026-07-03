@@ -24,7 +24,61 @@ export interface ProfitInputsFils {
 }
 
 export interface ProfitBreakdownFils extends ProfitInputsFils {
-  profitFils: number;
+  profitFils: number;       // COLLECTED-basis profit (P&L, session views)
+  // Phase 3 follow-up — the second revenue basis. VALUE = collected + wallet-paid
+  // (wallet spend is real session value even though the cash was banked when the
+  // credit was issued). Runner pay reads valueProfitFils; everything else keeps
+  // reading revenueFils/profitFils. Unpaid cash is in NEITHER basis (user decision:
+  // don't pay out on money nobody has collected) — surfaced via unpaidCashFils.
+  walletPaidFils: number;   // confirmed/attended 'wallet' bookings, refund-netted
+  valueFils: number;        // revenueFils + walletPaidFils
+  valueProfitFils: number;  // max(0, valueFils − costs), zero-floored per session
+  unpaidCashFils: number;   // confirmed/attended cash with cashPaid=false (gross flag)
+}
+
+// ── Revenue bases (pure) ─────────────────────────────────────────────────────
+// Classifies each confirmed/attended booking into exactly one bucket and nets the
+// booking's own non-failed refunds against its bucket. This is THE single place the
+// collected-vs-value distinction lives — the batch feeds it rows; tests feed it
+// fixtures. Collected here is bit-identical to the original implementation:
+// Σ(gross − refunds) over the collected set ≡ Σgross(collected) − Σrefunds(collected).
+export interface BookingForRevenueFils {
+  id: string;
+  amountAed: number; // whole AED (×100 bridge happens here)
+  paymentMethod: string;
+  cashPaid: boolean;
+}
+
+export interface RevenueBasesFils {
+  revenueFils: number;     // collected: ziina + paid cash, refund-netted
+  walletPaidFils: number;  // wallet, refund-netted
+  valueFils: number;       // collected + wallet
+  unpaidCashFils: number;  // cash not yet marked paid (gross; excluded from both bases)
+}
+
+export function computeRevenueBasesFils(
+  bookings: BookingForRevenueFils[],
+  refundedFilsByBookingId: Map<string, number>, // non-failed refunds only
+): RevenueBasesFils {
+  let collected = 0, wallet = 0, unpaidCash = 0;
+  for (const b of bookings) {
+    const grossFils = b.amountAed * 100;
+    const refundedFils = refundedFilsByBookingId.get(b.id) ?? 0;
+    if (b.paymentMethod === 'ziina' || (b.paymentMethod === 'cash' && b.cashPaid)) {
+      collected += grossFils - refundedFils;
+    } else if (b.paymentMethod === 'wallet') {
+      wallet += grossFils - refundedFils;
+    } else if (b.paymentMethod === 'cash' && !b.cashPaid) {
+      unpaidCash += grossFils; // flag only — no refund netting on uncollected money
+    }
+    // any other paymentMethod: excluded everywhere (unchanged behaviour)
+  }
+  return {
+    revenueFils: collected,
+    walletPaidFils: wallet,
+    valueFils: collected + wallet,
+    unpaidCashFils: unpaidCash,
+  };
 }
 
 // ── THE definition ───────────────────────────────────────────────────────────
@@ -85,7 +139,10 @@ export async function computeSessionProfitsBatchFils(
   // Every requested id gets an entry, defaulting to all-zeros (no bookings, no costs).
   const result = new Map<string, ProfitBreakdownFils>();
   for (const id of sessionIds) {
-    result.set(id, { revenueFils: 0, courtCostFils: 0, shuttleCostFils: 0, waterCostFils: 0, profitFils: 0 });
+    result.set(id, {
+      revenueFils: 0, courtCostFils: 0, shuttleCostFils: 0, waterCostFils: 0, profitFils: 0,
+      walletPaidFils: 0, valueFils: 0, valueProfitFils: 0, unpaidCashFils: 0,
+    });
   }
   if (sessionIds.length === 0) return result;
 
@@ -104,22 +161,22 @@ export async function computeSessionProfitsBatchFils(
       inArray(bookings.status, ['confirmed', 'attended']),
     ));
 
-  // COLLECTED predicate — identical to getFinanceSummary's collectedAed: card
-  // ('ziina') always counts; cash counts only once cashPaid; anything else excluded.
-  const isCollected = (b: { paymentMethod: string; cashPaid: boolean }) =>
-    b.paymentMethod === 'ziina' || (b.paymentMethod === 'cash' && b.cashPaid);
-  const collectedRows = bookingRows.filter(isCollected);
-
-  const grossFilsBySession = new Map<string, number>();
-  const sessionByBookingId = new Map<string, string>();
-  for (const b of collectedRows) {
-    grossFilsBySession.set(b.sessionId, (grossFilsBySession.get(b.sessionId) ?? 0) + b.amountAed * 100);
-    sessionByBookingId.set(b.id, b.sessionId);
+  // Group per session; refunds are looked up for every booking that can carry
+  // refund-netted money (the collected set PLUS wallet — the two revenue bases).
+  const bookingsBySession = new Map<string, BookingForRevenueFils[]>();
+  const refundLookupIds: string[] = [];
+  for (const b of bookingRows) {
+    let list = bookingsBySession.get(b.sessionId);
+    if (!list) { list = []; bookingsBySession.set(b.sessionId, list); }
+    list.push({ id: b.id, amountAed: b.amountAed, paymentMethod: b.paymentMethod, cashPaid: b.cashPaid });
+    if (b.paymentMethod === 'ziina' || (b.paymentMethod === 'cash' && b.cashPaid) || b.paymentMethod === 'wallet') {
+      refundLookupIds.push(b.id);
+    }
   }
 
-  // 2) refunds (fils) for the COLLECTED bookings, excluding failed refunds
-  const refundedFilsBySession = new Map<string, number>();
-  if (collectedRows.length > 0) {
+  // 2) refunds (fils) per booking, excluding failed refunds
+  const refundedFilsByBookingId = new Map<string, number>();
+  if (refundLookupIds.length > 0) {
     const refundRows = await db
       .select({
         bookingId: payments.bookingId,
@@ -127,13 +184,15 @@ export async function computeSessionProfitsBatchFils(
       })
       .from(payments)
       .where(and(
-        inArray(payments.bookingId, Array.from(sessionByBookingId.keys())),
+        inArray(payments.bookingId, refundLookupIds),
         sql`${payments.refundStatus} IS DISTINCT FROM 'failed'`,
       ));
     for (const r of refundRows) {
-      const sid = r.bookingId ? sessionByBookingId.get(r.bookingId) : undefined;
-      if (!sid) continue;
-      refundedFilsBySession.set(sid, (refundedFilsBySession.get(sid) ?? 0) + (r.refundedAmount ?? 0));
+      if (!r.bookingId) continue;
+      refundedFilsByBookingId.set(
+        r.bookingId,
+        (refundedFilsByBookingId.get(r.bookingId) ?? 0) + (r.refundedAmount ?? 0),
+      );
     }
   }
 
@@ -150,13 +209,26 @@ export async function computeSessionProfitsBatchFils(
   const costsBySession = new Map(costRows.map((c) => [c.sessionId, c]));
 
   for (const id of sessionIds) {
-    const revenueFils = (grossFilsBySession.get(id) ?? 0) - (refundedFilsBySession.get(id) ?? 0);
+    const bases = computeRevenueBasesFils(bookingsBySession.get(id) ?? [], refundedFilsByBookingId);
     const cost = costsBySession.get(id);
     const courtCostFils = cost?.court ?? 0;
     const shuttleCostFils = cost?.shuttle ?? 0;
     const waterCostFils = cost?.water ?? 0;
-    const profitFils = computeProfitFils({ revenueFils, courtCostFils, shuttleCostFils, waterCostFils });
-    result.set(id, { revenueFils, courtCostFils, shuttleCostFils, waterCostFils, profitFils });
+    const profitFils = computeProfitFils({
+      revenueFils: bases.revenueFils, courtCostFils, shuttleCostFils, waterCostFils,
+    });
+    const valueProfitFils = computeProfitFils({
+      revenueFils: bases.valueFils, courtCostFils, shuttleCostFils, waterCostFils,
+    });
+    result.set(id, {
+      revenueFils: bases.revenueFils,
+      courtCostFils, shuttleCostFils, waterCostFils,
+      profitFils,
+      walletPaidFils: bases.walletPaidFils,
+      valueFils: bases.valueFils,
+      valueProfitFils,
+      unpaidCashFils: bases.unpaidCashFils,
+    });
   }
 
   return result;

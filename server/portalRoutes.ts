@@ -114,6 +114,7 @@ export function registerPortalRoutes(app: Express): void {
           sessionCostsAed: filsToAed(p.sessionCostsFils),
           generalExpensesAed: filsToAed(p.generalExpensesFils),
           netProfitAed: filsToAed(p.netProfitFils),
+          walletPaidAed: filsToAed(p.walletPaidFils), // informational — not in the net formula
         })),
       });
     } catch (err: unknown) {
@@ -155,6 +156,7 @@ export function registerPortalRoutes(app: Express): void {
           venue: r.venue,
           captain: r.captainName ?? (r.captainId ? "(unknown runner)" : "Unassigned"),
           collectedAed: filsToAed(r.revenueFils),
+          walletPaidAed: filsToAed(r.walletPaidFils),
           courtAed: filsToAed(r.courtCostFils),
           shuttleAed: filsToAed(r.shuttleCostFils),
           waterAed: filsToAed(r.waterCostFils),
@@ -167,8 +169,9 @@ export function registerPortalRoutes(app: Express): void {
     }
   });
 
-  // Runner pay: per ISO week per runner, 25% of each session's profit
-  // (zero-floored PER SESSION), null captains under 'Unassigned'.
+  // Runner pay: per ISO week per runner, 25% of each session's VALUE profit
+  // (collected + wallet − costs, zero-floored PER SESSION; unpaid cash excluded
+  // but surfaced), null captains under 'Unassigned'.
   app.get("/api/portal/finance/runner-pay", requirePortalAuth, async (_req: Request, res: Response) => {
     try {
       const rows = await loadSessionFinanceRows();
@@ -184,7 +187,10 @@ export function registerPortalRoutes(app: Express): void {
             sessions: r.sessions.map((s) => ({
               date: s.dateIso,
               venue: s.venue,
-              profitAed: filsToAed(s.profitFils),
+              valueAed: filsToAed(s.valueFils),
+              walletPaidAed: filsToAed(s.walletPaidFils),
+              unpaidCashAed: filsToAed(s.unpaidCashFils),
+              valueProfitAed: filsToAed(s.valueProfitFils),
               payAed: filsToAed(s.payFils),
             })),
           })),

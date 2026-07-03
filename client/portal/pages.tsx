@@ -66,7 +66,10 @@ interface PnlRow {
   sessionCostsAed: number;
   generalExpensesAed: number;
   netProfitAed: number;
+  walletPaidAed?: number; // monthly P&L only — informational, not in the net formula
 }
+
+const WALLET_FOOTNOTE = "Wallet-paid spots were collected when the credit was originally issued.";
 
 // ── P&L ───────────────────────────────────────────────────────────────────────
 export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () => void }) {
@@ -88,6 +91,7 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
               <th className="num">Session costs</th>
               <th className="num">General expenses</th>
               <th className="num">Net profit</th>
+              <th className="num">Wallet-paid (info)</th>
             </tr>
           </thead>
           <tbody>
@@ -98,11 +102,13 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
                 <td className="num"><Amount value={m.sessionCostsAed} /></td>
                 <td className="num"><Amount value={m.generalExpensesAed} /></td>
                 <td className="num strong"><Amount value={m.netProfitAed} /></td>
+                <td className="num"><Amount value={m.walletPaidAed ?? 0} /></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <p className="note footnote">{WALLET_FOOTNOTE} Wallet-paid amounts are informational and not part of the net formula.</p>
     </div>
   );
 }
@@ -155,6 +161,7 @@ interface SessionRow {
   venue: string;
   captain: string;
   collectedAed: number;
+  walletPaidAed: number;
   courtAed: number;
   shuttleAed: number;
   waterAed: number;
@@ -187,6 +194,7 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
               <th>Venue</th>
               <th>Captain</th>
               <th className="num">Collected</th>
+              <th className="num">Wallet-paid</th>
               <th className="num">Court</th>
               <th className="num">Shuttle</th>
               <th className="num">Water</th>
@@ -200,6 +208,7 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
                 <td>{r.venue}</td>
                 <td>{r.captain}</td>
                 <td className="num"><Amount value={r.collectedAed} /></td>
+                <td className="num"><Amount value={r.walletPaidAed} /></td>
                 <td className="num"><Amount value={r.courtAed} /></td>
                 <td className="num"><Amount value={r.shuttleAed} /></td>
                 <td className="num"><Amount value={r.waterAed} /></td>
@@ -211,6 +220,7 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
             <tr>
               <td colSpan={3}>Total ({rows.length} sessions)</td>
               <td className="num"><Amount value={sum((r) => r.collectedAed)} /></td>
+              <td className="num"><Amount value={sum((r) => r.walletPaidAed)} /></td>
               <td className="num"><Amount value={sum((r) => r.courtAed)} /></td>
               <td className="num"><Amount value={sum((r) => r.shuttleAed)} /></td>
               <td className="num"><Amount value={sum((r) => r.waterAed)} /></td>
@@ -219,6 +229,7 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
           </tfoot>
         </table>
       </div>
+      <p className="note footnote">{WALLET_FOOTNOTE} Profit stays on the collected basis.</p>
     </div>
   );
 }
@@ -232,7 +243,15 @@ interface RunnerPayData {
     runners: Array<{
       runnerName: string;
       totalPayAed: number;
-      sessions: Array<{ date: string; venue: string; profitAed: number; payAed: number }>;
+      sessions: Array<{
+        date: string;
+        venue: string;
+        valueAed: number;
+        walletPaidAed: number;
+        unpaidCashAed: number;
+        valueProfitAed: number;
+        payAed: number;
+      }>;
     }>;
   }>;
 }
@@ -245,7 +264,10 @@ export function RunnerPayPage({ token, onAuthFail }: { token: string; onAuthFail
   if (error || !data) return <LoadError message={error ?? "No data."} />;
   return (
     <div className="report">
-      <p className="note">25% of each session's profit (zero-floored per session), grouped by ISO week and runner.</p>
+      <p className="note">
+        25% of each session's session-value profit, zero-floored per session, grouped by ISO week and runner.
+        Session value = collected + wallet-paid, net of refunds. Unpaid cash is excluded from the basis and flagged.
+      </p>
       {data.weeks.map((w) => (
         <div className="payweek" key={w.label}>
           <h3>
@@ -264,7 +286,9 @@ export function RunnerPayPage({ token, onAuthFail }: { token: string; onAuthFail
                     <tr>
                       <th>Date</th>
                       <th>Venue</th>
-                      <th className="num">Session profit</th>
+                      <th className="num">Value basis</th>
+                      <th className="num">of which wallet</th>
+                      <th className="num">Value profit</th>
                       <th className="num">25% share</th>
                     </tr>
                   </thead>
@@ -272,8 +296,15 @@ export function RunnerPayPage({ token, onAuthFail }: { token: string; onAuthFail
                     {r.sessions.map((s) => (
                       <tr key={`${s.date}-${s.venue}`}>
                         <td>{fmtDay(s.date)}</td>
-                        <td>{s.venue}</td>
-                        <td className="num"><Amount value={s.profitAed} /></td>
+                        <td>
+                          {s.venue}
+                          {s.unpaidCashAed > 0 && (
+                            <span className="sub flag">excl. unpaid cash AED {fmtAed(s.unpaidCashAed)}</span>
+                          )}
+                        </td>
+                        <td className="num"><Amount value={s.valueAed} /></td>
+                        <td className="num"><Amount value={s.walletPaidAed} /></td>
+                        <td className="num"><Amount value={s.valueProfitAed} /></td>
                         <td className="num strong"><Amount value={s.payAed} /></td>
                       </tr>
                     ))}

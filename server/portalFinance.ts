@@ -34,7 +34,11 @@ export interface SessionFinanceRow {
   courtCostFils: number;
   shuttleCostFils: number;
   waterCostFils: number;
-  profitFils: number; // zero-floored per session
+  profitFils: number; // COLLECTED-basis, zero-floored per session
+  walletPaidFils: number;  // display-only info (P&L/session views); part of the VALUE basis
+  valueFils: number;       // collected + wallet — runner pay's revenue basis
+  valueProfitFils: number; // max(0, value − costs) — what runner pay is 25% of
+  unpaidCashFils: number;  // excluded from BOTH bases; surfaced so exclusions are visible
 }
 
 export interface GeneralExpenseRow {
@@ -47,6 +51,7 @@ export interface PeriodPnlFils {
   sessionCostsFils: number;
   generalExpensesFils: number;
   netProfitFils: number; // plain arithmetic — NOT floored (a losing month shows negative)
+  walletPaidFils: number; // informational only — NOT part of the net formula
 }
 
 // ── DB assembly ───────────────────────────────────────────────────────────────
@@ -86,6 +91,10 @@ export async function loadSessionFinanceRows(): Promise<SessionFinanceRow[]> {
       shuttleCostFils: p.shuttleCostFils,
       waterCostFils: p.waterCostFils,
       profitFils: p.profitFils,
+      walletPaidFils: p.walletPaidFils,
+      valueFils: p.valueFils,
+      valueProfitFils: p.valueProfitFils,
+      unpaidCashFils: p.unpaidCashFils,
     };
   });
 }
@@ -105,12 +114,13 @@ export async function loadGeneralExpenseRows(): Promise<GeneralExpenseRow[]> {
 // ── Pure aggregation (unit-tested) ────────────────────────────────────────────
 
 function emptyPnl(): PeriodPnlFils {
-  return { collectedRevenueFils: 0, sessionCostsFils: 0, generalExpensesFils: 0, netProfitFils: 0 };
+  return { collectedRevenueFils: 0, sessionCostsFils: 0, generalExpensesFils: 0, netProfitFils: 0, walletPaidFils: 0 };
 }
 
 function addSession(p: PeriodPnlFils, r: SessionFinanceRow): void {
   p.collectedRevenueFils += r.revenueFils;
   p.sessionCostsFils += r.courtCostFils + r.shuttleCostFils + r.waterCostFils;
+  p.walletPaidFils += r.walletPaidFils; // info only — finishPnl never reads it
 }
 
 function finishPnl(p: PeriodPnlFils): void {
@@ -170,14 +180,19 @@ export function aggregateWeeklyPnl(
   return weeks;
 }
 
-// Runner pay: per ISO week, per runner — each session's profit × 25%, rounded to whole
-// fils PER SESSION, summed. Sessions with captainId null land in the 'Unassigned'
-// bucket so a missed captain assignment is visible, never silently dropped.
+// Runner pay: per ISO week, per runner — each session's VALUE profit × 25%, rounded to
+// whole fils PER SESSION, summed. VALUE basis (locked rule change): collected + wallet,
+// refund-netted; unpaid cash EXCLUDED (user decision — no payout on uncollected money)
+// but surfaced per session so the exclusion is visible. Sessions with captainId null
+// land in the 'Unassigned' bucket so a missed captain assignment is never dropped.
 export interface RunnerPaySession {
   dateIso: string;
   venue: string;
-  profitFils: number;
-  payFils: number;
+  valueFils: number;       // the pay basis: collected + wallet, refund-netted
+  walletPaidFils: number;  // portion of value that was wallet-paid
+  unpaidCashFils: number;  // excluded from the basis; >0 flags the session
+  valueProfitFils: number; // max(0, value − costs)
+  payFils: number;         // round(valueProfit × 25%) per session
 }
 export interface RunnerPayWeek {
   label: string;
@@ -207,8 +222,11 @@ export function aggregateRunnerPay(rows: SessionFinanceRow[]): RunnerPayWeek[] {
     entry.sessions.push({
       dateIso: r.dateIso,
       venue: r.venue,
-      profitFils: r.profitFils,
-      payFils: Math.round(r.profitFils * RUNNER_PROFIT_SHARE),
+      valueFils: r.valueFils,
+      walletPaidFils: r.walletPaidFils,
+      unpaidCashFils: r.unpaidCashFils,
+      valueProfitFils: r.valueProfitFils,
+      payFils: Math.round(r.valueProfitFils * RUNNER_PROFIT_SHARE),
     });
   }
 
