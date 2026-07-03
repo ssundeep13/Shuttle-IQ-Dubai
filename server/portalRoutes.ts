@@ -13,20 +13,25 @@ import {
   aggregateMonthlyPnl,
   aggregateWeeklyPnl,
   aggregateRunnerPay,
+  filterRunnerPayWeeksForRunner,
 } from "./portalFinance";
 import { reconcileZiinaCsv, loadReconcileInput } from "./portalReconcile";
 
 // fils → AED at the API edge (integer fils, so /100 is exact to 2dp).
 const filsToAed = (f: number) => Math.round(f) / 100;
 
-// Attach the verified portal identity to the request.
+// Attach the verified portal identity to the request. role/runnerId come from the DB
+// row, NOT the token (Build B).
 export interface PortalRequest extends Request {
-  portalUser?: { portalUserId: string; email: string };
+  portalUser?: { portalUserId: string; email: string; role: string; runnerId: string | null };
 }
 
 // Guard: requires a valid portal JWT (signed with PORTAL_JWT_SECRET, aud 'portal').
 // A main-app JWT fails here (wrong secret) → 401. Fails closed if unconfigured.
-export function requirePortalAuth(req: PortalRequest, res: Response, next: NextFunction): void {
+// Build B: after the signature check, role/runner_id/is_active are read FRESH from
+// portal_users on EVERY request — deactivating a login or changing a role takes effect
+// on the next request, with no token invalidation dance.
+export async function requirePortalAuth(req: PortalRequest, res: Response, next: NextFunction): Promise<void> {
   if (!isPortalConfigured()) {
     console.error("[Portal] PORTAL_JWT_SECRET is not set — portal auth is disabled.");
     res.status(500).json({ error: "Portal is not configured." });
@@ -42,7 +47,27 @@ export function requirePortalAuth(req: PortalRequest, res: Response, next: NextF
     res.status(401).json({ error: "Invalid or expired session." });
     return;
   }
-  req.portalUser = { portalUserId: payload.portalUserId, email: payload.email };
+  try {
+    const user = await storage.getPortalUserById(payload.portalUserId);
+    if (!user || !user.isActive) {
+      res.status(401).json({ error: "Invalid or expired session." });
+      return;
+    }
+    req.portalUser = { portalUserId: user.id, email: user.email, role: user.role, runnerId: user.runnerId ?? null };
+    next();
+  } catch (err: unknown) {
+    console.error("[Portal] auth lookup error:", err instanceof Error ? err.message : err);
+    res.status(500).json({ error: "Authentication failed." });
+  }
+}
+
+// Build B — the owner wall. Everything except the caller's own runner-pay is
+// owner-only; a runner gets 403 here regardless of what the SPA shows or hides.
+export function requirePortalOwner(req: PortalRequest, res: Response, next: NextFunction): void {
+  if (req.portalUser?.role !== "owner") {
+    res.status(403).json({ error: "Not available for this login." });
+    return;
+  }
   next();
 }
 
@@ -70,7 +95,8 @@ export function registerPortalRoutes(app: Express): void {
       if (!ok) return invalid();
 
       const token = signPortalToken({ portalUserId: user.id, email: user.email });
-      res.json({ token, email: user.email });
+      // role is informational for the SPA shell — the wall re-reads it per request.
+      res.json({ token, email: user.email, role: user.role });
     } catch (err: unknown) {
       console.error("[Portal] login error:", err instanceof Error ? err.message : err);
       res.status(500).json({ error: "Login failed." });
@@ -79,11 +105,11 @@ export function registerPortalRoutes(app: Express): void {
 
   // ── Who am I ─────────────────────────────────────────────────────────────
   app.get("/api/portal/auth/me", requirePortalAuth, (req: PortalRequest, res: Response) => {
-    res.json({ email: req.portalUser!.email });
+    res.json({ email: req.portalUser!.email, role: req.portalUser!.role });
   });
 
   // ── The one number: collected revenue this month (live prod DB) ───────────
-  app.get("/api/portal/finance/summary", requirePortalAuth, async (_req: Request, res: Response) => {
+  app.get("/api/portal/finance/summary", requirePortalAuth, requirePortalOwner, async (_req: Request, res: Response) => {
     try {
       const now = new Date();
       const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -104,7 +130,7 @@ export function registerPortalRoutes(app: Express): void {
 
   // Monthly P&L, June 2026 → current month.
   // net = collected revenue − session costs − general expenses (NOT floored).
-  app.get("/api/portal/finance/pnl", requirePortalAuth, async (_req: Request, res: Response) => {
+  app.get("/api/portal/finance/pnl", requirePortalAuth, requirePortalOwner, async (_req: Request, res: Response) => {
     try {
       const [rows, expensesRows] = await Promise.all([loadSessionFinanceRows(), loadGeneralExpenseRows()]);
       const months = aggregateMonthlyPnl(rows, expensesRows, new Date().toISOString().slice(0, 7));
@@ -127,7 +153,7 @@ export function registerPortalRoutes(app: Express): void {
   });
 
   // Weekly P&L, ISO weeks (Mon–Sun), June 2026 onwards.
-  app.get("/api/portal/finance/weekly", requirePortalAuth, async (_req: Request, res: Response) => {
+  app.get("/api/portal/finance/weekly", requirePortalAuth, requirePortalOwner, async (_req: Request, res: Response) => {
     try {
       const [rows, expensesRows] = await Promise.all([loadSessionFinanceRows(), loadGeneralExpenseRows()]);
       const weeks = aggregateWeeklyPnl(rows, expensesRows);
@@ -149,7 +175,7 @@ export function registerPortalRoutes(app: Express): void {
   });
 
   // Per-session reconciliation table, June 2026 onwards.
-  app.get("/api/portal/finance/sessions", requirePortalAuth, async (_req: Request, res: Response) => {
+  app.get("/api/portal/finance/sessions", requirePortalAuth, requirePortalOwner, async (_req: Request, res: Response) => {
     try {
       const rows = await loadSessionFinanceRows();
       res.json({
@@ -175,10 +201,15 @@ export function registerPortalRoutes(app: Express): void {
   // Runner pay: per ISO week per runner, 25% of each session's VALUE profit
   // (collected + wallet − costs, zero-floored PER SESSION; unpaid cash excluded
   // but surfaced), null captains under 'Unassigned'.
-  app.get("/api/portal/finance/runner-pay", requirePortalAuth, async (_req: Request, res: Response) => {
+  app.get("/api/portal/finance/runner-pay", requirePortalAuth, async (req: PortalRequest, res: Response) => {
     try {
       const rows = await loadSessionFinanceRows();
-      const weeks = aggregateRunnerPay(rows);
+      const all = aggregateRunnerPay(rows);
+      // Build B — server-side wall: a runner receives ONLY their own bucket; other
+      // runners' names/totals and the Unassigned bucket never leave the server.
+      const weeks = req.portalUser!.role === "owner"
+        ? all
+        : filterRunnerPayWeeksForRunner(all, req.portalUser!.runnerId);
       res.json({
         weeks: weeks.map((w) => ({
           label: w.label,
@@ -212,6 +243,7 @@ export function registerPortalRoutes(app: Express): void {
   app.post(
     "/api/portal/reconcile",
     requirePortalAuth,
+    requirePortalOwner,
     express.text({ type: () => true, limit: "5mb" }),
     async (req: Request, res: Response) => {
       try {

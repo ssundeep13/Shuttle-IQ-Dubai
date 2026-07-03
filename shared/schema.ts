@@ -749,6 +749,12 @@ export const portalUsers = pgTable("portal_users", {
   passwordHash: text("password_hash").notNull(),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Build B — access model. role: 'owner' (everything) | 'runner' (ONLY their own
+  // runner-pay). runnerId: app-level ref → session_runners.id (house convention, no FK),
+  // set only for role='runner'. Read FRESH per request by requirePortalAuth — never
+  // trusted from the JWT — so access changes take effect immediately.
+  role: text("role").notNull().default("owner"),
+  runnerId: varchar("runner_id"),
 });
 export type PortalUser = typeof portalUsers.$inferSelect;
 

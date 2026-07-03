@@ -477,8 +477,9 @@ export interface IStorage {
   createSessionCostsIfAbsent(data: { sessionId: string; courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null; capturedBy: string | null }): Promise<void>;
   upsertSessionCosts(data: { sessionId: string; courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null; capturedBy: string | null }): Promise<void>;
 
-  // Finance Portal (Phase 2 — login lookup)
+  // Finance Portal (Phase 2 — login lookup; Build B — fresh per-request role lookup)
   getPortalUserByEmail(email: string): Promise<PortalUser | undefined>;
+  getPortalUserById(id: string): Promise<PortalUser | undefined>;
 
   // Blog operations
   createBlogPost(data: InsertBlogPost): Promise<BlogPost>;
@@ -3730,6 +3731,13 @@ export class DatabaseStorage implements IStorage {
   // (rows are seeded lowercased by the hand-run migration).
   async getPortalUserByEmail(email: string): Promise<PortalUser | undefined> {
     const [row] = await db.select().from(portalUsers).where(eq(portalUsers.email, email.toLowerCase()));
+    return row;
+  }
+
+  // Build B — called by requirePortalAuth on EVERY portal request so role/runner_id/
+  // is_active changes bite immediately (never baked into the JWT).
+  async getPortalUserById(id: string): Promise<PortalUser | undefined> {
+    const [row] = await db.select().from(portalUsers).where(eq(portalUsers.id, id));
     return row;
   }
 

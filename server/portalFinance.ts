@@ -225,6 +225,17 @@ export interface RunnerPayWeek {
   }>;
 }
 
+// Build B — server-side wall for role='runner': keep ONLY the bucket matching the
+// caller's runner id in every week; weeks without it disappear entirely. Other runners'
+// names/totals and the Unassigned bucket (runnerKey 'unassigned') never survive this —
+// nothing about anyone else leaves the server. Pure; unit-tested with a 2-runner fixture.
+export function filterRunnerPayWeeksForRunner(weeks: RunnerPayWeek[], runnerId: string | null): RunnerPayWeek[] {
+  if (!runnerId) return []; // a runner login with no runner_id sees nothing, not everything
+  return weeks
+    .map((w) => ({ ...w, runners: w.runners.filter((r) => r.runnerKey === runnerId) }))
+    .filter((w) => w.runners.length > 0);
+}
+
 export function aggregateRunnerPay(rows: SessionFinanceRow[]): RunnerPayWeek[] {
   const byWeek = new Map<string, Map<string, { runnerName: string; sessions: RunnerPaySession[] }>>();
   const weekMeta = new Map<string, { weekStart: string; weekEnd: string }>();

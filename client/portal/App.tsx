@@ -1,4 +1,4 @@
-import { useState, useCallback, FormEvent } from "react";
+import { useState, useCallback, useEffect, FormEvent } from "react";
 import { PnlPage, WeeklyPage, SessionsPage, RunnerPayPage } from "./pages";
 import { ReconcilePage } from "./ReconcilePage";
 
@@ -32,13 +32,32 @@ export function PortalApp() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [page, setPage] = useState<PageKey>("pnl");
+  // Role drives which tabs render (cosmetic only — the server 403s are the real wall).
+  const [role, setRole] = useState<string | null>(null);
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
+    setRole(null);
     setPassword("");
     setPage("pnl");
   }, []);
+
+  // Reload path: token survives in localStorage but role doesn't — re-fetch it.
+  useEffect(() => {
+    if (!token || role !== null) return;
+    let alive = true;
+    fetch("/api/portal/auth/me", { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (res) => {
+        if (!res.ok) { if (alive) logout(); return; }
+        const data = await res.json();
+        if (!alive) return;
+        setRole(data.role ?? "owner");
+        if (data.role === "runner") setPage("pay");
+      })
+      .catch(() => { if (alive) logout(); });
+    return () => { alive = false; };
+  }, [token, role, logout]);
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault();
@@ -56,6 +75,8 @@ export function PortalApp() {
         return;
       }
       localStorage.setItem(TOKEN_KEY, data.token);
+      setRole(data.role ?? "owner");
+      if (data.role === "runner") setPage("pay");
       setToken(data.token);
     } catch {
       setAuthError("Something went wrong. Try again.");
@@ -108,7 +129,7 @@ export function PortalApp() {
           <span className="topbar-sub">Finance</span>
         </div>
         <nav className="tabs">
-          {NAV.map((n) => (
+          {(role === "runner" ? NAV.filter((n) => n.key === "pay") : NAV).map((n) => (
             <button
               key={n.key}
               className={page === n.key ? "tab active" : "tab"}
