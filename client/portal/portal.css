@@ -277,6 +277,50 @@ tfoot td {
 .note.footnote {
   margin: 12px 0 0;
 }
+
+/* ── Reconciliation (Phase 4) ─────────────────────────────────────────── */
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 16px;
+  flex-wrap: wrap;
+}
+.btn.filebtn {
+  width: auto;
+  display: inline-block;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+.toggle input {
+  margin-right: 6px;
+}
+.advisory {
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: rgba(179, 53, 43, 0.06);
+  padding: 10px 14px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.advisory em {
+  color: var(--danger);
+  font-style: normal;
+  font-weight: 600;
+}
+.runner.recon {
+  margin-bottom: 10px;
+}
+.runner.recon.ok summary { color: var(--teal); }
+.runner.recon.bad summary { color: var(--danger); }
+.runner.recon.info summary { color: var(--muted); }
+td.wrap {
+  white-space: normal;
+  max-width: 420px;
+}
 .amt.neg {
   color: var(--danger);
 }

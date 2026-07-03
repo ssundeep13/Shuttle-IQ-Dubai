@@ -2,7 +2,7 @@
 // is gated by the portal identity (portal_users + PORTAL_JWT_SECRET), which is entirely
 // separate from the main app's users/roles. The host wall (server/portal/hostGate.ts)
 // additionally ensures these routes are reachable ONLY on finance.shuttleiq.ai.
-import type { Express, Request, Response, NextFunction } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { storage } from "./storage";
@@ -14,6 +14,7 @@ import {
   aggregateWeeklyPnl,
   aggregateRunnerPay,
 } from "./portalFinance";
+import { reconcileZiinaCsv, loadReconcileInput } from "./portalReconcile";
 
 // fils → AED at the API edge (integer fils, so /100 is exact to 2dp).
 const filsToAed = (f: number) => Math.round(f) / 100;
@@ -201,4 +202,30 @@ export function registerPortalRoutes(app: Express): void {
       res.status(500).json({ error: "Failed to load runner pay." });
     }
   });
+
+  // Phase 4 — Ziina CSV reconciliation. STATELESS: the CSV arrives as the raw request
+  // body (any content type; the dashboard exports text/csv), is parsed and matched in
+  // memory, and only the bucket JSON leaves. Nothing is persisted server-side and the
+  // engine performs zero DB writes. Auth first, then the body parser (5 MB cap).
+  app.post(
+    "/api/portal/reconcile",
+    requirePortalAuth,
+    express.text({ type: () => true, limit: "5mb" }),
+    async (req: Request, res: Response) => {
+      try {
+        if (typeof req.body !== "string" || req.body.trim().length === 0) {
+          res.status(400).json({ error: "Upload the Ziina transactions CSV as the request body." });
+          return;
+        }
+        const dbIn = await loadReconcileInput(); // read-only SELECTs
+        const result = reconcileZiinaCsv(req.body, dbIn);
+        res.json(result);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Reconciliation failed.";
+        // Parse/validation problems are the user's CSV, not a server fault → 400.
+        console.error("[Portal] reconcile error:", message);
+        res.status(400).json({ error: message });
+      }
+    },
+  );
 }
