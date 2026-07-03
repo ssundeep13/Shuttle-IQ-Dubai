@@ -54,10 +54,10 @@ import {
   type TeamCombination
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
-import { registerFinanceRoutes, seedExpenseCategories } from "./financeRoutes";
+import { seedExpenseCategories } from "./portal/portalExpenses";
 import { registerVenueRoutes } from "./venueRoutes";
 import { registerSessionCostRoutes } from "./sessionCostRoutes";
-import { registerPortalRoutes } from "./portalRoutes";
+import { registerPortalRoutes } from "./portal/portalRoutes";
 
 // ─── Tier buffer helper ───────────────────────────────────────────────────────
 // After each game, a player's confirmed level (stored in DB) only changes after
@@ -115,8 +115,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register marketplace routes
   registerMarketplaceRoutes(app);
 
-  // Register finance routes + seed default expense categories
-  registerFinanceRoutes(app);
+  // Seed default expense categories (expense routes now live in the portal boundary)
   await seedExpenseCategories();
 
   // Register venue routes (Phase 1 — super-admin venue price book)

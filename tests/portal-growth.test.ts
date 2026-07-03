@@ -9,7 +9,7 @@ import {
   computeFillRate,
   computeLtv,
   type AttendanceRow,
-} from '../server/portalGrowth';
+} from '../server/portal/portalGrowth';
 
 const att = (over: Partial<AttendanceRow>): AttendanceRow => ({
   userId: 'u1', userName: 'Priya', gender: 'Female',

@@ -173,8 +173,67 @@ body {
   padding: 14px 22px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
-.topbar .linkbtn {
+.topbar .linkbtn:nth-last-of-type(2) {
   margin-left: auto;
+}
+.topbar .linkbtn + .linkbtn {
+  margin-left: 16px;
+}
+
+/* Change-password panel (Phase 6) */
+.pwpanel {
+  max-width: 420px;
+  margin-bottom: 18px;
+}
+.pwpanel .btn {
+  width: auto;
+  padding: 10px 16px;
+}
+.pwpanel-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.note.ok {
+  color: var(--teal);
+  font-weight: 600;
+}
+
+/* ── Expenses (Phase 6) ───────────────────────────────────────────────── */
+.report.inner {
+  border: 1px solid var(--line);
+  background: #fffdf7;
+  margin-bottom: 16px;
+}
+.upload-row select,
+.upload-row input[type="date"] {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf7;
+  padding: 7px 9px;
+}
+.field select {
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  background: #fffdf7;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 11px 12px;
+}
+.linkbtn.danger {
+  color: var(--danger);
+}
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  vertical-align: baseline;
+  margin-right: 4px;
+  border: 1px solid var(--line);
 }
 
 .tabs {

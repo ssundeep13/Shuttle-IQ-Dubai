@@ -31,7 +31,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import FinanceTab from '@/components/FinanceTab';
 import VenueTab from '@/components/VenueTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
@@ -231,7 +230,6 @@ export default function SessionsManagement() {
     { value: 'marketplace-users', label: 'Marketplace Users',  Icon: ShoppingBag },
     { value: 'disputes',          label: 'Disputes',           Icon: Flag,        badge: openDisputeCount > 0 ? openDisputeCount : undefined },
     { value: 'refunds',           label: 'Refunds',            Icon: ReceiptText, badge: pendingRefundCount > 0 ? pendingRefundCount : undefined },
-    ...(isSuperAdmin ? [{ value: 'finance', label: 'Finance', Icon: DollarSign }] : []),
     ...(isSuperAdmin ? [{ value: 'venues', label: 'Venues', Icon: MapPin }] : []),
     { value: 'tag-suggestions',   label: 'Tag Ideas',          Icon: Lightbulb   },
     { value: 'blog',              label: 'Blog',               Icon: FileText    },
@@ -371,12 +369,6 @@ export default function SessionsManagement() {
                   )}
                 </TabsTrigger>
                 {isSuperAdmin && (
-                  <TabsTrigger value="finance" data-testid="tab-finance" className="flex items-center gap-2">
-                    <DollarSign className="w-4 h-4" />
-                    Finance
-                  </TabsTrigger>
-                )}
-                {isSuperAdmin && (
                   <TabsTrigger value="venues" data-testid="tab-venues" className="flex items-center gap-2">
                     <MapPin className="w-4 h-4" />
                     Venues
@@ -448,12 +440,6 @@ export default function SessionsManagement() {
           <TabsContent value="refunds" className="mt-6">
             <RefundsTabContent refunds={refunds} />
           </TabsContent>
-
-          {isSuperAdmin && (
-            <TabsContent value="finance" className="mt-6">
-              <FinanceTab />
-            </TabsContent>
-          )}
 
           {isSuperAdmin && (
             <TabsContent value="venues" className="mt-6">

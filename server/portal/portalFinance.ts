@@ -70,7 +70,7 @@ export interface PeriodPnlFils {
 // session_costs row exists yet (LEFT JOINs) — nothing silently vanishes; a costless
 // session shows zero costs. Profit numbers come from the batch (3 queries total).
 export async function loadSessionFinanceRows(): Promise<SessionFinanceRow[]> {
-  const { db } = await import("./db");
+  const { db } = await import("../db");
 
   const sessions = await db
     .select({
@@ -110,7 +110,7 @@ export async function loadSessionFinanceRows(): Promise<SessionFinanceRow[]> {
 }
 
 export async function loadGeneralExpenseRows(): Promise<GeneralExpenseRow[]> {
-  const { db } = await import("./db");
+  const { db } = await import("../db");
   const rows = await db
     .select({
       dateIso: sql<string>`to_char(${expenses.date}, 'YYYY-MM-DD')`,

@@ -128,7 +128,7 @@ export interface ReconcileDbInput {
 }
 
 export async function loadReconcileInput(): Promise<ReconcileDbInput> {
-  const { db } = await import("./db");
+  const { db } = await import("../db");
   const pRes = await db.execute(sql`
     SELECT p.id AS payment_id, p.booking_id, p.ziina_payment_intent_id AS intent,
            p.amount AS pay_aed, p.status, p.completed_at, p.created_at,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeProfitFils } from '../server/sessionProfit';
+import { computeProfitFils } from '../server/portal/sessionProfit';
 import { sessionDurationHours } from '../shared/sessionTime';
 
 // Arithmetic unit tests for the PURE profit definition (no DB). The DB wrapper's

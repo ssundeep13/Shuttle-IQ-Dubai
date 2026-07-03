@@ -134,7 +134,7 @@ export async function computeSessionProfitFils(sessionId: string): Promise<Profi
 export async function computeSessionProfitsBatchFils(
   sessionIds: string[],
 ): Promise<Map<string, ProfitBreakdownFils>> {
-  const { db } = await import("./db"); // lazy — keeps computeProfitFils DB-import-free
+  const { db } = await import("../db"); // lazy — keeps computeProfitFils DB-import-free
 
   // Every requested id gets an entry, defaulting to all-zeros (no bookings, no costs).
   const result = new Map<string, ProfitBreakdownFils>();

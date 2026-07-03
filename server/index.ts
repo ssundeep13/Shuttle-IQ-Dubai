@@ -113,6 +113,7 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/marketplace/auth/login', authLimiter);
 app.use('/api/marketplace/auth/signup', authLimiter);
 app.use('/api/portal/auth/login', authLimiter);
+app.use('/api/portal/auth/change-password', authLimiter);
 
 // Lightweight health-check — responds instantly without touching the DB.
 // External uptime monitors (e.g. UptimeRobot) can ping this every 5 minutes

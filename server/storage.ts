@@ -480,6 +480,7 @@ export interface IStorage {
   // Finance Portal (Phase 2 — login lookup; Build B — fresh per-request role lookup)
   getPortalUserByEmail(email: string): Promise<PortalUser | undefined>;
   getPortalUserById(id: string): Promise<PortalUser | undefined>;
+  updatePortalUserPassword(id: string, passwordHash: string, changedAt: Date): Promise<void>;
 
   // Blog operations
   createBlogPost(data: InsertBlogPost): Promise<BlogPost>;
@@ -3739,6 +3740,14 @@ export class DatabaseStorage implements IStorage {
   async getPortalUserById(id: string): Promise<PortalUser | undefined> {
     const [row] = await db.select().from(portalUsers).where(eq(portalUsers.id, id));
     return row;
+  }
+
+  // Phase 6 — the ONLY portal-user write in app code: a user changing their own
+  // password. passwordChangedAt kills every token issued before this instant.
+  async updatePortalUserPassword(id: string, passwordHash: string, changedAt: Date): Promise<void> {
+    await db.update(portalUsers)
+      .set({ passwordHash, passwordChangedAt: changedAt })
+      .where(eq(portalUsers.id, id));
   }
 
   async createExpense(data: InsertExpense): Promise<Expense> {

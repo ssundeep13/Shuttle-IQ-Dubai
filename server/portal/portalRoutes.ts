@@ -5,8 +5,8 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { storage } from "./storage";
-import { signPortalToken, verifyPortalToken, isPortalConfigured } from "./portal/portalAuth";
+import { storage } from "../storage";
+import { signPortalToken, verifyPortalToken, isPortalConfigured, isTokenStale } from "./portalAuth";
 import {
   loadSessionFinanceRows,
   loadGeneralExpenseRows,
@@ -17,9 +17,28 @@ import {
 } from "./portalFinance";
 import { reconcileZiinaCsv, loadReconcileInput } from "./portalReconcile";
 import { buildGrowthReport } from "./portalGrowth";
+import { registerPortalExpenseRoutes } from "./portalExpenses";
 
 // fils → AED at the API edge (integer fils, so /100 is exact to 2dp).
 const filsToAed = (f: number) => Math.round(f) / 100;
+
+// ── Change-password core (Phase 6) — exported for tests ──────────────────────
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required."),
+  newPassword: z.string().min(12, "New password must be at least 12 characters."),
+});
+
+// Verifies the current password and produces the new bcrypt hash (cost 10 — same as
+// every existing portal hash) plus the instant that kills all older tokens.
+export async function performPasswordChange(
+  currentHash: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ newHash: string; changedAt: Date } | { error: string }> {
+  const ok = await bcrypt.compare(currentPassword, currentHash);
+  if (!ok) return { error: "Current password is incorrect." };
+  return { newHash: await bcrypt.hash(newPassword, 10), changedAt: new Date() };
+}
 
 // Attach the verified portal identity to the request. role/runnerId come from the DB
 // row, NOT the token (Build B).
@@ -51,6 +70,11 @@ export async function requirePortalAuth(req: PortalRequest, res: Response, next:
   try {
     const user = await storage.getPortalUserById(payload.portalUserId);
     if (!user || !user.isActive) {
+      res.status(401).json({ error: "Invalid or expired session." });
+      return;
+    }
+    // Phase 6 — tokens issued before the user's last password change are dead.
+    if (isTokenStale(payload.iat, user.passwordChangedAt ?? null)) {
       res.status(401).json({ error: "Invalid or expired session." });
       return;
     }
@@ -109,22 +133,35 @@ export function registerPortalRoutes(app: Express): void {
     res.json({ email: req.portalUser!.email, role: req.portalUser!.role });
   });
 
-  // ── The one number: collected revenue this month (live prod DB) ───────────
-  app.get("/api/portal/finance/summary", requirePortalAuth, requirePortalOwner, async (_req: Request, res: Response) => {
+  // ── Change password (Phase 6) ─────────────────────────────────────────────
+  // Any authenticated portal user changes their OWN password — there is no
+  // admin-changes-someone-else path by design. On success every previously issued
+  // token is dead (iat < passwordChangedAt); a fresh token is returned so the
+  // changer stays logged in.
+  app.post("/api/portal/auth/change-password", requirePortalAuth, async (req: PortalRequest, res: Response) => {
     try {
-      const now = new Date();
-      const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-      const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
-      const summary = await storage.getFinanceSummary(from, to);
-      res.json({
-        collectedAed: summary.revenue.collectedAed,
-        month: from.toISOString().slice(0, 7), // YYYY-MM
-      });
+      const parsed = changePasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid input." });
+        return;
+      }
+      const user = await storage.getPortalUserById(req.portalUser!.portalUserId);
+      if (!user) { res.status(401).json({ error: "Invalid or expired session." }); return; }
+
+      const result = await performPasswordChange(user.passwordHash, parsed.data.currentPassword, parsed.data.newPassword);
+      if ("error" in result) { res.status(400).json({ error: result.error }); return; }
+
+      await storage.updatePortalUserPassword(user.id, result.newHash, result.changedAt);
+      const token = signPortalToken({ portalUserId: user.id, email: user.email });
+      res.json({ ok: true, token });
     } catch (err: unknown) {
-      console.error("[Portal] finance summary error:", err instanceof Error ? err.message : err);
-      res.status(500).json({ error: "Failed to load finance summary." });
+      console.error("[Portal] change-password error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Password change failed." });
     }
   });
+
+  // (Phase 6: the Phase-2 one-number /finance/summary endpoint was removed — no UI
+  // called it since the Phase-3 reports shipped.)
 
   // ── Phase 3 reports — all attributed BY SESSION DATE (differs from the main
   // app's created_at-based finance tab by design; locked decision 3) ──────────
@@ -277,4 +314,8 @@ export function registerPortalRoutes(app: Express): void {
       }
     },
   );
+
+  // Phase 6 full extraction — expense CRUD + pending-cash workflow, owner-only.
+  // Guards passed in to avoid an import cycle; the registration test pins them.
+  registerPortalExpenseRoutes(app, requirePortalAuth, requirePortalOwner);
 }

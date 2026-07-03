@@ -35,7 +35,7 @@ export interface GrowthData {
 }
 
 export async function loadGrowthData(): Promise<GrowthData> {
-  const { db } = await import("./db");
+  const { db } = await import("../db");
   const q = async (query: any) => (await db.execute(query)).rows as any[];
   const EPOCH = PORTAL_EPOCH_ISO;
 

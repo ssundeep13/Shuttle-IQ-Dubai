@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { aggregateRunnerPay, filterRunnerPayWeeksForRunner, type SessionFinanceRow } from '../server/portalFinance';
+import { aggregateRunnerPay, filterRunnerPayWeeksForRunner, type SessionFinanceRow } from '../server/portal/portalFinance';
 
 // Build B — the server wall. The 403 middleware and the runner-pay response filter are
 // the two pieces that keep a 'runner' login inside their own data; both are pinned here.
@@ -63,7 +63,7 @@ describe('requirePortalOwner — 403 for runners on every owner endpoint', () =>
   };
 
   it("role='runner' → 403, handler never runs (pnl/weekly/sessions/summary/reconcile all use this guard)", async () => {
-    const { requirePortalOwner } = await import('../server/portalRoutes');
+    const { requirePortalOwner } = await import('../server/portal/portalRoutes');
     const res = fakeRes();
     const next = vi.fn();
     requirePortalOwner({ portalUser: { portalUserId: 'p', email: 'e', role: 'runner', runnerId: 'shannon-id' } } as any, res, next);
@@ -72,7 +72,7 @@ describe('requirePortalOwner — 403 for runners on every owner endpoint', () =>
   });
 
   it("role='owner' → passes through unchanged", async () => {
-    const { requirePortalOwner } = await import('../server/portalRoutes');
+    const { requirePortalOwner } = await import('../server/portal/portalRoutes');
     const res = fakeRes();
     const next = vi.fn();
     requirePortalOwner({ portalUser: { portalUserId: 'p', email: 'e', role: 'owner', runnerId: null } } as any, res, next);
@@ -81,7 +81,7 @@ describe('requirePortalOwner — 403 for runners on every owner endpoint', () =>
   });
 
   it('missing portalUser (misuse without requirePortalAuth) → 403, fail closed', async () => {
-    const { requirePortalOwner } = await import('../server/portalRoutes');
+    const { requirePortalOwner } = await import('../server/portal/portalRoutes');
     const res = fakeRes();
     const next = vi.fn();
     requirePortalOwner({} as any, res, next);

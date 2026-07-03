@@ -4,7 +4,7 @@ import {
   reconcileZiinaCsv,
   type DbPaymentRow,
   type ReconcileDbInput,
-} from '../server/portalReconcile';
+} from '../server/portal/portalReconcile';
 
 // Fixtures — the CSV shape mirrors the real Ziina export (STEP 0/1 findings).
 const HEADER = 'Time,Transaction ID,Type,Currency,Amount,Amount Received,Fee,Message,Performed By,Customer,Customer Card Number';

@@ -755,6 +755,9 @@ export const portalUsers = pgTable("portal_users", {
   // trusted from the JWT — so access changes take effect immediately.
   role: text("role").notNull().default("owner"),
   runnerId: varchar("runner_id"),
+  // Phase 6 — token invalidation on password change: any portal JWT issued (iat)
+  // before this instant is rejected by requirePortalAuth. NULL = never changed.
+  passwordChangedAt: timestamp("password_changed_at"),
 });
 export type PortalUser = typeof portalUsers.$inferSelect;
 

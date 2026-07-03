@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { isoWeekOf } from '../shared/isoWeek';
-import { computeRevenueBasesFils, type BookingForRevenueFils } from '../server/sessionProfit';
+import { computeRevenueBasesFils, type BookingForRevenueFils } from '../server/portal/sessionProfit';
 import {
   aggregateMonthlyPnl,
   aggregateWeeklyPnl,
   aggregateRunnerPay,
   type SessionFinanceRow,
-} from '../server/portalFinance';
+} from '../server/portal/portalFinance';
 
 // Pure aggregation tests — the DB assembly is exercised by the live June trace; here we
 // pin the bucketing rules, the two revenue bases, and the 25% zero-floor-PER-SESSION

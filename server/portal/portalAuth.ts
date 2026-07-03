@@ -17,6 +17,16 @@ export interface PortalJWTPayload {
   portalUserId: string;
   email: string;
   aud: string;
+  iat?: number; // seconds since epoch, stamped by jsonwebtoken at sign time
+}
+
+// Phase 6 — a token is STALE (must be rejected) when it was issued before the user's
+// last password change. NULL passwordChangedAt = never changed = nothing is stale.
+// One second of slack absorbs the sign-then-write ordering inside change-password.
+export function isTokenStale(iatSeconds: number | undefined, passwordChangedAt: Date | null): boolean {
+  if (!passwordChangedAt) return false;
+  if (iatSeconds == null) return true; // no issue time = cannot prove freshness → reject
+  return iatSeconds * 1000 < passwordChangedAt.getTime() - 1000;
 }
 
 export function isPortalConfigured(): boolean {
