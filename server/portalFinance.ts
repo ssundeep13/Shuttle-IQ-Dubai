@@ -24,6 +24,13 @@ export const PORTAL_EPOCH_ISO = "2026-06-01";
 // (the floor lives inside computeProfitFils — profitFils is already >= 0 here).
 export const RUNNER_PROFIT_SHARE = 0.25;
 
+// THE single implementation of a session's accrued pay (25% of VALUE profit, rounded to
+// whole fils per session). Both the Runner Pay tab and the P&L's runner-pay line call
+// this — never re-derive the share anywhere else.
+export function accruedPayFils(valueProfitFils: number): number {
+  return Math.round(valueProfitFils * RUNNER_PROFIT_SHARE);
+}
+
 export interface SessionFinanceRow {
   sessionId: string;
   dateIso: string; // YYYY-MM-DD (session date — the attribution key)
@@ -50,8 +57,11 @@ export interface PeriodPnlFils {
   collectedRevenueFils: number;
   sessionCostsFils: number;
   generalExpensesFils: number;
-  netProfitFils: number; // plain arithmetic — NOT floored (a losing month shows negative)
+  netProfitFils: number; // BEFORE runner pay — plain arithmetic, NOT floored
   walletPaidFils: number; // informational only — NOT part of the net formula
+  // Build A (monthly P&L only; weekly leaves these at zero/net):
+  runnerPayFils: number;        // accrued pay, ASSIGNED captains only — Unassigned pays nobody
+  managementProfitFils: number; // netProfitFils − runnerPayFils (may go negative)
 }
 
 // ── DB assembly ───────────────────────────────────────────────────────────────
@@ -114,7 +124,10 @@ export async function loadGeneralExpenseRows(): Promise<GeneralExpenseRow[]> {
 // ── Pure aggregation (unit-tested) ────────────────────────────────────────────
 
 function emptyPnl(): PeriodPnlFils {
-  return { collectedRevenueFils: 0, sessionCostsFils: 0, generalExpensesFils: 0, netProfitFils: 0, walletPaidFils: 0 };
+  return {
+    collectedRevenueFils: 0, sessionCostsFils: 0, generalExpensesFils: 0,
+    netProfitFils: 0, walletPaidFils: 0, runnerPayFils: 0, managementProfitFils: 0,
+  };
 }
 
 function addSession(p: PeriodPnlFils, r: SessionFinanceRow): void {
@@ -125,6 +138,7 @@ function addSession(p: PeriodPnlFils, r: SessionFinanceRow): void {
 
 function finishPnl(p: PeriodPnlFils): void {
   p.netProfitFils = p.collectedRevenueFils - p.sessionCostsFils - p.generalExpensesFils;
+  p.managementProfitFils = p.netProfitFils - p.runnerPayFils;
 }
 
 // Month rows from the epoch month through `throughMonth` ('YYYY-MM') inclusive —
@@ -147,7 +161,12 @@ export function aggregateMonthlyPnl(
   const byMonth = new Map<string, PeriodPnlFils>(months.map((k) => [k, emptyPnl()]));
   for (const r of rows) {
     const p = byMonth.get(r.dateIso.slice(0, 7));
-    if (p) addSession(p, r); // sessions past throughMonth are out of scope
+    if (!p) continue; // sessions past throughMonth are out of scope
+    addSession(p, r);
+    // Runner-pay line: accrued via the SAME rule as the Runner Pay tab, but ASSIGNED
+    // captains only — an Unassigned session pays nobody, so its profit stays with
+    // management and contributes ZERO here. Monthly only; weekly never accumulates this.
+    if (r.captainId) p.runnerPayFils += accruedPayFils(r.valueProfitFils);
   }
   for (const e of generalExpenses) {
     const p = byMonth.get(e.dateIso.slice(0, 7));
@@ -226,7 +245,7 @@ export function aggregateRunnerPay(rows: SessionFinanceRow[]): RunnerPayWeek[] {
       walletPaidFils: r.walletPaidFils,
       unpaidCashFils: r.unpaidCashFils,
       valueProfitFils: r.valueProfitFils,
-      payFils: Math.round(r.valueProfitFils * RUNNER_PROFIT_SHARE),
+      payFils: accruedPayFils(r.valueProfitFils),
     });
   }
 

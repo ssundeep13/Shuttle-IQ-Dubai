@@ -65,7 +65,9 @@ interface PnlRow {
   collectedRevenueAed: number;
   sessionCostsAed: number;
   generalExpensesAed: number;
-  netProfitAed: number;
+  netProfitAed: number;           // BEFORE runner pay
+  runnerPayAed?: number;          // monthly P&L only — accrued, assigned runners only
+  managementProfitAed?: number;   // monthly P&L only — net − runner pay
   walletPaidAed?: number; // monthly P&L only — informational, not in the net formula
 }
 
@@ -80,7 +82,7 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
   if (error || !data) return <LoadError message={error ?? "No data."} />;
   return (
     <div className="report">
-      <p className="formula">Collected revenue − Session costs − General expenses = Net profit</p>
+      <p className="formula">Collected revenue − Session costs − General expenses = Net profit (before runner pay) − Runner pay = Management profit</p>
       <p className="note">June 2026 onwards. Revenue is attributed to the session's date and netted of refunds.</p>
       <div className="tablewrap">
         <table>
@@ -90,7 +92,9 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
               <th className="num">Collected revenue</th>
               <th className="num">Session costs</th>
               <th className="num">General expenses</th>
-              <th className="num">Net profit</th>
+              <th className="num">Net profit (before runner pay)</th>
+              <th className="num">− Runner pay</th>
+              <th className="num">Management profit</th>
               <th className="num">Wallet-paid (info)</th>
             </tr>
           </thead>
@@ -101,14 +105,20 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
                 <td className="num"><Amount value={m.collectedRevenueAed} /></td>
                 <td className="num"><Amount value={m.sessionCostsAed} /></td>
                 <td className="num"><Amount value={m.generalExpensesAed} /></td>
-                <td className="num strong"><Amount value={m.netProfitAed} /></td>
+                <td className="num"><Amount value={m.netProfitAed} /></td>
+                <td className="num"><Amount value={m.runnerPayAed ?? 0} /></td>
+                <td className="num strong"><Amount value={m.managementProfitAed ?? m.netProfitAed} /></td>
                 <td className="num"><Amount value={m.walletPaidAed ?? 0} /></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="note footnote">{WALLET_FOOTNOTE} Wallet-paid amounts are informational and not part of the net formula.</p>
+      <p className="note footnote">
+        {WALLET_FOOTNOTE} Wallet-paid amounts are informational and not part of the net formula.
+        Runner pay is ACCRUED (owed, 25% of session-value profit) for assigned runners only —
+        sessions without a captain pay nobody and their profit stays with management.
+      </p>
     </div>
   );
 }

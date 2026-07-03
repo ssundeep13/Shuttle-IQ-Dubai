@@ -114,7 +114,9 @@ export function registerPortalRoutes(app: Express): void {
           collectedRevenueAed: filsToAed(p.collectedRevenueFils),
           sessionCostsAed: filsToAed(p.sessionCostsFils),
           generalExpensesAed: filsToAed(p.generalExpensesFils),
-          netProfitAed: filsToAed(p.netProfitFils),
+          netProfitAed: filsToAed(p.netProfitFils), // BEFORE runner pay
+          runnerPayAed: filsToAed(p.runnerPayFils), // accrued, assigned captains only
+          managementProfitAed: filsToAed(p.managementProfitFils), // net − runner pay (can be negative)
           walletPaidAed: filsToAed(p.walletPaidFils), // informational — not in the net formula
         })),
       });

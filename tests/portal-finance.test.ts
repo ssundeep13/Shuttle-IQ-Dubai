@@ -118,6 +118,31 @@ describe('aggregateMonthlyPnl — June 2026 onwards, formula not floored', () =>
     expect(months[1]).toMatchObject({ collectedRevenueFils: 0, generalExpensesFils: 50_000, netProfitFils: -50_000 });
     expect(months[2].collectedRevenueFils).toBe(10_000);
   });
+
+  it('runner-pay line: Σ assigned-runner accrued pay (Unassigned excluded); management = net − pay, may go negative', () => {
+    const rows = [
+      // assigned: accrues round(40,000 × 25%) = 10,000
+      row({ sessionId: 'a', dateIso: '2026-06-13', revenueFils: 100_000, courtCostFils: 20_000, valueProfitFils: 40_000 }),
+      // assigned: per-session rounding — round(333 × 25%) = 83 (not part of a summed base)
+      row({ sessionId: 'b', dateIso: '2026-06-16', revenueFils: 10_000, valueProfitFils: 333 }),
+      // UNASSIGNED: valueProfit 99,999 but captainId null → contributes ZERO to the line
+      row({ sessionId: 'c', dateIso: '2026-06-20', captainId: null, captainName: null, revenueFils: 5_000, valueProfitFils: 99_999 }),
+    ];
+    const months = aggregateMonthlyPnl(rows, [], '2026-06');
+    const june = months[0];
+    expect(june.runnerPayFils).toBe(10_083); // 10,000 + 83; the 99,999-profit unassigned session pays nobody
+    expect(june.netProfitFils).toBe(95_000); // (100k+10k+5k) − 20k — net formula itself unchanged
+    expect(june.managementProfitFils).toBe(95_000 - 10_083);
+
+    // management profit is NOT clamped: pay can exceed net (wallet is in the pay base, not in net)
+    const negMonths = aggregateMonthlyPnl(
+      [row({ sessionId: 'd', dateIso: '2026-06-02', revenueFils: 1_000, valueProfitFils: 40_000 })],
+      [], '2026-06',
+    );
+    expect(negMonths[0].netProfitFils).toBe(1_000);
+    expect(negMonths[0].runnerPayFils).toBe(10_000);
+    expect(negMonths[0].managementProfitFils).toBe(-9_000); // negative, shown as-is
+  });
 });
 
 describe('aggregateWeeklyPnl — ISO buckets, sessions + expenses combine', () => {
