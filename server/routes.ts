@@ -1324,28 +1324,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/queue", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.status(400).json({ error: "No active session" });
+      // Gate 2: honor an explicit sessionId like POST/DELETE do — this verb used to
+      // hardcode the active session, so reordering while viewing another session
+      // silently rewrote the LIVE queue.
+      const { playerIds, sessionId } = req.body;
+      const session = sessionId
+        ? await storage.getSession(sessionId)
+        : await storage.getActiveSession();
+      if (!session) {
+        return res.status(400).json({ error: sessionId ? "Session not found" : "No active session" });
       }
 
-      const { playerIds } = req.body;
       if (!Array.isArray(playerIds)) {
         return res.status(400).json({ error: "playerIds must be an array" });
       }
-      
+
       // Get old queue and clone it to prevent mutation issues
-      const oldQueue = [...await storage.getQueue(activeSession.id)];
-      
-      await storage.setQueue(activeSession.id, playerIds);
-      
+      const oldQueue = [...await storage.getQueue(session.id)];
+
+      await storage.setQueue(session.id, playerIds);
+
       // Clear rest states and sit-out flags for players removed from queue
       const removedPlayerIds = oldQueue.filter(id => !playerIds.includes(id));
       for (const playerId of removedPlayerIds) {
-        clearPlayerRestState(activeSession.id, playerId);
-        clearSittingOutPlayer(activeSession.id, playerId);
+        clearPlayerRestState(session.id, playerId);
+        clearSittingOutPlayer(session.id, playerId);
       }
-      
+
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update queue" });
@@ -2115,12 +2120,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updatePlayer(player.id, { status: 'waiting' });
       }
 
-      const currentQueue = await storage.getQueue(gameSession.id);
-      const newQueue = [
-        ...currentQueue,
-        ...players.map(p => p.id),
-      ];
-      await storage.setQueue(gameSession.id, newQueue);
+      // Gate 2: same atomic re-append as end-game — cancel-game is the third
+      // "return players to the queue" site and races identically.
+      await storage.appendPlayersToQueue(
+        gameSession.id,
+        players.map(p => p.id),
+        players.map(p => p.id),
+      );
 
       // Reset court
       await storage.updateCourt(court.id, {
@@ -2382,20 +2388,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update rest states for players who were waiting (reset their consecutive count)
       const currentQueue = await storage.getQueue(activeSession.id);
       const playedPlayerIds = new Set(participantData.map(p => p.playerId));
-      
+
       for (const playerId of currentQueue) {
         if (!playedPlayerIds.has(playerId)) {
           updatePlayerRestState(activeSession.id, playerId, false);
         }
       }
 
-      // Add players back to queue (losers first, then winners)
-      const newQueue = [
-        ...currentQueue,
-        ...losers.map(p => p.id),
-        ...winners.map(p => p.id),
-      ];
-      await storage.setQueue(activeSession.id, newQueue);
+      // Add players back to queue (losers first, then winners). Gate 2: atomic +
+      // filtered inside the per-session lock — the queue is re-read fresh in the
+      // transaction, so two courts ending simultaneously both land their players,
+      // and a played player already in the queue can never be duplicated.
+      await storage.appendPlayersToQueue(
+        activeSession.id,
+        Array.from(playedPlayerIds),
+        [...losers.map(p => p.id), ...winners.map(p => p.id)],
+      );
 
       // Reset court
       await storage.updateCourt(court.id, {

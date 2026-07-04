@@ -354,7 +354,12 @@ export default function Home() {
 
   const updateQueueMutation = useMutation({
     mutationFn: async (playerIds: string[]) => {
-      return await apiRequest('PUT', '/api/queue', { playerIds });
+      // Gate 2: pass the session being VIEWED — the endpoint used to hardcode the
+      // active session, so reordering from another session's view hit the live queue.
+      return await apiRequest('PUT', '/api/queue', {
+        playerIds,
+        ...(session?.id ? { sessionId: session.id } : {}),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });

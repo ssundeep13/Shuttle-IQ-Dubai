@@ -5396,12 +5396,14 @@ export function registerMarketplaceRoutes(app: Express) {
             updatePlayerRestState(session.id, playerId, false);
           }
         }
-        const newQueue = [
-          ...currentQueue.filter(id => !playedSet.has(id)),
-          ...loserIds,
-          ...winnerIds,
-        ];
-        await storage.setQueue(session.id, newQueue);
+        // Gate 2: atomic + filtered re-append (identical to the admin end-game
+        // path) — fresh read inside the per-session lock, no lost updates, no
+        // duplicate entries.
+        await storage.appendPlayersToQueue(
+          session.id,
+          Array.from(playedSet),
+          [...loserIds, ...winnerIds],
+        );
 
         await storage.updateCourt(court.id, {
           status: 'available',

@@ -268,6 +268,7 @@ export interface IStorage {
   getQueue(sessionId: string): Promise<string[]>;
   setQueue(sessionId: string, playerIds: string[]): Promise<void>;
   addToQueue(sessionId: string, playerId: string): Promise<void>;
+  appendPlayersToQueue(sessionId: string, playedPlayerIds: string[], appendOrder: string[]): Promise<void>;
   removeFromQueue(sessionId: string, playerId: string): Promise<void>;
   
   // Complex queries
@@ -626,6 +627,23 @@ export interface IStorage {
   }>;
 }
 
+// Gate 2 — pure end-of-game queue computation, exported for tests. Keeps everyone who
+// wasn't in the game (in their existing order), strips any stale entry for the players
+// who just played, and appends them once in the caller's order (losers before winners).
+// Because appendPlayersToQueue applies this under the per-session advisory lock,
+// concurrent games serialize and composing this function sequentially IS the concurrent
+// behaviour — no player can be lost or duplicated.
+export function computeAppendedQueue(
+  currentQueue: string[],
+  playedPlayerIds: string[],
+  appendOrder: string[],
+): string[] {
+  const played = new Set(playedPlayerIds);
+  const appended = new Set(appendOrder);
+  const kept = currentQueue.filter(id => !played.has(id) && !appended.has(id));
+  return [...kept, ...appendOrder];
+}
+
 export class DatabaseStorage implements IStorage {
   // Session operations
   async createSession(insertSession: InsertSession): Promise<Session> {
@@ -696,7 +714,7 @@ export class DatabaseStorage implements IStorage {
     // future caller forgets the session-active filter, the rows themselves
     // are no longer in an active state.
     //
-    // Also free any 'playing' courts for this session so the admin court
+    // Also free any OCCUPIED courts for this session so the admin court
     // grid doesn't show ghost games after the session has ended.
     const inFlightCourtIds = await db
       .select({ courtId: matchSuggestions.courtId })
@@ -721,7 +739,11 @@ export class DatabaseStorage implements IStorage {
         .set({ status: 'available' })
         .where(and(
           inArray(courts.id, uniqueCourtIds),
-          eq(courts.status, 'playing'),
+          // Courts mid-game are 'occupied' — the courts vocabulary is
+          // 'available' | 'occupied' (shared/schema.ts); the original
+          // 'playing' filter never matched, so session end never actually
+          // freed these courts (Gate 2 fix, sibling of the Gate 1 bug).
+          eq(courts.status, 'occupied'),
         ));
     }
 
@@ -1551,50 +1573,74 @@ export class DatabaseStorage implements IStorage {
     return entries.map(e => e.playerId);
   }
 
+  // Gate 2: every queue MUTATION runs inside one transaction holding the per-session
+  // advisory lock (same idiom as checkInBookingTransaction), so concurrent writers
+  // serialize instead of silently losing each other's updates. Reads stay lock-free.
+  // The append computation itself is the module-level computeAppendedQueue (pure,
+  // exported for tests).
+
   async setQueue(sessionId: string, playerIds: string[]): Promise<void> {
-    // Clear existing queue for this session
-    await db.delete(queueEntries).where(eq(queueEntries.sessionId, sessionId));
-    
-    // Insert new queue
-    if (playerIds.length > 0) {
-      await db.insert(queueEntries).values(
-        playerIds.map((playerId, index) => ({
-          id: randomUUID(),
-          sessionId,
-          playerId,
-          position: index
-        }))
-      );
-    }
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${sessionId}, 0))`);
+      await tx.delete(queueEntries).where(eq(queueEntries.sessionId, sessionId));
+      if (playerIds.length > 0) {
+        await tx.insert(queueEntries).values(
+          playerIds.map((playerId, index) => ({
+            id: randomUUID(),
+            sessionId,
+            playerId,
+            position: index
+          }))
+        );
+      }
+    });
   }
 
   async addToQueue(sessionId: string, playerId: string): Promise<void> {
-    // Check if player already in queue for this session
-    const existing = await db
-      .select()
-      .from(queueEntries)
-      .where(and(
-        eq(queueEntries.sessionId, sessionId),
-        eq(queueEntries.playerId, playerId)
-      ));
-    
-    if (existing.length === 0) {
-      // Get max position for this session
-      const allEntries = await db
+    // Single atomic statement under the session lock: position computed in SQL,
+    // NOT EXISTS dedupe means a double-tap / double check-in silently no-ops
+    // (no caller reads the return value — verified across all call sites).
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${sessionId}, 0))`);
+      await tx.execute(sql`
+        INSERT INTO queue_entries (id, session_id, player_id, position)
+        SELECT ${randomUUID()}, ${sessionId}, ${playerId},
+               COALESCE((SELECT MAX(position) + 1 FROM queue_entries WHERE session_id = ${sessionId}), 0)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM queue_entries
+          WHERE session_id = ${sessionId} AND player_id = ${playerId}
+        )`);
+    });
+  }
+
+  // Gate 2 — the end-of-game re-append, made atomic. Reads the queue FRESH inside
+  // the lock (a caller's earlier read may be stale), removes the players who just
+  // played (they can never be duplicated), and appends them in the given order
+  // (losers first, then winners — the caller decides). Used by the admin end-game,
+  // the marketplace submit-score, and admin cancel-game paths so all three behave
+  // identically under concurrency: two courts ending in the same instant serialize
+  // and BOTH games' players land in the queue.
+  async appendPlayersToQueue(sessionId: string, playedPlayerIds: string[], appendOrder: string[]): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${sessionId}, 0))`);
+      const entries = await tx
         .select()
         .from(queueEntries)
-        .where(eq(queueEntries.sessionId, sessionId));
-      const maxPosition = allEntries.length > 0 
-        ? Math.max(...allEntries.map(e => e.position)) 
-        : -1;
-      
-      await db.insert(queueEntries).values({
-        id: randomUUID(),
-        sessionId,
-        playerId,
-        position: maxPosition + 1
-      });
-    }
+        .where(eq(queueEntries.sessionId, sessionId))
+        .orderBy(queueEntries.position);
+      const finalOrder = computeAppendedQueue(entries.map(e => e.playerId), playedPlayerIds, appendOrder);
+      await tx.delete(queueEntries).where(eq(queueEntries.sessionId, sessionId));
+      if (finalOrder.length > 0) {
+        await tx.insert(queueEntries).values(
+          finalOrder.map((playerId, index) => ({
+            id: randomUUID(),
+            sessionId,
+            playerId,
+            position: index
+          }))
+        );
+      }
+    });
   }
 
   async removeFromQueue(sessionId: string, playerId: string): Promise<void> {
