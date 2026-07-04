@@ -271,6 +271,11 @@ export interface IStorage {
   addToQueue(sessionId: string, playerId: string): Promise<void>;
   appendPlayersToQueue(sessionId: string, playedPlayerIds: string[], appendOrder: string[]): Promise<void>;
   removeFromQueue(sessionId: string, playerId: string): Promise<void>;
+  removeManyFromQueue(sessionId: string, playerIds: string[]): Promise<void>;
+  // Gate 4b CAS transitions — return true only if this caller won the state
+  // change; on false the caller must NOT proceed with side effects.
+  dismissSuggestionIfInFlight(suggestionId: string, pendingUntil: Date): Promise<boolean>;
+  occupyCourtIfAvailable(courtId: string): Promise<boolean>;
   
   // Complex queries
   getCourtsWithPlayers(sessionId: string): Promise<CourtWithPlayers[]>;
@@ -1662,13 +1667,49 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
+  // Gate 4b: targeted removals serialize on the same per-session advisory
+  // lock as every other queue writer — a removal can no longer interleave
+  // with an append's read-modify-write and be silently resurrected.
   async removeFromQueue(sessionId: string, playerId: string): Promise<void> {
-    await db.delete(queueEntries).where(
-      and(
-        eq(queueEntries.sessionId, sessionId),
-        eq(queueEntries.playerId, playerId)
-      )
-    );
+    await this.removeManyFromQueue(sessionId, [playerId]);
+  }
+
+  async removeManyFromQueue(sessionId: string, playerIds: string[]): Promise<void> {
+    if (playerIds.length === 0) return;
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${sessionId}, 0))`);
+      await tx.delete(queueEntries).where(
+        and(
+          eq(queueEntries.sessionId, sessionId),
+          inArray(queueEntries.playerId, playerIds)
+        )
+      );
+    });
+  }
+
+  // ─── Gate 4b CAS transitions ───────────────────────────────────────────────
+  // Both mirror the startApprovedSuggestion idiom: a conditional UPDATE whose
+  // rowCount tells the caller whether it won the transition. Losing means a
+  // concurrent writer (end-game, cancel, assign, start-game) got there first
+  // and the caller must abort without side effects.
+
+  async dismissSuggestionIfInFlight(suggestionId: string, pendingUntil: Date): Promise<boolean> {
+    const result = await db
+      .update(matchSuggestions)
+      .set({ status: 'dismissed', pendingUntil })
+      .where(and(
+        eq(matchSuggestions.id, suggestionId),
+        inArray(matchSuggestions.status, ['pending', 'approved', 'playing']),
+      ));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async occupyCourtIfAvailable(courtId: string): Promise<boolean> {
+    const result = await db
+      .update(courts)
+      .set({ status: 'occupied', timeRemaining: 15, winningTeam: null, startedAt: new Date() })
+      .where(and(eq(courts.id, courtId), eq(courts.status, 'available')));
+    return (result.rowCount ?? 0) > 0;
   }
 
   // Complex queries
@@ -5033,11 +5074,11 @@ export class DatabaseStorage implements IStorage {
           .set({ status: 'playing' })
           .where(inArray(players.id, playerIds));
 
-        // Remove these 4 from the session queue. assignCourtCore does
-        // the equivalent via `setQueue(filtered)` after the helper
-        // returns; doing it here in-tx keeps the start path symmetric
-        // and prevents the matchmaker from re-suggesting players that
-        // are already on a court.
+        // Remove these 4 from the session queue (assignCourtCore does the
+        // equivalent via removeManyFromQueue). Gate 4b: acquire the session
+        // advisory lock first — every queue write serializes on it, so this
+        // delete can never interleave with an append's read-modify-write.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${updated.sessionId}, 0))`);
         await tx
           .delete(queueEntries)
           .where(and(

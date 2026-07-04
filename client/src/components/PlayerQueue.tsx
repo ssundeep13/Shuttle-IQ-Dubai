@@ -166,7 +166,7 @@ export function PlayerQueue({
       {/* Player list */}
       {queuePlayers.length > 0 ? (
         <div className="space-y-1.5 max-h-[600px] overflow-y-auto -mx-1 px-1">
-          {sortedQueuePlayers.map((player, index) => {
+          {sortedQueuePlayers.map((player) => {
             const isSittingOut = sittingOutSet.has(player.id);
             return (
               <div
@@ -179,7 +179,8 @@ export function PlayerQueue({
                 )}
                 data-testid={`queue-player-${player.id}`}
               >
-                {/* Position badge */}
+                {/* Position badge — the player's REAL queue position (server
+                    order), not their row number in the sorted display list */}
                 <div
                   className={cn(
                     "flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold shrink-0",
@@ -188,7 +189,7 @@ export function PlayerQueue({
                       : "bg-primary/10 text-primary",
                   )}
                 >
-                  {index + 1}
+                  {queuePlayerIds.indexOf(player.id) + 1}
                 </div>
 
                 {/* Player info */}

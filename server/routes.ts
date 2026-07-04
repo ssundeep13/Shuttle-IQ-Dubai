@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals, matchSuggestions } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals } from "@shared/schema";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
 import { z } from "zod";
@@ -1935,25 +1935,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // ── Mutation pass: all validations passed, now apply changes via shared helper ──
+      // Gate 4b: each court's queue removal is a targeted advisory-locked
+      // delete inside assignCourtCore — the old single stale setQueue write
+      // could overwrite a concurrent end-game's re-append. A court whose CAS
+      // loses (taken between validation and mutation) is skipped and
+      // reported; the others still assign.
       const results = [];
-      let currentQueue = await storage.getQueue(gameSession.id);
+      const skipped: { courtId: string; reason: string }[] = [];
 
       for (let idx = 0; idx < assignments.length; idx++) {
         const { courtId, teamAssignments } = assignments[idx];
-        const { updatedCourt, newQueue } = await assignCourtCore({
+        const assignResult = await assignCourtCore({
           courtId,
           teamAssignments,
           sessionId: gameSession.id,
-          currentQueue,
         });
-        currentQueue = newQueue;
-        results.push(updatedCourt);
+        if (!assignResult) {
+          skipped.push({ courtId, reason: 'court no longer available' });
+          continue;
+        }
+        results.push(assignResult.updatedCourt);
       }
 
-      // Persist the reduced queue once after all courts assigned
-      await storage.setQueue(gameSession.id, currentQueue);
-
-      res.json({ success: true, courts: results });
+      res.json({ success: true, courts: results, ...(skipped.length > 0 ? { skipped } : {}) });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid request data", details: error.errors });
@@ -1966,20 +1970,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Shared court-assignment helper ────────────────────────────────────────
   // Both /api/courts/:courtId/assign and /api/matchmaking/bracket-assign use
   // this function so the mutation logic stays in one canonical place.
+  // Gate 4b: returns null when the court CAS loses — a concurrent
+  // cancel-game, player start-game, or second assign claimed the court
+  // between the caller's validation read and this mutation. Callers must
+  // treat null as a clean conflict (nothing was written).
   async function assignCourtCore(params: {
     courtId: string;
     teamAssignments: { playerId: string; team: number }[];
     sessionId: string;
-    currentQueue: string[];
-  }): Promise<{ updatedCourt: Awaited<ReturnType<typeof storage.getCourt>>; newQueue: string[] }> {
-    const { courtId, teamAssignments, sessionId, currentQueue } = params;
+  }): Promise<{ updatedCourt: Awaited<ReturnType<typeof storage.getCourt>> } | null> {
+    const { courtId, teamAssignments, sessionId } = params;
 
-    await storage.updateCourt(courtId, {
-      status: 'occupied',
-      timeRemaining: 15,
-      winningTeam: null,
-      startedAt: new Date(),
-    });
+    // Claim the court first: occupied only if currently 'available'.
+    const claimed = await storage.occupyCourtIfAvailable(courtId);
+    if (!claimed) return null;
 
     await storage.setCourtPlayersWithTeams(courtId, teamAssignments);
 
@@ -1987,8 +1991,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updatePlayer(a.playerId, { status: 'playing' });
     }
 
-    const assignedIds = teamAssignments.map(a => a.playerId);
-    const newQueue = currentQueue.filter(id => !assignedIds.includes(id));
+    // Gate 4b: targeted advisory-locked removal replaces the old
+    // read-outside-the-lock setQueue persistence — a concurrent end-game
+    // re-append can no longer be overwritten by a stale full-queue write.
+    await storage.removeManyFromQueue(sessionId, teamAssignments.map(a => a.playerId));
 
     // Mirror the assignment into match_suggestions so the player-facing
     // /current-suggestion endpoint (which reads only this table) reflects
@@ -2019,7 +2025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const updatedCourt = await storage.getCourt(courtId);
-    return { updatedCourt, newQueue };
+    return { updatedCourt };
   }
 
   // Game management routes
@@ -2074,14 +2080,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Delegate to shared helper for canonical mutation logic
-      const currentQueue = await storage.getQueue(gameSession.id);
-      const { updatedCourt, newQueue } = await assignCourtCore({
+      const assignResult = await assignCourtCore({
         courtId: court.id,
         teamAssignments: assignments,
         sessionId: gameSession.id,
-        currentQueue,
       });
-      await storage.setQueue(gameSession.id, newQueue);
+      if (!assignResult) {
+        return res.status(409).json({ error: "Court was just taken by another action — refresh and retry" });
+      }
+      const { updatedCourt } = assignResult;
       const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
       const players = (await Promise.all(
         courtPlayerData.map(async cp => {
@@ -2118,6 +2125,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session" });
       }
 
+      // Gate 4b: claim the cancel FIRST via a conditional 'dismissed'
+      // transition on the in-flight suggestion. Losing the CAS means a
+      // concurrent end-game already completed this game (or another cancel
+      // won) — nothing may be touched; the players' stats and queue state
+      // belong to that winner. This also gives the player phones their
+      // dismissal signal: PlayingScreen polls /current-suggestion every 5s
+      // and routes back to the waiting screen on status='dismissed'.
+      // pendingUntil is bumped to (now + 10 min) so the recently-dismissed
+      // fallback detects the cancel via a single column filter, independent
+      // of how long the game ran; the sweep only reads status='pending'
+      // rows so the re-purposing is safe. Courts with no suggestion
+      // (legacy manual assigns) proceed unguarded as before.
+      const activeSuggestion = await storage.getActiveMatchSuggestionForCourt(court.id);
+      if (activeSuggestion) {
+        const wonCancel = await storage.dismissSuggestionIfInFlight(
+          activeSuggestion.id,
+          new Date(Date.now() + 10 * 60 * 1000),
+        );
+        if (!wonCancel) {
+          return res.status(409).json({ error: "Game already ended or cancelled" });
+        }
+      }
+
       const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
       const players = (await Promise.all(
         courtPlayerData.map(async cp => {
@@ -2148,33 +2178,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         startedAt: null,
       });
       await storage.setCourtPlayers(court.id, []);
-
-      // Mirror the cancel into match_suggestions so the player phones
-      // can react. PlayingScreen polls /current-suggestion every 5s; when
-      // it sees status='dismissed' it routes the player back to the
-      // waiting screen (NOT the score-entry screen, which is reserved
-      // for completed games). Failure here is non-fatal — the legacy
-      // court state is already reset.
-      try {
-        const activeSuggestion = await storage.getActiveMatchSuggestionForCourt(court.id);
-        if (activeSuggestion) {
-          // Bump pendingUntil to (now + 10 min) when dismissing so the
-          // /current-suggestion endpoint's recently-dismissed fallback
-          // can detect this transition via a single column filter,
-          // independent of how long the original game had been running.
-          // The sweep only operates on status='pending' rows so this
-          // re-purposing is safe.
-          await db
-            .update(matchSuggestions)
-            .set({
-              status: 'dismissed',
-              pendingUntil: new Date(Date.now() + 10 * 60 * 1000),
-            })
-            .where(eq(matchSuggestions.id, activeSuggestion.id));
-        }
-      } catch (err) {
-        console.error(`[CANCEL-GAME] Failed to dismiss match suggestion for court ${court.id}:`, err);
-      }
 
       console.log(`[CANCEL-GAME] Game canceled successfully. Players returned to queue.`);
       res.json({ message: 'Game canceled successfully' });
