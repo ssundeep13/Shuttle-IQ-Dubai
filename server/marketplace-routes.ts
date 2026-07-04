@@ -50,11 +50,11 @@ import { applyPendingWalletCredit } from "./promos";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import {
   generateBracketedLineups,
-  buildRestStatesFromHistory,
   buildPartnerHistoryFromHistory,
   updatePlayerRestState,
   updatePartnerHistory,
   persistRestStatesToDb,
+  ensureRestStatesHydrated,
 } from "./matchmaking";
 import { tryAutoMatchmaking, tryFlipQueuedToPendingForCourt } from "./auto-matchmaking";
 
@@ -5382,6 +5382,10 @@ export function registerMarketplaceRoutes(app: Express) {
         // propagate to the outer catch and surface as 500 so the client
         // retries — the retry hits the tx UNIQUE-constraint short-circuit
         // and re-runs this block.
+        // Gate 3: hydrate BEFORE mutating — if the first thing after a
+        // restart is an end-game, updating an unhydrated map would strand
+        // every other player's persisted counters.
+        await ensureRestStatesHydrated(session.id);
         for (const playerId of playerIds) {
           updatePlayerRestState(session.id, playerId, true);
         }

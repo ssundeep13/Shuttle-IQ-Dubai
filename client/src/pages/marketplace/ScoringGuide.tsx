@@ -460,7 +460,7 @@ export default function ScoringGuide() {
                       <Coffee className="h-4 w-4 text-secondary" />
                       <p className="text-xs font-semibold text-secondary">Voluntary Sit-Out</p>
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">Players can skip a round, keep their queue position, and are auto-reinstated after one game.</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">Players can sit out and keep their queue position — waiting priority is paused while out, and they stay out until the captain resumes them.</p>
                   </div>
                   <ul className="space-y-2">
                     <BulletItem>Losers re-enter the queue first; winners wait slightly longer</BulletItem>

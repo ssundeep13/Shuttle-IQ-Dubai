@@ -34,7 +34,6 @@ import {
   ensureOwnerSuperAdmin
 } from "./auth/storage";
 import {
-  buildRestStatesFromHistory,
   buildPartnerHistoryFromHistory,
   selectOptimalPlayers,
   findBalancedTeams,
@@ -50,7 +49,9 @@ import {
   getPlayerRestState,
   getTierIndex,
   persistRestStatesToDb,
-  loadRestStatesFromDb,
+  ensureRestStatesHydrated,
+  persistSittingOutFlag,
+  deletePersistedRestState,
   type TeamCombination
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
@@ -1344,11 +1345,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.setQueue(session.id, playerIds);
 
-      // Clear rest states and sit-out flags for players removed from queue
+      // Clear rest states and sit-out flags for players removed from queue —
+      // including the persisted row, so a restart can't resurrect a stale
+      // sticky sit-out flag for a player who already left the queue.
       const removedPlayerIds = oldQueue.filter(id => !playerIds.includes(id));
       for (const playerId of removedPlayerIds) {
         clearPlayerRestState(session.id, playerId);
         clearSittingOutPlayer(session.id, playerId);
+        await deletePersistedRestState(session.id, playerId);
       }
 
       res.json({ success: true });
@@ -1385,11 +1389,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.removeFromQueue(session.id, req.params.playerId);
-      
-      // Clear rest state and sit-out flag when player is removed from queue
+
+      // Clear rest state and sit-out flag when player is removed from queue,
+      // including the persisted row (restart must not resurrect either).
       clearPlayerRestState(session.id, req.params.playerId);
       clearSittingOutPlayer(session.id, req.params.playerId);
-      
+      await deletePersistedRestState(session.id, req.params.playerId);
+
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to remove from queue" });
@@ -1408,7 +1414,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!queue.includes(playerId)) {
         return res.status(404).json({ error: "Player not in queue" });
       }
+      // Hydrate first so a post-restart toggle flips the player's REAL
+      // persisted state rather than an empty set; persist immediately so the
+      // pure-toggle flag survives a restart even before the next game end.
+      await ensureRestStatesHydrated(sessionId);
       const nowSittingOut = toggleSittingOut(sessionId, playerId);
+      await persistSittingOutFlag(sessionId, playerId, nowSittingOut);
       res.json({ playerId, sittingOut: nowSittingOut });
     } catch (error) {
       console.error("Sit-out toggle error:", error);
@@ -1568,6 +1579,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
       }
+      // Hydrate so the UI shows the persisted sit-out flags after a restart
+      await ensureRestStatesHydrated(sessionId);
       res.json({ sittingOut: getSittingOutPlayers(sessionId) });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch sitting-out players" });
@@ -1593,9 +1606,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Build rest states and partner history from game history
+      // Gate 3: rest states are live in-memory state (hydrated from DB only
+      // after a restart) — never rebuilt from history, which can't see
+      // voluntary sit-outs. Partner history replay stays: it's idempotent.
+      await ensureRestStatesHydrated(activeSession.id);
       const gameParticipants = await storage.getSessionGameParticipants(activeSession.id);
-      buildRestStatesFromHistory(activeSession.id, gameParticipants, queue);
       buildPartnerHistoryFromHistory(activeSession.id, gameParticipants);
 
       const groupByTier = req.query.groupByTier !== 'false';
@@ -1663,12 +1678,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Load persisted rest states first (survives server restarts)
-      await loadRestStatesFromDb(session.id);
-
-      // Build rest states and partner history from game history
+      // Gate 3: hydrate-once (restart-only DB load); rest states are never
+      // rebuilt from history. Partner history replay stays (idempotent).
+      await ensureRestStatesHydrated(session.id);
       const gameParticipants = await storage.getSessionGameParticipants(session.id);
-      buildRestStatesFromHistory(session.id, gameParticipants, queue);
       buildPartnerHistoryFromHistory(session.id, gameParticipants);
 
       const groupByTier = req.query.groupByTier !== 'false';
@@ -1832,11 +1845,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const queue = await storage.getQueue(session.id);
       const allPlayers = await storage.getAllPlayers();
 
-      // Load persisted rest states first (survives server restarts)
-      await loadRestStatesFromDb(session.id);
-
+      // Gate 3: hydrate-once (restart-only DB load); rest states are never
+      // rebuilt from history. Partner history replay stays (idempotent).
+      await ensureRestStatesHydrated(session.id);
       const gameParticipants = await storage.getSessionGameParticipants(session.id);
-      buildRestStatesFromHistory(session.id, gameParticipants, queue);
       buildPartnerHistoryFromHistory(session.id, gameParticipants);
 
       const { brackets, restWarnings } = generateBracketedLineups(
@@ -2376,6 +2388,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const participantData = txResult.participants;
+
+      // Gate 3: hydrate BEFORE mutating — if the first thing after a restart
+      // is an end-game, updating an unhydrated map would strand every other
+      // player's persisted counters (persist only writes map members).
+      await ensureRestStatesHydrated(activeSession.id);
 
       // Update rest states: players who just played have their consecutive count incremented
       for (const participant of participantData) {

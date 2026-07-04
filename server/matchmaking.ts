@@ -50,8 +50,12 @@ export function getConfirmedTierIndex(level: string): number {
 interface PlayerRestState {
   playerId: string;
   consecutiveGames: number;
-  gamesWaited: number; // games sat out since last playing
+  gamesWaited: number; // queue-fairness counter — frozen during voluntary sit-out
   gamesThisSession: number; // total games played this session
+  // Consecutive rounds without playing, INCLUDING voluntary sit-out rounds.
+  // Drives fatigue decay (consecutiveGames halve/reset) only — never queue
+  // priority. In-memory only: not persisted, resets to 0 on hydration.
+  roundsSinceLastPlayed: number;
   lastGameEndedAt: Date | null;
   needsRest: boolean;
 }
@@ -115,8 +119,12 @@ function getSessionRestStates(sessionId: string): Map<string, PlayerRestState> {
 
 /**
  * Update player rest state after a game ends.
- * Fix 4: Graduated reset — sitting out 1 game halves consecutiveGames instead of zeroing it;
- * only 2+ games out produces a full reset.
+ * Fix 4 / Gate 3: Graduated reset — the FIRST round out halves consecutiveGames,
+ * 2+ rounds out fully reset it. The round count is roundsSinceLastPlayed, which
+ * advances every round out (voluntary or not). gamesWaited — the queue-fairness
+ * counter — is frozen for the entire duration of a voluntary sit-out, so sitting
+ * out never accrues queue priority. Sit-out is a pure toggle: it is never
+ * cleared here, only by an explicit toggle or queue removal.
  */
 export function updatePlayerRestState(
   sessionId: string,
@@ -129,49 +137,47 @@ export function updatePlayerRestState(
     consecutiveGames: 0,
     gamesWaited: 0,
     gamesThisSession: 0,
+    roundsSinceLastPlayed: 0,
     lastGameEndedAt: null,
     needsRest: false,
   };
-  // Ensure gamesThisSession is present on objects hydrated before this field existed
+  // Ensure newer fields are present on objects hydrated before they existed
   if (current.gamesThisSession === undefined) current.gamesThisSession = 0;
+  if (current.roundsSinceLastPlayed === undefined) current.roundsSinceLastPlayed = 0;
 
   if (played) {
     current.consecutiveGames += 1;
     current.gamesWaited = 0;
     current.gamesThisSession += 1;
+    current.roundsSinceLastPlayed = 0;
     current.lastGameEndedAt = new Date();
     current.needsRest = current.consecutiveGames >= 2;
   } else {
-    const sittingOutNow = isSittingOut(sessionId, playerId);
-    // Spec: gamesWaited is NOT incremented during voluntary sit-out, but
-    // rest decay (consecutiveGames halving/reset) still applies — sitting out
-    // voluntarily still counts as a "rest round" for fatigue tracking purposes.
-    const effectiveGamesOut = current.gamesWaited + 1; // hypothetical new value
-    if (effectiveGamesOut === 1) {
-      // First game out: halve the consecutive count (lingering penalty)
+    current.roundsSinceLastPlayed += 1;
+    if (current.roundsSinceLastPlayed === 1) {
+      // First round out: halve the consecutive count (lingering penalty)
       current.consecutiveGames = Math.floor(current.consecutiveGames / 2);
     } else {
-      // Two or more games out: full reset
+      // Two or more rounds out: full reset
       current.consecutiveGames = 0;
     }
     current.needsRest = current.consecutiveGames >= 2;
-    // Only persist the gamesWaited increment when NOT voluntarily sitting out.
-    // This keeps the queue-fairness counter frozen for deliberate sit-outs.
-    if (!sittingOutNow) {
-      current.gamesWaited = effectiveGamesOut;
+    // Only advance the queue-fairness counter when NOT voluntarily sitting out.
+    if (!isSittingOut(sessionId, playerId)) {
+      current.gamesWaited += 1;
     }
-    // Auto-clear voluntary sit-out after one game passes
-    clearSittingOutPlayer(sessionId, playerId);
   }
 
   states.set(playerId, current);
 }
 
 export function getPlayerRestState(sessionId: string, playerId: string): PlayerRestState {
-  const states = getSessionRestStates(sessionId);
-  const existing = states.get(playerId);
+  // Read-only: must NOT create the session map, or a pre-hydration read would
+  // make ensureRestStatesHydrated() think the session is already hydrated.
+  const existing = sessionRestStates.get(sessionId)?.get(playerId);
   if (existing) {
     if (existing.gamesThisSession === undefined) existing.gamesThisSession = 0;
+    if (existing.roundsSinceLastPlayed === undefined) existing.roundsSinceLastPlayed = 0;
     return existing;
   }
   return {
@@ -179,6 +185,7 @@ export function getPlayerRestState(sessionId: string, playerId: string): PlayerR
     consecutiveGames: 0,
     gamesWaited: 0,
     gamesThisSession: 0,
+    roundsSinceLastPlayed: 0,
     lastGameEndedAt: null,
     needsRest: false,
   };
@@ -201,7 +208,9 @@ export function clearSessionRestStates(sessionId: string): void {
 // ─── Sit-out helpers ──────────────────────────────────────────────────────────
 
 /**
- * Toggle a player's voluntary sit-out status for the current round.
+ * Toggle a player's voluntary sit-out status. Pure toggle — the flag holds
+ * until toggled back in or the player is removed from the queue; games ending
+ * never clear it. While set, gamesWaited is frozen (see updatePlayerRestState).
  * Returns the new state (true = now sitting out, false = no longer sitting out).
  */
 export function toggleSittingOut(sessionId: string, playerId: string): boolean {
@@ -227,72 +236,16 @@ export function getSittingOutPlayers(sessionId: string): string[] {
   return Array.from(sessionSittingOut.get(sessionId) ?? []);
 }
 
-/** Clears a single player's sit-out flag (auto-clear or on queue removal). */
+/** Clears a single player's sit-out flag (queue removal or explicit toggle). */
 export function clearSittingOutPlayer(sessionId: string, playerId: string): void {
   sessionSittingOut.get(sessionId)?.delete(playerId);
 }
 
-/**
- * Build rest states from game history (idempotent).
- * Fix 4: Replays the same graduated-reset logic used in updatePlayerRestState.
- */
-export function buildRestStatesFromHistory(
-  sessionId: string,
-  gameParticipants: (GameParticipant & { createdAt: Date })[],
-  allPlayerIds: string[]
-): void {
-  const sortedGames = [...gameParticipants].sort(
-    (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
-  );
-
-  const gameGroups = new Map<string, (GameParticipant & { createdAt: Date })[]>();
-  for (const participant of sortedGames) {
-    if (!gameGroups.has(participant.gameId)) gameGroups.set(participant.gameId, []);
-    gameGroups.get(participant.gameId)!.push(participant);
-  }
-
-  const orderedGameIds = Array.from(new Set(sortedGames.map(p => p.gameId)));
-
-  // RESET all player states before replaying — ensures idempotency on repeated calls
-  const states = getSessionRestStates(sessionId);
-  for (const playerId of allPlayerIds) {
-    states.set(playerId, {
-      playerId,
-      consecutiveGames: 0,
-      gamesWaited: 0,
-      gamesThisSession: 0,
-      lastGameEndedAt: null,
-      needsRest: false,
-    });
-  }
-
-  for (const gameId of orderedGameIds) {
-    const participants = gameGroups.get(gameId) || [];
-    const playerIdsInGame = new Set(participants.map(p => p.playerId));
-
-    for (const playerId of allPlayerIds) {
-      const current = states.get(playerId)!;
-
-      if (playerIdsInGame.has(playerId)) {
-        current.consecutiveGames += 1;
-        current.gamesWaited = 0;
-        current.gamesThisSession += 1;
-        current.lastGameEndedAt = participants[0].createdAt;
-      } else {
-        // Fix 4: graduated reset (same logic as updatePlayerRestState)
-        current.gamesWaited += 1;
-        if (current.gamesWaited === 1) {
-          current.consecutiveGames = Math.floor(current.consecutiveGames / 2);
-        } else {
-          current.consecutiveGames = 0;
-        }
-      }
-
-      current.needsRest = current.consecutiveGames >= 2;
-      states.set(playerId, current);
-    }
-  }
-}
+// Gate 3: buildRestStatesFromHistory was removed. Rest states are NEVER
+// rebuilt by replaying game history — replay cannot see voluntary sit-outs,
+// so it credited sat-out rounds as queue waiting (gamesWaited inflation).
+// The persisted session_rest_states rows, written after every game end, are
+// the source of truth across restarts; see ensureRestStatesHydrated().
 
 // ─── Fix 3: Partner history helpers ──────────────────────────────────────────
 
@@ -328,8 +281,10 @@ export function updatePartnerHistory(
 }
 
 /**
- * Rebuild partner history from game history on server restart (idempotent).
- * Called alongside buildRestStatesFromHistory in the session resume/hydration path.
+ * Rebuild partner history from game history (idempotent). Unlike rest states
+ * (Gate 3: persisted rows are the truth, never replayed), partner history is
+ * fully derivable from game history, so replaying it on each generation call
+ * is safe and correct.
  */
 export function buildPartnerHistoryFromHistory(
   sessionId: string,
@@ -1276,8 +1231,9 @@ export async function persistRestStatesToDb(sessionId: string): Promise<void> {
   }
 }
 
-// Load rest states from DB into memory at session start
-export async function loadRestStatesFromDb(sessionId: string): Promise<void> {
+// Load rest states from DB into memory. Internal — only called through
+// ensureRestStatesHydrated so a live in-memory state is never overwritten.
+async function loadRestStatesFromDb(sessionId: string): Promise<void> {
   try {
     const rows = await db
       .select()
@@ -1295,6 +1251,7 @@ export async function loadRestStatesFromDb(sessionId: string): Promise<void> {
         consecutiveGames: row.consecutiveGames,
         gamesWaited: row.gamesWaited,
         gamesThisSession: row.gamesThisSession,
+        roundsSinceLastPlayed: 0,
         lastGameEndedAt: null,
         needsRest: row.needsRest,
       });
@@ -1311,5 +1268,95 @@ export async function loadRestStatesFromDb(sessionId: string): Promise<void> {
     console.log(`[RestState] Loaded ${rows.length} rest states from DB for session ${sessionId}`);
   } catch (err) {
     console.error('[RestState] Failed to load from DB:', err);
+  }
+}
+
+/**
+ * Gate 3 hydrate-once guard. In-memory state is the source of truth while the
+ * server is up — the game-end path maintains it and persists after every game.
+ * Only a session with NO in-memory state (i.e. after a server restart) loads
+ * from session_rest_states. Call this before any read or update of rest state
+ * or sit-out flags. Known trade-off: a crash between a game's transaction
+ * commit and its persist call loses that one game's counter updates; this
+ * self-heals at the next game end.
+ */
+export async function ensureRestStatesHydrated(sessionId: string): Promise<void> {
+  if (sessionRestStates.has(sessionId)) return;
+  await loadRestStatesFromDb(sessionId);
+}
+
+/**
+ * Persist a single player's sit-out flag immediately (toggle route, queue
+ * removal). Counters are only written on first insert — the game-end
+ * persistRestStatesToDb owns them otherwise. Without this targeted write, a
+ * toggle before the session's first game end would never reach the DB
+ * (persistRestStatesToDb iterates only players already in the states map).
+ */
+export async function persistSittingOutFlag(
+  sessionId: string,
+  playerId: string,
+  sitting: boolean
+): Promise<void> {
+  try {
+    const existing = await db
+      .select()
+      .from(sessionRestStatesTable)
+      .where(
+        and(
+          eq(sessionRestStatesTable.sessionId, sessionId),
+          eq(sessionRestStatesTable.playerId, playerId)
+        )
+      )
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db
+        .update(sessionRestStatesTable)
+        .set({ isSittingOut: sitting, updatedAt: new Date() })
+        .where(
+          and(
+            eq(sessionRestStatesTable.sessionId, sessionId),
+            eq(sessionRestStatesTable.playerId, playerId)
+          )
+        );
+    } else {
+      const state = getPlayerRestState(sessionId, playerId);
+      await db.insert(sessionRestStatesTable).values({
+        id: randomUUID(),
+        sessionId,
+        playerId,
+        consecutiveGames: state.consecutiveGames,
+        gamesWaited: state.gamesWaited,
+        gamesThisSession: state.gamesThisSession,
+        needsRest: state.needsRest,
+        isSittingOut: sitting,
+        updatedAt: new Date(),
+      });
+    }
+  } catch (err) {
+    console.error('[RestState] Failed to persist sit-out flag:', err);
+  }
+}
+
+/**
+ * Delete a player's persisted rest-state row (queue removal). Without this, a
+ * restart resurrects a stale sticky sit-out flag and frozen counters for a
+ * player who already left the queue.
+ */
+export async function deletePersistedRestState(
+  sessionId: string,
+  playerId: string
+): Promise<void> {
+  try {
+    await db
+      .delete(sessionRestStatesTable)
+      .where(
+        and(
+          eq(sessionRestStatesTable.sessionId, sessionId),
+          eq(sessionRestStatesTable.playerId, playerId)
+        )
+      );
+  } catch (err) {
+    console.error('[RestState] Failed to delete persisted rest state:', err);
   }
 }

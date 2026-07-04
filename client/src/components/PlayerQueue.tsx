@@ -259,7 +259,7 @@ export function PlayerQueue({
                       <TooltipContent>
                         {isSittingOut
                           ? "Resume — player will be eligible again"
-                          : "Sit out next round"}
+                          : "Sit out — until resumed"}
                       </TooltipContent>
                     </Tooltip>
                   )}

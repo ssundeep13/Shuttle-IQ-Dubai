@@ -29,9 +29,8 @@ import { storage } from './storage';
 import { appendFileSync } from 'node:fs';
 import {
   generateBracketedLineups,
-  buildRestStatesFromHistory,
   buildPartnerHistoryFromHistory,
-  loadRestStatesFromDb,
+  ensureRestStatesHydrated,
   getPlayerRestState,
   getSittingOutPlayers,
   computeRecentPartnersAndOpponents,
@@ -326,13 +325,12 @@ export async function tryAutoMatchmaking(sessionId: string): Promise<void> {
       const firstMatch = await isFirstMatchOfSession(sessionId);
       const threshold = firstMatch ? FIRST_MATCH_THRESHOLD : SUBSEQUENT_MATCH_THRESHOLD;
 
-      // Hydrate rest states + partner history from completed games so the
-      // standard generator and the Claude prompt both see the right
-      // gamesThisSession / gamesWaited / partner history.
-      await loadRestStatesFromDb(sessionId);
+      // Gate 3: rest states are live in-memory state, hydrated from the DB
+      // only after a restart — never rebuilt from game history, which can't
+      // see voluntary sit-outs. Partner history replay stays (idempotent).
+      await ensureRestStatesHydrated(sessionId);
       const history = await storage.getSessionGameParticipants(sessionId);
       const queue = await storage.getQueue(sessionId);
-      buildRestStatesFromHistory(sessionId, history, queue);
       buildPartnerHistoryFromHistory(sessionId, history);
 
       const sittingOut = new Set(getSittingOutPlayers(sessionId));
