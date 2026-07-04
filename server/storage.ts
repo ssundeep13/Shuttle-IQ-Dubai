@@ -93,6 +93,7 @@ import {
   type MatchSuggestion,
   type MatchSuggestionPlayer,
   type InsertMatchSuggestion,
+  sessionRestStatesTable,
   walletTransactions,
   type WalletTransaction,
 } from "@shared/schema";
@@ -802,7 +803,25 @@ export class DatabaseStorage implements IStorage {
     
     // 5. Delete queue entries
     await db.delete(queueEntries).where(eq(queueEntries.sessionId, id));
-    
+
+    // 5b. Gate 4: match suggestions + their player rows. Previously orphaned
+    // forever — a 'pending' leftover was re-scanned by the auto-approve sweep
+    // every 15s (court-not-found skip) for the rest of time.
+    const sessionSuggestionIds = (
+      await db
+        .select({ id: matchSuggestions.id })
+        .from(matchSuggestions)
+        .where(eq(matchSuggestions.sessionId, id))
+    ).map(s => s.id);
+    if (sessionSuggestionIds.length > 0) {
+      await db.delete(matchSuggestionPlayers).where(inArray(matchSuggestionPlayers.suggestionId, sessionSuggestionIds));
+      await db.delete(matchSuggestions).where(eq(matchSuggestions.sessionId, id));
+    }
+
+    // 5c. Gate 4: persisted rest states (previously orphaned; Gate 3's
+    // queue-removal cleanup only covers players removed BEFORE deletion).
+    await db.delete(sessionRestStatesTable).where(eq(sessionRestStatesTable.sessionId, id));
+
     // 6. Delete linked bookable sessions and their bookings/payments/guests
     const linkedBookableSessions = await db.select().from(bookableSessions).where(eq(bookableSessions.linkedSessionId, id));
     for (const bs of linkedBookableSessions) {
@@ -4755,6 +4774,8 @@ export class DatabaseStorage implements IStorage {
         eq(matchSuggestionPlayers.playerId, playerId),
         inArray(matchSuggestions.status, ['playing', 'approved', 'pending', 'queued']),
         eq(sessions.status, 'active'),
+        // Gate 4: player phones must never see sandbox lineups
+        eq(sessions.isSandbox, false),
       ))
       .orderBy(
         sql`CASE ${matchSuggestions.status}
@@ -4781,13 +4802,30 @@ export class DatabaseStorage implements IStorage {
     // support 'queued' rows. The explicit IS NOT NULL guard makes the
     // sweep robust against any future status that might also share this
     // table without a deadline column.
+    // Gate 4: joined to sessions so the global 15s sweep can only auto-
+    // approve suggestions belonging to a LIVE, NON-SANDBOX session — a
+    // sandbox test must never push court-ready notifications to real
+    // players, and leftovers from ended sessions must never fire late.
     return await db
-      .select()
+      .select({
+        id: matchSuggestions.id,
+        sessionId: matchSuggestions.sessionId,
+        courtId: matchSuggestions.courtId,
+        suggestedAt: matchSuggestions.suggestedAt,
+        pendingUntil: matchSuggestions.pendingUntil,
+        status: matchSuggestions.status,
+        approvedBy: matchSuggestions.approvedBy,
+        includesActivePlayers: matchSuggestions.includesActivePlayers,
+        createdAt: matchSuggestions.createdAt,
+      })
       .from(matchSuggestions)
+      .innerJoin(sessions, eq(matchSuggestions.sessionId, sessions.id))
       .where(and(
         eq(matchSuggestions.status, 'pending'),
         sql`${matchSuggestions.pendingUntil} IS NOT NULL`,
         lt(matchSuggestions.pendingUntil, now),
+        eq(sessions.status, 'active'),
+        eq(sessions.isSandbox, false),
       ));
   }
 

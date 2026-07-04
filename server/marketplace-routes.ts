@@ -3810,6 +3810,8 @@ export function registerMarketplaceRoutes(app: Express) {
               eq(matchSuggestionPlayers.playerId, linkedPlayerId),
               eq(matchSuggestions.status, 'playing'),
               eq(sessions.status, 'active'),
+              // Gate 4: player phones must never see sandbox lineups
+              eq(sessions.isSandbox, false),
             ))
             .orderBy(desc(matchSuggestions.suggestedAt))
             .limit(1);
@@ -3848,6 +3850,8 @@ export function registerMarketplaceRoutes(app: Express) {
                 eq(matchSuggestionPlayers.playerId, linkedPlayerId),
                 eq(matchSuggestions.status, 'completed'),
                 eq(sessions.status, 'active'),
+                // Gate 4: player phones must never see sandbox lineups
+                eq(sessions.isSandbox, false),
               ))
               .orderBy(desc(matchSuggestions.suggestedAt))
               .limit(1);
@@ -3894,6 +3898,8 @@ export function registerMarketplaceRoutes(app: Express) {
                 eq(matchSuggestions.status, 'dismissed'),
                 gt(matchSuggestions.pendingUntil, new Date()),
                 eq(sessions.status, 'active'),
+                // Gate 4: player phones must never see sandbox lineups
+                eq(sessions.isSandbox, false),
               ))
               .orderBy(desc(matchSuggestions.suggestedAt))
               .limit(1);
@@ -4071,7 +4077,12 @@ export function registerMarketplaceRoutes(app: Express) {
         }
 
         const activeSession = await storage.getActiveSession();
-        if (!activeSession) {
+        // Gate 4: a sandbox session counts as "no session" for player-facing
+        // stats — its game rows must never surface in a player's chips.
+        // (getActiveSession itself stays sandbox-blind on purpose: the
+        // one-active-session invariant and the admin UI both rely on it
+        // resolving sandbox sessions.)
+        if (!activeSession || activeSession.isSandbox) {
           // No active session — the in-session counters are zero, but
           // the player's lifetime skill + tier still surface so the
           // chips don't render as "—" when the player is just waiting
