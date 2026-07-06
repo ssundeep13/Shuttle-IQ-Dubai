@@ -304,6 +304,31 @@ export default function Home() {
     },
   });
 
+  // Gate 5: pin a suggestion as an occupied court's next game ('queued' row).
+  const pinLineupMutation = useMutation({
+    mutationFn: async ({ courtId, teamAssignments }: { courtId: string; teamAssignments: { playerId: string; team: number }[] }) => {
+      return await apiRequest('POST', `/api/courts/${courtId}/queued-suggestion`, { teamAssignments, sessionId: session?.id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions', session?.id, 'pending-suggestions'] });
+      addNotification('Lineup queued as up next', 'success');
+    },
+    onError: (error: any) => {
+      const message = error?.error || error?.message || 'Failed to queue lineup';
+      addNotification(message, 'danger');
+    },
+  });
+
+  const handleSuggestionPin = (team1Ids: string[], team2Ids: string[], courtId: string) => {
+    pinLineupMutation.mutate({
+      courtId,
+      teamAssignments: [
+        ...team1Ids.map(playerId => ({ playerId, team: 1 })),
+        ...team2Ids.map(playerId => ({ playerId, team: 2 })),
+      ],
+    });
+  };
+
   const endGameMutation = useMutation({
     mutationFn: async ({ courtId, winningTeam, team1Score, team2Score }: { 
       courtId: string; 
@@ -943,7 +968,9 @@ export default function Home() {
                 <SuggestedLineups
                   queuePlayerIds={queue}
                   availableCourts={courts.filter(c => c.status === 'available').length}
+                  occupiedCourts={courts.filter(c => c.status === 'occupied').map(c => ({ id: c.id, name: c.name }))}
                   onAssign={handleSuggestionAssign}
+                  onPin={handleSuggestionPin}
                   isActiveSession={!urlSessionId || session?.status === 'active' || !!session?.isSandbox}
                   sessionId={session?.id}
                   groupByTier={groupByTier}

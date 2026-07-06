@@ -188,6 +188,8 @@ async function getPlayersOnAnyOpenSuggestion(sessionId: string): Promise<Set<str
 
 // Court IDs that already have a 'queued' next-round suggestion — used by
 // the queued orchestrator so we don't stack two queued rows on one court.
+// Captain-pinned rows count too: the orchestrator never builds for, edits,
+// or replaces ANY court that already holds a queued lineup (captain wins).
 async function getCourtsWithQueuedSuggestions(sessionId: string): Promise<Set<string>> {
   const rows = await db
     .select({ courtId: matchSuggestions.courtId })
@@ -197,6 +199,52 @@ async function getCourtsWithQueuedSuggestions(sessionId: string): Promise<Set<st
       eq(matchSuggestions.status, 'queued'),
     ));
   return new Set(rows.map(r => r.courtId));
+}
+
+// ─── Gate 5: lineup eligibility (shared by pin, edit, and the flip) ─────────
+
+export type LineupConflictReason = 'not-in-queue' | 'sitting-out' | 'on-another-lineup';
+
+// Pure conflict checker — the single definition of "may this player be on a
+// queued lineup right now". Used by the captain pin/edit routes (409 with
+// per-player reasons) and by the flip-time re-validation below (ruling:
+// stale lineups dismiss and rebuild, never promote). A player currently
+// playing is on a 'playing' suggestion, so they surface as
+// 'on-another-lineup'; a player from a legacy suggestion-less assignment is
+// off the queue and surfaces as 'not-in-queue'.
+export function findLineupConflicts(
+  playerIds: string[],
+  ctx: { queueSet: Set<string>; sittingOutSet: Set<string>; onOtherOpenSet: Set<string> },
+): Array<{ playerId: string; reason: LineupConflictReason }> {
+  const conflicts: Array<{ playerId: string; reason: LineupConflictReason }> = [];
+  for (const id of playerIds) {
+    if (!ctx.queueSet.has(id)) conflicts.push({ playerId: id, reason: 'not-in-queue' });
+    else if (ctx.sittingOutSet.has(id)) conflicts.push({ playerId: id, reason: 'sitting-out' });
+    else if (ctx.onOtherOpenSet.has(id)) conflicts.push({ playerId: id, reason: 'on-another-lineup' });
+  }
+  return conflicts;
+}
+
+// Which of the given players are named on a non-terminal suggestion OTHER
+// than excludeSuggestionId (pass the lineup's own id when validating an
+// existing row, or the row being replaced when pinning).
+export async function getPlayersOnOtherOpenSuggestions(
+  sessionId: string,
+  excludeSuggestionId: string | null,
+  playerIds: string[],
+): Promise<Set<string>> {
+  if (playerIds.length === 0) return new Set();
+  const rows = await db
+    .select({ playerId: matchSuggestionPlayers.playerId })
+    .from(matchSuggestionPlayers)
+    .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
+    .where(and(
+      eq(matchSuggestions.sessionId, sessionId),
+      inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
+      ...(excludeSuggestionId ? [sql`${matchSuggestions.id} <> ${excludeSuggestionId}`] : []),
+      inArray(matchSuggestionPlayers.playerId, playerIds),
+    ));
+  return new Set(rows.map(r => r.playerId));
 }
 
 interface Lineup {
@@ -668,42 +716,26 @@ export async function tryFlipQueuedToPendingForCourt(
 
   const namedIds = queued.players.map(p => p.playerId);
 
-  // Branch on includesActivePlayers (per spec):
-  //  • false (Case 1 — pure waiting pool): the named players were
-  //    explicitly chosen from the queue at orchestrator time and were
-  //    excluded from any other in-flight suggestion. Flip directly with
-  //    a CAS on status='queued' — no extra eligibility round-trips.
-  //  • true (Case 2/3 — mixes in 1+ active court players): we must
-  //    re-verify the active players are now actually available (the
-  //    score-submit path that called us frees the court immediately
-  //    before, so they should be — but a racing /done or admin cancel
-  //    can have removed them). Failure → dismiss.
-  if (queued.includesActivePlayers) {
-    const queue = await storage.getQueue(sessionId);
-    const queueSet = new Set(queue);
-    const sittingOut = new Set(getSittingOutPlayers(sessionId));
-
-    const otherOpenRows = await db
-      .select({ playerId: matchSuggestionPlayers.playerId })
-      .from(matchSuggestionPlayers)
-      .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
-      .where(and(
-        eq(matchSuggestions.sessionId, sessionId),
-        inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
-        sql`${matchSuggestions.id} <> ${queued.id}`,
-        inArray(matchSuggestionPlayers.playerId, namedIds),
-      ));
-    const onOtherOpen = new Set(otherOpenRows.map(r => r.playerId));
-
-    const eligible = namedIds.every(id =>
-      queueSet.has(id) && !sittingOut.has(id) && !onOtherOpen.has(id),
+  // Gate 5 (owner ruling): EVERY queued row is re-validated at flip time,
+  // regardless of includesActivePlayers or source. A lineup that went stale
+  // after creation — a named player left the queue, toggled sit-out, or got
+  // pulled onto another lineup — is dismissed here and NEVER promoted; the
+  // caller's fire-and-forget tryAutoMatchmaking rebuilds for this court.
+  // Captain and auto rows are treated identically (promotion parity).
+  await ensureRestStatesHydrated(sessionId);
+  const queue = await storage.getQueue(sessionId);
+  const conflicts = findLineupConflicts(namedIds, {
+    queueSet: new Set(queue),
+    sittingOutSet: new Set(getSittingOutPlayers(sessionId)),
+    onOtherOpenSet: await getPlayersOnOtherOpenSuggestions(sessionId, queued.id, namedIds),
+  });
+  if (conflicts.length > 0) {
+    await storage.dismissQueuedSuggestion(queued.id);
+    console.log(
+      `[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} (source=${queued.source}) dismissed — stale lineup: ` +
+      conflicts.map(c => `${c.playerId}:${c.reason}`).join(', '),
     );
-
-    if (!eligible) {
-      await storage.dismissQueuedSuggestion(queued.id);
-      console.log(`[queued-transition] session=${sessionId} court=${courtId} queued=${queued.id} dismissed — Case 2/3 eligibility failed`);
-      return { flippedId: null, dismissedId: queued.id };
-    }
+    return { flippedId: null, dismissedId: queued.id };
   }
 
   const pendingUntil = new Date(Date.now() + PENDING_WINDOW_MS);

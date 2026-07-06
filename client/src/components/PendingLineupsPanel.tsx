@@ -17,6 +17,7 @@ type PendingSuggestion = {
   // game-end transition flips them to 'pending').
   pendingUntil: string | null;
   status: string;
+  source?: string; // 'auto' | 'captain' (Gate 5 origin marker)
   includesActivePlayers?: boolean;
   players: Array<{
     suggestionId: string;
@@ -171,6 +172,17 @@ function QueuedRow({
           <span className="text-xs font-medium text-secondary uppercase tracking-wide">
             On Deck
           </span>
+          <Badge
+            variant="outline"
+            className={
+              suggestion.source === "captain"
+                ? "text-xs text-secondary border-secondary/40"
+                : "text-xs text-muted-foreground border-muted-foreground/40"
+            }
+            data-testid={`badge-queued-source-${suggestion.id}`}
+          >
+            {suggestion.source === "captain" ? "Captain" : "Auto"}
+          </Badge>
           {suggestion.includesActivePlayers && (
             <span
               className="text-xs italic text-muted-foreground"

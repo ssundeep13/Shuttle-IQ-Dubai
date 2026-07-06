@@ -71,6 +71,7 @@ export function CourtManagement({
               key={court.id}
               court={court}
               queuePlayers={queuePlayers}
+              playingPlayerIds={courts.flatMap((c) => c.players.map((p) => p.id))}
               selectedPlayers={selectedPlayers}
               team1Players={courtTeams.team1}
               team2Players={courtTeams.team2}

@@ -226,6 +226,12 @@ export const matchSuggestions = pgTable("match_suggestions", {
   pendingUntil: timestamp("pending_until"),
   status: text("status").notNull().default('pending'), // 'pending' | 'approved' | 'playing' | 'completed' | 'dismissed' | 'queued' (queued = "next round" lineup pre-built for an occupied court; flipped to 'pending' on game end)
   approvedBy: text("approved_by"), // marketplace_users.id of approver, or the literal "auto" when the timer fires
+  // Gate 5: who authored this lineup — 'auto' (queued orchestrator / generator)
+  // or 'captain' (manual pin, captain edit, or direct admin assignment).
+  // Captain-owned queued rows are display-tagged; the orchestrator never
+  // replaces any existing queued row regardless of source, and promotion
+  // treats both sources identically.
+  source: text("source").notNull().default('auto'), // 'auto' | 'captain'
   // True when a queued lineup includes any of the 4 players currently on the court
   // (Case 2 of the queued-suggestion orchestrator). Used by the game-end transition
   // to decide whether to flip queued→pending directly or verify availability first.

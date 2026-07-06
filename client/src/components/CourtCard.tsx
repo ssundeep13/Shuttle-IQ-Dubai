@@ -14,10 +14,12 @@ import {
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { formatSkillLevel } from "@shared/utils/skillUtils";
+import { UpNextStrip } from "./UpNextStrip";
 
 interface CourtCardProps {
   court: CourtWithPlayers;
   queuePlayers: Player[];
+  playingPlayerIds: string[];
   selectedPlayers: string[];
   team1Players: string[];
   team2Players: string[];
@@ -204,6 +206,7 @@ function AssignSheet({
 export function CourtCard({
   court,
   queuePlayers,
+  playingPlayerIds,
   selectedPlayers,
   team1Players,
   team2Players,
@@ -467,6 +470,15 @@ export function CourtCard({
               </Button>
             )}
           </div>
+        )}
+
+        {/* Gate 5: this court's queued next-game lineup (auto or captain) */}
+        {!isAvailable && (
+          <UpNextStrip
+            court={court}
+            queuePlayers={queuePlayers}
+            playingPlayerIds={playingPlayerIds}
+          />
         )}
       </div>
 

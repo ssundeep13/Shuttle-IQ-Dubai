@@ -1572,6 +1572,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Gate 5 — PIN: install a captain-authored lineup as an occupied court's
+  // next game ('queued' row, source='captain'). Replaces any existing queued
+  // row for the court (auto or captain — the newest captain action wins).
+  // Queued players stay in the queue until promotion, exactly like
+  // orchestrator-built rows. Unpin = the dismiss route above; promotion =
+  // the same tryFlipQueuedToPendingForCourt path both origins share.
+  app.post("/api/courts/:courtId/queued-suggestion", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId: bodySessionId, teamAssignments } = req.body;
+      if (!Array.isArray(teamAssignments) || teamAssignments.length !== 4) {
+        return res.status(400).json({ error: "teamAssignments must list exactly 4 players" });
+      }
+      const playerIds = teamAssignments.map((a: { playerId: string }) => a.playerId);
+      if (new Set(playerIds).size !== 4) {
+        return res.status(400).json({ error: "Players must be unique" });
+      }
+      const team1Count = teamAssignments.filter((a: { team: number }) => a.team === 1).length;
+      const team2Count = teamAssignments.filter((a: { team: number }) => a.team === 2).length;
+      if (team1Count !== 2 || team2Count !== 2) {
+        return res.status(400).json({ error: "Each team must have exactly 2 players" });
+      }
+
+      const court = await storage.getCourt(req.params.courtId);
+      if (!court) {
+        return res.status(404).json({ error: "Court not found" });
+      }
+      if (court.status !== 'occupied') {
+        return res.status(400).json({ error: "Up-next lineups are for occupied courts — assign a free court directly instead" });
+      }
+
+      const gameSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
+      if (!gameSession) {
+        return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session" });
+      }
+      if (court.sessionId !== gameSession.id) {
+        return res.status(400).json({ error: "Court does not belong to this session" });
+      }
+
+      // Eligibility: in queue, not sitting out, not on another open lineup.
+      // The court's own current queued row is excluded — it's being replaced.
+      const { findLineupConflicts, getPlayersOnOtherOpenSuggestions } = await import('./auto-matchmaking');
+      await ensureRestStatesHydrated(gameSession.id);
+      const existingQueued = await storage.getQueuedSuggestionForCourt(court.id);
+      const conflicts = findLineupConflicts(playerIds, {
+        queueSet: new Set(await storage.getQueue(gameSession.id)),
+        sittingOutSet: new Set(getSittingOutPlayers(gameSession.id)),
+        onOtherOpenSet: await getPlayersOnOtherOpenSuggestions(gameSession.id, existingQueued?.id ?? null, playerIds),
+      });
+      if (conflicts.length > 0) {
+        return res.status(409).json({
+          error: "One or more players can't be queued for this court",
+          conflicts,
+        });
+      }
+
+      const result = await storage.pinQueuedSuggestionForCourt({
+        sessionId: gameSession.id,
+        courtId: court.id,
+        players: teamAssignments,
+      });
+      if (result.result === 'conflict') {
+        return res.status(409).json({ error: "Another lineup was just pinned to this court — refresh and retry" });
+      }
+      console.log(`[Court Captain] lineup pinned to court ${court.id} by ${req.user?.userId ?? 'admin'} (replaced=${existingQueued ? existingQueued.id : 'none'})`);
+      res.status(201).json(result.suggestion);
+    } catch (error) {
+      console.error('Pin queued suggestion error:', error);
+      res.status(500).json({ error: "Failed to pin lineup" });
+    }
+  });
+
+  // Gate 5 — EDIT: swap one player on a 'queued' lineup before it goes live.
+  // The storage CAS gates on status='queued' and flips source to 'captain'
+  // (editing an auto lineup makes it captain-owned).
+  app.patch("/api/sessions/:sessionId/suggestions/:suggestionId/players", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId, suggestionId } = req.params;
+      const { outPlayerId, inPlayerId } = req.body;
+      if (typeof outPlayerId !== 'string' || typeof inPlayerId !== 'string' || !outPlayerId || !inPlayerId) {
+        return res.status(400).json({ error: "outPlayerId and inPlayerId are required" });
+      }
+      if (outPlayerId === inPlayerId) {
+        return res.status(400).json({ error: "Pick a different player to swap in" });
+      }
+
+      const suggestion = await storage.getMatchSuggestion(suggestionId);
+      if (!suggestion || suggestion.sessionId !== sessionId) {
+        return res.status(404).json({ error: "Suggestion not found" });
+      }
+      if (suggestion.status !== 'queued') {
+        return res.status(409).json({ error: `Only up-next lineups can be edited — this one is ${suggestion.status}.` });
+      }
+      if (!suggestion.players.some(p => p.playerId === outPlayerId)) {
+        return res.status(400).json({ error: "That player is not on this lineup" });
+      }
+      if (suggestion.players.some(p => p.playerId === inPlayerId)) {
+        return res.status(400).json({ error: "That player is already on this lineup" });
+      }
+
+      const { findLineupConflicts, getPlayersOnOtherOpenSuggestions } = await import('./auto-matchmaking');
+      await ensureRestStatesHydrated(sessionId);
+      const conflicts = findLineupConflicts([inPlayerId], {
+        queueSet: new Set(await storage.getQueue(sessionId)),
+        sittingOutSet: new Set(getSittingOutPlayers(sessionId)),
+        onOtherOpenSet: await getPlayersOnOtherOpenSuggestions(sessionId, suggestionId, [inPlayerId]),
+      });
+      if (conflicts.length > 0) {
+        return res.status(409).json({ error: "That player can't join this lineup", conflicts });
+      }
+
+      const result = await storage.swapQueuedSuggestionPlayer({ suggestionId, outPlayerId, inPlayerId });
+      if (result.result === 'not-queued') {
+        return res.status(409).json({ error: "This lineup was just promoted or removed — refresh and retry" });
+      }
+      if (result.result === 'player-not-on-lineup') {
+        return res.status(400).json({ error: "That player is not on this lineup" });
+      }
+      console.log(`[Court Captain] queued lineup ${suggestionId} edited by ${req.user?.userId ?? 'admin'}: ${outPlayerId} → ${inPlayerId}`);
+      res.json(await storage.getMatchSuggestion(suggestionId));
+    } catch (error) {
+      console.error('Edit queued suggestion error:', error);
+      res.status(500).json({ error: "Failed to edit lineup" });
+    }
+  });
+
   app.get("/api/sessions/:sessionId/queue/sitting-out", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.params;

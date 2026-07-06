@@ -593,6 +593,9 @@ export interface IStorage {
   getQueuedSuggestionForCourt(courtId: string): Promise<(MatchSuggestion & { players: MatchSuggestionPlayer[] }) | undefined>;
   flipQueuedSuggestionToPending(suggestionId: string, pendingUntil: Date): Promise<MatchSuggestion | undefined>;
   dismissQueuedSuggestion(suggestionId: string): Promise<MatchSuggestion | undefined>;
+  // Gate 5: captain pin + edit — see implementations for race semantics.
+  pinQueuedSuggestionForCourt(input: { sessionId: string; courtId: string; players: Array<{ playerId: string; team: number }> }): Promise<{ result: 'pinned'; suggestion: MatchSuggestion } | { result: 'conflict' }>;
+  swapQueuedSuggestionPlayer(input: { suggestionId: string; outPlayerId: string; inPlayerId: string }): Promise<{ result: 'swapped'; suggestion: MatchSuggestion } | { result: 'not-queued' } | { result: 'player-not-on-lineup' }>;
   // Player-driven start-game transition. Atomic compare-and-set from
   // 'approved' → 'playing'. Returns:
   //   - { result: 'started', suggestion }      — caller won the race; must apply side effects
@@ -3287,6 +3290,7 @@ export class DatabaseStorage implements IStorage {
         pendingUntil: matchSuggestions.pendingUntil,
         status: matchSuggestions.status,
         approvedBy: matchSuggestions.approvedBy,
+        source: matchSuggestions.source,
         includesActivePlayers: matchSuggestions.includesActivePlayers,
         createdAt: matchSuggestions.createdAt,
         courtName: courts.name,
@@ -4583,6 +4587,7 @@ export class DatabaseStorage implements IStorage {
     pendingUntil: Date | null;
     status?: 'pending' | 'queued';
     includesActivePlayers?: boolean;
+    source?: 'auto' | 'captain';
     players: Array<{ playerId: string; team: number }>;
   }): Promise<MatchSuggestion> {
     if (input.players.length !== 4) {
@@ -4616,6 +4621,7 @@ export class DatabaseStorage implements IStorage {
           pendingUntil: input.pendingUntil,
           status,
           includesActivePlayers: input.includesActivePlayers ?? false,
+          source: input.source ?? 'auto',
         })
         .returning();
       // courtId on the child rows is duplicated from the parent suggestion
@@ -4764,6 +4770,7 @@ export class DatabaseStorage implements IStorage {
           pendingUntil: input.pendingUntil,
           status: 'playing',
           approvedBy: input.approvedBy,
+          source: 'captain', // Gate 5: direct admin assignment is captain-authored
         })
         .returning();
 
@@ -4805,6 +4812,7 @@ export class DatabaseStorage implements IStorage {
         pendingUntil: matchSuggestions.pendingUntil,
         status: matchSuggestions.status,
         approvedBy: matchSuggestions.approvedBy,
+        source: matchSuggestions.source,
         includesActivePlayers: matchSuggestions.includesActivePlayers,
         createdAt: matchSuggestions.createdAt,
       })
@@ -4856,6 +4864,7 @@ export class DatabaseStorage implements IStorage {
         pendingUntil: matchSuggestions.pendingUntil,
         status: matchSuggestions.status,
         approvedBy: matchSuggestions.approvedBy,
+        source: matchSuggestions.source,
         includesActivePlayers: matchSuggestions.includesActivePlayers,
         createdAt: matchSuggestions.createdAt,
       })
@@ -4945,6 +4954,127 @@ export class DatabaseStorage implements IStorage {
       ))
       .returning();
     return row;
+  }
+
+  // ─── Gate 5: captain pin + edit ────────────────────────────────────────────
+
+  // Install a captain-authored 'queued' lineup on a court, replacing any
+  // existing queued row (auto OR captain — the newest captain action wins).
+  // One transaction: dismiss-then-insert. The partial unique index
+  // uq_match_suggestions_one_queued_per_court makes a concurrent double-pin
+  // deterministic: the loser's INSERT hits the index and we report
+  // { result: 'conflict' } so the route can 409. Queue entries are NOT
+  // touched — queued players stay in the queue until promotion, exactly
+  // like orchestrator-built rows.
+  async pinQueuedSuggestionForCourt(input: {
+    sessionId: string;
+    courtId: string;
+    players: Array<{ playerId: string; team: number }>;
+  }): Promise<{ result: 'pinned'; suggestion: MatchSuggestion } | { result: 'conflict' }> {
+    if (input.players.length !== 4) {
+      throw new Error(`pinQueuedSuggestionForCourt expects exactly 4 players, got ${input.players.length}`);
+    }
+    const uniqueIds = new Set(input.players.map(p => p.playerId));
+    if (uniqueIds.size !== 4) {
+      throw new Error(`pinQueuedSuggestionForCourt player IDs must be unique`);
+    }
+    const team1Count = input.players.filter(p => p.team === 1).length;
+    if (team1Count !== 2 || input.players.length - team1Count !== 2) {
+      throw new Error(`pinQueuedSuggestionForCourt expects a 2v2 split`);
+    }
+
+    const newId = randomUUID();
+    const dismissalWindowEnd = new Date(Date.now() + 10 * 60 * 1000);
+    try {
+      return await db.transaction(async (tx) => {
+        await tx
+          .update(matchSuggestions)
+          .set({ status: 'dismissed', pendingUntil: dismissalWindowEnd })
+          .where(and(
+            eq(matchSuggestions.courtId, input.courtId),
+            eq(matchSuggestions.status, 'queued'),
+          ));
+        const [row] = await tx
+          .insert(matchSuggestions)
+          .values({
+            id: newId,
+            sessionId: input.sessionId,
+            courtId: input.courtId,
+            pendingUntil: null, // queued rows are never swept; promotion sets the 90s window
+            status: 'queued',
+            includesActivePlayers: false,
+            source: 'captain',
+          })
+          .returning();
+        await tx.insert(matchSuggestionPlayers).values(
+          input.players.map(p => ({
+            suggestionId: newId,
+            courtId: input.courtId,
+            playerId: p.playerId,
+            team: p.team,
+          }))
+        );
+        return { result: 'pinned' as const, suggestion: row };
+      });
+    } catch (err: any) {
+      // 23505 = unique_violation: a concurrent pin won the race after our
+      // dismiss ran — their row is installed, ours must not be.
+      if (err?.code === '23505' || err?.cause?.code === '23505') {
+        return { result: 'conflict' as const };
+      }
+      throw err;
+    }
+  }
+
+  // Swap one player on a 'queued' lineup. The CAS gate and the ownership
+  // flip are the same statement: setting source='captain' succeeds only
+  // while the row is still queued — if promotion or a dismissal got there
+  // first, we touch nothing and report it. Editing an auto lineup
+  // deliberately makes it captain-owned (captain always wins).
+  async swapQueuedSuggestionPlayer(input: {
+    suggestionId: string;
+    outPlayerId: string;
+    inPlayerId: string;
+  }): Promise<
+    | { result: 'swapped'; suggestion: MatchSuggestion }
+    | { result: 'not-queued' }
+    | { result: 'player-not-on-lineup' }
+  > {
+    return await db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(matchSuggestions)
+        .set({ source: 'captain' })
+        .where(and(
+          eq(matchSuggestions.id, input.suggestionId),
+          eq(matchSuggestions.status, 'queued'),
+        ))
+        .returning();
+      if (!claimed) return { result: 'not-queued' as const };
+
+      const [outRow] = await tx
+        .select()
+        .from(matchSuggestionPlayers)
+        .where(and(
+          eq(matchSuggestionPlayers.suggestionId, input.suggestionId),
+          eq(matchSuggestionPlayers.playerId, input.outPlayerId),
+        ));
+      if (!outRow) return { result: 'player-not-on-lineup' as const };
+
+      // Delete + insert (composite PK suggestionId+playerId); team preserved.
+      await tx
+        .delete(matchSuggestionPlayers)
+        .where(and(
+          eq(matchSuggestionPlayers.suggestionId, input.suggestionId),
+          eq(matchSuggestionPlayers.playerId, input.outPlayerId),
+        ));
+      await tx.insert(matchSuggestionPlayers).values({
+        suggestionId: input.suggestionId,
+        courtId: outRow.courtId,
+        playerId: input.inPlayerId,
+        team: outRow.team,
+      });
+      return { result: 'swapped' as const, suggestion: claimed };
+    });
   }
 
   // Atomic compare-and-set used by every code path that transitions a

@@ -10,8 +10,14 @@ import { getTierDisplayName, getSkillTier } from "@shared/utils/skillUtils";
 import { apiRequest } from "@/lib/queryClient";
 import {
   Zap, Scale, Layers, Clock, Star, AlertCircle, AlertTriangle,
-  Shuffle, Sparkles, ArrowRight,
+  Shuffle, Sparkles, ArrowRight, ListEnd,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface PlayerInSuggestion extends Player {
   gamesWaited?: number;
@@ -57,6 +63,9 @@ interface SuggestionsResponse {
 
 interface SuggestedLineupsProps {
   onAssign: (team1Ids: string[], team2Ids: string[]) => void;
+  // Gate 5: pin this lineup as an OCCUPIED court's next game ('queued' row).
+  onPin: (team1Ids: string[], team2Ids: string[], courtId: string) => void;
+  occupiedCourts: Array<{ id: string; name: string }>;
   availableCourts: number;
   queuePlayerIds: string[];
   isActiveSession?: boolean;
@@ -142,9 +151,11 @@ function SuggestionCard({
   keyPrefix,
   aiCard,
   availableCourts,
+  occupiedCourts,
   isActiveSession,
   isTopClosestAvailable,
   onAssign,
+  onPin,
 }: {
   suggestion: TeamCombination;
   idx: number;
@@ -153,9 +164,11 @@ function SuggestionCard({
   keyPrefix: string;
   aiCard: boolean;
   availableCourts: number;
+  occupiedCourts: Array<{ id: string; name: string }>;
   isActiveSession: boolean;
   isTopClosestAvailable: boolean;
   onAssign: (t1: string[], t2: string[]) => void;
+  onPin: (t1: string[], t2: string[], courtId: string) => void;
 }) {
   const balance = getBalanceIndicator(
     suggestion.skillGap,
@@ -344,6 +357,40 @@ function SuggestionCard({
           </Button>
         )}
 
+        {/* Gate 5: pin as an occupied court's next game */}
+        {occupiedCourts.length > 0 && isActiveSession && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                data-testid={`button-pin-suggestion-${keyPrefix}${idx}`}
+              >
+                <ListEnd className="h-4 w-4 mr-1.5" />
+                Queue for court
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center">
+              {occupiedCourts.map((c) => (
+                <DropdownMenuItem
+                  key={c.id}
+                  onClick={() =>
+                    onPin(
+                      suggestion.team1.map((p) => p.id),
+                      suggestion.team2.map((p) => p.id),
+                      c.id,
+                    )
+                  }
+                  data-testid={`menuitem-pin-court-${c.id}-${keyPrefix}${idx}`}
+                >
+                  Court {c.name} — up next
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         {availableCourts > 0 && !isActiveSession && (
           <div
             className="text-xs text-center text-muted-foreground py-2"
@@ -361,6 +408,8 @@ function SuggestionCard({
 
 export function SuggestedLineups({
   onAssign,
+  onPin,
+  occupiedCourts,
   availableCourts,
   queuePlayerIds,
   isActiveSession = true,
@@ -427,9 +476,11 @@ export function SuggestedLineups({
       keyPrefix={keyPrefix}
       aiCard={aiCard}
       availableCourts={availableCourts}
+      occupiedCourts={occupiedCourts}
       isActiveSession={isActiveSession}
       isTopClosestAvailable={isTopClosestAvailable}
       onAssign={onAssign}
+      onPin={onPin}
     />
   );
 
