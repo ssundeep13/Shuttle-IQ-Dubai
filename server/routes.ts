@@ -61,6 +61,8 @@ import {
   deriveSessionPlayFromHistory,
   orderRotationCandidates,
   buildRotationSeatings,
+  pairingKey,
+  pickArrangement,
   type RotationCandidate,
 } from "./rotation-planner";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
@@ -1669,7 +1671,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // never block its own next lineup — same-court repeats are legal.
       const ownCourtPlayerIds = await storage.getCourtPlayers(court.id);
       const claimCheckIds = Array.from(new Set([...queue, ...ownCourtPlayerIds]));
-      const claimedElsewhere = await getPlayersOnOpenSuggestionsForOtherCourts(sessionId, court.id, claimCheckIds);
+      // Captain outranks background auto-claims: waiters held only by an
+      // unconfirmed orchestrator auto-row stay in THIS court's pool (fix a —
+      // otherwise two auto-rows can hold all eight waiters and starve every
+      // other court into suggesting its own current four).
+      const claimedElsewhere = await getPlayersOnOpenSuggestionsForOtherCourts(
+        sessionId, court.id, claimCheckIds, { treatAutoQueuedAsFree: true });
 
       // WAITERS: today's pool — in queue, not sitting out, not claimed by
       // another court. They are seated before ANY current player.
@@ -1766,9 +1773,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Each rotation-legal seating arranged for balance (3 permutations,
       // cross-tier hard constraint, gap → splitPenalty → variance) —
       // "balance preserved" decides the arrangement, never the seats.
+      // Identical-repeat guard (fix b): the court's CURRENT pairing is never
+      // the picked arrangement while a remix exists — "play the exact same
+      // game again" is trust-destroying when players are waiting.
+      const currentTeams = await storage.getCourtPlayersWithTeams(court.id);
+      const currentPairing = currentTeams.length === 4
+        ? pairingKey(
+            currentTeams.filter(cp => cp.team === 1).map(cp => cp.playerId),
+            currentTeams.filter(cp => cp.team === 2).map(cp => cp.playerId),
+          )
+        : null;
       let options: Option[] = seatings
-        .map(seat => findBalancedTeams(seat.map(c => c.player), 1, true, sessionId)[0])
-        .filter(Boolean)
+        .map(seat => pickArrangement(findBalancedTeams(seat.map(c => c.player), 3, true, sessionId), currentPairing))
+        .filter((c): c is TeamCombination => !!c)
         .map(c => toOption(c.team1, c.team2));
       let fromAI = false;
 
@@ -1881,14 +1898,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // pinnable for its next game (same-court repeats) — they count as
       // seated-eligible, and none of this court's own rows (playing row,
       // queued row being replaced) block them. Cross-court claims still 409.
-      const { findLineupConflicts, getPlayersOnOpenSuggestionsForOtherCourts } = await import('./auto-matchmaking');
+      const { findLineupConflicts, getPlayersOnOpenSuggestionsForOtherCourts, releaseAutoQueuedClaims } = await import('./auto-matchmaking');
       await ensureRestStatesHydrated(gameSession.id);
       const existingQueued = await storage.getQueuedSuggestionForCourt(court.id);
       const ownCourtPlayers = await storage.getCourtPlayers(court.id);
       const conflicts = findLineupConflicts(playerIds, {
         queueSet: new Set([...(await storage.getQueue(gameSession.id)), ...ownCourtPlayers]),
         sittingOutSet: new Set(getSittingOutPlayers(gameSession.id)),
-        onOtherOpenSet: await getPlayersOnOpenSuggestionsForOtherCourts(gameSession.id, court.id, playerIds),
+        // Captain outranks auto-claims (fix a): unconfirmed orchestrator
+        // auto-rows don't block the pin; captured ones are released below.
+        onOtherOpenSet: await getPlayersOnOpenSuggestionsForOtherCourts(
+          gameSession.id, court.id, playerIds, { treatAutoQueuedAsFree: true }),
       });
       if (conflicts.length > 0) {
         return res.status(409).json({
@@ -1906,6 +1926,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: "Another lineup was just pinned to this court — refresh and retry" });
       }
       console.log(`[Court Captain] lineup pinned to court ${court.id} by ${req.user?.userId ?? 'admin'} (replaced=${existingQueued ? existingQueued.id : 'none'})`);
+      // Capture-release (fix a): evict auto-rows that were holding any of
+      // the pinned players, then let the orchestrator replan those courts.
+      const releasedCount = await releaseAutoQueuedClaims(gameSession.id, court.id, playerIds);
+      if (releasedCount > 0) {
+        setImmediate(() => {
+          import('./auto-matchmaking').then(m =>
+            m.tryAutoMatchmaking(gameSession.id).catch(err =>
+              console.error('[auto-matchmaking] post-capture replan unhandled:', err),
+            ),
+          );
+        });
+      }
       res.status(201).json(result.suggestion);
     } catch (error) {
       console.error('Pin queued suggestion error:', error);
@@ -1972,13 +2004,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Gate 4 court-scoped exemption (same as pin): the lineup's court may
       // swap in its own current players; cross-court claims still 409.
-      const { findLineupConflicts, getPlayersOnOpenSuggestionsForOtherCourts } = await import('./auto-matchmaking');
+      // Fix a: unconfirmed auto-rows don't block the swap-in either.
+      const { findLineupConflicts, getPlayersOnOpenSuggestionsForOtherCourts, releaseAutoQueuedClaims } = await import('./auto-matchmaking');
       await ensureRestStatesHydrated(sessionId);
       const ownCourtPlayers = await storage.getCourtPlayers(suggestion.courtId);
       const conflicts = findLineupConflicts([inPlayerId], {
         queueSet: new Set([...(await storage.getQueue(sessionId)), ...ownCourtPlayers]),
         sittingOutSet: new Set(getSittingOutPlayers(sessionId)),
-        onOtherOpenSet: await getPlayersOnOpenSuggestionsForOtherCourts(sessionId, suggestion.courtId, [inPlayerId]),
+        onOtherOpenSet: await getPlayersOnOpenSuggestionsForOtherCourts(
+          sessionId, suggestion.courtId, [inPlayerId], { treatAutoQueuedAsFree: true }),
       });
       if (conflicts.length > 0) {
         return res.status(409).json({ error: "That player can't join this lineup", conflicts });
@@ -1992,6 +2026,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "That player is not on this lineup" });
       }
       console.log(`[Court Captain] queued lineup ${suggestionId} edited by ${req.user?.userId ?? 'admin'}: ${outPlayerId} → ${inPlayerId}`);
+      // Capture-release (fix a): if the swapped-in player sat on another
+      // court's auto-row, evict it and let the orchestrator replan.
+      const releasedCount = await releaseAutoQueuedClaims(sessionId, suggestion.courtId, [inPlayerId]);
+      if (releasedCount > 0) {
+        setImmediate(() => {
+          import('./auto-matchmaking').then(m =>
+            m.tryAutoMatchmaking(sessionId).catch(err =>
+              console.error('[auto-matchmaking] post-swap replan unhandled:', err),
+            ),
+          );
+        });
+      }
       res.json(await storage.getMatchSuggestion(suggestionId));
     } catch (error) {
       console.error('Edit queued suggestion error:', error);

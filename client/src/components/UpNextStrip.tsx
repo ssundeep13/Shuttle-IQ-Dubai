@@ -130,7 +130,10 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   const confirmRow = suggestions.find(
     (s) => (s.status === "pending" || s.status === "approved") && s.courtId === court.id,
   );
-  const needSuggestion = court.status === "occupied" && !queued && !suggestionDismissed;
+  const isOccupied = court.status === "occupied";
+  // Fix c: a FREE court with no row gets a plan-ahead suggestion too — an
+  // empty court is the one the captain can fill right now.
+  const needSuggestion = !suggestionDismissed && (isOccupied ? !queued : !confirmRow);
 
   // Gate 3: the court's ephemeral next-game suggestion. aiMode + relax are in
   // the key, so toggling AI (session-wide) or asking for nearest-tier players
@@ -224,6 +227,35 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     },
   });
 
+  // Fix c: on a FREE court, Confirm starts the game immediately via the
+  // existing assign endpoint (occupies the court, removes from queue,
+  // mirrors the suggestion — no parallel mechanism).
+  const startNowMutation = useMutation({
+    mutationFn: async (teams: { team1: SuggestionPlayer[]; team2: SuggestionPlayer[] }) =>
+      apiRequest("POST", `/api/courts/${court.id}/assign`, {
+        sessionId,
+        teamAssignments: [
+          ...teams.team1.map((p) => ({ playerId: p.id, team: 1 })),
+          ...teams.team2.map((p) => ({ playerId: p.id, team: 2 })),
+        ],
+      }),
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["/api/courts"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/queue"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"], exact: false });
+      toast({ title: `Game started on ${court.name}` });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Couldn't start the game",
+        description: error?.error || error?.message || "Try again",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Gate 3: Confirm the EPHEMERAL suggestion — pins it as the court's queued
   // lineup through the existing endpoint (captain source, one-per-court
   // index, game-end promotion — no parallel mechanism).
@@ -249,9 +281,8 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     },
   });
 
-  if (court.status !== "occupied") {
+  if (!isOccupied && confirmRow) {
     // ── 6b confirm state: post-flip pending/approved row on the freed court ──
-    if (!confirmRow) return null;
     const t1 = confirmRow.players.filter((p) => p.team === 1);
     const t2 = confirmRow.players.filter((p) => p.team === 2);
     const isCaptainRow = confirmRow.source === "captain";
@@ -738,11 +769,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         <Button
           size="sm"
           className="h-8 text-xs flex-1 bg-secondary text-secondary-foreground hover:bg-secondary/90"
-          disabled={pinMutation.isPending}
-          onClick={() => pinMutation.mutate(current)}
+          disabled={isOccupied ? pinMutation.isPending : startNowMutation.isPending}
+          onClick={() => (isOccupied ? pinMutation.mutate(current) : startNowMutation.mutate(current))}
           data-testid={`button-up-next-lock-${court.id}`}
         >
-          Confirm — starts when game ends
+          {isOccupied ? "Confirm — starts when game ends" : "Confirm — start now"}
         </Button>
         <Button
           size="sm"

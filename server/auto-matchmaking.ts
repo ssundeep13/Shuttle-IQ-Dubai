@@ -255,10 +255,17 @@ export async function getPlayersOnOtherOpenSuggestions(
 // queued row being replaced) never block that court's own next lineup —
 // same-court repeats are legal. Cross-court semantics are untouched: a
 // player claimed by another court is still a conflict everywhere else.
+// treatAutoQueuedAsFree (captain-outranks-auto): players held ONLY by an
+// unconfirmed orchestrator auto-row (status='queued', source='auto') on
+// another court do NOT count as claimed — the captain's flow may plan with
+// and capture them (releaseAutoQueuedClaims below evicts the auto-row on
+// capture). Captain-pinned queued rows and pending/approved/playing rows
+// always hard-claim. The orchestrator itself never uses this flag.
 export async function getPlayersOnOpenSuggestionsForOtherCourts(
   sessionId: string,
   courtId: string,
   playerIds: string[],
+  opts?: { treatAutoQueuedAsFree?: boolean },
 ): Promise<Set<string>> {
   if (playerIds.length === 0) return new Set();
   const rows = await db
@@ -269,9 +276,47 @@ export async function getPlayersOnOpenSuggestionsForOtherCourts(
       eq(matchSuggestions.sessionId, sessionId),
       inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
       sql`${matchSuggestions.courtId} <> ${courtId}`,
+      ...(opts?.treatAutoQueuedAsFree
+        ? [sql`NOT (${matchSuggestions.status} = 'queued' AND ${matchSuggestions.source} = 'auto')`]
+        : []),
       inArray(matchSuggestionPlayers.playerId, playerIds),
     ));
   return new Set(rows.map(r => r.playerId));
+}
+
+// Capture-release (fix a): the captain just locked a lineup containing
+// players an orchestrator auto-row on another court was holding. Evict
+// those auto-rows (CAS — a row that already flipped to 'pending' is left
+// alone; the flip's ruling-a re-validation self-heals that race) so the
+// orchestrator can replan the affected court from the remaining pool.
+// Returns how many rows were released; callers fire tryAutoMatchmaking
+// when > 0.
+export async function releaseAutoQueuedClaims(
+  sessionId: string,
+  courtId: string,
+  playerIds: string[],
+): Promise<number> {
+  if (playerIds.length === 0) return 0;
+  const rows = await db
+    .select({ id: matchSuggestions.id })
+    .from(matchSuggestionPlayers)
+    .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
+    .where(and(
+      eq(matchSuggestions.sessionId, sessionId),
+      eq(matchSuggestions.status, 'queued'),
+      eq(matchSuggestions.source, 'auto'),
+      sql`${matchSuggestions.courtId} <> ${courtId}`,
+      inArray(matchSuggestionPlayers.playerId, playerIds),
+    ));
+  let released = 0;
+  for (const id of Array.from(new Set(rows.map(r => r.id)))) {
+    const ok = await storage.dismissQueuedSuggestion(id);
+    if (ok) {
+      released++;
+      console.log(`[rotation] auto-queued row ${id} released — captain captured its player(s) for court ${courtId}`);
+    }
+  }
+  return released;
 }
 
 interface Lineup {

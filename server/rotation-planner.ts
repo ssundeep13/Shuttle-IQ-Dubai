@@ -68,6 +68,28 @@ export function orderRotationCandidates(
   return [...w, ...c];
 }
 
+// Order-insensitive identity of a 2v2 pairing: same four players in the
+// same team split → same key, regardless of team order or within-team order.
+export function pairingKey(team1Ids: string[], team2Ids: string[]): string {
+  const side = (ids: string[]) => [...ids].sort().join('+');
+  return [side(team1Ids), side(team2Ids)].sort().join('|');
+}
+
+// Identical-repeat guard (owner ruling): the exact current on-court pairing
+// is never the picked arrangement unless it is literally the only one —
+// prefer any remixed split of the same (or different) four.
+export function pickArrangement<T extends { team1: Array<{ id: string }>; team2: Array<{ id: string }> }>(
+  ranked: T[],
+  currentKey: string | null,
+): T | undefined {
+  if (ranked.length === 0) return undefined;
+  if (!currentKey) return ranked[0];
+  return (
+    ranked.find(c => pairingKey(c.team1.map(p => p.id), c.team2.map(p => p.id)) !== currentKey) ??
+    ranked[0]
+  );
+}
+
 // Lexicographic k-combinations over an already-ordered list, capped.
 function kCombinationsLex<T>(items: T[], k: number, cap: number): T[][] {
   const out: T[][] = [];

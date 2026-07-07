@@ -123,6 +123,44 @@ describe('balance preserved — arrangement of a chosen seating uses the existin
   });
 });
 
+describe('pairingKey + pickArrangement — the identical-repeat guard', () => {
+  it('pairingKey is insensitive to team order and within-team order', async () => {
+    const { pairingKey } = await import('../server/rotation-planner');
+    const k = pairingKey(['a', 'b'], ['c', 'd']);
+    expect(pairingKey(['b', 'a'], ['d', 'c'])).toBe(k); // within-team order
+    expect(pairingKey(['c', 'd'], ['a', 'b'])).toBe(k); // team order
+    expect(pairingKey(['a', 'c'], ['b', 'd'])).not.toBe(k); // a real remix differs
+  });
+
+  it('the exact current pairing is skipped when a remix exists', async () => {
+    const { pairingKey, pickArrangement } = await import('../server/rotation-planner');
+    const arr = (t1: string[], t2: string[], tag: string) =>
+      ({ team1: t1.map(id => ({ id })), team2: t2.map(id => ({ id })), tag });
+    const identical = arr(['a', 'b'], ['c', 'd'], 'identical');
+    const remix = arr(['a', 'c'], ['b', 'd'], 'remix');
+    const currentKey = pairingKey(['a', 'b'], ['c', 'd']);
+    // identical ranks best — the guard must pick the remix anyway
+    expect((pickArrangement([identical, remix], currentKey) as any).tag).toBe('remix');
+    // no current pairing (free court) → best rank wins
+    expect((pickArrangement([identical, remix], null) as any).tag).toBe('identical');
+    // identical is literally the only arrangement → allowed
+    expect((pickArrangement([identical], currentKey) as any).tag).toBe('identical');
+  });
+
+  it('end to end: findBalancedTeams(3) + pickArrangement never re-serves the on-court split', async () => {
+    const { findBalancedTeams } = await import('../server/matchmaking');
+    const { pairingKey, pickArrangement } = await import('../server/rotation-planner');
+    const four = [mkPlayer('x1', 'lower_intermediate', 100), mkPlayer('x2', 'lower_intermediate', 60),
+                  mkPlayer('x3', 'lower_intermediate', 96), mkPlayer('x4', 'lower_intermediate', 64)];
+    const ranked = findBalancedTeams(four, 3, true);
+    // pretend the CURRENT game is exactly the best-balanced split
+    const best = ranked[0];
+    const currentKey = pairingKey(best.team1.map((p: AnyPlayer) => p.id), best.team2.map((p: AnyPlayer) => p.id));
+    const picked = pickArrangement(ranked, currentKey)!;
+    expect(pairingKey(picked.team1.map((p: AnyPlayer) => p.id), picked.team2.map((p: AnyPlayer) => p.id))).not.toBe(currentKey);
+  });
+});
+
 describe('flip-ordering tripwire — same-court repeats stay safe at promotion', () => {
   // The court-scoped exemption relies on end-game running in this order:
   // complete the game → re-append players to queue → free the court → THEN
