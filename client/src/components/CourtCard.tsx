@@ -1,8 +1,12 @@
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Clock, X, Trophy, Users } from "lucide-react";
 import { CourtWithPlayers, Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { bandLabel, BAND_LABELS, COURT_SKILL_BANDS, type CourtSkillBand } from "@/lib/bands";
 import {
   Sheet,
   SheetContent,
@@ -21,6 +25,7 @@ interface CourtCardProps {
   queuePlayers: Player[];
   playingPlayerIds: string[];
   isSandboxSession: boolean;
+  aiModeEnabled: boolean;
   selectedPlayers: string[];
   team1Players: string[];
   team2Players: string[];
@@ -209,6 +214,7 @@ export function CourtCard({
   queuePlayers,
   playingPlayerIds,
   isSandboxSession,
+  aiModeEnabled,
   selectedPlayers,
   team1Players,
   team2Players,
@@ -221,6 +227,29 @@ export function CourtCard({
   onCancelGame,
 }: CourtCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [bandPickerOpen, setBandPickerOpen] = useState(false);
+  const { toast } = useToast();
+
+  // Court bands Gate 3: pick a band → PATCH → collapse → fresh suggestion
+  // (the courts list refetch carries the new band into the strip's query key
+  // context, and the explicit suggestions invalidation regenerates).
+  const bandMutation = useMutation({
+    mutationFn: async (skillBand: CourtSkillBand) =>
+      apiRequest("PATCH", `/api/courts/${court.id}/skill-band`, { skillBand, sessionId: court.sessionId }),
+    onSuccess: (_data, skillBand) => {
+      setBandPickerOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/courts"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/courts", court.id, "suggestions"], exact: false });
+      toast({ title: `${court.name} set to ${BAND_LABELS[skillBand]}` });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Couldn't set the band",
+        description: error?.error || error?.message || "Try again",
+        variant: "destructive",
+      });
+    },
+  });
 
   const isAvailable = court.status === "available";
   const team1 = court.players.filter((p) => p.team === 1);
@@ -241,18 +270,35 @@ export function CourtCard({
             >
               {court.name}
             </h3>
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-xs font-semibold",
-                isAvailable
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                  : "bg-red-50 text-red-700 border-red-200",
-              )}
-              data-testid={`badge-court-status-${court.id}`}
-            >
-              {isAvailable ? "Available" : "In Progress"}
-            </Badge>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Court bands Gate 3: band tag — tap to reveal the segmented
+                  band toggle; picking a band collapses it and refreshes the
+                  court's suggestion (query invalidation below). */}
+              <button
+                type="button"
+                onClick={() => setBandPickerOpen(!bandPickerOpen)}
+                data-testid={`button-court-band-${court.id}`}
+              >
+                <Badge
+                  variant="outline"
+                  className="text-xs font-semibold uppercase tracking-wide text-secondary border-secondary/40"
+                >
+                  {bandLabel((court as any).skillBand)}
+                </Badge>
+              </button>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-xs font-semibold",
+                  isAvailable
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-red-50 text-red-700 border-red-200",
+                )}
+                data-testid={`badge-court-status-${court.id}`}
+              >
+                {isAvailable ? "Available" : "In Progress"}
+              </Badge>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -291,6 +337,31 @@ export function CourtCard({
             )}
           </div>
         </div>
+
+        {/* ── Band picker (collapsed behind the tag) ── */}
+        {bandPickerOpen && (
+          <div
+            className="grid grid-cols-2 sm:grid-cols-4 gap-1.5"
+            data-testid={`band-picker-${court.id}`}
+          >
+            {COURT_SKILL_BANDS.map((b) => {
+              const active = ((court as any).skillBand ?? "all_levels") === b;
+              return (
+                <Button
+                  key={b}
+                  size="sm"
+                  variant={active ? "default" : "outline"}
+                  className={cn("h-9 text-xs", active && "bg-secondary text-secondary-foreground hover:bg-secondary/90")}
+                  disabled={bandMutation.isPending}
+                  onClick={() => bandMutation.mutate(b)}
+                  data-testid={`button-band-${b}-${court.id}`}
+                >
+                  {BAND_LABELS[b]}
+                </Button>
+              );
+            })}
+          </div>
+        )}
 
         {/* ── Available state ── */}
         {isAvailable && (
@@ -482,6 +553,7 @@ export function CourtCard({
           queuePlayers={queuePlayers}
           playingPlayerIds={playingPlayerIds}
           isSandboxSession={isSandboxSession}
+          aiModeEnabled={aiModeEnabled}
         />
       </div>
 

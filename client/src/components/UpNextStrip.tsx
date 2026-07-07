@@ -16,11 +16,11 @@ import {
 import { apiRequest, apiUrl, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, ChevronDown, ChevronUp, Repeat2, X } from "lucide-react";
+import { bandLabel, playerPassesBand } from "@/lib/bands";
+import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Repeat2, X } from "lucide-react";
 
-// Same shape the PendingLineupsPanel receives from
-// GET /api/sessions/:id/pending-suggestions (shared query key — TanStack
-// dedupes, so this strip costs no extra network).
+// Same shape the pending-suggestions endpoint returns (shared query key —
+// TanStack dedupes, so this strip costs no extra network for lineup rows).
 type QueuedSuggestion = {
   id: string;
   sessionId: string;
@@ -38,15 +38,28 @@ type QueuedSuggestion = {
   }>;
 };
 
+// Shape of GET /api/courts/:courtId/suggestions (court bands Gate 2)
+type SuggestionPlayer = { id: string; name: string; level: string; skillScore: number; outsideBand: boolean };
+type SuggestionOption = { team1: SuggestionPlayer[]; team2: SuggestionPlayer[]; skillGap: number; team1Avg: number; team2Avg: number };
+type CourtSuggestionsResponse = {
+  band: string;
+  insufficientEligible?: boolean;
+  eligibleCount?: number;
+  relaxed?: boolean;
+  fromAI?: boolean;
+  options?: SuggestionOption[];
+};
+
 type ConflictReason = "playing" | "sitting out" | "left queue" | "double-booked";
 
 interface UpNextStripProps {
   court: CourtWithPlayers;
   queuePlayers: Player[];
   playingPlayerIds: string[];
-  // Gate 6b: sandbox sessions never auto-confirm (the sweep excludes them),
-  // so the strip's copy must not promise a countdown there.
   isSandboxSession: boolean;
+  // Gate 3: session-level "AI matchmaking" toggle — flows into the per-court
+  // suggestion query key, so flipping it regenerates every court's lineup.
+  aiModeEnabled: boolean;
 }
 
 function formatCountdown(ms: number): string {
@@ -58,17 +71,33 @@ function formatCountdown(ms: number): string {
   return `${seconds}s`;
 }
 
-// "Up Next" strip — one line, collapsed by default, shown inside an occupied
-// court card when the court has a 'queued' lineup (auto-orchestrated or
-// captain-pinned: one display, both sources). Expanding reveals the team
-// split with per-player eligibility flags, a swap affordance, and remove.
-export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSession }: UpNextStripProps) {
+const gapOf = (team1: SuggestionPlayer[], team2: SuggestionPlayer[]) => {
+  const avg = (t: SuggestionPlayer[]) => t.reduce((s, p) => s + (p.skillScore ?? 90), 0) / (t.length || 1);
+  return Math.round(Math.abs(avg(team1) - avg(team2)) * 10) / 10;
+};
+
+// Up Next — the court card's next-game section. States, in priority order:
+//   available + pending/approved row → confirm state (6b: countdown/Confirm & start)
+//   occupied  + queued row           → LOCKED IN (swap via server, Undo)
+//   occupied  + no row               → ephemeral suggestion (Gate 3): best
+//     band-filtered match with Swap (local compose), Gap, Regenerate
+//     (cycles ranked alternates), Confirm (pins via the existing queued
+//     endpoint), Dismiss; amber insufficient-eligible state with the
+//     nearest-tier relax action.
+export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled }: UpNextStripProps) {
   const sessionId = court.sessionId;
+  const band = (court as any).skillBand ?? "all_levels";
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [swapOutId, setSwapOutId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [now, setNow] = useState(Date.now());
+  // Ephemeral-suggestion state
+  const [optionIdx, setOptionIdx] = useState(0);
+  const [composed, setComposed] = useState<{ team1: SuggestionPlayer[]; team2: SuggestionPlayer[] } | null>(null);
+  const [relax, setRelax] = useState(false);
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+  const [ephemeralSwapSlot, setEphemeralSwapSlot] = useState<{ team: 1 | 2; index: number } | null>(null);
 
   const { data: suggestions = [] } = useQuery<QueuedSuggestion[]>({
     queryKey: ["/api/sessions", sessionId, "pending-suggestions"],
@@ -90,6 +119,45 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     enabled: !!sessionId,
     staleTime: 5000,
   });
+
+  const queued = suggestions.find((s) => s.status === "queued" && s.courtId === court.id);
+  const confirmRow = suggestions.find(
+    (s) => (s.status === "pending" || s.status === "approved") && s.courtId === court.id,
+  );
+  const needSuggestion = court.status === "occupied" && !queued && !suggestionDismissed;
+
+  // Gate 3: the court's ephemeral next-game suggestion. aiMode + relax are in
+  // the key, so toggling AI (session-wide) or asking for nearest-tier players
+  // triggers a fresh generation; a plain queue change does NOT (Regenerate is
+  // the explicit refresh — keeps AI spend deliberate).
+  const { data: sug, isFetching: sugLoading, refetch: refetchSuggestion } = useQuery<CourtSuggestionsResponse>({
+    queryKey: ["/api/courts", court.id, "suggestions", { aiMode: aiModeEnabled, relax }],
+    queryFn: async () => {
+      const res = await fetch(
+        apiUrl(`/api/courts/${court.id}/suggestions?aiMode=${aiModeEnabled}&relax_band=${relax}`),
+        { headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` } },
+      );
+      if (!res.ok) throw new Error("Failed to generate suggestion");
+      return res.json();
+    },
+    enabled: needSuggestion,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+
+  // New data ⇒ drop local edits and show the top option again.
+  useEffect(() => {
+    setComposed(null);
+    setOptionIdx(0);
+    setEphemeralSwapSlot(null);
+  }, [sug]);
+
+  // Tick the countdown only while a real-session pending row is on screen.
+  useEffect(() => {
+    if (!confirmRow || isSandboxSession) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [confirmRow?.id, isSandboxSession]);
 
   const invalidate = () =>
     queryClient.invalidateQueries({
@@ -119,24 +187,22 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     onSuccess: () => {
       invalidate();
       setConfirmRemove(false);
-      toast({ title: "Up-next lineup removed" });
+      toast({ title: "Lineup unlocked" });
     },
     onError: (error: any) => {
       toast({
-        title: "Couldn't remove lineup",
+        title: "Couldn't undo",
         description: error?.error || error?.message || "Try again",
         variant: "destructive",
       });
     },
   });
 
-  // Gate 6b: Confirm — approve-and-PLACE (Phase 1 made the approve endpoint
-  // run the full placement chain). Fires from the confirm state below.
+  // Gate 6b: Confirm on the post-flip pending row — approve-and-PLACE.
   const confirmMutation = useMutation({
     mutationFn: async (suggestionId: string) =>
       apiRequest("POST", `/api/sessions/${sessionId}/suggestions/${suggestionId}/approve`),
     onSuccess: () => {
-      // Placement moves courts, queue, and stats — refresh them all.
       invalidate();
       queryClient.invalidateQueries({ queryKey: ["/api/courts"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["/api/queue"], exact: false });
@@ -152,53 +218,38 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     },
   });
 
-  // Gate 5c: on-demand queued-only build for the rare miss (generator
-  // declined, restart, race) — the proactive post-assign trigger normally
-  // gets there first. Gate 5d: never silent — a pass that built nothing
-  // reports the server's reason instead of leaving the strip stuck.
-  const buildMutation = useMutation({
-    mutationFn: async (): Promise<{ built: number; reason?: string }> =>
-      apiRequest("POST", `/api/sessions/${sessionId}/queued-lineups/build`),
-    onSuccess: (data) => {
+  // Gate 3: Confirm the EPHEMERAL suggestion — pins it as the court's queued
+  // lineup through the existing endpoint (captain source, one-per-court
+  // index, game-end promotion — no parallel mechanism).
+  const pinMutation = useMutation({
+    mutationFn: async (teams: { team1: SuggestionPlayer[]; team2: SuggestionPlayer[] }) =>
+      apiRequest("POST", `/api/courts/${court.id}/queued-suggestion`, {
+        sessionId,
+        teamAssignments: [
+          ...teams.team1.map((p) => ({ playerId: p.id, team: 1 })),
+          ...teams.team2.map((p) => ({ playerId: p.id, team: 2 })),
+        ],
+      }),
+    onSuccess: () => {
       invalidate();
-      if (!data?.built) {
-        toast({
-          title: "No lineup built",
-          description: data?.reason || "Try again",
-        });
-      }
+      toast({ title: `Locked in for ${court.name}` });
     },
     onError: (error: any) => {
       toast({
-        title: "Couldn't build lineup",
+        title: "Couldn't lock in the lineup",
         description: error?.error || error?.message || "Try again",
         variant: "destructive",
       });
     },
   });
 
-  // Gate 6b: the court's next-game row awaiting confirmation — pending after
-  // the game-end flip, or a stuck approved row from the legacy flow. It lives
-  // on the now-AVAILABLE court (the game that just ended freed it).
-  const confirmRow = suggestions.find(
-    (s) => (s.status === "pending" || s.status === "approved") && s.courtId === court.id,
-  );
-
-  // Tick the countdown only while a real-session pending row is on screen.
-  useEffect(() => {
-    if (!confirmRow || isSandboxSession) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [confirmRow?.id, isSandboxSession]);
-
   if (court.status !== "occupied") {
+    // ── 6b confirm state: post-flip pending/approved row on the freed court ──
     if (!confirmRow) return null;
     const t1 = confirmRow.players.filter((p) => p.team === 1);
     const t2 = confirmRow.players.filter((p) => p.team === 2);
     const isCaptainRow = confirmRow.source === "captain";
     const remainingMs = confirmRow.pendingUntil ? new Date(confirmRow.pendingUntil).getTime() - now : 0;
-    // Truthful per mode: sandbox never auto-confirms (sweep excludes it);
-    // real sessions auto-confirm when the 90s window lapses.
     const statusLine =
       confirmRow.status === "approved"
         ? "Ready to start"
@@ -230,10 +281,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <span
-            className="text-xs text-muted-foreground flex-1"
-            data-testid={`text-up-next-confirm-state-${court.id}`}
-          >
+          <span className="text-xs text-muted-foreground flex-1" data-testid={`text-up-next-confirm-state-${court.id}`}>
             {statusLine}
           </span>
           <Button
@@ -253,229 +301,392 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   const queueIds = new Set(queuePlayers.map((p) => p.id));
   const sittingOut = new Set(sittingOutData?.sittingOut ?? []);
   const playing = new Set(playingPlayerIds);
-  const queued = suggestions.find((s) => s.status === "queued" && s.courtId === court.id);
 
-  // Gate 5c: the strip is ALWAYS visible on occupied courts. Without a
-  // queued lineup it shows one of two one-liners, decided by how many
-  // players could actually be queued right now.
-  if (!queued) {
-    const onAnySuggestion = new Set(suggestions.flatMap((s) => s.players.map((p) => p.playerId)));
-    const eligibleCount = queuePlayers.filter(
-      (p) => !sittingOut.has(p.id) && !playing.has(p.id) && !onAnySuggestion.has(p.id),
-    ).length;
+  // ── LOCKED IN: a queued lineup holds the slot ──────────────────────────────
+  if (queued) {
+    const onOtherLineup = new Set(
+      suggestions.filter((s) => s.id !== queued.id).flatMap((s) => s.players.map((p) => p.playerId)),
+    );
+    const conflictFor = (playerId: string): ConflictReason | null => {
+      if (playing.has(playerId)) return "playing";
+      if (sittingOut.has(playerId)) return "sitting out";
+      if (!queueIds.has(playerId)) return "left queue";
+      if (onOtherLineup.has(playerId)) return "double-booked";
+      return null;
+    };
+    const team1 = queued.players.filter((p) => p.team === 1);
+    const team2 = queued.players.filter((p) => p.team === 2);
+    const conflicts = queued.players.filter((p) => conflictFor(p.playerId) !== null);
+    const isCaptain = queued.source === "captain";
+
+    const swapCandidates = queuePlayers.filter(
+      (p) =>
+        !sittingOut.has(p.id) &&
+        !playing.has(p.id) &&
+        !onOtherLineup.has(p.id) &&
+        !queued.players.some((qp) => qp.playerId === p.id),
+    );
+    const inBandCandidates = swapCandidates.filter((p) => playerPassesBand(band, p.level));
+    const outBandCandidates = swapCandidates.filter((p) => !playerPassesBand(band, p.level));
+
+    const teamChips = (team: typeof team1, label: string) => (
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
+        <div className="space-y-1">
+          {team.map((p) => {
+            const conflict = conflictFor(p.playerId);
+            return (
+              <div key={p.playerId} className="flex items-center gap-1.5 flex-wrap" data-testid={`upnext-player-${court.id}-${p.playerId}`}>
+                <span className={cn("text-sm truncate", conflict ? "text-amber-600" : "text-foreground")}>{p.name}</span>
+                {conflict && (
+                  <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
+                    {conflict}
+                  </Badge>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-1.5 text-xs text-muted-foreground"
+                  onClick={() => setSwapOutId(swapOutId === p.playerId ? null : p.playerId)}
+                  data-testid={`button-upnext-swap-${court.id}-${p.playerId}`}
+                >
+                  <Repeat2 className="h-3 w-3 mr-1" />
+                  Swap
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+
+    const candidateButtons = (players: Player[]) =>
+      players.map((p) => (
+        <Button
+          key={p.id}
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={swapMutation.isPending}
+          onClick={() => swapMutation.mutate({ suggestionId: queued.id, outPlayerId: swapOutId!, inPlayerId: p.id })}
+          data-testid={`button-upnext-swap-in-${court.id}-${p.id}`}
+        >
+          {p.name}
+        </Button>
+      ));
 
     return (
-      <div
-        className="mt-1 flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2"
-        data-testid={`strip-up-next-${court.id}`}
-      >
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
-          Up next
-        </span>
-        {eligibleCount >= 4 ? (
-          <>
-            <span className="text-xs text-muted-foreground truncate flex-1" data-testid={`text-up-next-preparing-${court.id}`}>
-              Preparing next lineup…
-            </span>
+      <div className="mt-1" data-testid={`strip-up-next-${court.id}`}>
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="w-full flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-left"
+          data-testid={`button-up-next-toggle-${court.id}`}
+        >
+          <span className="text-xs font-semibold uppercase tracking-wide text-secondary shrink-0">
+            Up next · Locked in
+          </span>
+          <Badge
+            variant="outline"
+            className={cn(
+              "text-xs shrink-0",
+              isCaptain ? "text-secondary border-secondary/40" : "text-muted-foreground border-muted-foreground/40",
+            )}
+            data-testid={`badge-up-next-source-${court.id}`}
+          >
+            {isCaptain ? "Captain" : "Auto"}
+          </Badge>
+          {conflicts.length > 0 && (
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" data-testid={`icon-up-next-conflict-${court.id}`} />
+          )}
+          <span className="text-xs text-muted-foreground truncate flex-1">
+            {team1.map((p) => p.name).join(" + ")} vs {team2.map((p) => p.name).join(" + ")}
+          </span>
+          {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
+        </button>
+
+        {expanded && (
+          <div className="mt-2 rounded-md border border-border p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              {teamChips(team1, "Team 1")}
+              {teamChips(team2, "Team 2")}
+            </div>
+
+            {swapOutId && (
+              <div className="space-y-1.5" data-testid={`upnext-swap-picker-${court.id}`}>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Swap in from queue</p>
+                {inBandCandidates.length === 0 && outBandCandidates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No eligible players in the queue</p>
+                ) : (
+                  <>
+                    {inBandCandidates.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">{candidateButtons(inBandCandidates)}</div>
+                    )}
+                    {outBandCandidates.length > 0 && (
+                      <>
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide pt-1">Outside band</p>
+                        <div className="flex flex-wrap gap-1.5">{candidateButtons(outBandCandidates)}</div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-xs shrink-0"
-              disabled={buildMutation.isPending}
-              onClick={() => buildMutation.mutate()}
-              data-testid={`button-up-next-build-${court.id}`}
+              className="w-full"
+              onClick={() => setConfirmRemove(true)}
+              disabled={removeMutation.isPending}
+              data-testid={`button-up-next-remove-${court.id}`}
             >
-              Build now
+              <X className="h-4 w-4 mr-1" />
+              Undo
             </Button>
-          </>
-        ) : (
-          <span className="text-xs text-muted-foreground truncate flex-1" data-testid={`text-up-next-waiting-${court.id}`}>
-            Waiting for players
+          </div>
+        )}
+
+        <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Unlock this lineup?</AlertDialogTitle>
+              <AlertDialogDescription>
+                The running game is untouched. A fresh suggestion will take its place.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep it</AlertDialogCancel>
+              <AlertDialogAction onClick={() => removeMutation.mutate(queued.id)} data-testid={`button-up-next-remove-confirm-${court.id}`}>
+                Undo
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    );
+  }
+
+  // ── EPHEMERAL SUGGESTION (Gate 3): no lineup yet — show the best match ────
+  if (suggestionDismissed) {
+    return (
+      <div className="mt-1 flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2" data-testid={`strip-up-next-${court.id}`}>
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Up next</span>
+        <span className="text-xs text-muted-foreground flex-1">No lineup suggested</span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs shrink-0"
+          onClick={() => { setSuggestionDismissed(false); setRelax(false); }}
+          data-testid={`button-up-next-resuggest-${court.id}`}
+        >
+          Suggest a lineup
+        </Button>
+      </div>
+    );
+  }
+
+  if (sugLoading || !sug) {
+    return (
+      <div className="mt-1 flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2" data-testid={`strip-up-next-${court.id}`}>
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Up next</span>
+        <span className="text-xs text-muted-foreground flex-1" data-testid={`text-up-next-preparing-${court.id}`}>
+          Preparing next lineup…
+        </span>
+      </div>
+    );
+  }
+
+  if (sug.insufficientEligible) {
+    const isAllLevels = (sug.band ?? "all_levels") === "all_levels";
+    return (
+      <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 space-y-1.5" data-testid={`strip-up-next-${court.id}`}>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-amber-700 shrink-0">Up next</span>
+          <span className="text-xs text-amber-700 flex-1" data-testid={`text-up-next-insufficient-${court.id}`}>
+            {isAllLevels
+              ? "Waiting for players"
+              : `Only ${sug.eligibleCount ?? 0} eligible ${bandLabel(sug.band)} players in the queue`}
           </span>
+        </div>
+        {!isAllLevels && !relax && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs w-full border-amber-300 text-amber-700"
+            onClick={() => setRelax(true)}
+            data-testid={`button-up-next-relax-${court.id}`}
+          >
+            Suggest nearest-tier players instead
+          </Button>
         )}
       </div>
     );
   }
 
-  const onOtherLineup = new Set(
-    suggestions
-      .filter((s) => s.id !== queued.id)
-      .flatMap((s) => s.players.map((p) => p.playerId)),
-  );
+  const options = sug.options ?? [];
+  if (options.length === 0) {
+    return (
+      <div className="mt-1 flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2" data-testid={`strip-up-next-${court.id}`}>
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Up next</span>
+        <span className="text-xs text-muted-foreground flex-1">Waiting for players</span>
+      </div>
+    );
+  }
 
-  // Per-player ineligibility flag: surfaced visually rather than failing
-  // silently. Most-specific reason first.
-  const conflictFor = (playerId: string): ConflictReason | null => {
-    if (playing.has(playerId)) return "playing";
-    if (sittingOut.has(playerId)) return "sitting out";
-    if (!queueIds.has(playerId)) return "left queue";
-    if (onOtherLineup.has(playerId)) return "double-booked";
-    return null;
+  const baseOption = options[optionIdx % options.length];
+  const current = composed ?? { team1: baseOption.team1, team2: baseOption.team2 };
+  const gap = gapOf(current.team1, current.team2);
+  const showAITag = !!sug.fromAI && optionIdx % options.length === 0;
+
+  const lineupIds = new Set([...current.team1, ...current.team2].map((p) => p.id));
+  const onAnySuggestion = new Set(suggestions.flatMap((s) => s.players.map((p) => p.playerId)));
+  const ephemeralCandidates = queuePlayers.filter(
+    (p) => !sittingOut.has(p.id) && !playing.has(p.id) && !onAnySuggestion.has(p.id) && !lineupIds.has(p.id),
+  );
+  const inBandEph = ephemeralCandidates.filter((p) => playerPassesBand(band, p.level));
+  const outBandEph = ephemeralCandidates.filter((p) => !playerPassesBand(band, p.level));
+
+  const doEphemeralSwap = (incoming: Player) => {
+    if (!ephemeralSwapSlot) return;
+    const asSugPlayer: SuggestionPlayer = {
+      id: incoming.id,
+      name: incoming.name,
+      level: incoming.level,
+      skillScore: incoming.skillScore ?? 90,
+      outsideBand: !playerPassesBand(band, incoming.level),
+    };
+    const next = { team1: [...current.team1], team2: [...current.team2] };
+    if (ephemeralSwapSlot.team === 1) next.team1[ephemeralSwapSlot.index] = asSugPlayer;
+    else next.team2[ephemeralSwapSlot.index] = asSugPlayer;
+    setComposed(next);
+    setEphemeralSwapSlot(null);
   };
 
-  const team1 = queued.players.filter((p) => p.team === 1);
-  const team2 = queued.players.filter((p) => p.team === 2);
-  const conflicts = queued.players.filter((p) => conflictFor(p.playerId) !== null);
-  const isCaptain = queued.source === "captain";
-
-  // Swap candidates: waiting-queue players who aren't sitting out, playing,
-  // or already named on any open lineup (server re-validates authoritatively).
-  const swapCandidates = queuePlayers.filter(
-    (p) =>
-      !sittingOut.has(p.id) &&
-      !playing.has(p.id) &&
-      !onOtherLineup.has(p.id) &&
-      !queued.players.some((qp) => qp.playerId === p.id),
-  );
-
-  const teamChips = (team: typeof team1, label: string) => (
+  const suggestionTeam = (team: SuggestionPlayer[], teamNo: 1 | 2, label: string) => (
     <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
       <div className="space-y-1">
-        {team.map((p) => {
-          const conflict = conflictFor(p.playerId);
-          return (
-            <div
-              key={p.playerId}
-              className="flex items-center gap-1.5 flex-wrap"
-              data-testid={`upnext-player-${court.id}-${p.playerId}`}
+        {team.map((p, i) => (
+          <div key={p.id} className="flex items-center gap-1.5 flex-wrap" data-testid={`upnext-sug-player-${court.id}-${p.id}`}>
+            <span className="text-sm truncate">{p.name}</span>
+            {p.outsideBand && (
+              <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
+                Outside band
+              </Badge>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-1.5 text-xs text-muted-foreground"
+              onClick={() =>
+                setEphemeralSwapSlot(
+                  ephemeralSwapSlot?.team === teamNo && ephemeralSwapSlot?.index === i ? null : { team: teamNo, index: i },
+                )
+              }
+              data-testid={`button-upnext-sug-swap-${court.id}-${p.id}`}
             >
-              <span className={cn("text-sm truncate", conflict ? "text-amber-600" : "text-foreground")}>
-                {p.name}
-              </span>
-              {conflict && (
-                <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
-                  {conflict}
-                </Badge>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-1.5 text-xs text-muted-foreground"
-                onClick={() => setSwapOutId(swapOutId === p.playerId ? null : p.playerId)}
-                data-testid={`button-upnext-swap-${court.id}-${p.playerId}`}
-              >
-                <Repeat2 className="h-3 w-3 mr-1" />
-                Swap
-              </Button>
-            </div>
-          );
-        })}
+              <Repeat2 className="h-3 w-3 mr-1" />
+              Swap
+            </Button>
+          </div>
+        ))}
       </div>
     </div>
   );
 
   return (
-    <div className="mt-1" data-testid={`strip-up-next-${court.id}`}>
-      {/* Collapsed one-liner — stays readable with 6 court cards on a phone */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-left"
-        data-testid={`button-up-next-toggle-${court.id}`}
-      >
-        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
-          Up next
-        </span>
-        <Badge
-          variant="outline"
-          className={cn(
-            "text-xs shrink-0",
-            isCaptain ? "text-secondary border-secondary/40" : "text-muted-foreground border-muted-foreground/40",
-          )}
-          data-testid={`badge-up-next-source-${court.id}`}
-        >
-          {isCaptain ? "Captain" : "Auto"}
-        </Badge>
-        {conflicts.length > 0 && (
-          <AlertTriangle
-            className="h-3.5 w-3.5 text-amber-600 shrink-0"
-            data-testid={`icon-up-next-conflict-${court.id}`}
-          />
+    <div className="mt-1 rounded-md border border-border bg-muted/40 px-3 py-2 space-y-2" data-testid={`strip-up-next-${court.id}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Up next</span>
+        {showAITag && (
+          <Badge variant="outline" className="text-xs text-secondary border-secondary/40 shrink-0" data-testid={`badge-up-next-ai-${court.id}`}>
+            AI
+          </Badge>
         )}
-        <span className="text-xs text-muted-foreground truncate flex-1">
-          {team1.map((p) => p.name).join(" + ")} vs {team2.map((p) => p.name).join(" + ")}
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0" data-testid={`text-up-next-gap-${court.id}`}>
+          Gap {gap}
         </span>
-        {expanded ? (
-          <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+        {sug.relaxed && (
+          <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
+            Nearest tier
+          </Badge>
         )}
-      </button>
+      </div>
 
-      {expanded && (
-        <div className="mt-2 rounded-md border border-border p-3 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            {teamChips(team1, "Team 1")}
-            {teamChips(team2, "Team 2")}
-          </div>
+      <div className="grid grid-cols-2 gap-3">
+        {suggestionTeam(current.team1, 1, "Team 1")}
+        {suggestionTeam(current.team2, 2, "Team 2")}
+      </div>
 
-          {swapOutId && (
-            <div className="space-y-1.5" data-testid={`upnext-swap-picker-${court.id}`}>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Swap in from queue
-              </p>
-              {swapCandidates.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No eligible players in the queue</p>
-              ) : (
+      {ephemeralSwapSlot && (
+        <div className="space-y-1.5" data-testid={`upnext-sug-swap-picker-${court.id}`}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Swap in from queue</p>
+          {inBandEph.length === 0 && outBandEph.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No eligible players in the queue</p>
+          ) : (
+            <>
+              {inBandEph.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {swapCandidates.map((p) => (
-                    <Button
-                      key={p.id}
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs"
-                      disabled={swapMutation.isPending}
-                      onClick={() =>
-                        swapMutation.mutate({
-                          suggestionId: queued.id,
-                          outPlayerId: swapOutId,
-                          inPlayerId: p.id,
-                        })
-                      }
-                      data-testid={`button-upnext-swap-in-${court.id}-${p.id}`}
-                    >
+                  {inBandEph.map((p) => (
+                    <Button key={p.id} size="sm" variant="outline" className="h-7 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-${court.id}-${p.id}`}>
                       {p.name}
                     </Button>
                   ))}
                 </div>
               )}
-            </div>
+              {outBandEph.length > 0 && (
+                <>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide pt-1">Outside band</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {outBandEph.map((p) => (
+                      <Button key={p.id} size="sm" variant="outline" className="h-7 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-out-${court.id}-${p.id}`}>
+                        {p.name}
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
           )}
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full text-destructive"
-            onClick={() => setConfirmRemove(true)}
-            disabled={removeMutation.isPending}
-            data-testid={`button-up-next-remove-${court.id}`}
-          >
-            <X className="h-4 w-4 mr-1" />
-            Remove lineup
-          </Button>
         </div>
       )}
 
-      <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove up-next lineup?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The running game is untouched. Auto-matchmaking may queue a fresh lineup for this court.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => removeMutation.mutate(queued.id)}
-              data-testid={`button-up-next-remove-confirm-${court.id}`}
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-xs"
+          disabled={sugLoading}
+          onClick={() => {
+            if (composed) { setComposed(null); return; }
+            if (options.length > 1) setOptionIdx((i) => (i + 1) % options.length);
+            else refetchSuggestion();
+          }}
+          data-testid={`button-up-next-regenerate-${court.id}`}
+        >
+          <RefreshCw className="h-3.5 w-3.5 mr-1" />
+          Regenerate
+        </Button>
+        <Button
+          size="sm"
+          className="h-8 text-xs flex-1 bg-secondary text-secondary-foreground hover:bg-secondary/90"
+          disabled={pinMutation.isPending}
+          onClick={() => pinMutation.mutate(current)}
+          data-testid={`button-up-next-lock-${court.id}`}
+        >
+          Confirm — starts when game ends
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs"
+          onClick={() => setSuggestionDismissed(true)}
+          data-testid={`button-up-next-dismiss-${court.id}`}
+        >
+          Dismiss
+        </Button>
+      </div>
     </div>
   );
 }

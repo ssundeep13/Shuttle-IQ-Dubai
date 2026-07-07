@@ -1,4 +1,4 @@
-import { UserPlus, Activity, Calendar, MapPin, Building2, LogOut, Shield, Users, Trophy, LayoutGrid, ChevronDown } from "lucide-react";
+import { UserPlus, Calendar, MapPin, Building2, LogOut, Shield, LayoutGrid, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AppStats, Session } from "@shared/schema";
@@ -19,26 +19,6 @@ interface HeaderProps {
   onLogin: () => void;
   onAdmin: () => void;
   onLogout: () => void;
-}
-
-function KPIChip({ icon: Icon, label, value, color, testId }: {
-  icon: any;
-  label: string;
-  value: string | number;
-  color: string;
-  testId?: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 bg-card rounded-lg px-4 py-3 border border-border hover-elevate">
-      <div className={`p-2 rounded-md ${color}`}>
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="flex flex-col">
-        <p className="text-xs text-muted-foreground font-medium">{label}</p>
-        <p className="text-xl font-bold" data-testid={testId}>{value}</p>
-      </div>
-    </div>
-  );
 }
 
 export function Header({
@@ -182,44 +162,31 @@ export function Header({
         )}
       </div>
 
-      {/* Stats Ribbon — tablet and up only (md+).
-          On phone the tabs + court cards carry all the live info. */}
-      <div className="hidden md:grid md:grid-cols-5 gap-3">
-        <KPIChip
-          icon={Users}
-          label="Playing"
-          value={stats.activePlayers}
-          color="bg-primary/10 text-primary"
-          testId="text-active-players"
-        />
-        <KPIChip
-          icon={Users}
-          label="In Queue"
-          value={stats.inQueue}
-          color="bg-chart-2/10 text-chart-2"
-          testId="text-queue-count"
-        />
-        <KPIChip
-          icon={LayoutGrid}
-          label="Available"
-          value={`${stats.availableCourts}/${stats.totalCourts}`}
-          color="bg-success/10 text-success"
-          testId="text-available-courts"
-        />
-        <KPIChip
-          icon={Activity}
-          label="In Progress"
-          value={stats.occupiedCourts}
-          color="bg-warning/10 text-warning"
-          testId="text-occupied-courts"
-        />
-        <KPIChip
-          icon={Trophy}
-          label="Total Players"
-          value={stats.totalPlayers}
-          color="bg-accent/10 text-accent"
-          testId="text-total-players"
-        />
+      {/* Stats line — single row of separated figures (court-bands Gate 3
+          replaced the 5-chip grid). Court cards carry the live detail. */}
+      <div
+        className="flex items-center gap-x-3 gap-y-1 flex-wrap px-1 text-sm text-muted-foreground"
+        data-testid="stats-line"
+      >
+        <span data-testid="text-active-players">
+          <span className="font-semibold text-foreground">{stats.activePlayers}</span> playing
+        </span>
+        <span aria-hidden="true">·</span>
+        <span data-testid="text-queue-count">
+          <span className="font-semibold text-foreground">{stats.inQueue}</span> in queue
+        </span>
+        <span aria-hidden="true">·</span>
+        <span data-testid="text-available-courts">
+          <span className="font-semibold text-foreground">{stats.availableCourts}/{stats.totalCourts}</span> courts free
+        </span>
+        <span aria-hidden="true">·</span>
+        <span data-testid="text-occupied-courts">
+          <span className="font-semibold text-foreground">{stats.occupiedCourts}</span> in progress
+        </span>
+        <span aria-hidden="true">·</span>
+        <span data-testid="text-total-players">
+          <span className="font-semibold text-foreground">{stats.totalPlayers}</span> players
+        </span>
       </div>
     </div>
   );

@@ -16,9 +16,9 @@ import { AutoAssignConfirmDialog } from "@/components/AutoAssignConfirmDialog";
 import { NotificationToast } from "@/components/NotificationToast";
 import { SessionSetupWizard } from "@/components/SessionSetupWizard";
 import { SessionLeaderboard } from "@/components/SessionLeaderboard";
-import { SuggestedLineups } from "@/components/SuggestedLineups";
-import { BracketedLineups } from "@/components/BracketedLineups";
-import { PendingLineupsPanel } from "@/components/PendingLineupsPanel";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useActiveSession } from "@/hooks/use-active-session";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -85,8 +85,12 @@ export default function Home() {
     currentCombinationIndex: number;
   } | null>(null);
   const [showEndSessionConfirm, setShowEndSessionConfirm] = useState(false);
-  const [groupByTier, setGroupByTier] = useState(true);
-  const [matchmakingMode, setMatchmakingMode] = useState<'suggestions' | 'brackets'>('suggestions');
+  // Always group optimal-teams by tier now that the Skill Brackets toggle is
+  // gone — bands cover the "keep tiers together" job per court.
+  const [groupByTier] = useState(true);
+  // Court bands Gate 3: one session-level AI switch (per-court suggestion
+  // query keys include it, so flipping regenerates every court's lineup).
+  const [aiMatchmaking, setAiMatchmaking] = useState(true);
 
   // Fetch courts with players (only when session exists)
   const { data: courts = [], isLoading: courtsLoading } = useQuery<CourtWithPlayers[]>({
@@ -310,30 +314,60 @@ export default function Home() {
     },
   });
 
-  // Gate 5: pin a suggestion as an occupied court's next game ('queued' row).
-  const pinLineupMutation = useMutation({
-    mutationFn: async ({ courtId, teamAssignments }: { courtId: string; teamAssignments: { playerId: string; team: number }[] }) => {
-      return await apiRequest('POST', `/api/courts/${courtId}/queued-suggestion`, { teamAssignments, sessionId: session?.id });
+  // Court bands Gate 3: band-aware bulk fill — the Skill Brackets
+  // replacement. For each free court: take its band-filtered suggestion
+  // (the first ranked option that doesn't reuse a player already picked for
+  // another court in this run), then commit everything in ONE bracket-assign
+  // call. Courts with no usable lineup are reported, never silently skipped.
+  const fillAllCourtsMutation = useMutation({
+    mutationFn: async () => {
+      const freeCourts = courts.filter(c => c.status === 'available');
+      const used = new Set<string>();
+      const assignments: { courtId: string; teamAssignments: { playerId: string; team: number }[] }[] = [];
+      const skipped: string[] = [];
+      for (const c of freeCourts) {
+        const res = await fetch(apiUrl(`/api/courts/${c.id}/suggestions?aiMode=${aiMatchmaking}`), {
+          headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        });
+        const s = await res.json().catch(() => null);
+        const options: any[] = s?.options ?? [];
+        const pick = options.find(o => [...o.team1, ...o.team2].every((p: any) => !used.has(p.id)));
+        if (!pick) {
+          skipped.push(s?.insufficientEligible
+            ? `${c.name}: only ${s.eligibleCount ?? 0} eligible players for its band`
+            : `${c.name}: no lineup available`);
+          continue;
+        }
+        [...pick.team1, ...pick.team2].forEach((p: any) => used.add(p.id));
+        assignments.push({
+          courtId: c.id,
+          teamAssignments: [
+            ...pick.team1.map((p: any) => ({ playerId: p.id, team: 1 })),
+            ...pick.team2.map((p: any) => ({ playerId: p.id, team: 2 })),
+          ],
+        });
+      }
+      if (assignments.length === 0) {
+        throw { error: skipped.join(' · ') || 'No free courts could be filled' };
+      }
+      await apiRequest('POST', '/api/matchmaking/bracket-assign', { sessionId: session?.id, assignments });
+      return { assigned: assignments.length, skipped };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/sessions', session?.id, 'pending-suggestions'] });
-      addNotification('Lineup queued as up next', 'success');
+    onSuccess: ({ assigned, skipped }) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/sessions', session?.id, 'pending-suggestions'] });
+      }, 1200);
+      addNotification(`${assigned} court${assigned === 1 ? '' : 's'} filled`, 'success');
+      for (const s of skipped) addNotification(s, 'warning');
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to queue lineup';
-      addNotification(message, 'danger');
+      addNotification(error?.error || error?.message || 'Failed to fill courts', 'danger');
     },
   });
-
-  const handleSuggestionPin = (team1Ids: string[], team2Ids: string[], courtId: string) => {
-    pinLineupMutation.mutate({
-      courtId,
-      teamAssignments: [
-        ...team1Ids.map(playerId => ({ playerId, team: 1 })),
-        ...team2Ids.map(playerId => ({ playerId, team: 2 })),
-      ],
-    });
-  };
 
   const endGameMutation = useMutation({
     mutationFn: async ({ courtId, winningTeam, team1Score, team2Score }: { 
@@ -650,24 +684,6 @@ export default function Home() {
     setAutoAssignData(null);
   };
 
-  const handleSuggestionAssign = (team1Ids: string[], team2Ids: string[]) => {
-    const availableCourt = courts.find((c) => c.status === 'available');
-    if (!availableCourt) {
-      addNotification('No available courts', 'warning');
-      return;
-    }
-    
-    const assignments = [
-      ...team1Ids.map(playerId => ({ playerId, team: 1 })),
-      ...team2Ids.map(playerId => ({ playerId, team: 2 })),
-    ];
-    
-    assignPlayersMutation.mutate({ 
-      courtId: availableCourt.id, 
-      teamAssignments: assignments 
-    });
-  };
-
   const handleReassignTeams = () => {
     if (!autoAssignData) return;
 
@@ -940,65 +956,39 @@ export default function Home() {
         <div className="space-y-6">
           {activeTab === 'courts' && (
             <>
-              {session?.id && <PendingLineupsPanel sessionId={session.id} isSandbox={!!session?.isSandbox} />}
-
-              {/* Matchmaking mode toggle */}
-              {queue.length >= 4 && (
-                <div className="flex items-center gap-2" data-testid="matchmaking-mode-toggle">
-                  <button
-                    onClick={() => setMatchmakingMode('suggestions')}
-                    className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
-                      matchmakingMode === 'suggestions'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover-elevate'
-                    }`}
-                    data-testid="button-mode-suggestions"
-                  >
-                    Smart Suggestions
-                  </button>
-                  <button
-                    onClick={() => setMatchmakingMode('brackets')}
-                    className={`text-sm px-3 py-1.5 rounded-md transition-colors ${
-                      matchmakingMode === 'brackets'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover-elevate'
-                    }`}
-                    data-testid="button-mode-brackets"
-                  >
-                    Skill Brackets
-                  </button>
+              {/* Court bands Gate 3: court-centric layout — the Lineup Queue
+                  block, standalone Smart Suggestions feed, and Skill Brackets
+                  view are gone; every lineup control lives on its court card.
+                  This row holds the two session-level controls. */}
+              <div className="flex items-center justify-between gap-3" data-testid="courts-header-controls">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="ai-matchmaking"
+                    checked={aiMatchmaking}
+                    onCheckedChange={setAiMatchmaking}
+                    className="data-[state=checked]:bg-secondary"
+                    data-testid="switch-ai-matchmaking"
+                  />
+                  <Label htmlFor="ai-matchmaking" className="text-sm font-medium">
+                    AI matchmaking
+                  </Label>
                 </div>
-              )}
-
-              {matchmakingMode === 'suggestions' && (
-                <SuggestedLineups
-                  queuePlayerIds={queue}
-                  availableCourts={courts.filter(c => c.status === 'available').length}
-                  occupiedCourts={courts.filter(c => c.status === 'occupied').map(c => ({ id: c.id, name: c.name }))}
-                  onAssign={handleSuggestionAssign}
-                  onPin={handleSuggestionPin}
-                  isActiveSession={!urlSessionId || session?.status === 'active' || !!session?.isSandbox}
-                  sessionId={session?.id}
-                  groupByTier={groupByTier}
-                  onGroupByTierChange={setGroupByTier}
-                />
-              )}
-
-              {matchmakingMode === 'brackets' && (
-                <BracketedLineups
-                  sessionId={session?.id}
-                  courts={courts}
-                  queuePlayerIds={queue}
-                  isActiveSession={!urlSessionId || session?.status === 'active' || !!session?.isSandbox}
-                  onAssign={() => addNotification('Bracket assigned to court', 'success')}
-                  onAssignAll={() => addNotification('All brackets assigned to courts', 'success')}
-                />
-              )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fillAllCourtsMutation.mutate()}
+                  disabled={fillAllCourtsMutation.isPending || !courts.some(c => c.status === 'available')}
+                  data-testid="button-fill-all-courts"
+                >
+                  {fillAllCourtsMutation.isPending ? 'Filling…' : 'Fill all courts'}
+                </Button>
+              </div>
 
               <CourtManagement
                 courts={courts}
                 queuePlayers={queuePlayers}
                 isSandboxSession={!!session?.isSandbox}
+                aiModeEnabled={aiMatchmaking}
                 teamAssignments={teamAssignments}
                 onAddCourt={handleAddCourt}
                 onRemoveCourt={handleRemoveCourt}
