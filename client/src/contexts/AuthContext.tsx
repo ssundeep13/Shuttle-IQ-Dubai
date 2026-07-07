@@ -20,6 +20,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Gate 6a: read the JWT's exp claim (ms epoch) without a library. Returns
+// null for anything unparseable — callers treat that as "schedule blind".
+function decodeTokenExpMs(token: string): number | null {
+  try {
+    const payload = token.split('.')[1];
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof json.exp === 'number' ? json.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+// Refresh this long before the token actually expires.
+const REFRESH_LEAD_MS = 10 * 60 * 1000;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -59,75 +74,97 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
   });
 
-  // Auto-refresh access token with debouncing and error handling
-  const refreshAccessToken = useCallback(async (showNotification = false) => {
+  // Gate 6a: single-flight refresh. Concurrent callers (parallel queries all
+  // hitting 401 at once, the exp timer, a focus handler) share ONE in-flight
+  // request and all observe its outcome — so a burst of 401s produces exactly
+  // one refresh and every caller can retry with the new token.
+  const refreshPromiseRef = useRef<Promise<boolean> | null>(null);
+
+  const refreshAccessToken = useCallback(async (showNotification = false): Promise<boolean> => {
     if (!refreshToken) return false;
-    
-    // Prevent multiple simultaneous refresh attempts
-    if (isRefreshing.current) return false;
-    
-    // Debounce: don't refresh if we just refreshed within last 30 seconds
+
+    // Join an in-flight refresh instead of failing out.
+    if (refreshPromiseRef.current) return refreshPromiseRef.current;
+
+    // Debounce: don't START a new refresh within 30s of the last attempt
+    // (protects the refresh endpoint from focus/visibility storms).
     const now = Date.now();
     if (now - lastRefreshAttempt.current < 30000) return false;
-    
+
     isRefreshing.current = true;
     lastRefreshAttempt.current = now;
 
-    try {
-      const response = await fetch(apiUrl('/api/auth/refresh'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to refresh token');
-      }
-
-      const data = await response.json();
-      setAccessToken(data.accessToken);
-      localStorage.setItem('accessToken', data.accessToken);
-      localStorage.setItem('tokenTimestamp', Date.now().toString());
-      
-      // Refetch user data
-      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
-      isRefreshing.current = false;
-      return true;
-    } catch (error) {
-      isRefreshing.current = false;
-      
-      // Refresh failed, clear tokens and auth state
-      setAccessToken(null);
-      setRefreshToken(null);
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('tokenTimestamp');
-      
-      // Clear user query to force isAuthenticated to false
-      // Use setQueryData only to avoid unnecessary refetches
-      queryClient.setQueryData(['/api/auth/me'], null);
-      
-      // Show notification if requested
-      if (showNotification) {
-        toast({
-          title: "Session Expired",
-          description: "Your session has ended. Please log in again to continue.",
-          variant: "destructive",
+    const doRefresh = async (): Promise<boolean> => {
+      try {
+        const response = await fetch(apiUrl('/api/auth/refresh'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
         });
+
+        if (!response.ok) {
+          throw new Error('Failed to refresh token');
+        }
+
+        const data = await response.json();
+        setAccessToken(data.accessToken);
+        localStorage.setItem('accessToken', data.accessToken);
+        localStorage.setItem('tokenTimestamp', Date.now().toString());
+
+        // Refetch user data
+        queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+        return true;
+      } catch (error) {
+        // Refresh failed, clear tokens and auth state
+        setAccessToken(null);
+        setRefreshToken(null);
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('tokenTimestamp');
+
+        // Clear user query to force isAuthenticated to false
+        // Use setQueryData only to avoid unnecessary refetches
+        queryClient.setQueryData(['/api/auth/me'], null);
+
+        if (showNotification) {
+          toast({
+            title: "Session Expired",
+            description: "Your session has ended. Please log in again to continue.",
+            variant: "destructive",
+          });
+        }
+        return false;
+      } finally {
+        isRefreshing.current = false;
+        refreshPromiseRef.current = null;
       }
-      return false;
-    }
+    };
+
+    refreshPromiseRef.current = doRefresh();
+    return refreshPromiseRef.current;
   }, [refreshToken, queryClient, toast]);
 
-  // Set up automatic token refresh (every 3.5 hours, before 4h expiry)
+  // Gate 6a: refresh is scheduled off the token's ACTUAL expiry, not a fixed
+  // interval from page load. The old 3.5h-from-load timer let a token loaded
+  // from localStorage die mid-session (open the app with a 3.5h-old token →
+  // it expires 30 minutes in, the timer fires 3 hours too late — the exact
+  // failure that killed the simulated session). Refresh fires at exp−10min,
+  // or immediately if we're already inside that window; each successful
+  // refresh delivers a new token, which re-runs this effect and reschedules.
   useEffect(() => {
     if (!accessToken || !refreshToken) return;
 
-    const interval = setInterval(() => {
-      refreshAccessToken();
-    }, 3.5 * 60 * 60 * 1000); // 3.5 hours (210 minutes)
+    const expMs = decodeTokenExpMs(accessToken);
+    // Unparseable token: fall back to a conservative hourly refresh.
+    const delay = expMs === null
+      ? 60 * 60 * 1000
+      : Math.max(expMs - Date.now() - REFRESH_LEAD_MS, 0);
 
-    return () => clearInterval(interval);
+    const timer = setTimeout(() => {
+      refreshAccessToken();
+    }, delay);
+
+    return () => clearTimeout(timer);
   }, [accessToken, refreshToken, refreshAccessToken]);
 
   // Refresh token when user returns to the tab (visibility change)
@@ -159,20 +196,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('focus', handleFocus);
   }, [accessToken, refreshToken, refreshAccessToken]);
 
-  // Check token validity on initial load - only if tokens exist from a previous session
-  // Skip if we just logged in (tokens are new and valid)
-  useEffect(() => {
-    const tokenAge = localStorage.getItem('tokenTimestamp');
-    const now = Date.now();
-    
-    // Only refresh if tokens are older than 1 minute (not a fresh login)
-    if (accessToken && refreshToken && tokenAge) {
-      const age = now - parseInt(tokenAge, 10);
-      if (age > 60000) { // More than 1 minute old
-        refreshAccessToken();
-      }
-    }
-  }, []); // Only run once on mount
+  // (Gate 6a: the old mount-time "token older than 1 minute" refresh is gone —
+  // the exp-based scheduler above already refreshes immediately on mount
+  // whenever the stored token is inside its 10-minute expiry window.)
 
   const loginMutation = useMutation({
     mutationFn: async ({ email, password }: { email: string; password: string }) => {
@@ -238,12 +264,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await logoutMutation.mutateAsync();
   };
 
-  // Add access token to all API requests using stable fetch reference
+  // Add access token to all API requests using stable fetch reference.
+  // Gate 6a: on a 401 the wrapper runs ONE single-flight refresh and retries
+  // the request once with the new token — a mid-session expiry (or a restart
+  // that outraces the exp timer) self-heals instead of 401ing every mutation
+  // until a page reload.
   useEffect(() => {
     if (accessToken) {
       // Use the stored original fetch reference to avoid closure issues
       const originalFetch = originalFetchRef.current;
-      
+
       window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         let url: string;
         if (typeof input === 'string') {
@@ -253,17 +283,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           url = input.toString();
         }
-        
-        if (url.startsWith('/api') && !url.startsWith('/api/auth') && !url.startsWith('/api/marketplace/')) {
+
+        const isAdminApi = url.startsWith('/api') && !url.startsWith('/api/auth') && !url.startsWith('/api/marketplace/');
+        if (isAdminApi) {
           const headers = new Headers(init?.headers);
           headers.set('Authorization', `Bearer ${accessToken}`);
-          
-          return originalFetch(input, {
-            ...init,
-            headers,
-          });
+
+          const res = await originalFetch(input, { ...init, headers });
+          if (res.status !== 401) return res;
+
+          // Expired mid-session: refresh once (single-flight, shared across
+          // concurrent 401s) and retry with the fresh token from storage.
+          const refreshed = await refreshAccessToken(true);
+          const freshToken = localStorage.getItem('accessToken');
+          if (!refreshed || !freshToken) return res;
+
+          const retryHeaders = new Headers(init?.headers);
+          retryHeaders.set('Authorization', `Bearer ${freshToken}`);
+          return originalFetch(input, { ...init, headers: retryHeaders });
         }
-        
+
         return originalFetch(input, init);
       };
 
@@ -275,7 +314,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // When logged out, restore original fetch
       window.fetch = originalFetchRef.current;
     }
-  }, [accessToken]);
+  }, [accessToken, refreshAccessToken]);
 
   return (
     <AuthContext.Provider
