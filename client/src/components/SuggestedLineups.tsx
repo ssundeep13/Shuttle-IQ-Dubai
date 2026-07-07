@@ -439,6 +439,11 @@ export function SuggestedLineups({
     },
     enabled: queuePlayerIds.length >= 4,
     refetchOnWindowFocus: false,
+    // Gate 6c: the query key embeds the queue, so every assign regenerates
+    // the panel — keep showing the previous cards while the new batch loads
+    // instead of blanking/reshuffling under the captain's finger (with AI
+    // mode this took seconds and read as a 15-23s "assign latency").
+    placeholderData: (previousData) => previousData,
   });
 
   if (queuePlayerIds.length < 4) return null;

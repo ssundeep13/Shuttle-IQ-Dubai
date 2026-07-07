@@ -155,7 +155,7 @@ export function BracketedLineups({
     return (
       <Card data-testid="bracket-no-courts">
         <CardContent className="py-6 text-center text-sm text-muted-foreground">
-          No available courts for bracket assignment.
+          All courts are in play — next lineups appear under each court.
         </CardContent>
       </Card>
     );

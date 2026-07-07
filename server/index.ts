@@ -173,6 +173,14 @@ app.use((req, res, next) => {
     throw err;
   });
 
+  // Gate 6c: unknown /api/* paths are a JSON 404, never the SPA shell.
+  // Every real API route (app + portal + webhook) is registered above, so
+  // anything reaching this middleware is a genuine miss — previously it fell
+  // through to the static catch-all and returned index.html with a 200.
+  app.use("/api", (_req: Request, res: Response) => {
+    res.status(404).json({ error: "Not found" });
+  });
+
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
