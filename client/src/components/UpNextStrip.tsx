@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CourtWithPlayers, Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -44,18 +44,31 @@ interface UpNextStripProps {
   court: CourtWithPlayers;
   queuePlayers: Player[];
   playingPlayerIds: string[];
+  // Gate 6b: sandbox sessions never auto-confirm (the sweep excludes them),
+  // so the strip's copy must not promise a countdown there.
+  isSandboxSession: boolean;
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "0s";
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  return `${seconds}s`;
 }
 
 // "Up Next" strip — one line, collapsed by default, shown inside an occupied
 // court card when the court has a 'queued' lineup (auto-orchestrated or
 // captain-pinned: one display, both sources). Expanding reveals the team
 // split with per-player eligibility flags, a swap affordance, and remove.
-export function UpNextStrip({ court, queuePlayers, playingPlayerIds }: UpNextStripProps) {
+export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSession }: UpNextStripProps) {
   const sessionId = court.sessionId;
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [swapOutId, setSwapOutId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   const { data: suggestions = [] } = useQuery<QueuedSuggestion[]>({
     queryKey: ["/api/sessions", sessionId, "pending-suggestions"],
@@ -117,6 +130,28 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds }: UpNextStr
     },
   });
 
+  // Gate 6b: Confirm — approve-and-PLACE (Phase 1 made the approve endpoint
+  // run the full placement chain). Fires from the confirm state below.
+  const confirmMutation = useMutation({
+    mutationFn: async (suggestionId: string) =>
+      apiRequest("POST", `/api/sessions/${sessionId}/suggestions/${suggestionId}/approve`),
+    onSuccess: () => {
+      // Placement moves courts, queue, and stats — refresh them all.
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["/api/courts"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/queue"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"], exact: false });
+      toast({ title: `Game started on ${court.name}` });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Couldn't start the game",
+        description: error?.error || error?.message || "Try again",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Gate 5c: on-demand queued-only build for the rare miss (generator
   // declined, restart, race) — the proactive post-assign trigger normally
   // gets there first. Gate 5d: never silent — a pass that built nothing
@@ -142,7 +177,78 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds }: UpNextStr
     },
   });
 
-  if (court.status !== "occupied") return null;
+  // Gate 6b: the court's next-game row awaiting confirmation — pending after
+  // the game-end flip, or a stuck approved row from the legacy flow. It lives
+  // on the now-AVAILABLE court (the game that just ended freed it).
+  const confirmRow = suggestions.find(
+    (s) => (s.status === "pending" || s.status === "approved") && s.courtId === court.id,
+  );
+
+  // Tick the countdown only while a real-session pending row is on screen.
+  useEffect(() => {
+    if (!confirmRow || isSandboxSession) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [confirmRow?.id, isSandboxSession]);
+
+  if (court.status !== "occupied") {
+    if (!confirmRow) return null;
+    const t1 = confirmRow.players.filter((p) => p.team === 1);
+    const t2 = confirmRow.players.filter((p) => p.team === 2);
+    const isCaptainRow = confirmRow.source === "captain";
+    const remainingMs = confirmRow.pendingUntil ? new Date(confirmRow.pendingUntil).getTime() - now : 0;
+    // Truthful per mode: sandbox never auto-confirms (sweep excludes it);
+    // real sessions auto-confirm when the 90s window lapses.
+    const statusLine =
+      confirmRow.status === "approved"
+        ? "Ready to start"
+        : isSandboxSession
+          ? "Waiting for your confirm"
+          : remainingMs > 0
+            ? `Auto-confirms in ${formatCountdown(remainingMs)}`
+            : "Confirming…";
+    return (
+      <div
+        className="mt-1 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 space-y-1.5"
+        data-testid={`strip-up-next-${court.id}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
+            Up next
+          </span>
+          <Badge
+            variant="outline"
+            className={cn(
+              "text-xs shrink-0",
+              isCaptainRow ? "text-secondary border-secondary/40" : "text-muted-foreground border-muted-foreground/40",
+            )}
+          >
+            {isCaptainRow ? "Captain" : "Auto"}
+          </Badge>
+          <span className="text-xs text-muted-foreground truncate flex-1">
+            {t1.map((p) => p.name).join(" + ")} vs {t2.map((p) => p.name).join(" + ")}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className="text-xs text-muted-foreground flex-1"
+            data-testid={`text-up-next-confirm-state-${court.id}`}
+          >
+            {statusLine}
+          </span>
+          <Button
+            size="sm"
+            className="h-7 text-xs shrink-0"
+            disabled={confirmMutation.isPending}
+            onClick={() => confirmMutation.mutate(confirmRow.id)}
+            data-testid={`button-up-next-confirm-${court.id}`}
+          >
+            Confirm &amp; start
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const queueIds = new Set(queuePlayers.map((p) => p.id));
   const sittingOut = new Set(sittingOutData?.sittingOut ?? []);

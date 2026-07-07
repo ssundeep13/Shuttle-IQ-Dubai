@@ -30,6 +30,9 @@ type PendingSuggestion = {
 
 interface PendingLineupsPanelProps {
   sessionId: string;
+  // Gate 6b: sandbox sessions never auto-approve (the sweep excludes them) —
+  // countdown copy must not promise it.
+  isSandbox: boolean;
 }
 
 function formatCountdown(ms: number): string {
@@ -53,12 +56,14 @@ function countdownColor(ms: number): string {
 
 function SuggestionRow({
   suggestion,
+  isSandbox,
   onApprove,
   onDismiss,
   isApproving,
   isDismissing,
 }: {
   suggestion: PendingSuggestion;
+  isSandbox: boolean;
   onApprove: () => void;
   onDismiss: () => void;
   isApproving: boolean;
@@ -66,9 +71,10 @@ function SuggestionRow({
 }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
+    if (isSandbox) return; // no countdown to tick — sandbox never auto-approves
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [isSandbox]);
 
   const remainingMs = suggestion.pendingUntil
     ? new Date(suggestion.pendingUntil).getTime() - now
@@ -91,12 +97,15 @@ function SuggestionRow({
             {suggestion.courtName}
           </Badge>
           <div
-            className={`inline-flex items-center gap-1 text-sm font-medium ${countdownColor(remainingMs)}`}
+            className={`inline-flex items-center gap-1 text-sm font-medium ${isSandbox ? "text-muted-foreground" : countdownColor(remainingMs)}`}
             data-testid={`text-countdown-${suggestion.id}`}
           >
             <Clock className="h-3.5 w-3.5" />
             <span>
-              {expired ? "Approving…" : `Auto-approve in ${formatCountdown(remainingMs)}`}
+              {/* Gate 6b truthful copy: sandbox never auto-approves */}
+              {isSandbox
+                ? "Waiting for Approve"
+                : expired ? "Approving…" : `Auto-approve in ${formatCountdown(remainingMs)}`}
             </span>
           </div>
         </div>
@@ -229,7 +238,7 @@ function QueuedRow({
 
 // ─── Panel ───────────────────────────────────────────────────────────────────
 
-export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
+export function PendingLineupsPanel({ sessionId, isSandbox }: PendingLineupsPanelProps) {
   const { toast } = useToast();
   const { data: suggestions = [] } = useQuery<PendingSuggestion[]>({
     queryKey: ["/api/sessions", sessionId, "pending-suggestions"],
@@ -247,8 +256,11 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
       queryClient.invalidateQueries({
         queryKey: ["/api/sessions", sessionId, "pending-suggestions"],
       });
+      // Phase 1: approval PLACES the lineup — courts, queue, and stats all move.
       queryClient.invalidateQueries({ queryKey: ["/api/courts"], exact: false });
-      toast({ title: "Lineup approved", description: "Players have been notified." });
+      queryClient.invalidateQueries({ queryKey: ["/api/queue"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"], exact: false });
+      toast({ title: "Game started", description: "Lineup placed on the court." });
     },
     onError: (err: Error) => {
       toast({
@@ -304,6 +316,7 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
               <SuggestionRow
                 key={s.id}
                 suggestion={s}
+                isSandbox={isSandbox}
                 onApprove={() => approveMutation.mutate(s.id)}
                 onDismiss={() => dismissMutation.mutate(s.id)}
                 isApproving={approveMutation.isPending && pendingId === s.id}
@@ -315,8 +328,11 @@ export function PendingLineupsPanel({ sessionId }: PendingLineupsPanelProps) {
 
         {queued.length > 0 && (
           <div className="space-y-2" data-testid="group-queued">
+            {/* Gate 6b truthful copy: the queued row becomes a confirmable
+                lineup at game end; confirmation is the sweep (real, ~90s) or
+                the captain's Approve — never automatic in sandbox. */}
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Up Next — auto-confirms when current game ends
+              Up Next — becomes confirmable when the current game ends
             </p>
             {queued.map((s) => (
               <QueuedRow

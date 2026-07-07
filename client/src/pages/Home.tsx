@@ -940,7 +940,7 @@ export default function Home() {
         <div className="space-y-6">
           {activeTab === 'courts' && (
             <>
-              {session?.id && <PendingLineupsPanel sessionId={session.id} />}
+              {session?.id && <PendingLineupsPanel sessionId={session.id} isSandbox={!!session?.isSandbox} />}
 
               {/* Matchmaking mode toggle */}
               {queue.length >= 4 && (
@@ -998,6 +998,7 @@ export default function Home() {
               <CourtManagement
                 courts={courts}
                 queuePlayers={queuePlayers}
+                isSandboxSession={!!session?.isSandbox}
                 teamAssignments={teamAssignments}
                 onAddCourt={handleAddCourt}
                 onRemoveCourt={handleRemoveCourt}

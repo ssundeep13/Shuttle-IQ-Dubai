@@ -6,6 +6,7 @@ import { CourtCard } from "./CourtCard";
 interface CourtManagementProps {
   courts: CourtWithPlayers[];
   queuePlayers: Player[];
+  isSandboxSession: boolean;
   teamAssignments: Record<string, { team1: string[]; team2: string[] }>;
   onAddCourt: () => void;
   onRemoveCourt: (courtId: string) => void;
@@ -19,6 +20,7 @@ interface CourtManagementProps {
 export function CourtManagement({
   courts,
   queuePlayers,
+  isSandboxSession,
   teamAssignments,
   onAddCourt,
   onRemoveCourt,
@@ -72,6 +74,7 @@ export function CourtManagement({
               court={court}
               queuePlayers={queuePlayers}
               playingPlayerIds={courts.flatMap((c) => c.players.map((p) => p.id))}
+              isSandboxSession={isSandboxSession}
               selectedPlayers={selectedPlayers}
               team1Players={courtTeams.team1}
               team2Players={courtTeams.team2}

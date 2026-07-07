@@ -20,6 +20,7 @@ interface CourtCardProps {
   court: CourtWithPlayers;
   queuePlayers: Player[];
   playingPlayerIds: string[];
+  isSandboxSession: boolean;
   selectedPlayers: string[];
   team1Players: string[];
   team2Players: string[];
@@ -207,6 +208,7 @@ export function CourtCard({
   court,
   queuePlayers,
   playingPlayerIds,
+  isSandboxSession,
   selectedPlayers,
   team1Players,
   team2Players,
@@ -472,14 +474,15 @@ export function CourtCard({
           </div>
         )}
 
-        {/* Gate 5: this court's queued next-game lineup (auto or captain) */}
-        {!isAvailable && (
-          <UpNextStrip
-            court={court}
-            queuePlayers={queuePlayers}
-            playingPlayerIds={playingPlayerIds}
-          />
-        )}
+        {/* Gate 5/6b: this court's next-game lineup — queued strip while a
+            game runs, confirmable pending row once it ends. The strip decides
+            its own visibility per court state. */}
+        <UpNextStrip
+          court={court}
+          queuePlayers={queuePlayers}
+          playingPlayerIds={playingPlayerIds}
+          isSandboxSession={isSandboxSession}
+        />
       </div>
 
       {/* Bottom sheet (available courts only) */}
