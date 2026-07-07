@@ -1650,6 +1650,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // proactive triggers missed (generator declined with pool ≥ 4, restart,
   // race). Awaited (not fire-and-forget) so the client's refetch right
   // after this response observes the new row.
+  // Gate 5d: honest outcomes — a pass that builds nothing says why, and a
+  // non-operable session is a 409, never a silent success.
   app.post("/api/sessions/:sessionId/queued-lineups/build", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.params;
@@ -1658,8 +1660,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Session not found" });
       }
       const { tryQueuedBuildForSession } = await import('./auto-matchmaking');
-      await tryQueuedBuildForSession(sessionId);
-      res.json({ built: true });
+      const result = await tryQueuedBuildForSession(sessionId);
+      if (result.outcome === 'not-operable') {
+        return res.status(409).json({ error: "This session is not running — lineups can only be built for the active session or a sandbox session" });
+      }
+      if (result.outcome === 'busy') {
+        return res.json({ built: 0, reason: "Another matchmaking pass is running — try again in a moment" });
+      }
+      res.json({ built: result.created, ...(result.reason ? { reason: result.reason } : {}) });
     } catch (error) {
       console.error('Queued build error:', error);
       res.status(500).json({ error: "Failed to build lineups" });

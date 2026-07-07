@@ -119,11 +119,20 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds }: UpNextStr
 
   // Gate 5c: on-demand queued-only build for the rare miss (generator
   // declined, restart, race) — the proactive post-assign trigger normally
-  // gets there first.
+  // gets there first. Gate 5d: never silent — a pass that built nothing
+  // reports the server's reason instead of leaving the strip stuck.
   const buildMutation = useMutation({
-    mutationFn: async () =>
+    mutationFn: async (): Promise<{ built: number; reason?: string }> =>
       apiRequest("POST", `/api/sessions/${sessionId}/queued-lineups/build`),
-    onSuccess: () => invalidate(),
+    onSuccess: (data) => {
+      invalidate();
+      if (!data?.built) {
+        toast({
+          title: "No lineup built",
+          description: data?.reason || "Try again",
+        });
+      }
+    },
     onError: (error: any) => {
       toast({
         title: "Couldn't build lineup",

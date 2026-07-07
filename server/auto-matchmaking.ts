@@ -361,12 +361,23 @@ function pickStandardLineup(
   return { team1Ids, team2Ids };
 }
 
+// Gate 5d: the single definition of "may matchmaking operate on this
+// session". Mirrors the admin UI's own enablement rule (Home.tsx
+// isActiveSession): the ACTIVE session, or ANY sandbox session — owners
+// deliberately run sandbox tests as status='upcoming' so they never collide
+// with the one-active-session constraint, and the whole admin surface
+// (assign/pin/edit/end-game) already accepts them. Real upcoming/draft/ended
+// sessions stay excluded: the UI renders those read-only.
+export function isSessionOperable(session: { status: string; isSandbox: boolean } | undefined): boolean {
+  return !!session && (session.status === 'active' || session.isSandbox === true);
+}
+
 export async function tryAutoMatchmaking(sessionId: string): Promise<void> {
   try {
     await withSessionLock(sessionId, async () => {
       const session = await storage.getSession(sessionId);
-      if (!session || session.status !== 'active') {
-        console.log(`[auto-matchmaking] session=${sessionId} skipped — session missing or not active`);
+      if (!isSessionOperable(session)) {
+        console.log(`[auto-matchmaking] session=${sessionId} skipped — session missing or not operable (status=${session?.status ?? 'gone'})`);
         return;
       }
 
@@ -525,13 +536,17 @@ export function selectCourtsNeedingQueued<T extends { id: string; status: string
 async function runQueuedOrchestrator(
   sessionId: string,
   allPlayers: Awaited<ReturnType<typeof storage.getAllPlayers>>,
-): Promise<void> {
+): Promise<{ created: number; reason?: string }> {
   const allCourts = await storage.getCourtsBySession(sessionId);
-  if (!allCourts.some(c => c.status === 'occupied')) return;
+  if (!allCourts.some(c => c.status === 'occupied')) {
+    return { created: 0, reason: 'No court is in play right now' };
+  }
 
   const courtsWithQueued = await getCourtsWithQueuedSuggestions(sessionId);
   const courtsNeedingQueued = selectCourtsNeedingQueued(allCourts, courtsWithQueued);
-  if (courtsNeedingQueued.length === 0) return;
+  if (courtsNeedingQueued.length === 0) {
+    return { created: 0, reason: 'Every court in play already has an up-next lineup' };
+  }
 
   // Pool: queue minus sitting-out minus anyone already on a non-terminal
   // suggestion (pending|approved|playing|queued).
@@ -542,7 +557,7 @@ async function runQueuedOrchestrator(
 
   if (pool.length < 4) {
     console.log(`[queued-orchestrator] session=${sessionId} skipped — pool=${pool.length} < 4`);
-    return;
+    return { created: 0, reason: `Not enough eligible players in the queue (${pool.length} of 4 needed)` };
   }
 
   // Multi-court Claude path. Only used when 2+ courts need queued AND we
@@ -598,7 +613,19 @@ async function runQueuedOrchestrator(
   if (createdStd > 0) {
     console.log(`[queued-orchestrator] session=${sessionId} created ${createdStd} queued lineup(s) via standard generator`);
   }
+
+  const created = createdClaude + createdStd;
+  return created > 0
+    ? { created }
+    : { created: 0, reason: 'The lineup generator could not form a balanced game from the eligible players' };
 }
+
+// Gate 5d: honest outcome for the Build-now surface — a pass that builds
+// nothing must say WHY, never report bare success.
+export type QueuedBuildResult =
+  | { outcome: 'ran'; created: number; reason?: string }
+  | { outcome: 'not-operable' }
+  | { outcome: 'busy' };
 
 // Gate 5c: queued-ONLY build pass. Unlike tryAutoMatchmaking, this never
 // creates 'pending' rows — pending rows carry 90s auto-approve timers and
@@ -608,13 +635,13 @@ async function runQueuedOrchestrator(
 // fire on every assign: the try-lock skips overlapping runs, the
 // any-queued court skip protects captain pins, and the
 // one-queued-per-court unique index backstops any residual race.
-export async function tryQueuedBuildForSession(sessionId: string): Promise<void> {
+export async function tryQueuedBuildForSession(sessionId: string): Promise<QueuedBuildResult> {
   try {
-    await withSessionLock(sessionId, async () => {
+    const result = await withSessionLock<QueuedBuildResult>(sessionId, async () => {
       const session = await storage.getSession(sessionId);
-      if (!session || session.status !== 'active') {
-        console.log(`[queued-build] session=${sessionId} skipped — session missing or not active`);
-        return;
+      if (!isSessionOperable(session)) {
+        console.log(`[queued-build] session=${sessionId} skipped — session missing or not operable (status=${session?.status ?? 'gone'})`);
+        return { outcome: 'not-operable' as const };
       }
       // Same hydration the pending pass does: the lineup generator scores
       // with rest states + partner history.
@@ -623,10 +650,15 @@ export async function tryQueuedBuildForSession(sessionId: string): Promise<void>
       buildPartnerHistoryFromHistory(sessionId, history);
 
       const allPlayers = await storage.getAllPlayers();
-      await runQueuedOrchestrator(sessionId, allPlayers);
+      const { created, reason } = await runQueuedOrchestrator(sessionId, allPlayers);
+      return { outcome: 'ran' as const, created, ...(reason ? { reason } : {}) };
     });
+    // withSessionLock yields undefined when another matchmaking pass holds
+    // the try-lock — not an error, just "already being handled".
+    return result ?? { outcome: 'busy' };
   } catch (err) {
     console.error(`[queued-build] session=${sessionId} unhandled:`, err);
+    return { outcome: 'ran', created: 0, reason: 'Something went wrong building the lineup — check server logs' };
   }
 }
 
