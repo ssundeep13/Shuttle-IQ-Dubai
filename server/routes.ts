@@ -52,6 +52,9 @@ import {
   ensureRestStatesHydrated,
   persistSittingOutFlag,
   deletePersistedRestState,
+  playerPassesBand,
+  bandDistance,
+  COURT_SKILL_BANDS,
   type TeamCombination
 } from "./matchmaking";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
@@ -1601,6 +1604,173 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Dismiss suggestion error:', error);
       res.status(500).json({ error: "Failed to dismiss suggestion" });
+    }
+  });
+
+  // Court bands Gate 2 — set a court's suggestion band (mid-session allowed).
+  // The band constrains suggestion generation and the auto Up Next
+  // orchestrator ONLY; captain assigns/swaps/pins are never blocked by it.
+  app.patch("/api/courts/:courtId/skill-band", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { skillBand, sessionId: bodySessionId } = req.body;
+      if (!COURT_SKILL_BANDS.includes(skillBand)) {
+        return res.status(400).json({ error: `skillBand must be one of: ${COURT_SKILL_BANDS.join(', ')}` });
+      }
+      const court = await storage.getCourt(req.params.courtId);
+      if (!court) {
+        return res.status(404).json({ error: "Court not found" });
+      }
+      const gameSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
+      if (!gameSession || court.sessionId !== gameSession.id) {
+        return res.status(400).json({ error: "Court does not belong to this session" });
+      }
+      const updated = await storage.updateCourt(court.id, { skillBand });
+      console.log(`[Court Captain] court ${court.id} skill band set to ${skillBand} by ${req.user?.userId ?? 'admin'}`);
+      res.json(updated);
+    } catch (error) {
+      console.error('Set skill band error:', error);
+      res.status(500).json({ error: "Failed to set skill band" });
+    }
+  });
+
+  // Court bands Gate 2 — per-court suggestion generation. AI-first over the
+  // court's BAND-FILTERED pool (the AI is never asked to self-filter), with
+  // the local ranked list (same pool) as silent fallback AND as the
+  // alternates the Regenerate button cycles; the AI's pick is rank #1,
+  // deduped against identical local options. Read-only: confirming the shown
+  // lineup goes through the existing pin endpoint (queued row → game-end
+  // promotion → 6b confirm/placement), no parallel mechanism.
+  app.get("/api/courts/:courtId/suggestions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const court = await storage.getCourt(req.params.courtId);
+      if (!court) {
+        return res.status(404).json({ error: "Court not found" });
+      }
+      const sessionId = court.sessionId;
+      const band = court.skillBand ?? 'all_levels';
+      const relax = req.query.relax_band === 'true';
+      const aiMode = req.query.aiMode !== 'false';
+
+      await ensureRestStatesHydrated(sessionId);
+      const { getPlayersOnOtherOpenSuggestions } = await import('./auto-matchmaking');
+      const queue = await storage.getQueue(sessionId);
+      const sittingOut = new Set(getSittingOutPlayers(sessionId));
+      // Exclude players on any open lineup EXCEPT this court's own queued
+      // row — regenerating while a lineup is pinned may reuse its players.
+      const ownQueued = await storage.getQueuedSuggestionForCourt(court.id);
+      const onOpen = await getPlayersOnOtherOpenSuggestions(sessionId, ownQueued?.id ?? null, queue);
+      const basePool = queue.filter(id => !sittingOut.has(id) && !onOpen.has(id));
+
+      const allPlayers = await storage.getAllPlayers();
+      const byId = new Map(allPlayers.map(p => [p.id, p]));
+      const inBand = basePool.filter(id => playerPassesBand(band, byId.get(id)?.level ?? ''));
+
+      if (inBand.length < 4 && !relax) {
+        return res.json({ band, insufficientEligible: true, eligibleCount: inBand.length });
+      }
+
+      // relax_band: nearest-tier expansion — closest out-of-band players
+      // (by confirmed-tier distance from the band boundary) top up the pool
+      // to two lineups' worth; each is flagged outside_band in the response.
+      let candidateIds = inBand;
+      const outsideBand = new Set<string>();
+      if (inBand.length < 4 && relax) {
+        const outsiders = basePool
+          .filter(id => !inBand.includes(id))
+          .sort((a, b) =>
+            bandDistance(band, byId.get(a)?.level ?? '') - bandDistance(band, byId.get(b)?.level ?? ''));
+        for (const id of outsiders.slice(0, Math.max(0, 8 - inBand.length))) {
+          outsideBand.add(id);
+        }
+        candidateIds = [...inBand, ...Array.from(outsideBand)];
+        if (candidateIds.length < 4) {
+          return res.json({ band, insufficientEligible: true, eligibleCount: candidateIds.length, relaxed: true });
+        }
+      }
+
+      const history = await storage.getSessionGameParticipants(sessionId);
+      buildPartnerHistoryFromHistory(sessionId, history);
+
+      // Local ranked list over the candidate pool — fallback AND alternates.
+      const { allCombinations } = generateAllMatchupOptions(sessionId, candidateIds, allPlayers, 6, true);
+      type Option = { team1: any[]; team2: any[]; skillGap: number; team1Avg: number; team2Avg: number };
+      const playerOut = (p: any) => ({
+        id: p.id,
+        name: p.name,
+        level: p.level,
+        skillScore: p.skillScore ?? 90,
+        outsideBand: outsideBand.has(p.id),
+      });
+      const toOption = (team1: any[], team2: any[]): Option => {
+        const avg = (t: any[]) => t.reduce((s, p) => s + (p.skillScore ?? 90), 0) / (t.length || 1);
+        const a1 = avg(team1), a2 = avg(team2);
+        return {
+          team1: team1.map(playerOut),
+          team2: team2.map(playerOut),
+          skillGap: Math.round(Math.abs(a1 - a2) * 10) / 10,
+          team1Avg: Math.round(a1),
+          team2Avg: Math.round(a2),
+        };
+      };
+      let options: Option[] = allCombinations.map(c => toOption(c.team1, c.team2));
+      let fromAI = false;
+
+      // AI-first: one lineup for THIS court from the band-filtered pool.
+      // Same 5s hard timeout + silent local fallback as the session feed.
+      if (aiMode && process.env.ANTHROPIC_API_KEY && candidateIds.length >= 4) {
+        try {
+          const candidates = candidateIds.map(id => byId.get(id)!).filter(Boolean);
+          const rests = candidates.map(p => getPlayerRestState(sessionId, p.id));
+          const avgGames = rests.reduce((s, r) => s + (r.gamesThisSession || 0), 0) / (candidates.length || 1);
+          const parsed = await requestClaudeMatchmaking({
+            availableCourts: 1,
+            avgGames: Math.round(avgGames * 10) / 10,
+            players: candidates.map(p => {
+              const rs = getPlayerRestState(sessionId, p.id);
+              return {
+                name: p.name,
+                score: p.skillScore || 90,
+                tier: p.level || 'lower_intermediate',
+                gender: p.gender || 'male',
+                gamesThisSession: rs.gamesThisSession || 0,
+                gamesWaited: rs.gamesWaited || 0,
+              };
+            }),
+          });
+          const sug = parsed.suggestions[0];
+          if (!sug) throw new Error('AI returned no suggestion');
+          const candidateByNameLower = new Map(candidates.map(p => [p.name.toLowerCase(), p]));
+          const resolve = (team: { name: string }[]) => team.map(raw => {
+            const found = candidateByNameLower.get(raw.name.toLowerCase());
+            // The AI must never smuggle in a player outside the pool we gave it.
+            if (!found) throw new Error(`AI named a player outside the candidate pool: "${raw.name}"`);
+            return found;
+          });
+          const aiTeam1 = resolve(sug.team1);
+          const aiTeam2 = resolve(sug.team2);
+          const aiOption = toOption(aiTeam1, aiTeam2);
+          const setKey = (o: Option) => [...o.team1, ...o.team2].map((p: any) => p.id).sort().join('|');
+          const aiKey = setKey(aiOption);
+          options = [aiOption, ...options.filter(o => setKey(o) !== aiKey)];
+          fromAI = true;
+        } catch (aiErr) {
+          // Silent local fallback — the ranked list above already stands.
+          console.log(`[court-suggestions] court=${court.id} AI fallback: ${aiErr instanceof Error ? aiErr.message : aiErr}`);
+        }
+      }
+
+      res.json({
+        band,
+        relaxed: relax && outsideBand.size > 0,
+        fromAI,
+        eligibleCount: inBand.length,
+        options,
+      });
+    } catch (error) {
+      console.error('Court suggestions error:', error);
+      res.status(500).json({ error: "Failed to generate suggestions" });
     }
   });
 

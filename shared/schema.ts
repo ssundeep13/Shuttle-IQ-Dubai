@@ -158,6 +158,18 @@ export const courts = pgTable("courts", {
   timeRemaining: integer("time_remaining").notNull().default(0), // in minutes
   winningTeam: integer("winning_team"), // 1 or 2, null if not selected
   startedAt: timestamp("started_at"), // When the game started
+  // Court band: which confirmed-tier band this court accepts for SUGGESTION
+  // generation (AI and local) and the auto Up Next orchestrator. It filters
+  // candidate pools only — captain assigns, swaps, and pins are NEVER
+  // blocked by it (captain always wins). Bands map to confirmed-tier
+  // indices via getConfirmedTierIndex(player.level):
+  //   'all_levels'        → no restriction
+  //   'beginner'          → Novice, Beginner            (index ≤ 1)
+  //   'intermediate_plus' → lower_intermediate and up   (index ≥ 2)
+  //   'competitive_plus'  → upper_intermediate, Advanced, Professional (index ≥ 3)
+  // Courts are session-scoped rows, so bands reset to the default each
+  // new session by design.
+  skillBand: text("skill_band").notNull().default('all_levels'),
 });
 
 export const insertCourtSchema = createInsertSchema(courts).omit({ id: true });

@@ -46,6 +46,38 @@ export function getConfirmedTierIndex(level: string): number {
   }
 }
 
+// ─── Court skill bands ────────────────────────────────────────────────────────
+
+export type CourtSkillBand = 'all_levels' | 'beginner' | 'intermediate_plus' | 'competitive_plus';
+export const COURT_SKILL_BANDS: readonly CourtSkillBand[] = ['all_levels', 'beginner', 'intermediate_plus', 'competitive_plus'];
+
+// Band membership is decided on the CONFIRMED tier (players.level via
+// getConfirmedTierIndex — respects the 3-game promotion buffer and the
+// legacy 'Intermediate'/'Competitive' aliases), never raw skillScore.
+// Bands constrain suggestion + orchestrator candidate pools ONLY — captain
+// assigns, swaps, and pins are never blocked (captain always wins).
+export function playerPassesBand(band: string, level: string): boolean {
+  const idx = getConfirmedTierIndex(level);
+  switch (band) {
+    case 'beginner': return idx <= 1;            // Novice, Beginner
+    case 'intermediate_plus': return idx >= 2;   // lower_intermediate and up
+    case 'competitive_plus': return idx >= 3;    // upper_intermediate, Advanced, Professional
+    default: return true;                        // 'all_levels' (or unknown band): no restriction
+  }
+}
+
+// Distance from a band's tier boundary — used by the relax_band nearest-tier
+// expansion to rank out-of-band players (closest first).
+export function bandDistance(band: string, level: string): number {
+  const idx = getConfirmedTierIndex(level);
+  switch (band) {
+    case 'beginner': return Math.max(0, idx - 1);
+    case 'intermediate_plus': return Math.max(0, 2 - idx);
+    case 'competitive_plus': return Math.max(0, 3 - idx);
+    default: return 0;
+  }
+}
+
 // Player rest state tracking
 interface PlayerRestState {
   playerId: string;

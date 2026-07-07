@@ -34,6 +34,7 @@ import {
   getPlayerRestState,
   getSittingOutPlayers,
   computeRecentPartnersAndOpponents,
+  playerPassesBand,
 } from './matchmaking';
 import {
   matchSuggestions,
@@ -560,9 +561,16 @@ async function runQueuedOrchestrator(
     return { created: 0, reason: `Not enough eligible players in the queue (${pool.length} of 4 needed)` };
   }
 
+  // Court bands Gate 2: courts constrain their candidate pool by confirmed
+  // tier. The Claude batch prompt has no per-court pool concept, so it is
+  // only used when EVERY court in this pass is 'all_levels' — banded passes
+  // go through the standard generator with a per-court filtered pool.
+  const playersById = new Map(allPlayers.map(p => [p.id, p]));
+  const bandsInPlay = courtsNeedingQueued.some(c => (c.skillBand ?? 'all_levels') !== 'all_levels');
+
   // Multi-court Claude path. Only used when 2+ courts need queued AND we
   // have enough players to fill at least 2 lineups (8 players).
-  const useClaude = courtsNeedingQueued.length >= 2 && pool.length >= 8 && !!process.env.ANTHROPIC_API_KEY;
+  const useClaude = !bandsInPlay && courtsNeedingQueued.length >= 2 && pool.length >= 8 && !!process.env.ANTHROPIC_API_KEY;
 
   // Court IDs Claude has already filled this run, so the standard
   // generator below skips them. Anything Claude couldn't fill (parse
@@ -585,12 +593,20 @@ async function runQueuedOrchestrator(
 
   // Standard generator path: covers single-court runs, Claude-skipped
   // runs, AND any courts Claude couldn't fill in a partial response.
+  // Court bands Gate 2: each court draws from its band-filtered slice of
+  // the pool; a court with < 4 band-eligible players is SKIPPED (continue,
+  // not break) so later courts with different bands still get lineups.
   let createdStd = 0;
   for (const court of courtsNeedingQueued) {
     if (claudeFilledCourtIds.has(court.id)) continue;
     if (pool.length < 4) break;
-    const lineup = pickStandardLineup(sessionId, pool, allPlayers);
-    if (!lineup) break;
+    const eligible = pool.filter(id => playerPassesBand(court.skillBand ?? 'all_levels', playersById.get(id)?.level ?? ''));
+    if (eligible.length < 4) {
+      console.log(`[queued-orchestrator] session=${sessionId} court=${court.id} skipped — band=${court.skillBand} eligible=${eligible.length} < 4`);
+      continue;
+    }
+    const lineup = pickStandardLineup(sessionId, eligible, allPlayers);
+    if (!lineup) continue;
     try {
       await storage.createMatchSuggestion({
         sessionId,
@@ -617,7 +633,12 @@ async function runQueuedOrchestrator(
   const created = createdClaude + createdStd;
   return created > 0
     ? { created }
-    : { created: 0, reason: 'The lineup generator could not form a balanced game from the eligible players' };
+    : {
+        created: 0,
+        reason: bandsInPlay
+          ? "Not enough eligible players within the courts' skill bands"
+          : 'The lineup generator could not form a balanced game from the eligible players',
+      };
 }
 
 // Gate 5d: honest outcome for the Build-now surface — a pass that builds
