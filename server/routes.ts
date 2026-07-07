@@ -1443,8 +1443,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Approve-now: same effect as the auto-approve sweep but admin-triggered.
-  // Idempotent — already-approved suggestions return 200 with the existing row.
+  // Approve-now: admin-triggered approval that ALSO places the lineup.
+  // Phase 1 (stranded-lineup fix): approve used to stop at the status flip +
+  // notifications — the physical start (court occupied, roster written,
+  // statuses flipped, queue removal) lived ONLY in the player-phone
+  // start-game path, so captain-run sessions could approve forever and
+  // nothing ever landed. The captain's Approve now runs the same hardened
+  // CAS chain the player tap uses (startApprovedSuggestion). A previously
+  // approved-but-never-started row is recovered by tapping Approve again:
+  // the status flip is skipped and we go straight to placement. The
+  // auto-approve SWEEP is deliberately unchanged (owner scope ruling) —
+  // player-driven sessions keep their notify-then-player-starts flow.
   app.post("/api/sessions/:sessionId/suggestions/:suggestionId/approve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
       const { sessionId, suggestionId } = req.params;
@@ -1452,10 +1461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!suggestion || suggestion.sessionId !== sessionId) {
         return res.status(404).json({ error: "Suggestion not found" });
       }
-      if (suggestion.status === 'approved') {
-        return res.json(suggestion);
-      }
-      if (suggestion.status !== 'pending') {
+      if (suggestion.status !== 'pending' && suggestion.status !== 'approved') {
         return res.status(409).json({ error: `Suggestion is already ${suggestion.status} and cannot be approved.` });
       }
       const court = await storage.getCourt(suggestion.courtId);
@@ -1464,19 +1470,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const adminId = req.user?.userId ?? 'admin';
-      const updated = await storage.transitionPendingMatchSuggestion(suggestionId, 'approved', adminId);
-      if (!updated) {
-        // Lost the race with the sweep or another admin call. Refetch the
-        // current state and return it idempotently so the captain UI sees
-        // a clean resolution.
-        const current = await storage.getMatchSuggestion(suggestionId);
-        return res.json(current);
+      let didApprove = false;
+      if (suggestion.status === 'pending') {
+        const updated = await storage.transitionPendingMatchSuggestion(suggestionId, 'approved', adminId);
+        if (!updated) {
+          // Lost the approve race with the sweep or another admin call.
+          // If the row is now approved, fall through to placement anyway;
+          // any other state resolves idempotently.
+          const current = await storage.getMatchSuggestion(suggestionId);
+          if (!current || current.status !== 'approved') {
+            return res.json(current ?? suggestion);
+          }
+        } else {
+          didApprove = true;
+        }
+        console.log(`[Court Captain] suggestion ${suggestionId} approved by ${adminId}`);
       }
-      console.log(`[Court Captain] suggestion ${suggestionId} approved by ${adminId}`);
 
-      // Notify the 4 players (best-effort, mirrors the sweep)
+      // PLACEMENT — the step that was always missing from the admin flow.
+      const startResult = await storage.startApprovedSuggestion(suggestionId);
+      if (startResult.result === 'not-startable' || startResult.result === 'not-found') {
+        return res.status(409).json({ error: "This lineup was just changed by another action — refresh and retry" });
+      }
+      console.log(`[Court Captain] suggestion ${suggestionId} placed on court ${suggestion.courtId} (${startResult.result})`);
+
+      // Gate 5c parity: this court just became occupied — pre-build its Up Next.
+      setImmediate(() => {
+        import('./auto-matchmaking').then(m =>
+          m.tryQueuedBuildForSession(sessionId).catch(err =>
+            console.error('[queued-build] post-approve unhandled:', err),
+          ),
+        );
+      });
+
+      // Notify the 4 players (best-effort, mirrors the sweep). Only on the
+      // first approval — a recovery re-tap must not re-notify.
       try {
-        if (updated && court) {
+        if (didApprove && court) {
           // Mirror the sweep: two batched IN-queries instead of 4 + 4
           // round-trips for the player + marketplace-user lookups.
           const playerIds = suggestion.players.map(p => p.playerId);
@@ -1511,7 +1541,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('[Court Captain] notify batch failed:', notifyErr);
       }
 
-      res.json(updated);
+      // Return the post-placement row (status 'playing') so the panel
+      // reflects reality immediately.
+      res.json(await storage.getMatchSuggestion(suggestionId));
     } catch (error) {
       console.error('Approve suggestion error:', error);
       res.status(500).json({ error: "Failed to approve suggestion" });
@@ -2673,24 +2705,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sessionId = activeSession.id;
       }
 
-      // Fire all three independent queries in parallel — each was previously
+      // Fire the independent queries in parallel — each was previously
       // sequential, costing an extra ~233 ms per hop to the Railway DB.
-      const [courts, queue, allPlayers] = await Promise.all([
-        storage.getCourtsBySession(sessionId),
+      // Phase 1 KPI fix: courts come WITH their rosters so activePlayers can
+      // count people actually ON courts. The old derivation intersected the
+      // queue with status='playing' — structurally empty, since assignment
+      // removes players from the queue; the "Playing" chip showed 0 during
+      // every game ever played.
+      const [courts, queue] = await Promise.all([
+        storage.getCourtsWithPlayers(sessionId),
         storage.getQueue(sessionId),
-        storage.getAllPlayers(),
       ]);
 
-      // Get session-specific players (those in the queue for this session)
-      // Note: queue is already an array of player IDs
-      const sessionPlayers = allPlayers.filter(p => queue.includes(p.id));
-
       const stats = {
-        activePlayers: sessionPlayers.filter((p: any) => p.status === 'playing').length,
+        activePlayers: courts.reduce((sum: number, c: any) => sum + (c.players?.length ?? 0), 0),
         inQueue: queue.length,
         availableCourts: courts.filter((c: any) => c.status === 'available').length,
         occupiedCourts: courts.filter((c: any) => c.status === 'occupied').length,
-        totalPlayers: sessionPlayers.length, // Session-specific count
+        // Everyone participating right now: waiting in the queue or on a court
+        totalPlayers: queue.length + courts.reduce((sum: number, c: any) => sum + (c.players?.length ?? 0), 0),
         totalCourts: courts.length,
       };
 

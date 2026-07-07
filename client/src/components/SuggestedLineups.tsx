@@ -384,7 +384,7 @@ function SuggestionCard({
                   }
                   data-testid={`menuitem-pin-court-${c.id}-${keyPrefix}${idx}`}
                 >
-                  Court {c.name} — up next
+                  {c.name} — up next
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>

@@ -86,8 +86,9 @@ function SuggestionRow({
       <div className="flex flex-col gap-2 min-w-0 flex-1">
         {/* Court + countdown */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Court names already read "Court N" — no prefix */}
           <Badge variant="outline" data-testid={`badge-court-${suggestion.id}`}>
-            Court {suggestion.courtName}
+            {suggestion.courtName}
           </Badge>
           <div
             className={`inline-flex items-center gap-1 text-sm font-medium ${countdownColor(remainingMs)}`}
@@ -166,8 +167,9 @@ function QueuedRow({
       <div className="flex flex-col gap-1.5 min-w-0 flex-1">
         {/* Court + on deck label */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Court names already read "Court N" — no prefix */}
           <Badge variant="outline" data-testid={`badge-queued-court-${suggestion.id}`}>
-            Court {suggestion.courtName}
+            {suggestion.courtName}
           </Badge>
           <span className="text-xs font-medium text-secondary uppercase tracking-wide">
             On Deck
