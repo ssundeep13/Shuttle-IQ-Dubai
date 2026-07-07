@@ -38,8 +38,9 @@ type QueuedSuggestion = {
   }>;
 };
 
-// Shape of GET /api/courts/:courtId/suggestions (court bands Gate 2)
-type SuggestionPlayer = { id: string; name: string; level: string; skillScore: number; outsideBand: boolean };
+// Shape of GET /api/courts/:courtId/suggestions (court bands Gate 2;
+// rotation planner Gate 4 adds inGame + waiter/current counts)
+type SuggestionPlayer = { id: string; name: string; level: string; skillScore: number; outsideBand: boolean; inGame?: boolean };
 type SuggestionOption = { team1: SuggestionPlayer[]; team2: SuggestionPlayer[]; skillGap: number; team1Avg: number; team2Avg: number };
 type CourtSuggestionsResponse = {
   band: string;
@@ -47,6 +48,8 @@ type CourtSuggestionsResponse = {
   eligibleCount?: number;
   relaxed?: boolean;
   fromAI?: boolean;
+  waiterCount?: number;
+  currentCount?: number;
   options?: SuggestionOption[];
 };
 
@@ -87,6 +90,9 @@ const gapOf = (team1: SuggestionPlayer[], team2: SuggestionPlayer[]) => {
 export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled }: UpNextStripProps) {
   const sessionId = court.sessionId;
   const band = (court as any).skillBand ?? "all_levels";
+  // Gate 4: THIS court's on-court four — the only players allowed to repeat
+  // (court-scoped; other courts' players are never offered here).
+  const ownCourtIds = new Set((court.players ?? []).map((p) => p.id));
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [swapOutId, setSwapOutId] = useState<string | null>(null);
@@ -250,14 +256,21 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     const t2 = confirmRow.players.filter((p) => p.team === 2);
     const isCaptainRow = confirmRow.source === "captain";
     const remainingMs = confirmRow.pendingUntil ? new Date(confirmRow.pendingUntil).getTime() - now : 0;
+    // Gate 4: Confirm-to-START is gated until every member is off court —
+    // a member still mid-game (on any court) blocks placement.
+    const busyMembers = confirmRow.players.filter((p) => playingPlayerIds.includes(p.playerId));
+    const memberLabel = (p: { playerId: string; name: string }) =>
+      playingPlayerIds.includes(p.playerId) ? `${p.name} (in game)` : p.name;
     const statusLine =
-      confirmRow.status === "approved"
-        ? "Ready to start"
-        : isSandboxSession
-          ? "Waiting for your confirm"
-          : remainingMs > 0
-            ? `Auto-confirms in ${formatCountdown(remainingMs)}`
-            : "Confirming…";
+      busyMembers.length > 0
+        ? `Waiting for ${busyMembers.map((p) => p.name).join(", ")} to finish`
+        : confirmRow.status === "approved"
+          ? "Ready to start"
+          : isSandboxSession
+            ? "Waiting for your confirm"
+            : remainingMs > 0
+              ? `Auto-confirms in ${formatCountdown(remainingMs)}`
+              : "Confirming…";
     return (
       <div
         className="mt-1 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 space-y-1.5"
@@ -277,7 +290,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             {isCaptainRow ? "Captain" : "Auto"}
           </Badge>
           <span className="text-xs text-muted-foreground truncate flex-1">
-            {t1.map((p) => p.name).join(" + ")} vs {t2.map((p) => p.name).join(" + ")}
+            {t1.map(memberLabel).join(" + ")} vs {t2.map(memberLabel).join(" + ")}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -287,7 +300,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <Button
             size="sm"
             className="h-7 text-xs shrink-0"
-            disabled={confirmMutation.isPending}
+            disabled={confirmMutation.isPending || busyMembers.length > 0}
             onClick={() => confirmMutation.mutate(confirmRow.id)}
             data-testid={`button-up-next-confirm-${court.id}`}
           >
@@ -307,7 +320,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     const onOtherLineup = new Set(
       suggestions.filter((s) => s.id !== queued.id).flatMap((s) => s.players.map((p) => p.playerId)),
     );
+    // Gate 4: this court's OWN current players are legal repeats — they get
+    // an "In game" marker, never a conflict flag. Everyone else keeps the
+    // full conflict matrix (cross-court claims unchanged).
     const conflictFor = (playerId: string): ConflictReason | null => {
+      if (ownCourtIds.has(playerId)) return null;
       if (playing.has(playerId)) return "playing";
       if (sittingOut.has(playerId)) return "sitting out";
       if (!queueIds.has(playerId)) return "left queue";
@@ -319,13 +336,24 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     const conflicts = queued.players.filter((p) => conflictFor(p.playerId) !== null);
     const isCaptain = queued.source === "captain";
 
-    const swapCandidates = queuePlayers.filter(
+    // Gate 4: the swap picker also offers this court's OWN current players
+    // (marked "In game") — the server's court-scoped exemption accepts them.
+    const ownCourtSwapIns = (court.players ?? []).filter(
       (p) =>
         !sittingOut.has(p.id) &&
-        !playing.has(p.id) &&
         !onOtherLineup.has(p.id) &&
         !queued.players.some((qp) => qp.playerId === p.id),
     );
+    const swapCandidates = [
+      ...queuePlayers.filter(
+        (p) =>
+          !sittingOut.has(p.id) &&
+          !playing.has(p.id) &&
+          !onOtherLineup.has(p.id) &&
+          !queued.players.some((qp) => qp.playerId === p.id),
+      ),
+      ...ownCourtSwapIns,
+    ];
     const inBandCandidates = swapCandidates.filter((p) => playerPassesBand(band, p.level));
     const outBandCandidates = swapCandidates.filter((p) => !playerPassesBand(band, p.level));
 
@@ -338,6 +366,15 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             return (
               <div key={p.playerId} className="flex items-center gap-1.5 flex-wrap" data-testid={`upnext-player-${court.id}-${p.playerId}`}>
                 <span className={cn("text-sm truncate", conflict ? "text-amber-600" : "text-foreground")}>{p.name}</span>
+                {ownCourtIds.has(p.playerId) && (
+                  <Badge
+                    variant="outline"
+                    className="text-xs text-muted-foreground border-muted-foreground/30 shrink-0"
+                    data-testid={`badge-upnext-ingame-${court.id}-${p.playerId}`}
+                  >
+                    In game
+                  </Badge>
+                )}
                 {conflict && (
                   <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
                     {conflict}
@@ -372,6 +409,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           data-testid={`button-upnext-swap-in-${court.id}-${p.id}`}
         >
           {p.name}
+          {ownCourtIds.has(p.id) && <span className="text-muted-foreground ml-1">· In game</span>}
         </Button>
       ));
 
@@ -497,6 +535,14 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     );
   }
 
+  // Gate 4: say WHY a lineup can't be built, plainly — never the old
+  // ambiguous "Waiting for players".
+  const totalKnown = queuePlayers.length + (court.players?.length ?? 0);
+  const claimedAwareCopy =
+    totalKnown < 4
+      ? "Not enough players in the session yet"
+      : "All players are in games or already lined up";
+
   if (sug.insufficientEligible) {
     const isAllLevels = (sug.band ?? "all_levels") === "all_levels";
     return (
@@ -505,8 +551,8 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <span className="text-xs font-semibold uppercase tracking-wide text-amber-700 shrink-0">Up next</span>
           <span className="text-xs text-amber-700 flex-1" data-testid={`text-up-next-insufficient-${court.id}`}>
             {isAllLevels
-              ? "Waiting for players"
-              : `Only ${sug.eligibleCount ?? 0} eligible ${bandLabel(sug.band)} players in the queue`}
+              ? claimedAwareCopy
+              : `Only ${sug.eligibleCount ?? 0} eligible ${bandLabel(sug.band)} players available`}
           </span>
         </div>
         {!isAllLevels && !relax && (
@@ -529,7 +575,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     return (
       <div className="mt-1 flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2" data-testid={`strip-up-next-${court.id}`}>
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Up next</span>
-        <span className="text-xs text-muted-foreground flex-1">Waiting for players</span>
+        <span className="text-xs text-muted-foreground flex-1" data-testid={`text-up-next-empty-${court.id}`}>
+          {claimedAwareCopy}
+        </span>
       </div>
     );
   }
@@ -541,9 +589,16 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
 
   const lineupIds = new Set([...current.team1, ...current.team2].map((p) => p.id));
   const onAnySuggestion = new Set(suggestions.flatMap((s) => s.players.map((p) => p.playerId)));
-  const ephemeralCandidates = queuePlayers.filter(
-    (p) => !sittingOut.has(p.id) && !playing.has(p.id) && !onAnySuggestion.has(p.id) && !lineupIds.has(p.id),
-  );
+  // Gate 4: this court's own current players are swap-in candidates too
+  // (marked "In game", court-scoped — never other courts' players).
+  const ephemeralCandidates = [
+    ...queuePlayers.filter(
+      (p) => !sittingOut.has(p.id) && !playing.has(p.id) && !onAnySuggestion.has(p.id) && !lineupIds.has(p.id),
+    ),
+    ...(court.players ?? []).filter(
+      (p) => !sittingOut.has(p.id) && !onAnySuggestion.has(p.id) && !lineupIds.has(p.id),
+    ),
+  ];
   const inBandEph = ephemeralCandidates.filter((p) => playerPassesBand(band, p.level));
   const outBandEph = ephemeralCandidates.filter((p) => !playerPassesBand(band, p.level));
 
@@ -555,6 +610,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       level: incoming.level,
       skillScore: incoming.skillScore ?? 90,
       outsideBand: !playerPassesBand(band, incoming.level),
+      inGame: ownCourtIds.has(incoming.id),
     };
     const next = { team1: [...current.team1], team2: [...current.team2] };
     if (ephemeralSwapSlot.team === 1) next.team1[ephemeralSwapSlot.index] = asSugPlayer;
@@ -570,6 +626,15 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         {team.map((p, i) => (
           <div key={p.id} className="flex items-center gap-1.5 flex-wrap" data-testid={`upnext-sug-player-${court.id}-${p.id}`}>
             <span className="text-sm truncate">{p.name}</span>
+            {p.inGame && (
+              <Badge
+                variant="outline"
+                className="text-xs text-muted-foreground border-muted-foreground/30 shrink-0"
+                data-testid={`badge-upnext-sug-ingame-${court.id}-${p.id}`}
+              >
+                In game
+              </Badge>
+            )}
             {p.outsideBand && (
               <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
                 Outside band
@@ -631,6 +696,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
                   {inBandEph.map((p) => (
                     <Button key={p.id} size="sm" variant="outline" className="h-7 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-${court.id}-${p.id}`}>
                       {p.name}
+                      {ownCourtIds.has(p.id) && <span className="text-muted-foreground ml-1">· In game</span>}
                     </Button>
                   ))}
                 </div>
@@ -642,6 +708,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
                     {outBandEph.map((p) => (
                       <Button key={p.id} size="sm" variant="outline" className="h-7 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-out-${court.id}-${p.id}`}>
                         {p.name}
+                        {ownCourtIds.has(p.id) && <span className="text-muted-foreground ml-1">· In game</span>}
                       </Button>
                     ))}
                   </div>
