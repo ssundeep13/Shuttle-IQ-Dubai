@@ -117,12 +117,71 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds }: UpNextStr
     },
   });
 
-  const queued = suggestions.find((s) => s.status === "queued" && s.courtId === court.id);
-  if (court.status !== "occupied" || !queued) return null;
+  // Gate 5c: on-demand queued-only build for the rare miss (generator
+  // declined, restart, race) — the proactive post-assign trigger normally
+  // gets there first.
+  const buildMutation = useMutation({
+    mutationFn: async () =>
+      apiRequest("POST", `/api/sessions/${sessionId}/queued-lineups/build`),
+    onSuccess: () => invalidate(),
+    onError: (error: any) => {
+      toast({
+        title: "Couldn't build lineup",
+        description: error?.error || error?.message || "Try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  if (court.status !== "occupied") return null;
 
   const queueIds = new Set(queuePlayers.map((p) => p.id));
   const sittingOut = new Set(sittingOutData?.sittingOut ?? []);
   const playing = new Set(playingPlayerIds);
+  const queued = suggestions.find((s) => s.status === "queued" && s.courtId === court.id);
+
+  // Gate 5c: the strip is ALWAYS visible on occupied courts. Without a
+  // queued lineup it shows one of two one-liners, decided by how many
+  // players could actually be queued right now.
+  if (!queued) {
+    const onAnySuggestion = new Set(suggestions.flatMap((s) => s.players.map((p) => p.playerId)));
+    const eligibleCount = queuePlayers.filter(
+      (p) => !sittingOut.has(p.id) && !playing.has(p.id) && !onAnySuggestion.has(p.id),
+    ).length;
+
+    return (
+      <div
+        className="mt-1 flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2"
+        data-testid={`strip-up-next-${court.id}`}
+      >
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
+          Up next
+        </span>
+        {eligibleCount >= 4 ? (
+          <>
+            <span className="text-xs text-muted-foreground truncate flex-1" data-testid={`text-up-next-preparing-${court.id}`}>
+              Preparing next lineup…
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs shrink-0"
+              disabled={buildMutation.isPending}
+              onClick={() => buildMutation.mutate()}
+              data-testid={`button-up-next-build-${court.id}`}
+            >
+              Build now
+            </Button>
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground truncate flex-1" data-testid={`text-up-next-waiting-${court.id}`}>
+            Waiting for players
+          </span>
+        )}
+      </div>
+    );
+  }
+
   const onOtherLineup = new Set(
     suggestions
       .filter((s) => s.id !== queued.id)

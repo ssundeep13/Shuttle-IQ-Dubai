@@ -1645,6 +1645,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Gate 5c — BUILD NOW: run the queued-only orchestrator pass on demand.
+  // Backs the Up Next strip's "Build now" action for the rare cases the
+  // proactive triggers missed (generator declined with pool ≥ 4, restart,
+  // race). Awaited (not fire-and-forget) so the client's refetch right
+  // after this response observes the new row.
+  app.post("/api/sessions/:sessionId/queued-lineups/build", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await storage.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      const { tryQueuedBuildForSession } = await import('./auto-matchmaking');
+      await tryQueuedBuildForSession(sessionId);
+      res.json({ built: true });
+    } catch (error) {
+      console.error('Queued build error:', error);
+      res.status(500).json({ error: "Failed to build lineups" });
+    }
+  });
+
   // Gate 5 — EDIT: swap one player on a 'queued' lineup before it goes live.
   // The storage CAS gates on status='queued' and flips source to 'captain'
   // (editing an auto lineup makes it captain-owned).
@@ -2084,6 +2105,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         results.push(assignResult.updatedCourt);
       }
 
+      // Gate 5c: proactive Up Next — one queued-only pass covers every court
+      // this batch just occupied (never creates timed pending rows).
+      if (results.length > 0) {
+        setImmediate(() => {
+          import('./auto-matchmaking').then(m =>
+            m.tryQueuedBuildForSession(gameSession.id).catch(err =>
+              console.error('[queued-build] post-bracket-assign unhandled:', err),
+            ),
+          );
+        });
+      }
+
       res.json({ success: true, courts: results, ...(skipped.length > 0 ? { skipped } : {}) });
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2216,6 +2249,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: "Court was just taken by another action — refresh and retry" });
       }
       const { updatedCourt } = assignResult;
+
+      // Gate 5c: proactive Up Next — build queued lineups the moment a court
+      // becomes occupied (queued-ONLY pass; never creates timed pending rows).
+      setImmediate(() => {
+        import('./auto-matchmaking').then(m =>
+          m.tryQueuedBuildForSession(gameSession.id).catch(err =>
+            console.error('[queued-build] post-assign unhandled:', err),
+          ),
+        );
+      });
+
       const courtPlayerData = await storage.getCourtPlayersWithTeams(court.id);
       const players = (await Promise.all(
         courtPlayerData.map(async cp => {

@@ -600,6 +600,36 @@ async function runQueuedOrchestrator(
   }
 }
 
+// Gate 5c: queued-ONLY build pass. Unlike tryAutoMatchmaking, this never
+// creates 'pending' rows — pending rows carry 90s auto-approve timers and
+// notify players, which must never fire from a session-setup event like a
+// court assignment. Queued rows have no timers, notify no one, and only
+// promote at game end (through ruling-a validation), so this is safe to
+// fire on every assign: the try-lock skips overlapping runs, the
+// any-queued court skip protects captain pins, and the
+// one-queued-per-court unique index backstops any residual race.
+export async function tryQueuedBuildForSession(sessionId: string): Promise<void> {
+  try {
+    await withSessionLock(sessionId, async () => {
+      const session = await storage.getSession(sessionId);
+      if (!session || session.status !== 'active') {
+        console.log(`[queued-build] session=${sessionId} skipped — session missing or not active`);
+        return;
+      }
+      // Same hydration the pending pass does: the lineup generator scores
+      // with rest states + partner history.
+      await ensureRestStatesHydrated(sessionId);
+      const history = await storage.getSessionGameParticipants(sessionId);
+      buildPartnerHistoryFromHistory(sessionId, history);
+
+      const allPlayers = await storage.getAllPlayers();
+      await runQueuedOrchestrator(sessionId, allPlayers);
+    });
+  } catch (err) {
+    console.error(`[queued-build] session=${sessionId} unhandled:`, err);
+  }
+}
+
 async function tryClaudeQueuedBatch(
   sessionId: string,
   courtsNeedingQueued: Awaited<ReturnType<typeof storage.getCourtsBySession>>,

@@ -100,6 +100,12 @@ export function BracketedLineups({
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      // Gate 5c: the post-assign trigger builds Up Next lineups — refetch so
+      // the strips show them right away instead of on the 10s poll. Delayed
+      // a beat because the server build is fire-and-forget (setImmediate).
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/sessions', sessionId, 'pending-suggestions'] });
+      }, 1200);
       if (result.bulk) {
         onAssignAll();
       } else {

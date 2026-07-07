@@ -291,6 +291,12 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      // Gate 5c: the post-assign trigger builds Up Next lineups — refetch so
+      // the strip shows them right away instead of on the 10s poll. Delayed
+      // a beat because the server build is fire-and-forget (setImmediate).
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/sessions', session?.id, 'pending-suggestions'] });
+      }, 1200);
       setTeamAssignments((prev) => {
         const newState = { ...prev };
         delete newState[variables.courtId];
