@@ -57,6 +57,12 @@ import {
   COURT_SKILL_BANDS,
   type TeamCombination
 } from "./matchmaking";
+import {
+  deriveSessionPlayFromHistory,
+  orderRotationCandidates,
+  buildRotationSeatings,
+  type RotationCandidate,
+} from "./rotation-planner";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
 import { seedExpenseCategories } from "./portal/portalExpenses";
 import { registerVenueRoutes } from "./venueRoutes";
@@ -1654,14 +1660,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const aiMode = req.query.aiMode !== 'false';
 
       await ensureRestStatesHydrated(sessionId);
-      const { getPlayersOnOtherOpenSuggestions } = await import('./auto-matchmaking');
+      const { getPlayersOnOpenSuggestionsForOtherCourts } = await import('./auto-matchmaking');
       const queue = await storage.getQueue(sessionId);
       const sittingOut = new Set(getSittingOutPlayers(sessionId));
-      // Exclude players on any open lineup EXCEPT this court's own queued
-      // row — regenerating while a lineup is pinned may reuse its players.
-      const ownQueued = await storage.getQueuedSuggestionForCourt(court.id);
-      const onOpen = await getPlayersOnOtherOpenSuggestions(sessionId, ownQueued?.id ?? null, queue);
-      const basePool = queue.filter(id => !sittingOut.has(id) && !onOpen.has(id));
+      // Gate 4 (rotation planner) — court-scoped claims: only suggestions
+      // belonging to OTHER courts block a player here. This court's own rows
+      // (its running game's 'playing' row, the queued row being replaced)
+      // never block its own next lineup — same-court repeats are legal.
+      const ownCourtPlayerIds = await storage.getCourtPlayers(court.id);
+      const claimCheckIds = Array.from(new Set([...queue, ...ownCourtPlayerIds]));
+      const claimedElsewhere = await getPlayersOnOpenSuggestionsForOtherCourts(sessionId, court.id, claimCheckIds);
+
+      // WAITERS: today's pool — in queue, not sitting out, not claimed by
+      // another court. They are seated before ANY current player.
+      const queueSet = new Set(queue);
+      const waiterIds = queue.filter(id => !sittingOut.has(id) && !claimedElsewhere.has(id));
+      // CURRENTS: this court's own on-court four (court-scoped exemption).
+      const currentIds = ownCourtPlayerIds.filter(id =>
+        !queueSet.has(id) && !sittingOut.has(id) && !claimedElsewhere.has(id));
+      const currentSet = new Set(currentIds);
+      const basePool = [...waiterIds, ...currentIds];
 
       const allPlayers = await storage.getAllPlayers();
       const byId = new Map(allPlayers.map(p => [p.id, p]));
@@ -1693,8 +1711,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const history = await storage.getSessionGameParticipants(sessionId);
       buildPartnerHistoryFromHistory(sessionId, history);
 
-      // Local ranked list over the candidate pool — fallback AND alternates.
-      const { allCombinations } = generateAllMatchupOptions(sessionId, candidateIds, allPlayers, 6, true);
+      // Gate 4 — rotation planner replaces the priority-weighted generator.
+      // WHO plays: waiters first (gamesWaited desc, queue position), then
+      // this court's most-rested current players (fewest games this session,
+      // oldest last game end — both from the participants join, restart-safe).
+      // HOW they're arranged: findBalancedTeams, unchanged.
+      const playedBy = deriveSessionPlayFromHistory(history);
+      const toRotationCandidate = (id: string): RotationCandidate | null => {
+        const player = byId.get(id);
+        if (!player) return null;
+        return currentSet.has(id)
+          ? {
+              player, kind: 'current',
+              gamesWaited: 0, queueIndex: Number.MAX_SAFE_INTEGER,
+              gamesThisSession: playedBy.get(id)?.gamesThisSession ?? 0,
+              lastGameEndedAt: playedBy.get(id)?.lastGameEndedAt ?? null,
+            }
+          : {
+              player, kind: 'waiter',
+              gamesWaited: getPlayerRestState(sessionId, id).gamesWaited,
+              queueIndex: queue.indexOf(id),
+              gamesThisSession: 0, lastGameEndedAt: null,
+            };
+      };
+      const rotationCandidates = candidateIds
+        .map(toRotationCandidate)
+        .filter((c): c is RotationCandidate => c !== null);
+      const ordered = orderRotationCandidates(
+        rotationCandidates.filter(c => c.kind === 'waiter'),
+        rotationCandidates.filter(c => c.kind === 'current'),
+      );
+      const seatings = buildRotationSeatings(ordered, 6);
+
       type Option = { team1: any[]; team2: any[]; skillGap: number; team1Avg: number; team2Avg: number };
       const playerOut = (p: any) => ({
         id: p.id,
@@ -1702,6 +1750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         level: p.level,
         skillScore: p.skillScore ?? 90,
         outsideBand: outsideBand.has(p.id),
+        inGame: currentSet.has(p.id),
       });
       const toOption = (team1: any[], team2: any[]): Option => {
         const avg = (t: any[]) => t.reduce((s, p) => s + (p.skillScore ?? 90), 0) / (t.length || 1);
@@ -1714,14 +1763,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           team2Avg: Math.round(a2),
         };
       };
-      let options: Option[] = allCombinations.map(c => toOption(c.team1, c.team2));
+      // Each rotation-legal seating arranged for balance (3 permutations,
+      // cross-tier hard constraint, gap → splitPenalty → variance) —
+      // "balance preserved" decides the arrangement, never the seats.
+      let options: Option[] = seatings
+        .map(seat => findBalancedTeams(seat.map(c => c.player), 1, true, sessionId)[0])
+        .filter(Boolean)
+        .map(c => toOption(c.team1, c.team2));
       let fromAI = false;
 
-      // AI-first: one lineup for THIS court from the band-filtered pool.
-      // Same 5s hard timeout + silent local fallback as the session feed.
-      if (aiMode && process.env.ANTHROPIC_API_KEY && candidateIds.length >= 4) {
+      // AI-first: only when a full lineup of WAITERS exists — any 4 the AI
+      // picks from a waiters-only pool satisfies "waiters first". With fewer
+      // than 4 waiters the seating is rule-determined, so the AI is skipped
+      // (it cannot be trusted to seat every waiter). Same 5s hard timeout +
+      // silent local fallback as before.
+      const orderedWaiters = ordered.filter(c => c.kind === 'waiter');
+      if (aiMode && process.env.ANTHROPIC_API_KEY && orderedWaiters.length >= 4) {
         try {
-          const candidates = candidateIds.map(id => byId.get(id)!).filter(Boolean);
+          const candidates = orderedWaiters.slice(0, 8).map(c => c.player);
           const rests = candidates.map(p => getPlayerRestState(sessionId, p.id));
           const avgGames = rests.reduce((s, r) => s + (r.gamesThisSession || 0), 0) / (candidates.length || 1);
           const parsed = await requestClaudeMatchmaking({
@@ -1766,6 +1825,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         relaxed: relax && outsideBand.size > 0,
         fromAI,
         eligibleCount: inBand.length,
+        // Gate 4: pool composition for the strip's copy and the smokes.
+        waiterCount: rotationCandidates.filter(c => c.kind === 'waiter').length,
+        currentCount: rotationCandidates.filter(c => c.kind === 'current').length,
         options,
       });
     } catch (error) {
@@ -1815,14 +1877,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Eligibility: in queue, not sitting out, not on another open lineup.
-      // The court's own current queued row is excluded — it's being replaced.
-      const { findLineupConflicts, getPlayersOnOtherOpenSuggestions } = await import('./auto-matchmaking');
+      // Gate 4 court-scoped exemption: this court's OWN current players are
+      // pinnable for its next game (same-court repeats) — they count as
+      // seated-eligible, and none of this court's own rows (playing row,
+      // queued row being replaced) block them. Cross-court claims still 409.
+      const { findLineupConflicts, getPlayersOnOpenSuggestionsForOtherCourts } = await import('./auto-matchmaking');
       await ensureRestStatesHydrated(gameSession.id);
       const existingQueued = await storage.getQueuedSuggestionForCourt(court.id);
+      const ownCourtPlayers = await storage.getCourtPlayers(court.id);
       const conflicts = findLineupConflicts(playerIds, {
-        queueSet: new Set(await storage.getQueue(gameSession.id)),
+        queueSet: new Set([...(await storage.getQueue(gameSession.id)), ...ownCourtPlayers]),
         sittingOutSet: new Set(getSittingOutPlayers(gameSession.id)),
-        onOtherOpenSet: await getPlayersOnOtherOpenSuggestions(gameSession.id, existingQueued?.id ?? null, playerIds),
+        onOtherOpenSet: await getPlayersOnOpenSuggestionsForOtherCourts(gameSession.id, court.id, playerIds),
       });
       if (conflicts.length > 0) {
         return res.status(409).json({
@@ -1904,12 +1970,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "That player is already on this lineup" });
       }
 
-      const { findLineupConflicts, getPlayersOnOtherOpenSuggestions } = await import('./auto-matchmaking');
+      // Gate 4 court-scoped exemption (same as pin): the lineup's court may
+      // swap in its own current players; cross-court claims still 409.
+      const { findLineupConflicts, getPlayersOnOpenSuggestionsForOtherCourts } = await import('./auto-matchmaking');
       await ensureRestStatesHydrated(sessionId);
+      const ownCourtPlayers = await storage.getCourtPlayers(suggestion.courtId);
       const conflicts = findLineupConflicts([inPlayerId], {
-        queueSet: new Set(await storage.getQueue(sessionId)),
+        queueSet: new Set([...(await storage.getQueue(sessionId)), ...ownCourtPlayers]),
         sittingOutSet: new Set(getSittingOutPlayers(sessionId)),
-        onOtherOpenSet: await getPlayersOnOtherOpenSuggestions(sessionId, suggestionId, [inPlayerId]),
+        onOtherOpenSet: await getPlayersOnOpenSuggestionsForOtherCourts(sessionId, suggestion.courtId, [inPlayerId]),
       });
       if (conflicts.length > 0) {
         return res.status(409).json({ error: "That player can't join this lineup", conflicts });

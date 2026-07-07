@@ -175,7 +175,8 @@ async function getCourtsWithInFlightSuggestions(sessionId: string): Promise<Set<
 // 'queued' next-round lineups). Used by the queued orchestrator's pool
 // computation so a player who is named in one court's queued lineup can't
 // be double-assigned to another court's queued lineup in the same pass.
-async function getPlayersOnAnyOpenSuggestion(sessionId: string): Promise<Set<string>> {
+// Gate 4: exported for server-side cross-court dedupe (Fill-all planning).
+export async function getPlayersOnAnyOpenSuggestion(sessionId: string): Promise<Set<string>> {
   const rows = await db
     .select({ playerId: matchSuggestionPlayers.playerId })
     .from(matchSuggestionPlayers)
@@ -243,6 +244,31 @@ export async function getPlayersOnOtherOpenSuggestions(
       eq(matchSuggestions.sessionId, sessionId),
       inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
       ...(excludeSuggestionId ? [sql`${matchSuggestions.id} <> ${excludeSuggestionId}`] : []),
+      inArray(matchSuggestionPlayers.playerId, playerIds),
+    ));
+  return new Set(rows.map(r => r.playerId));
+}
+
+// Gate 4 (rotation planner) — court-scoped claim check: which of the given
+// players are named on a non-terminal suggestion belonging to ANY OTHER
+// court. A court's own rows (the 'playing' row of its running game, the
+// queued row being replaced) never block that court's own next lineup —
+// same-court repeats are legal. Cross-court semantics are untouched: a
+// player claimed by another court is still a conflict everywhere else.
+export async function getPlayersOnOpenSuggestionsForOtherCourts(
+  sessionId: string,
+  courtId: string,
+  playerIds: string[],
+): Promise<Set<string>> {
+  if (playerIds.length === 0) return new Set();
+  const rows = await db
+    .select({ playerId: matchSuggestionPlayers.playerId })
+    .from(matchSuggestionPlayers)
+    .innerJoin(matchSuggestions, eq(matchSuggestions.id, matchSuggestionPlayers.suggestionId))
+    .where(and(
+      eq(matchSuggestions.sessionId, sessionId),
+      inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
+      sql`${matchSuggestions.courtId} <> ${courtId}`,
       inArray(matchSuggestionPlayers.playerId, playerIds),
     ));
   return new Set(rows.map(r => r.playerId));
