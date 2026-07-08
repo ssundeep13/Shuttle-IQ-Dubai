@@ -166,6 +166,43 @@ describe('balance-first ranking (2026-07 ruling)', () => {
   });
 });
 
+describe('AI five-option set - prompt + recent pairings', () => {
+  it('buildLineupOptionsPrompt asks for exactly 5 distinct options with reasons, JSON-only', async () => {
+    const { buildLineupOptionsPrompt } = await import('../server/claude-matchmaking');
+    const profile = (name: string, score: number) => ({
+      name, score, tier: 'lower_intermediate', gender: 'male',
+      gamesThisSession: 1, gamesWaited: 2,
+      recentPartners: ['Someone'], recentOpponents: [],
+    });
+    const prompt = buildLineupOptionsPrompt([profile('Alpha', 90), profile('Beta', 80)]);
+    expect(prompt).toContain('exactly 5 ALTERNATIVE');
+    expect(prompt).toContain('Exactly 5 options, ranked best first');
+    expect(prompt).toContain('differ from every other option by at least one player OR a different team split');
+    expect(prompt).toContain('SKILL BALANCE');
+    expect(prompt).toContain('"reason"');
+    expect(prompt).toContain('Return ONLY this JSON');
+    expect(prompt).toContain('Alpha | score:90');
+    expect(prompt).toContain('recentPartners:[Someone]');
+  });
+
+  it('deriveRecentPairings: newest-first partners/opponents, deduped, max 3', async () => {
+    const { deriveRecentPairings } = await import('../server/rotation-planner');
+    const row = (gameId: string, playerId: string, team: number, createdAt: Date) =>
+      ({ gameId, playerId, team, skillScoreBefore: 80, skillScoreAfter: 82, createdAt } as any);
+    const t2 = new Date('2026-07-08T11:00:00Z'); // newest game first (storage orders desc)
+    const t1 = new Date('2026-07-08T10:00:00Z');
+    const history = [
+      // game g2 (newest): a+b vs c+d
+      row('g2', 'a', 1, t2), row('g2', 'b', 1, t2), row('g2', 'c', 2, t2), row('g2', 'd', 2, t2),
+      // game g1 (older): a+c vs b+e
+      row('g1', 'a', 1, t1), row('g1', 'c', 1, t1), row('g1', 'b', 2, t1), row('g1', 'e', 2, t1),
+    ];
+    const map = deriveRecentPairings(history);
+    expect(map.get('a')).toEqual({ partnerIds: ['b', 'c'], opponentIds: ['c', 'd', 'b'] });
+    expect(map.get('e')).toEqual({ partnerIds: ['b'], opponentIds: ['a', 'c'] });
+  });
+});
+
 describe('pairingKey + pickArrangement - the identical-repeat guard', () => {
   it('pairingKey is insensitive to team order and within-team order', async () => {
     const { pairingKey } = await import('../server/rotation-planner');

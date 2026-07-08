@@ -64,6 +64,7 @@ import {
   pairingKey,
   pickArrangement,
   rankByBalance,
+  deriveRecentPairings,
   FAIR_GAME_GAP,
   type RotationCandidate,
 } from "./rotation-planner";
@@ -117,7 +118,7 @@ function applyTierBuffer(
 }
 
 import { completeReferral, linkReferralPostSignup } from "./referrals";
-import { requestClaudeMatchmaking } from "./claude-matchmaking";
+import { requestClaudeMatchmaking, requestClaudeLineupOptions } from "./claude-matchmaking";
 export { completeReferral };
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1752,7 +1753,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       const seatings = buildRotationSeatings(ordered);
 
-      type Option = { team1: any[]; team2: any[]; skillGap: number; team1Avg: number; team2Avg: number };
+      type Option = {
+        team1: any[]; team2: any[]; skillGap: number; team1Avg: number; team2Avg: number;
+        uneven: boolean; fromAI?: boolean; reason?: string;
+      };
       const playerOut = (p: any) => ({
         id: p.id,
         name: p.name,
@@ -1764,12 +1768,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const toOption = (team1: any[], team2: any[]): Option => {
         const avg = (t: any[]) => t.reduce((s, p) => s + (p.skillScore ?? 90), 0) / (t.length || 1);
         const a1 = avg(team1), a2 = avg(team2);
+        const gap = Math.round(Math.abs(a1 - a2) * 10) / 10;
         return {
           team1: team1.map(playerOut),
           team2: team2.map(playerOut),
-          skillGap: Math.round(Math.abs(a1 - a2) * 10) / 10,
+          skillGap: gap,
           team1Avg: Math.round(a1),
           team2Avg: Math.round(a2),
+          uneven: gap > FAIR_GAME_GAP,
         };
       };
       // Each rotation-legal seating arranged for balance (3 permutations,
@@ -1798,48 +1804,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map(c => toOption(c.team1, c.team2));
       let fromAI = false;
 
-      // AI-first: only when a full lineup of WAITERS exists — any 4 the AI
-      // picks from a waiters-only pool satisfies "waiters first". With fewer
-      // than 4 waiters the seating is rule-determined, so the AI is skipped
-      // (it cannot be trusted to seat every waiter). Same 5s hard timeout +
-      // silent local fallback as before.
+      // AI five-option set (2026-07 gate): ONE call returns the full ladder.
+      // Only when a full lineup of WAITERS exists — the AI pool is the
+      // waiters-only rotation window, so every option satisfies "waiters
+      // first" by construction, and band filtering already shaped the pool.
+      // With fewer than 4 waiters the seating is rule-determined and the AI
+      // is skipped. 10s hard timeout. Every option is validated (pool
+      // membership, 4 distinct players, distinct pairings, identical-repeat
+      // guard); invalid ones are dropped and backfilled from the local
+      // ladder. Total failure/timeout → the local ladder stands untouched.
       const orderedWaiters = ordered.filter(c => c.kind === 'waiter');
       if (aiMode && process.env.ANTHROPIC_API_KEY && orderedWaiters.length >= 4) {
         try {
-          const candidates = orderedWaiters.slice(0, 8).map(c => c.player);
-          const rests = candidates.map(p => getPlayerRestState(sessionId, p.id));
-          const avgGames = rests.reduce((s, r) => s + (r.gamesThisSession || 0), 0) / (candidates.length || 1);
-          const parsed = await requestClaudeMatchmaking({
-            availableCourts: 1,
-            avgGames: Math.round(avgGames * 10) / 10,
-            players: candidates.map(p => {
-              const rs = getPlayerRestState(sessionId, p.id);
-              return {
-                name: p.name,
-                score: p.skillScore || 90,
-                tier: p.level || 'lower_intermediate',
-                gender: p.gender || 'male',
-                gamesThisSession: rs.gamesThisSession || 0,
-                gamesWaited: rs.gamesWaited || 0,
-              };
-            }),
+          const candidates = orderedWaiters.slice(0, 10).map(c => c.player);
+          const recentPairings = deriveRecentPairings(history);
+          const nameOfId = (id: string) => byId.get(id)?.name ?? '';
+          const profiles = candidates.map(p => {
+            const rs = getPlayerRestState(sessionId, p.id);
+            const rp = recentPairings.get(p.id);
+            return {
+              name: p.name,
+              score: p.skillScore || 90,
+              tier: p.level || 'lower_intermediate',
+              gender: p.gender || 'male',
+              gamesThisSession: rs.gamesThisSession || 0,
+              gamesWaited: rs.gamesWaited || 0,
+              recentPartners: (rp?.partnerIds ?? []).map(nameOfId).filter(Boolean),
+              recentOpponents: (rp?.opponentIds ?? []).map(nameOfId).filter(Boolean),
+            };
           });
-          const sug = parsed.suggestions[0];
-          if (!sug) throw new Error('AI returned no suggestion');
+          const aiStart = Date.now();
+          const parsed = await requestClaudeLineupOptions(profiles, { timeoutMs: 10_000 });
+          const aiMs = Date.now() - aiStart;
+
           const candidateByNameLower = new Map(candidates.map(p => [p.name.toLowerCase(), p]));
-          const resolve = (team: { name: string }[]) => team.map(raw => {
-            const found = candidateByNameLower.get(raw.name.toLowerCase());
-            // The AI must never smuggle in a player outside the pool we gave it.
-            if (!found) throw new Error(`AI named a player outside the candidate pool: "${raw.name}"`);
-            return found;
-          });
-          const aiTeam1 = resolve(sug.team1);
-          const aiTeam2 = resolve(sug.team2);
-          const aiOption = toOption(aiTeam1, aiTeam2);
-          const setKey = (o: Option) => [...o.team1, ...o.team2].map((p: any) => p.id).sort().join('|');
-          const aiKey = setKey(aiOption);
-          options = [aiOption, ...options.filter(o => setKey(o) !== aiKey)];
-          fromAI = true;
+          const seenPairings = new Set<string>();
+          const aiOptions: Option[] = [];
+          let dropped = 0;
+          for (const raw of (parsed.options ?? []).slice(0, 5)) {
+            try {
+              const resolve = (team: Array<{ name: string }>) => (team ?? []).map(r => {
+                const found = candidateByNameLower.get((r?.name ?? '').toLowerCase());
+                // The AI must never smuggle in a player outside the pool we gave it.
+                if (!found) throw new Error(`outside pool: "${r?.name}"`);
+                return found;
+              });
+              const t1 = resolve(raw.team1);
+              const t2 = resolve(raw.team2);
+              if (t1.length !== 2 || t2.length !== 2 ||
+                  new Set([...t1, ...t2].map(p => p.id)).size !== 4) {
+                throw new Error('not 4 distinct players');
+              }
+              const key = pairingKey(t1.map(p => p.id), t2.map(p => p.id));
+              if (seenPairings.has(key)) throw new Error('duplicate pairing');
+              if (currentPairing && key === currentPairing) throw new Error('identical to current game');
+              seenPairings.add(key);
+              aiOptions.push({
+                ...toOption(t1, t2),
+                fromAI: true,
+                ...(raw.reason ? { reason: String(raw.reason).slice(0, 80) } : {}),
+              });
+            } catch (optErr) {
+              dropped++;
+              console.log(`[court-suggestions] court=${court.id} AI option dropped: ${optErr instanceof Error ? optErr.message : optErr}`);
+            }
+          }
+          if (aiOptions.length > 0) {
+            const keyOfOption = (o: Option) =>
+              pairingKey(o.team1.map((p: any) => p.id), o.team2.map((p: any) => p.id));
+            const backfill = options
+              .filter(o => !seenPairings.has(keyOfOption(o)))
+              .slice(0, Math.max(0, 5 - aiOptions.length))
+              .map(o => ({ ...o, fromAI: false }));
+            // Display order is gap-ascending regardless of the AI's own
+            // ranking — fairest game first (stable: AI order breaks ties).
+            options = rankByBalance([...aiOptions, ...backfill]).slice(0, 5);
+            fromAI = true;
+            console.log(`[court-suggestions] court=${court.id} AI set: ${aiOptions.length}/5 valid in ${aiMs}ms (${dropped} dropped, ${backfill.length} local backfill)`);
+          } else {
+            console.log(`[court-suggestions] court=${court.id} AI set: 0 valid options in ${aiMs}ms — full local fallback`);
+          }
         } catch (aiErr) {
           // Silent local fallback — the ranked list above already stands.
           console.log(`[court-suggestions] court=${court.id} AI fallback: ${aiErr instanceof Error ? aiErr.message : aiErr}`);

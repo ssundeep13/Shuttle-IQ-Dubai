@@ -68,6 +68,41 @@ export function orderRotationCandidates(
   return [...w, ...c];
 }
 
+// Recent partners/opponents per player from the participants join rows
+// (newest first, max 3 each) — feeds the AI lineup-options prompt so it can
+// prefer fresh pairings. Pure; rows arrive ordered newest-first already
+// (storage.getSessionGameParticipants orders desc by createdAt).
+export function deriveRecentPairings(
+  history: Array<GameParticipant & { createdAt: Date }>,
+): Map<string, { partnerIds: string[]; opponentIds: string[] }> {
+  const byGame = new Map<string, Array<GameParticipant & { createdAt: Date }>>();
+  const gameOrder: string[] = []; // newest first, insertion order of the rows
+  for (const row of history) {
+    if (!byGame.has(row.gameId)) {
+      byGame.set(row.gameId, []);
+      gameOrder.push(row.gameId);
+    }
+    byGame.get(row.gameId)!.push(row);
+  }
+  const out = new Map<string, { partnerIds: string[]; opponentIds: string[] }>();
+  const add = (list: string[], id: string) => {
+    if (list.length < 3 && !list.includes(id)) list.push(id);
+  };
+  for (const gameId of gameOrder) {
+    const rows = byGame.get(gameId)!;
+    for (const row of rows) {
+      if (!out.has(row.playerId)) out.set(row.playerId, { partnerIds: [], opponentIds: [] });
+      const entry = out.get(row.playerId)!;
+      for (const other of rows) {
+        if (other.playerId === row.playerId) continue;
+        if (other.team === row.team) add(entry.partnerIds, other.playerId);
+        else add(entry.opponentIds, other.playerId);
+      }
+    }
+  }
+  return out;
+}
+
 // Order-insensitive identity of a 2v2 pairing: same four players in the
 // same team split → same key, regardless of team order or within-team order.
 export function pairingKey(team1Ids: string[], team2Ids: string[]): string {

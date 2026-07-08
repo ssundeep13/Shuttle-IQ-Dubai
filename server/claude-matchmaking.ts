@@ -294,6 +294,124 @@ Return ONLY this JSON, no markdown, no commentary:
 }`;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// FIVE-OPTION LINEUP SET (per-court Up Next, 2026-07 gate).
+// One call returns 5 ranked ALTERNATIVE lineups for a single court from a
+// pre-filtered eligible pool (waiters-first + band filtering happen before
+// this call — the AI only ever sees eligible players). The server validates
+// every option (pool membership, distinct pairings) and backfills dropped
+// ones from the local ladder.
+// Model string is deliberately still hardcoded (env-var move deferred).
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface LineupOptionsResponse {
+  options: Array<{
+    team1: { name: string }[];
+    team2: { name: string }[];
+    reason?: string;
+  }>;
+}
+
+export function buildLineupOptionsPrompt(players: PlayerFlowPlayerProfile[]): string {
+  const playerLines = players
+    .slice()
+    .sort((a, b) => b.score - a.score)
+    .map(p => {
+      const partners = p.recentPartners.length > 0 ? p.recentPartners.join(', ') : '(none)';
+      const opponents = p.recentOpponents.length > 0 ? p.recentOpponents.join(', ') : '(none)';
+      return (
+        `${p.name} | score:${p.score} | tier:${p.tier} | gender:${p.gender} | ` +
+        `gamesThisSession:${p.gamesThisSession} | gamesWaited:${p.gamesWaited} | ` +
+        `recentPartners:[${partners}] | recentOpponents:[${opponents}]`
+      );
+    })
+    .join('\n');
+
+  return `You are the matchmaking engine for ShuttleIQ Dubai.
+Produce exactly 5 ALTERNATIVE 2v2 badminton lineups for ONE court from the
+eligible players below. The options are alternatives for the same next game,
+so a player may appear in more than one option.
+
+PRINCIPLES (sorted most to least important — never sacrifice a higher principle for a lower one):
+1. SKILL BALANCE — minimise the gap between Team 1's average score and Team 2's average score. Aim for a gap of 0. A gap above 10 is only acceptable when no smaller-gap split exists.
+2. FRESH PARTNERS — avoid pairing a player with anyone in their "recentPartners" list. Repeating is allowed only when every alternative has a worse skill gap.
+3. FRESH OPPONENTS — avoid putting a player against someone in their "recentOpponents" list. Same tiebreak rule as principle 2.
+4. MIXED GENDER — when the principles above leave more than one acceptable split, prefer one male and one female per team. Never force this.
+5. WAIT FAIRNESS — all else tied, prefer lineups including the players with the highest "gamesWaited".
+6. TIER — never put two players whose tiers are two steps apart on the same team unless no alternative exists. Tier order: Novice < Beginner < lower_intermediate < upper_intermediate < Advanced < Professional.
+
+VARIETY RULES:
+- Exactly 5 options, ranked best first.
+- Every option must differ from every other option by at least one player OR a different team split of the same four.
+- Prefer covering DIFFERENT eligible players across the 5 options over reshuffling the same four, when balance allows.
+
+PLAYERS (sorted by score, descending):
+${playerLines}
+
+OUTPUT RULES:
+- Each option's team1 + team2 contains exactly 4 distinct players (2 per team).
+- Use ONLY the exact names from the list (case-sensitive).
+- "reason": one short phrase, max 10 words, why this option (e.g. "fairest gap", "fresh pairings all round", "gets the longest waiters on").
+
+Return ONLY this JSON, no markdown, no commentary:
+{
+  "options": [
+    {
+      "team1": [{"name": ""}, {"name": ""}],
+      "team2": [{"name": ""}, {"name": ""}],
+      "reason": ""
+    }
+  ]
+}`;
+}
+
+export async function requestClaudeLineupOptions(
+  players: PlayerFlowPlayerProfile[],
+  options?: { timeoutMs?: number },
+): Promise<LineupOptionsResponse> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY not set');
+  }
+
+  const timeoutMs = options?.timeoutMs ?? 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: buildLineupOptionsPrompt(players) }],
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Anthropic API error: ${response.status}`);
+  }
+
+  const data = (await response.json()) as { content: { text: string }[] };
+  const rawText = data.content[0].text.replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(rawText) as LineupOptionsResponse;
+
+  if (!Array.isArray(parsed.options) || parsed.options.length === 0) {
+    throw new Error('AI response missing options array');
+  }
+  return parsed;
+}
+
 export async function requestPlayerFlowMatchmaking(
   players: PlayerFlowPlayerProfile[],
   courtRequests: PlayerFlowCourtRequest[],

@@ -41,7 +41,10 @@ type QueuedSuggestion = {
 // Shape of GET /api/courts/:courtId/suggestions (court bands Gate 2;
 // rotation planner Gate 4 adds inGame + waiter/current counts)
 type SuggestionPlayer = { id: string; name: string; level: string; skillScore: number; outsideBand: boolean; inGame?: boolean };
-type SuggestionOption = { team1: SuggestionPlayer[]; team2: SuggestionPlayer[]; skillGap: number; team1Avg: number; team2Avg: number };
+type SuggestionOption = {
+  team1: SuggestionPlayer[]; team2: SuggestionPlayer[]; skillGap: number; team1Avg: number; team2Avg: number;
+  uneven?: boolean; fromAI?: boolean; reason?: string;
+};
 type CourtSuggestionsResponse = {
   band: string;
   insufficientEligible?: boolean;
@@ -140,7 +143,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   // the key, so toggling AI (session-wide) or asking for nearest-tier players
   // triggers a fresh generation; a plain queue change does NOT (Regenerate is
   // the explicit refresh — keeps AI spend deliberate).
-  const { data: sug, isFetching: sugLoading, refetch: refetchSuggestion } = useQuery<CourtSuggestionsResponse>({
+  const { data: sugPrimary, isFetching: sugLoading, refetch: refetchSuggestion } = useQuery<CourtSuggestionsResponse>({
     queryKey: ["/api/courts", court.id, "suggestions", { aiMode: aiModeEnabled, relax }],
     queryFn: async () => {
       const res = await fetch(
@@ -154,6 +157,25 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
+
+  // AI five-option gate: the AI set can take up to 10s. A FREE court must be
+  // actionable NOW — a fast local ladder renders immediately and the AI set
+  // replaces it when it lands (the sug swap below resets cycling state).
+  const { data: sugInstant } = useQuery<CourtSuggestionsResponse>({
+    queryKey: ["/api/courts", court.id, "suggestions", { aiMode: false, relax, instant: true }],
+    queryFn: async () => {
+      const res = await fetch(
+        apiUrl(`/api/courts/${court.id}/suggestions?aiMode=false&relax_band=${relax}`),
+        { headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` } },
+      );
+      if (!res.ok) throw new Error("Failed to generate suggestion");
+      return res.json();
+    },
+    enabled: needSuggestion && !isOccupied && aiModeEnabled,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+  const sug = sugPrimary ?? (!isOccupied && aiModeEnabled ? sugInstant : undefined);
 
   // New data ⇒ drop local edits and show the top option again.
   useEffect(() => {
@@ -556,12 +578,12 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     );
   }
 
-  if (sugLoading || !sug) {
+  if (!sug) {
     return (
       <div className="mt-1 flex items-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2" data-testid={`strip-up-next-${court.id}`}>
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Up next</span>
         <span className="text-xs text-muted-foreground flex-1" data-testid={`text-up-next-preparing-${court.id}`}>
-          Preparing next lineup…
+          Finding best matches…
         </span>
       </div>
     );
@@ -617,7 +639,8 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   const baseOption = options[optionIdx % options.length];
   const current = composed ?? { team1: baseOption.team1, team2: baseOption.team2 };
   const gap = gapOf(current.team1, current.team2);
-  const showAITag = !!sug.fromAI && optionIdx % options.length === 0;
+  // Per-option AI badge: backfilled locals in a merged set carry no badge.
+  const showAITag = !composed && !!baseOption.fromAI;
 
   const lineupIds = new Set([...current.team1, ...current.team2].map((p) => p.id));
   const onAnySuggestion = new Set(suggestions.flatMap((s) => s.players.map((p) => p.playerId)));
@@ -709,12 +732,25 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             Nearest tier
           </Badge>
         )}
-        {sug.uneven && (
+        {!composed && (baseOption.uneven ?? sug.uneven) && (
           <span
             className="text-xs text-muted-foreground shrink-0"
             data-testid={`text-up-next-uneven-${court.id}`}
           >
             Best available — teams uneven
+          </span>
+        )}
+        {!composed && baseOption.reason && (
+          <span
+            className="text-xs text-muted-foreground truncate"
+            data-testid={`text-up-next-reason-${court.id}`}
+          >
+            {baseOption.reason}
+          </span>
+        )}
+        {sugLoading && (
+          <span className="text-xs text-muted-foreground shrink-0 animate-pulse">
+            Finding best matches…
           </span>
         )}
       </div>
@@ -767,8 +803,10 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           disabled={sugLoading}
           onClick={() => {
             if (composed) { setComposed(null); return; }
-            if (options.length > 1) setOptionIdx((i) => (i + 1) % options.length);
-            else refetchSuggestion();
+            // Cycle the merged ladder; when exhausted, refetch — which may
+            // fire a fresh AI call (one per exhaust, see gate report).
+            if (optionIdx + 1 < options.length) setOptionIdx(optionIdx + 1);
+            else { setOptionIdx(0); refetchSuggestion(); }
           }}
           data-testid={`button-up-next-regenerate-${court.id}`}
         >
