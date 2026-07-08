@@ -536,17 +536,16 @@ export function findBalancedTeams(
   const validArrangements = combinations.filter(c => c.crossTierPenalty === 0);
   const workingSet = validArrangements.length > 0 ? validArrangements : combinations;
 
+  // Balance-first (2026-07 ruling): skill gap is THE primary criterion —
+  // tier grouping is a secondary preference, never above an even game.
   workingSet.sort((a, b) => {
+    if (Math.abs(a.skillGap - b.skillGap) >= 0.01) return a.skillGap - b.skillGap;
     if (groupByTier) {
       const tierDiff = a.tierDispersion - b.tierDispersion;
       if (tierDiff !== 0) return tierDiff;
     }
-    // Primary: skill gap
-    if (Math.abs(a.skillGap - b.skillGap) >= 0.01) return a.skillGap - b.skillGap;
-    // Tie-break: split penalty (partner repetition)
     const penaltyDiff = a.splitPenalty - b.splitPenalty;
     if (penaltyDiff !== 0) return penaltyDiff;
-    // Final tie-break: within-team variance
     return a.variance - b.variance;
   });
 
@@ -805,12 +804,13 @@ export function generateBracketedLineups(
       if (!best) {
         best = combo;
       } else {
+        // Balance-first (2026-07 ruling): gap → tier → equity → split → variance
         const beats =
-          combo.tierDispersion < best.tierDispersion ||
-          (combo.tierDispersion === best.tierDispersion && combo.skillGap < best.skillGap - 0.01) ||
-          (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank < best.equityRank) ||
-          (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty < best.splitPenalty) ||
-          (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty === best.splitPenalty && combo.variance < best.variance);
+          combo.skillGap < best.skillGap - 0.01 ||
+          (Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.tierDispersion < best.tierDispersion) ||
+          (Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.tierDispersion === best.tierDispersion && combo.equityRank < best.equityRank) ||
+          (Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.tierDispersion === best.tierDispersion && combo.equityRank === best.equityRank && combo.splitPenalty < best.splitPenalty) ||
+          (Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.tierDispersion === best.tierDispersion && combo.equityRank === best.equityRank && combo.splitPenalty === best.splitPenalty && combo.variance < best.variance);
         if (beats) best = combo;
       }
     }
@@ -1006,14 +1006,17 @@ export function generateAllMatchupOptions(
     const sets: Player[][] = [];
     const n = pool.length;
     if (n < 4) return [];
-    const limit = Math.min(n, 10);
+    // Widened (2026-07): the old first-10 window with a 20-set cap discarded
+    // better-balanced combinations before the ranking ever scored them.
+    // C(12,4)=495 sets × 3 permutations is still trivial to evaluate.
+    const limit = Math.min(n, 12);
 
     for (let i = 0; i < limit; i++) {
       for (let j = i + 1; j < limit; j++) {
         for (let k = j + 1; k < limit; k++) {
           for (let l = k + 1; l < limit; l++) {
             sets.push([pool[i].player, pool[j].player, pool[k].player, pool[l].player]);
-            if (sets.length >= 20) return sets;
+            if (sets.length >= 495) return sets;
           }
         }
       }
@@ -1056,13 +1059,13 @@ export function generateAllMatchupOptions(
         if (!best) {
           best = combo;
         } else {
-          // 5-factor: tierDispersion → skillGap → equityRank → splitPenalty → variance
+          // Balance-first 5-factor (2026-07 ruling): skillGap → tierDispersion → equityRank → splitPenalty → variance
           const beats =
-            combo.tierDispersion < best.tierDispersion ||
-            (combo.tierDispersion === best.tierDispersion && combo.skillGap < best.skillGap - 0.01) ||
-            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank < best.equityRank) ||
-            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty < best.splitPenalty) ||
-            (combo.tierDispersion === best.tierDispersion && Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.equityRank === best.equityRank && combo.splitPenalty === best.splitPenalty && combo.variance < best.variance);
+            combo.skillGap < best.skillGap - 0.01 ||
+            (Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.tierDispersion < best.tierDispersion) ||
+            (Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.tierDispersion === best.tierDispersion && combo.equityRank < best.equityRank) ||
+            (Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.tierDispersion === best.tierDispersion && combo.equityRank === best.equityRank && combo.splitPenalty < best.splitPenalty) ||
+            (Math.abs(combo.skillGap - best.skillGap) < 0.01 && combo.tierDispersion === best.tierDispersion && combo.equityRank === best.equityRank && combo.splitPenalty === best.splitPenalty && combo.variance < best.variance);
           if (beats) best = combo;
         }
       }
@@ -1085,11 +1088,13 @@ export function generateAllMatchupOptions(
   const playerSets = generatePlayerSets(candidatePool);
   const combinations = buildCombinations(playerSets);
 
-  // ── Step 6: 5-factor final sort ───────────────────────────────────────────────────
+  // ── Step 6: balance-first 5-factor final sort (2026-07 ruling) ──────────────────
+  // skillGap → tierDispersion → equityRank → splitPenalty → variance:
+  // an even game beats a tier-pure-but-lopsided one, always.
   combinations.sort((a, b) => {
+    if (Math.abs(a.skillGap - b.skillGap) >= 0.01) return a.skillGap - b.skillGap;
     const tierDiff = a.tierDispersion - b.tierDispersion;
     if (tierDiff !== 0) return tierDiff;
-    if (Math.abs(a.skillGap - b.skillGap) >= 0.01) return a.skillGap - b.skillGap;
     const eqDiff = a.equityRank - b.equityRank;
     if (eqDiff !== 0) return eqDiff;
     const penDiff = a.splitPenalty - b.splitPenalty;

@@ -1513,7 +1513,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCourtsBySession(sessionId: string): Promise<Court[]> {
-    return await db.select().from(courts).where(eq(courts.sessionId, sessionId));
+    // Fixed court order (2026-07 ruling): without ORDER BY, Postgres heap
+    // order shifts on every status UPDATE and the page reshuffles under the
+    // captain. length(name) before name sorts "Court 2" < "Court 10".
+    return await db.select().from(courts)
+      .where(eq(courts.sessionId, sessionId))
+      .orderBy(sql`length(${courts.name})`, asc(courts.name));
   }
 
   async createCourt(insertCourt: InsertCourt): Promise<Court> {

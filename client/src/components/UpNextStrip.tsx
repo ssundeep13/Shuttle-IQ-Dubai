@@ -50,6 +50,7 @@ type CourtSuggestionsResponse = {
   fromAI?: boolean;
   waiterCount?: number;
   currentCount?: number;
+  uneven?: boolean; // best available option exceeds the fair-game gap
   options?: SuggestionOption[];
 };
 
@@ -707,6 +708,14 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
             Nearest tier
           </Badge>
+        )}
+        {sug.uneven && (
+          <span
+            className="text-xs text-muted-foreground shrink-0"
+            data-testid={`text-up-next-uneven-${court.id}`}
+          >
+            Best available — teams uneven
+          </span>
         )}
       </div>
 

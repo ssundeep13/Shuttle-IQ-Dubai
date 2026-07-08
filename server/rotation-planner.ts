@@ -110,26 +110,40 @@ function kCombinationsLex<T>(items: T[], k: number, cap: number): T[][] {
 
 // Enumerate rotation-legal seatings (4 candidates each) from the ordered
 // list. Invariants:
-//   - waiters >= 4  → every seating is ALL waiters (window: top 8 waiters);
+//   - waiters >= 4  → every seating is ALL waiters (window: top 10 waiters);
 //     seating #1 is the strict rotation pick (top-4 of the order).
 //   - waiters < 4   → every seating contains ALL waiters; the remaining
 //     slots enumerate current players in rotation order (window: top 8).
-// Alternates exist for the Regenerate cycle; they never demote a waiter in
-// favour of a current player.
-export function buildRotationSeatings(
-  ordered: RotationCandidate[],
-  maxOptions: number = 6,
-): RotationCandidate[][] {
+// The FULL window is enumerated (C(10,4)=210 worst case — cheap): capping
+// during enumeration was discarding better-balanced combinations before the
+// ranking ever scored them. Rotation decides WHO is in the window; the
+// caller ranks the arranged seatings by balance (rankByBalance) and caps
+// what it returns to the UI.
+export function buildRotationSeatings(ordered: RotationCandidate[]): RotationCandidate[][] {
   if (ordered.length < 4) return [];
   const waiterCount = ordered.filter(c => c.kind === 'waiter').length;
 
   if (waiterCount >= 4) {
-    const window = ordered.slice(0, Math.min(8, waiterCount));
-    return kCombinationsLex(window, 4, maxOptions);
+    const window = ordered.slice(0, Math.min(10, waiterCount));
+    return kCombinationsLex(window, 4, Number.MAX_SAFE_INTEGER);
   }
 
   const waiters = ordered.slice(0, waiterCount);
   const fillWindow = ordered.slice(waiterCount, waiterCount + 8);
-  const fills = kCombinationsLex(fillWindow, 4 - waiterCount, maxOptions);
+  const fills = kCombinationsLex(fillWindow, 4 - waiterCount, Number.MAX_SAFE_INTEGER);
   return fills.map(f => [...waiters, ...f]);
+}
+
+// A fair game: team averages within this many skill points. Derived from
+// the live tier geometry — tiers are 30-50 points wide, and observed gaps
+// cluster <5 for good games; >8 is more than a fifth of a tier apart and
+// reads lopsided on court. Above it the UI shows "best available — teams
+// uneven" instead of presenting the option as a good match.
+export const FAIR_GAME_GAP = 8;
+
+// Balance-first option ranking (owner ruling): among rotation-legal
+// seatings, the lowest skill gap wins. Stable sort — equal gaps keep
+// rotation order, so fairness still breaks balance ties.
+export function rankByBalance<T extends { skillGap: number }>(arranged: T[]): T[] {
+  return [...arranged].sort((a, b) => a.skillGap - b.skillGap);
 }

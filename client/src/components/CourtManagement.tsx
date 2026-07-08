@@ -18,8 +18,15 @@ interface CourtManagementProps {
   onCancelGame: (courtId: string) => void;
 }
 
+// Fixed court order: cards NEVER move — status changes card contents, not
+// card position. Server orders too; this is the belt-and-braces.
+function courtNumber(name: string): number {
+  const n = parseInt(name.replace(/\D+/g, ""), 10);
+  return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n;
+}
+
 export function CourtManagement({
-  courts,
+  courts: courtsProp,
   queuePlayers,
   isSandboxSession,
   aiModeEnabled,
@@ -32,6 +39,9 @@ export function CourtManagement({
   onEndGame,
   onCancelGame,
 }: CourtManagementProps) {
+  const courts = [...courtsProp].sort(
+    (a, b) => courtNumber(a.name) - courtNumber(b.name) || a.name.localeCompare(b.name),
+  );
   const lastCourt = courts[courts.length - 1];
   const canRemoveLastCourt = courts.length > 1 && lastCourt?.status === "available";
 

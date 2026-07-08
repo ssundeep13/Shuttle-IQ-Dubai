@@ -63,6 +63,8 @@ import {
   buildRotationSeatings,
   pairingKey,
   pickArrangement,
+  rankByBalance,
+  FAIR_GAME_GAP,
   type RotationCandidate,
 } from "./rotation-planner";
 import { registerMarketplaceRoutes } from "./marketplace-routes";
@@ -1748,7 +1750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         rotationCandidates.filter(c => c.kind === 'waiter'),
         rotationCandidates.filter(c => c.kind === 'current'),
       );
-      const seatings = buildRotationSeatings(ordered, 6);
+      const seatings = buildRotationSeatings(ordered);
 
       type Option = { team1: any[]; team2: any[]; skillGap: number; team1Avg: number; team2Avg: number };
       const playerOut = (p: any) => ({
@@ -1783,9 +1785,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             currentTeams.filter(cp => cp.team === 2).map(cp => cp.playerId),
           )
         : null;
-      let options: Option[] = seatings
+      // Balance-first ranking (2026-07 ruling): every rotation-legal seating
+      // in the window is arranged, then the OPTIONS are ranked by skill gap
+      // — rotation decides who is eligible, balance decides the best game.
+      // Stable sort: equal gaps keep rotation order. Cap AFTER ranking, so
+      // the cap can never hide a better-balanced combination.
+      const arranged = seatings
         .map(seat => pickArrangement(findBalancedTeams(seat.map(c => c.player), 3, true, sessionId), currentPairing))
-        .filter((c): c is TeamCombination => !!c)
+        .filter((c): c is TeamCombination => !!c);
+      let options: Option[] = rankByBalance(arranged)
+        .slice(0, 6)
         .map(c => toOption(c.team1, c.team2));
       let fromAI = false;
 
@@ -1845,6 +1854,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Gate 4: pool composition for the strip's copy and the smokes.
         waiterCount: rotationCandidates.filter(c => c.kind === 'waiter').length,
         currentCount: rotationCandidates.filter(c => c.kind === 'current').length,
+        // Fair-game mark: the best available option is still uneven — the
+        // UI shows "best available — teams uneven" instead of presenting
+        // it as a good match.
+        uneven: (options[0]?.skillGap ?? 0) > FAIR_GAME_GAP,
+        fairGapThreshold: FAIR_GAME_GAP,
         options,
       });
     } catch (error) {
