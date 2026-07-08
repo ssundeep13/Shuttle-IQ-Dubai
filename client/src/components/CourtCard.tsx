@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Clock, X, Trophy, Users } from "lucide-react";
 import { CourtWithPlayers, Player } from "@shared/schema";
@@ -33,8 +33,7 @@ interface CourtCardProps {
   onRemoveCourt: (courtId: string) => void;
   onTogglePlayerSelection: (playerId: string, team: number) => void;
   onAssignPlayers: (courtId: string) => void;
-  onSelectWinningTeam: (courtId: string, teamNumber: number) => void;
-  onEndGame: (courtId: string) => void;
+  onRecordGame: (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => void;
   onCancelGame: (courtId: string) => void;
 }
 
@@ -222,13 +221,26 @@ export function CourtCard({
   onRemoveCourt,
   onTogglePlayerSelection,
   onAssignPlayers,
-  onSelectWinningTeam,
-  onEndGame,
+  onRecordGame,
   onCancelGame,
 }: CourtCardProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [bandPickerOpen, setBandPickerOpen] = useState(false);
+  // Hot-path score entry: winner tap opens the inline panel; all state is
+  // card-local (no interim server writes) until the single Record tap.
+  const [scoringTeam, setScoringTeam] = useState<1 | 2 | null>(null);
+  const [winnerScore, setWinnerScore] = useState(21);
+  const [loserScore, setLoserScore] = useState(15);
   const { toast } = useToast();
+
+  // Court freed (game recorded/cancelled elsewhere) → drop the score panel.
+  useEffect(() => {
+    if (court.status === "available") {
+      setScoringTeam(null);
+      setWinnerScore(21);
+      setLoserScore(15);
+    }
+  }, [court.status]);
 
   // Court bands Gate 3: pick a band → PATCH → collapse → fresh suggestion
   // (the courts list refetch carries the new band into the strip's query key
@@ -444,7 +456,7 @@ export function CourtCard({
               <div
                 className={cn(
                   "rounded-xl border-2 p-3 transition-colors",
-                  court.winningTeam === 1
+                  scoringTeam === 1
                     ? "bg-emerald-50 border-emerald-400"
                     : "bg-primary/5 border-primary/20",
                 )}
@@ -471,7 +483,7 @@ export function CourtCard({
               <div
                 className={cn(
                   "rounded-xl border-2 p-3 transition-colors",
-                  court.winningTeam === 2
+                  scoringTeam === 2
                     ? "bg-emerald-50 border-emerald-400"
                     : "bg-secondary/5 border-secondary/20",
                 )}
@@ -488,60 +500,115 @@ export function CourtCard({
               </div>
             </div>
 
-            {/* Cancel Game */}
-            <Button
-              onClick={() => onCancelGame(court.id)}
-              variant="outline"
-              className="w-full min-h-11 border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400"
-              data-testid={`button-cancel-game-${court.id}`}
-            >
-              <X className="w-4 h-4 mr-2" />
-              Cancel Game (No Record)
-            </Button>
-
-            {/* Winner selection */}
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground text-center font-medium uppercase tracking-wide">
-                Select Winner
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {[1, 2].map((team) => (
-                  <Button
-                    key={team}
-                    onClick={() => onSelectWinningTeam(court.id, team)}
-                    variant={court.winningTeam === team ? "default" : "outline"}
-                    className={cn(
-                      "min-h-11",
-                      court.winningTeam === team &&
-                        "bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white",
-                    )}
-                    data-testid={`button-select-team-${team}-${court.id}`}
-                  >
-                    {court.winningTeam === team ? (
-                      <>
-                        <Trophy className="w-4 h-4 mr-2" />
-                        Team {team} Wins
-                      </>
-                    ) : (
-                      `Team ${team}`
-                    )}
-                  </Button>
-                ))}
-              </div>
+            {/* Hot path: winner tap → inline score entry → one Record tap.
+                Thumb-sized (48px) primary actions; scores are mandatory —
+                the ranking pipeline is the product. */}
+            <div className="grid grid-cols-2 gap-2">
+              {[1, 2].map((team) => (
+                <Button
+                  key={team}
+                  onClick={() => setScoringTeam(scoringTeam === team ? null : (team as 1 | 2))}
+                  variant={scoringTeam === team ? "default" : "outline"}
+                  className={cn(
+                    "h-12 text-sm font-semibold",
+                    scoringTeam === team &&
+                      "bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white",
+                  )}
+                  data-testid={`button-select-team-${team}-${court.id}`}
+                >
+                  {scoringTeam === team && <Trophy className="w-4 h-4 mr-2" />}
+                  Team {team} won
+                </Button>
+              ))}
             </div>
 
-            {/* End Game */}
-            {court.winningTeam && (
-              <Button
-                onClick={() => onEndGame(court.id)}
-                variant="destructive"
-                className="w-full min-h-11"
-                data-testid={`button-end-game-${court.id}`}
+            {scoringTeam && (
+              <div
+                className="rounded-md border border-border bg-muted/30 p-3 space-y-3"
+                data-testid={`score-entry-${court.id}`}
               >
-                <Trophy className="w-4 h-4 mr-2" />
-                End Game &amp; Record Result
-              </Button>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-foreground">
+                    Loser's points
+                  </p>
+                  <p className="text-sm font-bold tabular-nums" data-testid={`text-score-preview-${court.id}`}>
+                    {scoringTeam === 1 ? `${winnerScore}–${loserScore}` : `${loserScore}–${winnerScore}`}
+                  </p>
+                </div>
+
+                {/* Quick-tap chips for common results + stepper for the rest */}
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[10, 12, 15, 17, 19].map((v) => (
+                    <Button
+                      key={v}
+                      variant={loserScore === v ? "default" : "outline"}
+                      className={cn("h-11 text-sm font-semibold tabular-nums", loserScore === v && "bg-secondary text-secondary-foreground hover:bg-secondary/90")}
+                      onClick={() => setLoserScore(v)}
+                      data-testid={`button-loser-score-${v}-${court.id}`}
+                    >
+                      {v}
+                    </Button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline" className="h-11 w-11 text-sm font-bold"
+                      onClick={() => setLoserScore(Math.max(0, loserScore - 1))}
+                      data-testid={`button-loser-minus-${court.id}`}
+                    >−</Button>
+                    <span className="w-8 text-center text-sm font-bold tabular-nums" data-testid={`text-loser-score-${court.id}`}>{loserScore}</span>
+                    <Button
+                      variant="outline" className="h-11 w-11 text-sm font-bold"
+                      onClick={() => setLoserScore(Math.min(winnerScore - 1, loserScore + 1))}
+                      data-testid={`button-loser-plus-${court.id}`}
+                    >+</Button>
+                  </div>
+                  {/* Deuce games: winner score adjustable 21–30 */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground uppercase tracking-wide">Winner</span>
+                    <Button
+                      variant="outline" className="h-11 w-11 text-sm font-bold"
+                      onClick={() => setWinnerScore(Math.max(Math.max(21, loserScore + 1), winnerScore - 1))}
+                      data-testid={`button-winner-minus-${court.id}`}
+                    >−</Button>
+                    <span className="w-8 text-center text-sm font-bold tabular-nums">{winnerScore}</span>
+                    <Button
+                      variant="outline" className="h-11 w-11 text-sm font-bold"
+                      onClick={() => setWinnerScore(Math.min(30, winnerScore + 1))}
+                      data-testid={`button-winner-plus-${court.id}`}
+                    >+</Button>
+                  </div>
+                </div>
+
+                <Button
+                  className="w-full h-12 text-sm font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/90"
+                  disabled={loserScore >= winnerScore}
+                  onClick={() =>
+                    onRecordGame(
+                      court.id,
+                      scoringTeam,
+                      scoringTeam === 1 ? winnerScore : loserScore,
+                      scoringTeam === 2 ? winnerScore : loserScore,
+                    )
+                  }
+                  data-testid={`button-record-game-${court.id}`}
+                >
+                  <Trophy className="w-4 h-4 mr-2" />
+                  Record {scoringTeam === 1 ? `${winnerScore}–${loserScore}` : `${loserScore}–${winnerScore}`} — Team {scoringTeam} wins
+                </Button>
+              </div>
             )}
+
+            {/* Demoted: no-record cancel is a quiet text link */}
+            <button
+              type="button"
+              onClick={() => onCancelGame(court.id)}
+              className="self-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+              data-testid={`button-cancel-game-${court.id}`}
+            >
+              Cancel game (no record)
+            </button>
           </div>
         )}
 

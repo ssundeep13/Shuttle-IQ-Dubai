@@ -11,7 +11,6 @@ import { PlayerQueue } from "@/components/PlayerQueue";
 import { GameHistory } from "@/components/GameHistory";
 import { AddPlayerModal } from "@/components/AddPlayerModal";
 import { ImportPlayersModal } from "@/components/ImportPlayersModal";
-import { EndGameModal } from "@/components/EndGameModal";
 import { AutoAssignConfirmDialog } from "@/components/AutoAssignConfirmDialog";
 import { NotificationToast } from "@/components/NotificationToast";
 import { SessionSetupWizard } from "@/components/SessionSetupWizard";
@@ -61,8 +60,6 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabType>('courts');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [showImportPlayers, setShowImportPlayers] = useState(false);
-  const [showEndGameModal, setShowEndGameModal] = useState(false);
-  const [endingCourtId, setEndingCourtId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showAutoAssignConfirm, setShowAutoAssignConfirm] = useState(false);
   const [autoAssignData, setAutoAssignData] = useState<{
@@ -211,54 +208,6 @@ export default function Home() {
     },
   });
 
-  const updateCourtMutation = useMutation({
-    mutationFn: async ({ courtId, updates }: { courtId: string; updates: Partial<CourtWithPlayers> }) => {
-      return await apiRequest('PATCH', `/api/courts/${courtId}`, updates);
-    },
-    onMutate: async ({ courtId, updates }) => {
-      // Determine the correct query key to match the courts query
-      const queryKey = session?.id ? ['/api/courts', session.id] : ['/api/courts'];
-
-      // Cancel any outgoing refetches to prevent optimistic update from being overwritten
-      await queryClient.cancelQueries({ queryKey, exact: true });
-
-      // Snapshot the previous value for rollback
-      const previousCourts = queryClient.getQueryData<CourtWithPlayers[]>(queryKey);
-
-      // Optimistically update the court in the cache
-      queryClient.setQueryData<CourtWithPlayers[]>(
-        queryKey,
-        (old) => {
-          if (!old) return old;
-          return old.map((court) =>
-            court.id === courtId ? { ...court, ...updates } : court
-          );
-        }
-      );
-
-      // Return context with snapshot and query key for rollback
-      return { previousCourts, queryKey };
-    },
-    onError: (error: any, variables, context) => {
-      // Rollback to previous state on error
-      if (context?.previousCourts && context?.queryKey) {
-        queryClient.setQueryData(context.queryKey, context.previousCourts);
-      }
-      const message = error?.error || error?.message || 'Failed to update court';
-      addNotification(message, 'danger');
-    },
-    onSettled: () => {
-      // Invalidate inactive queries to keep other tabs/views in sync
-      // Only refetch queries that are not currently being used (inactive)
-      // This keeps the active tab stable while updating background tabs
-      queryClient.invalidateQueries({ 
-        queryKey: ['/api/courts'], 
-        exact: false,
-        refetchType: 'inactive'
-      });
-    },
-  });
-
   // Separate mutation for timer updates to avoid conflicts with winner selection
   const updateCourtTimerMutation = useMutation({
     mutationFn: async ({ courtId, updates }: { courtId: string; updates: Partial<CourtWithPlayers> }) => {
@@ -326,7 +275,9 @@ export default function Home() {
       const assignments: { courtId: string; teamAssignments: { playerId: string; team: number }[] }[] = [];
       const skipped: string[] = [];
       for (const c of freeCourts) {
-        const res = await fetch(apiUrl(`/api/courts/${c.id}/suggestions?aiMode=${aiMatchmaking}`), {
+        // Hot-path gate: Fill-all ALWAYS uses the instant local ladder —
+        // session start must be instant; AI stays for per-court suggestions.
+        const res = await fetch(apiUrl(`/api/courts/${c.id}/suggestions?aiMode=false`), {
           headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
         });
         const s = await res.json().catch(() => null);
@@ -703,25 +654,10 @@ export default function Home() {
     });
   };
 
-  const handleSelectWinningTeam = (courtId: string, teamNumber: number) => {
-    const court = courts.find((c) => c.id === courtId);
-    if (!court) return;
-
-    const newWinningTeam = court.winningTeam === teamNumber ? null : teamNumber;
-    updateCourtMutation.mutate({ courtId, updates: { winningTeam: newWinningTeam } });
-  };
-
-  const handleEndGame = (courtId: string) => {
-    const court = courts.find((c) => c.id === courtId);
-    if (!court || court.winningTeam === null) {
-      addNotification('Please select a winning team', 'warning');
-      return;
-    }
-    setEndingCourtId(courtId);
-    setShowEndGameModal(true);
-  };
-
-  const handleEndGameSubmit = (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => {
+  // Hot-path gate: the inline score entry on the court card records in one
+  // call — winner tap and score live in card-local state, no interim PATCH,
+  // no modal. Same end-game contract as before.
+  const handleRecordGame = (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => {
     if (endGameMutation.isPending) return;
     endGameMutation.mutate({ courtId, winningTeam, team1Score, team2Score });
   };
@@ -994,8 +930,7 @@ export default function Home() {
                 onRemoveCourt={handleRemoveCourt}
                 onTogglePlayerSelection={handleTogglePlayerSelection}
                 onAssignPlayers={handleAssignPlayers}
-                onSelectWinningTeam={handleSelectWinningTeam}
-                onEndGame={handleEndGame}
+                onRecordGame={handleRecordGame}
                 onCancelGame={handleCancelGame}
               />
             </>
@@ -1039,17 +974,6 @@ export default function Home() {
         onClose={() => setShowImportPlayers(false)}
         onImport={handleImportPlayers}
         onImportCSV={handleImportCSV}
-      />
-
-      <EndGameModal
-        court={endingCourtId ? courts.find(c => c.id === endingCourtId) || null : null}
-        isOpen={showEndGameModal}
-        onClose={() => {
-          setShowEndGameModal(false);
-          setEndingCourtId(null);
-        }}
-        onSubmit={handleEndGameSubmit}
-        isPending={endGameMutation.isPending}
       />
 
       <AutoAssignConfirmDialog

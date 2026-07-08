@@ -1450,7 +1450,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const session = await storage.getSession(sessionId);
       if (!session) return res.status(404).json({ error: "Session not found" });
       const suggestions = await storage.listSessionPendingSuggestionsWithDetails(sessionId);
-      res.json(suggestions);
+      // Hot-path UI gate: fairness receipts on lineup members (in-memory
+      // rest-state counters the planner already maintains).
+      await ensureRestStatesHydrated(sessionId);
+      const enriched = suggestions.map((s: any) => ({
+        ...s,
+        players: (s.players ?? []).map((p: any) => {
+          const rs = getPlayerRestState(sessionId, p.playerId);
+          return { ...p, gamesWaited: rs.gamesWaited || 0, gamesThisSession: rs.gamesThisSession || 0 };
+        }),
+      }));
+      res.json(enriched);
     } catch (error) {
       console.error('Pending suggestions list error:', error);
       res.status(500).json({ error: "Failed to fetch pending suggestions" });
@@ -1727,6 +1737,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // oldest last game end — both from the participants join, restart-safe).
       // HOW they're arranged: findBalancedTeams, unchanged.
       const playedBy = deriveSessionPlayFromHistory(history);
+      // Fairness receipts (hot-path UI gate): per eligible player, the
+      // counters the planner already computes — the strip's microcopy
+      // ("waited N games" / "N games") reads straight from this map.
+      const receipts: Record<string, { gamesWaited: number; gamesThisSession: number }> = {};
+      for (const id of basePool) {
+        const rs = getPlayerRestState(sessionId, id);
+        receipts[id] = {
+          gamesWaited: rs.gamesWaited || 0,
+          gamesThisSession: playedBy.get(id)?.gamesThisSession ?? rs.gamesThisSession ?? 0,
+        };
+      }
       const toRotationCandidate = (id: string): RotationCandidate | null => {
         const player = byId.get(id);
         if (!player) return null;
@@ -1903,6 +1924,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // it as a good match.
         uneven: (options[0]?.skillGap ?? 0) > FAIR_GAME_GAP,
         fairGapThreshold: FAIR_GAME_GAP,
+        receipts,
         options,
       });
     } catch (error) {

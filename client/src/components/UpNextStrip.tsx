@@ -35,6 +35,8 @@ type QueuedSuggestion = {
     playerId: string;
     team: number;
     name: string;
+    gamesWaited?: number; // fairness receipts (hot-path gate)
+    gamesThisSession?: number;
   }>;
 };
 
@@ -54,6 +56,8 @@ type CourtSuggestionsResponse = {
   waiterCount?: number;
   currentCount?: number;
   uneven?: boolean; // best available option exceeds the fair-game gap
+  // Fairness receipts per eligible player (counters the planner computes)
+  receipts?: Record<string, { gamesWaited: number; gamesThisSession: number }>;
   options?: SuggestionOption[];
 };
 
@@ -97,6 +101,21 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   // Gate 4: THIS court's on-court four — the only players allowed to repeat
   // (court-scoped; other courts' players are never offered here).
   const ownCourtIds = new Set((court.players ?? []).map((p) => p.id));
+
+  // Fairness receipts: one microcopy line per player from counters the
+  // planner already computes — waiters show their wait, currents their load.
+  const receiptText = (
+    r: { gamesWaited?: number; gamesThisSession?: number } | undefined,
+    isCurrent: boolean,
+  ): string | null => {
+    if (!r || (r.gamesWaited === undefined && r.gamesThisSession === undefined)) return null;
+    if (isCurrent) {
+      const n = r.gamesThisSession ?? 0;
+      return `${n} game${n === 1 ? "" : "s"}`;
+    }
+    const n = r.gamesWaited ?? 0;
+    return `waited ${n} game${n === 1 ? "" : "s"}`;
+  };
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [swapOutId, setSwapOutId] = useState<string | null>(null);
@@ -347,13 +366,12 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             {t1.map(memberLabel).join(" + ")} vs {t2.map(memberLabel).join(" + ")}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground flex-1" data-testid={`text-up-next-confirm-state-${court.id}`}>
+        <div className="space-y-2">
+          <span className="block text-xs text-muted-foreground" data-testid={`text-up-next-confirm-state-${court.id}`}>
             {statusLine}
           </span>
           <Button
-            size="sm"
-            className="h-7 text-xs shrink-0"
+            className="w-full h-12 text-sm font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/90"
             disabled={confirmMutation.isPending || busyMembers.length > 0}
             onClick={() => confirmMutation.mutate(confirmRow.id)}
             data-testid={`button-up-next-confirm-${court.id}`}
@@ -420,6 +438,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             return (
               <div key={p.playerId} className="flex items-center gap-1.5 flex-wrap" data-testid={`upnext-player-${court.id}-${p.playerId}`}>
                 <span className={cn("text-sm truncate", conflict ? "text-amber-600" : "text-foreground")}>{p.name}</span>
+                {receiptText(p, ownCourtIds.has(p.playerId)) && (
+                  <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-locked-${court.id}-${p.playerId}`}>
+                    {receiptText(p, ownCourtIds.has(p.playerId))}
+                  </span>
+                )}
                 {ownCourtIds.has(p.playerId) && (
                   <Badge
                     variant="outline"
@@ -681,6 +704,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         {team.map((p, i) => (
           <div key={p.id} className="flex items-center gap-1.5 flex-wrap" data-testid={`upnext-sug-player-${court.id}-${p.id}`}>
             <span className="text-sm truncate">{p.name}</span>
+            {receiptText(sug?.receipts?.[p.id], !!p.inGame) && (
+              <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-${court.id}-${p.id}`}>
+                {receiptText(sug?.receipts?.[p.id], !!p.inGame)}
+              </span>
+            )}
             {p.inGame && (
               <Badge
                 variant="outline"
@@ -770,8 +798,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
               {inBandEph.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {inBandEph.map((p) => (
-                    <Button key={p.id} size="sm" variant="outline" className="h-7 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-${court.id}-${p.id}`}>
+                    <Button key={p.id} size="sm" variant="outline" className="h-8 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-${court.id}-${p.id}`}>
                       {p.name}
+                      {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id)) && (
+                        <span className="text-muted-foreground ml-1">· {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id))}</span>
+                      )}
                       {ownCourtIds.has(p.id) && <span className="text-muted-foreground ml-1">· In game</span>}
                     </Button>
                   ))}
@@ -782,8 +813,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
                   <p className="text-xs text-muted-foreground uppercase tracking-wide pt-1">Outside band</p>
                   <div className="flex flex-wrap gap-1.5">
                     {outBandEph.map((p) => (
-                      <Button key={p.id} size="sm" variant="outline" className="h-7 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-out-${court.id}-${p.id}`}>
+                      <Button key={p.id} size="sm" variant="outline" className="h-8 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-out-${court.id}-${p.id}`}>
                         {p.name}
+                        {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id)) && (
+                          <span className="text-muted-foreground ml-1">· {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id))}</span>
+                        )}
                         {ownCourtIds.has(p.id) && <span className="text-muted-foreground ml-1">· In game</span>}
                       </Button>
                     ))}
@@ -795,42 +829,45 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      {/* Thumb-sized primary: full-width 48px teal Confirm; Regenerate and
+          Dismiss demote to compact text actions below. */}
+      <div className="space-y-2">
         <Button
-          size="sm"
-          variant="outline"
-          className="h-8 text-xs"
-          disabled={sugLoading}
-          onClick={() => {
-            if (composed) { setComposed(null); return; }
-            // Cycle the merged ladder; when exhausted, refetch — which may
-            // fire a fresh AI call (one per exhaust, see gate report).
-            if (optionIdx + 1 < options.length) setOptionIdx(optionIdx + 1);
-            else { setOptionIdx(0); refetchSuggestion(); }
-          }}
-          data-testid={`button-up-next-regenerate-${court.id}`}
-        >
-          <RefreshCw className="h-3.5 w-3.5 mr-1" />
-          Regenerate
-        </Button>
-        <Button
-          size="sm"
-          className="h-8 text-xs flex-1 bg-secondary text-secondary-foreground hover:bg-secondary/90"
+          className="w-full h-12 text-sm font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/90"
           disabled={isOccupied ? pinMutation.isPending : startNowMutation.isPending}
           onClick={() => (isOccupied ? pinMutation.mutate(current) : startNowMutation.mutate(current))}
           data-testid={`button-up-next-lock-${court.id}`}
         >
           {isOccupied ? "Confirm — starts when game ends" : "Confirm — start now"}
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 text-xs"
-          onClick={() => setSuggestionDismissed(true)}
-          data-testid={`button-up-next-dismiss-${court.id}`}
-        >
-          Dismiss
-        </Button>
+        <div className="flex items-center justify-center gap-6">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs text-muted-foreground"
+            disabled={sugLoading}
+            onClick={() => {
+              if (composed) { setComposed(null); return; }
+              // Cycle the merged ladder; when exhausted, refetch — which may
+              // fire a fresh AI call (one per exhaust, see gate report).
+              if (optionIdx + 1 < options.length) setOptionIdx(optionIdx + 1);
+              else { setOptionIdx(0); refetchSuggestion(); }
+            }}
+            data-testid={`button-up-next-regenerate-${court.id}`}
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1" />
+            Regenerate
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs text-muted-foreground"
+            onClick={() => setSuggestionDismissed(true)}
+            data-testid={`button-up-next-dismiss-${court.id}`}
+          >
+            Dismiss
+          </Button>
+        </div>
       </div>
     </div>
   );
