@@ -2617,7 +2617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     setTimeout(() => {
       import('./auto-matchmaking')
         .then(async m => {
-          const released = await m.releaseAutoQueuedClaims(sessionId, courtId, assignedIds);
+          const released = await m.releaseAutoQueuedClaims(sessionId, courtId, assignedIds, { includeOwnCourt: true });
           if (released > 0) {
             console.log(`[assignCourtCore] stale-auto sweep released ${released} row(s) for court ${courtId}`);
             m.tryAutoMatchmaking(sessionId).catch(err =>

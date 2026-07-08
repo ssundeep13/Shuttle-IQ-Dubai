@@ -295,8 +295,15 @@ export async function releaseAutoQueuedClaims(
   sessionId: string,
   courtId: string,
   playerIds: string[],
+  opts?: { includeOwnCourt?: boolean },
 ): Promise<number> {
   if (playerIds.length === 0) return 0;
+  // includeOwnCourt (stale-row sweep): an auto-row ON the court that was
+  // just manually assigned, naming those same players, is definitionally
+  // stale — the orchestrator built it for a game state that no longer
+  // exists, and at flip it would promote a repeat past waiting players.
+  // The pin/swap capture-release keeps the own-court exclusion (a court's
+  // own row being replaced must never be swept out from under the pin).
   const rows = await db
     .select({ id: matchSuggestions.id })
     .from(matchSuggestionPlayers)
@@ -305,7 +312,7 @@ export async function releaseAutoQueuedClaims(
       eq(matchSuggestions.sessionId, sessionId),
       eq(matchSuggestions.status, 'queued'),
       eq(matchSuggestions.source, 'auto'),
-      sql`${matchSuggestions.courtId} <> ${courtId}`,
+      ...(opts?.includeOwnCourt ? [] : [sql`${matchSuggestions.courtId} <> ${courtId}`]),
       inArray(matchSuggestionPlayers.playerId, playerIds),
     ));
   let released = 0;
