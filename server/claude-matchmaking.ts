@@ -10,6 +10,14 @@
 // so that callers in latency-sensitive paths (player check-in fan-out)
 // can still fall back to the standard algorithm if the API is slow.
 
+// Model string for every matchmaking call. Overridable via env so a model
+// upgrade never needs a code change; the default keeps current behavior
+// when the variable is unset. Read per-call so tests and restarts see the
+// live value.
+export function aiMatchmakingModel(): string {
+  return process.env.AI_MATCHMAKING_MODEL || 'claude-sonnet-4-5';
+}
+
 export interface ClaudePromptPlayer {
   name: string;
   score: number;
@@ -150,7 +158,7 @@ export async function requestClaudeMatchmaking(
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: aiMatchmakingModel(),
         max_tokens: 1500,
         messages: [{ role: 'user', content: buildClaudeMatchmakingPrompt(session) }],
       }),
@@ -388,7 +396,7 @@ export async function requestClaudeLineupOptions(
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: aiMatchmakingModel(),
         max_tokens: 2000,
         messages: [{ role: 'user', content: buildLineupOptionsPrompt(players) }],
       }),
@@ -439,7 +447,7 @@ export async function requestPlayerFlowMatchmaking(
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: aiMatchmakingModel(),
         max_tokens: 2000,
         messages: [{
           role: 'user',

@@ -166,7 +166,9 @@ export default function Home() {
   // Mutations
   const addCourtMutation = useMutation({
     mutationFn: async (name: string) => {
-      return await apiRequest('POST', '/api/courts', { name });
+      // Deferred-fix sweep: send the session so Add Court works on the
+      // session being VIEWED (upcoming sandbox incl.), not just the active.
+      return await apiRequest('POST', '/api/courts', { name, sessionId: session?.id });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
@@ -277,7 +279,9 @@ export default function Home() {
       for (const c of freeCourts) {
         // Hot-path gate: Fill-all ALWAYS uses the instant local ladder —
         // session start must be instant; AI stays for per-court suggestions.
-        const res = await fetch(apiUrl(`/api/courts/${c.id}/suggestions?aiMode=false`), {
+        // Deep ladder (maxOptions=30) so first-fit dedupe across courts
+        // can't run out of disjoint options on small pools.
+        const res = await fetch(apiUrl(`/api/courts/${c.id}/suggestions?aiMode=false&maxOptions=30`), {
           headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
         });
         const s = await res.json().catch(() => null);

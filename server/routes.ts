@@ -118,7 +118,7 @@ function applyTierBuffer(
 }
 
 import { completeReferral, linkReferralPostSignup } from "./referrals";
-import { requestClaudeMatchmaking, requestClaudeLineupOptions } from "./claude-matchmaking";
+import { requestClaudeMatchmaking, requestClaudeLineupOptions, aiMatchmakingModel } from "./claude-matchmaking";
 export { completeReferral };
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1259,14 +1259,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/courts", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const activeSession = await storage.getActiveSession();
-      if (!activeSession) {
-        return res.status(400).json({ error: "No active session. Please create a session first." });
+      // Deferred-fix sweep: honor a body sessionId (validated) so Add Court
+      // works on upcoming/sandbox sessions the admin is viewing — the old
+      // getActiveSession()-only resolution silently targeted the wrong
+      // session (Gate-5d operability class). No sessionId → active session.
+      const bodySessionId = typeof req.body.sessionId === 'string' ? req.body.sessionId : undefined;
+      const targetSession = bodySessionId
+        ? await storage.getSession(bodySessionId)
+        : await storage.getActiveSession();
+      if (!targetSession) {
+        return res.status(400).json({ error: bodySessionId ? "Session not found" : "No active session. Please create a session first." });
+      }
+      if (targetSession.status === 'completed') {
+        return res.status(400).json({ error: "This session has ended — courts can't be added." });
       }
 
       const courtData = {
         name: req.body.name,
-        sessionId: activeSession.id,
+        sessionId: targetSession.id,
         status: 'available',
         timeRemaining: 0,
         winningTeam: null,
@@ -1673,6 +1683,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const band = court.skillBand ?? 'all_levels';
       const relax = req.query.relax_band === 'true';
       const aiMode = req.query.aiMode !== 'false';
+      // Deferred-fix sweep: response-size cap only (ranking unchanged). The
+      // fill-all path asks for a deep ladder so first-fit dedupe across
+      // courts can't run out of disjoint options on small pools.
+      const maxOptions = Math.min(50, Math.max(1, parseInt(String(req.query.maxOptions ?? ''), 10) || 6));
 
       await ensureRestStatesHydrated(sessionId);
       const { getPlayersOnOpenSuggestionsForOtherCourts } = await import('./auto-matchmaking');
@@ -1821,7 +1835,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map(seat => pickArrangement(findBalancedTeams(seat.map(c => c.player), 3, true, sessionId), currentPairing))
         .filter((c): c is TeamCombination => !!c);
       let options: Option[] = rankByBalance(arranged)
-        .slice(0, 6)
+        .slice(0, maxOptions)
         .map(c => toOption(c.team1, c.team2));
       let fromAI = false;
 
@@ -1901,7 +1915,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // ranking — fairest game first (stable: AI order breaks ties).
             options = rankByBalance([...aiOptions, ...backfill]).slice(0, 5);
             fromAI = true;
-            console.log(`[court-suggestions] court=${court.id} AI set: ${aiOptions.length}/5 valid in ${aiMs}ms (${dropped} dropped, ${backfill.length} local backfill)`);
+            console.log(`[court-suggestions] court=${court.id} AI set: ${aiOptions.length}/5 valid in ${aiMs}ms (${dropped} dropped, ${backfill.length} local backfill, model=${aiMatchmakingModel()})`);
           } else {
             console.log(`[court-suggestions] court=${court.id} AI set: 0 valid options in ${aiMs}ms — full local fallback`);
           }
@@ -2588,6 +2602,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // until the next assign succeeds.
       console.error('[assignCourtCore] Failed to mirror assignment into match_suggestions:', err);
     }
+
+    // Deferred-fix sweep: the mirror above already dismisses queued rows
+    // naming these players, but an orchestrator pass that read its pool
+    // BEFORE this assign can INSERT a stale auto-row AFTER it (the two
+    // paths hold different advisory-lock keys, so they don't serialize).
+    // A delayed sweep catches that write-after-dismiss race; CAS dismissal
+    // leaves rows that legitimately flipped meanwhile untouched. The
+    // deeper fix (aligning the lock keys) stays deferred with the
+    // orchestrator work.
+    const assignedIds = teamAssignments.map(a => a.playerId);
+    setTimeout(() => {
+      import('./auto-matchmaking')
+        .then(async m => {
+          const released = await m.releaseAutoQueuedClaims(sessionId, courtId, assignedIds);
+          if (released > 0) {
+            console.log(`[assignCourtCore] stale-auto sweep released ${released} row(s) for court ${courtId}`);
+            m.tryAutoMatchmaking(sessionId).catch(err =>
+              console.error('[auto-matchmaking] post-sweep replan unhandled:', err));
+          }
+        })
+        .catch(err => console.error('[assignCourtCore] stale-auto sweep unhandled:', err));
+    }, 2500);
 
     const updatedCourt = await storage.getCourt(courtId);
     return { updatedCourt };

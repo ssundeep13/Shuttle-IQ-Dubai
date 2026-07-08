@@ -166,6 +166,19 @@ describe('balance-first ranking (2026-07 ruling)', () => {
   });
 });
 
+describe('aiMatchmakingModel - env-backed model string', () => {
+  it('defaults to claude-sonnet-4-5 and honors AI_MATCHMAKING_MODEL', async () => {
+    const { aiMatchmakingModel } = await import('../server/claude-matchmaking');
+    const prev = process.env.AI_MATCHMAKING_MODEL;
+    delete process.env.AI_MATCHMAKING_MODEL;
+    expect(aiMatchmakingModel()).toBe('claude-sonnet-4-5');
+    process.env.AI_MATCHMAKING_MODEL = 'claude-test-model';
+    expect(aiMatchmakingModel()).toBe('claude-test-model');
+    if (prev === undefined) delete process.env.AI_MATCHMAKING_MODEL;
+    else process.env.AI_MATCHMAKING_MODEL = prev;
+  });
+});
+
 describe('AI five-option set - prompt + recent pairings', () => {
   it('buildLineupOptionsPrompt asks for exactly 5 distinct options with reasons, JSON-only', async () => {
     const { buildLineupOptionsPrompt } = await import('../server/claude-matchmaking');
