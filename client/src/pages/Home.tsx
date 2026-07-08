@@ -279,9 +279,9 @@ export default function Home() {
       for (const c of freeCourts) {
         // Hot-path gate: Fill-all ALWAYS uses the instant local ladder —
         // session start must be instant; AI stays for per-court suggestions.
-        // Deep ladder (maxOptions=30) so first-fit dedupe across courts
-        // can't run out of disjoint options on small pools.
-        const res = await fetch(apiUrl(`/api/courts/${c.id}/suggestions?aiMode=false&maxOptions=30`), {
+        // FULL ladder (window max 210) — at small pools the one disjoint
+        // complement of a previous pick can rank anywhere in the list.
+        const res = await fetch(apiUrl(`/api/courts/${c.id}/suggestions?aiMode=false&maxOptions=250`), {
           headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
         });
         const s = await res.json().catch(() => null);

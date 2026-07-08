@@ -1684,9 +1684,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const relax = req.query.relax_band === 'true';
       const aiMode = req.query.aiMode !== 'false';
       // Deferred-fix sweep: response-size cap only (ranking unchanged). The
-      // fill-all path asks for a deep ladder so first-fit dedupe across
-      // courts can't run out of disjoint options on small pools.
-      const maxOptions = Math.min(50, Math.max(1, parseInt(String(req.query.maxOptions ?? ''), 10) || 6));
+      // fill-all path asks for the FULL ladder: at exactly 8 players the
+      // one disjoint complement of another court's pick can rank anywhere
+      // in the C(8,4)=70 list, so only the whole window (C(10,4)=210 max)
+      // guarantees cross-court first-fit never starves.
+      const maxOptions = Math.min(250, Math.max(1, parseInt(String(req.query.maxOptions ?? ''), 10) || 6));
 
       await ensureRestStatesHydrated(sessionId);
       const { getPlayersOnOpenSuggestionsForOtherCourts } = await import('./auto-matchmaking');
