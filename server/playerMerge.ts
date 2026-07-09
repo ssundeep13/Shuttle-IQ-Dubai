@@ -371,10 +371,14 @@ export async function undoPlayerMerge(args: { logId: string; adminId: string }):
       throw new MergeError("ABSORBED_ID_TAKEN", "A player already exists with the absorbed player's id — cannot undo.");
     }
 
-    // Re-insert the absorbed player from the pre-merge snapshot, verbatim.
+    // Re-insert the absorbed player from the pre-merge snapshot. The wallet
+    // balance starts at 0 when a reversal is due — the reversing credit below
+    // restores it, so the ledger stays replay-consistent (the merge debit row
+    // ended at 0; the undo credit row ends back at the pre-merge balance).
     const snap = log.absorbedSnapshot as any;
     await tx.insert(players).values({
       ...snap,
+      walletBalance: log.walletMovedFils !== 0 ? 0 : (snap.walletBalance ?? 0),
       createdAt: snap.createdAt ? new Date(snap.createdAt) : new Date(),
       lastPlayedAt: snap.lastPlayedAt ? new Date(snap.lastPlayedAt) : null,
     });
