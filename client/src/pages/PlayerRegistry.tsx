@@ -10,7 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink, Edit, Trash2, Home } from "lucide-react";
+import { Search, UserPlus, Users, ArrowLeft, Trophy, Target, ExternalLink, Edit, Trash2, Home, Merge, RefreshCw } from "lucide-react";
+import { PlayerMergeTool } from "@/components/PlayerMergeTool";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +31,7 @@ export default function PlayerRegistry() {
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deletingPlayer, setDeletingPlayer] = useState<Player | null>(null);
-  const [activeTab, setActiveTab] = useState<'players' | 'leaderboard'>('players');
+  const [activeTab, setActiveTab] = useState<'players' | 'leaderboard' | 'merge'>('players');
   const { toast } = useToast();
   const { isAuthenticated } = useAuth();
   const [location] = useLocation();
@@ -69,6 +70,29 @@ export default function PlayerRegistry() {
         title: "Error",
         description: "Failed to add player to queue",
         variant: "destructive",
+      });
+    },
+  });
+
+  // Ported from the orphaned Admin.tsx (M1b) — that page had no route, so
+  // this button was never reachable. It lives with the leaderboard now.
+  const recalculateStatsMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest<{ message: string; playersUpdated: number }>('POST', '/api/admin/recalculate-player-stats', null);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/players'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      toast({
+        title: 'Stats recalculated',
+        description: `Games played, wins and skill score recalculated for ${data.playersUpdated} players from game history.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: 'Recalculation failed',
+        description: 'Could not recalculate player stats. Please try again.',
+        variant: 'destructive',
       });
     },
   });
@@ -147,8 +171,8 @@ export default function PlayerRegistry() {
           )}
         </div>
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'players' | 'leaderboard')} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-4">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'players' | 'leaderboard' | 'merge')} className="w-full">
+          <TabsList className={`grid w-full ${isAuthenticated ? 'grid-cols-3' : 'grid-cols-2'} mb-4`}>
             <TabsTrigger value="players" className="flex items-center gap-2" data-testid="tab-players">
               <Users className="h-4 w-4" />
               Players
@@ -157,6 +181,12 @@ export default function PlayerRegistry() {
               <Trophy className="h-4 w-4" />
               Leaderboard
             </TabsTrigger>
+            {isAuthenticated && (
+              <TabsTrigger value="merge" className="flex items-center gap-2" data-testid="tab-merge">
+                <Merge className="h-4 w-4" />
+                Merge
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="players" className="mt-0">
@@ -280,13 +310,38 @@ export default function PlayerRegistry() {
         </Card>
           </TabsContent>
 
-          <TabsContent value="leaderboard" className="mt-0">
-            <Leaderboard 
-              players={allPlayers || []} 
+          <TabsContent value="leaderboard" className="mt-0 space-y-4">
+            {isAuthenticated && (
+              <div className="flex items-center justify-between gap-3 flex-wrap rounded-md border bg-muted/30 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">Recalculate player stats</p>
+                  <p className="text-xs text-muted-foreground">
+                    Rebuilds games played, wins and skill score for every player from full game history.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => recalculateStatsMutation.mutate()}
+                  disabled={recalculateStatsMutation.isPending}
+                  data-testid="button-recalculate-stats"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${recalculateStatsMutation.isPending ? 'animate-spin' : ''}`} />
+                  {recalculateStatsMutation.isPending ? 'Recalculating…' : 'Recalculate Stats'}
+                </Button>
+              </div>
+            )}
+            <Leaderboard
+              players={allPlayers || []}
               showAdminActions={false}
               showTodayTab={false}
             />
           </TabsContent>
+
+          {isAuthenticated && (
+            <TabsContent value="merge" className="mt-0">
+              <PlayerMergeTool />
+            </TabsContent>
+          )}
         </Tabs>
 
         <EditPlayerModal

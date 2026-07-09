@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 // Gate M1 — the merge transaction's invariants are locked here as source
@@ -82,5 +82,23 @@ describe('player merge - routes and migration', () => {
     for (const col of ['absorbed_snapshot', 'repointed', 'restore_rows', 'wallet_debit_tx_id', 'undone_at']) {
       expect(src.includes(col), `missing column ${col}`).toBe(true);
     }
+  });
+});
+
+describe('player merge - UI reachability (M1b)', () => {
+  // Gate M1 shipped the merge tab into an ORPHANED page (no route → vite
+  // tree-shook it out of the bundle → invisible in production). These lock
+  // the tool onto a routed page for good.
+  it('PlayerMergeTool is mounted on a routed page', () => {
+    const app = read('client/src/App.tsx');
+    const registry = read('client/src/pages/PlayerRegistry.tsx');
+    expect(app.includes('path="/players"'), '/players route missing from App').toBe(true);
+    expect(app.includes('PlayerRegistry'), 'PlayerRegistry not wired into App routes').toBe(true);
+    expect(registry.includes('<PlayerMergeTool'), 'merge tool not rendered on PlayerRegistry').toBe(true);
+    expect(registry.includes('button-recalculate-stats'), 'recalculate button lost its reachable home').toBe(true);
+  });
+
+  it('the orphaned Admin page stays deleted', () => {
+    expect(existsSync(join(__dirname, '..', 'client/src/pages/Admin.tsx')), 'client/src/pages/Admin.tsx must not come back').toBe(false);
   });
 });
