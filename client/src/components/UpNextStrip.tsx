@@ -367,6 +367,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       }),
     onSuccess: () => {
       invalidate();
+      // Stale cross-court fix: locking here must refresh every court's
+      // ephemeral suggestion ladder (the ["/api/courts"] prefix), exactly
+      // like game-end, start-now and fill-all already do — otherwise other
+      // courts keep offering the players this lock just claimed.
+      queryClient.invalidateQueries({ queryKey: ["/api/courts"], exact: false });
       toast({ title: `Locked in for ${court.name}` });
     },
     onError: (error: any) => {

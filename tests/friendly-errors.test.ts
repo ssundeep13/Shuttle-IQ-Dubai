@@ -47,4 +47,19 @@ describe('friendly errors - copy helpers', () => {
     // the old bug: a structured throw inside its own try { JSON.parse ... }
     expect(/try \{[^}]*JSON\.parse[^}]*throw \{/s.test(src)).toBe(false);
   });
+
+  it('tripwire: a successful pin/lock invalidates the ["/api/courts"] prefix (stale cross-court cards refresh)', () => {
+    // Locking on one court must refresh every court's ephemeral suggestion
+    // ladder — the pin path was the only lock-adjacent path that skipped
+    // the prefix invalidation, leaving other courts offering players the
+    // lock just claimed.
+    const src = readFileSync(join(__dirname, '..', 'client/src/components/UpNextStrip.tsx'), 'utf8');
+    const start = src.indexOf('const pinMutation');
+    const end = src.indexOf('if (!isOccupied && confirmRow)');
+    expect(start, 'pinMutation not found').toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const pinBlock = src.slice(start, end);
+    expect(pinBlock.includes('invalidate()'), 'pending-suggestions invalidation missing from pin onSuccess').toBe(true);
+    expect(pinBlock.includes('queryKey: ["/api/courts"], exact: false'), '/api/courts prefix invalidation missing from pin onSuccess').toBe(true);
+  });
 });
