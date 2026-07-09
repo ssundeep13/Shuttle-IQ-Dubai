@@ -17,6 +17,7 @@ import { apiRequest, apiUrl, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { bandLabel, playerPassesBand } from "@/lib/bands";
+import { friendlyMessage, isConflictError, conflictNames, conflictCopy } from "@/lib/errors";
 import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Repeat2, X } from "lucide-react";
 
 // Same shape the pending-suggestions endpoint returns (shared query key —
@@ -101,6 +102,47 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   // Gate 4: THIS court's on-court four — the only players allowed to repeat
   // (court-scoped; other courts' players are never offered here).
   const ownCourtIds = new Set((court.players ?? []).map((p) => p.id));
+
+  const nameOfId = (id: string): string | undefined =>
+    queuePlayers.find((p) => p.id === id)?.name ?? (court.players ?? []).find((p) => p.id === id)?.name;
+
+  // Conflict self-healing: plain copy (names when the payload has them),
+  // then refetch this court's ladder — the fresh claims drop the conflicted
+  // players from the pool automatically.
+  const healConflict = (error: unknown) => {
+    const names = conflictNames(error, nameOfId);
+    toast({
+      title: names.length > 0
+        ? conflictCopy(names)
+        : `${friendlyMessage(error, "That lineup just changed")} — refreshing this suggestion`,
+    });
+    setComposed(null);
+    setOptionIdx(0);
+    setEphemeralSwapSlot(null);
+    queryClient.invalidateQueries({ queryKey: ["/api/courts", court.id, "suggestions"], exact: false });
+    queryClient.invalidateQueries({ queryKey: ["/api/sessions", sessionId, "pending-suggestions"] });
+  };
+
+  // Cheap pre-validation before Confirm fires: members claimed by ANOTHER
+  // court's open row, or mid-game on another court, make the call a
+  // guaranteed conflict — heal from the cache without the round trip.
+  const preflightConflictNames = (memberIds: string[]): string[] => {
+    const claimedElsewhere = new Set(
+      suggestions.filter((s) => s.courtId !== court.id).flatMap((s) => s.players.map((p) => p.playerId)),
+    );
+    return memberIds
+      .filter((id) => claimedElsewhere.has(id) || (playingPlayerIds.includes(id) && !ownCourtIds.has(id)))
+      .map((id) => nameOfId(id) ?? "")
+      .filter(Boolean);
+  };
+  const preflightOrRun = (memberIds: string[], run: () => void) => {
+    const stale = preflightConflictNames(memberIds);
+    if (stale.length > 0) {
+      healConflict({ status: 409, payload: { conflicts: stale.map((name) => ({ name })) } });
+      return;
+    }
+    run();
+  };
 
   // Fairness receipts: one microcopy line per player from counters the
   // planner already computes — waiters show their wait, currents their load.
@@ -224,9 +266,14 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       toast({ title: "Lineup updated" });
     },
     onError: (error: any) => {
+      if (isConflictError(error)) {
+        setSwapOutId(null);
+        healConflict(error);
+        return;
+      }
       toast({
         title: "Couldn't swap player",
-        description: error?.error || error?.message || "Try again",
+        description: friendlyMessage(error, "Try again"),
         variant: "destructive",
       });
     },
@@ -243,7 +290,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     onError: (error: any) => {
       toast({
         title: "Couldn't undo",
-        description: error?.error || error?.message || "Try again",
+        description: friendlyMessage(error, "Try again"),
         variant: "destructive",
       });
     },
@@ -261,9 +308,13 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       toast({ title: `Game started on ${court.name}` });
     },
     onError: (error: any) => {
+      if (isConflictError(error)) {
+        healConflict(error);
+        return;
+      }
       toast({
         title: "Couldn't start the game",
-        description: error?.error || error?.message || "Try again",
+        description: friendlyMessage(error, "Try again"),
         variant: "destructive",
       });
     },
@@ -290,9 +341,13 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       toast({ title: `Game started on ${court.name}` });
     },
     onError: (error: any) => {
+      if (isConflictError(error)) {
+        healConflict(error);
+        return;
+      }
       toast({
         title: "Couldn't start the game",
-        description: error?.error || error?.message || "Try again",
+        description: friendlyMessage(error, "Try again"),
         variant: "destructive",
       });
     },
@@ -315,9 +370,13 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       toast({ title: `Locked in for ${court.name}` });
     },
     onError: (error: any) => {
+      if (isConflictError(error)) {
+        healConflict(error);
+        return;
+      }
       toast({
         title: "Couldn't lock in the lineup",
-        description: error?.error || error?.message || "Try again",
+        description: friendlyMessage(error, "Try again"),
         variant: "destructive",
       });
     },
@@ -373,7 +432,12 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <Button
             className="w-full h-12 text-sm font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/90"
             disabled={confirmMutation.isPending || busyMembers.length > 0}
-            onClick={() => confirmMutation.mutate(confirmRow.id)}
+            onClick={() =>
+              preflightOrRun(
+                confirmRow.players.map((p) => p.playerId),
+                () => confirmMutation.mutate(confirmRow.id),
+              )
+            }
             data-testid={`button-up-next-confirm-${court.id}`}
           >
             Confirm &amp; start
@@ -835,7 +899,12 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         <Button
           className="w-full h-12 text-sm font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/90"
           disabled={isOccupied ? pinMutation.isPending : startNowMutation.isPending}
-          onClick={() => (isOccupied ? pinMutation.mutate(current) : startNowMutation.mutate(current))}
+          onClick={() =>
+            preflightOrRun(
+              [...current.team1, ...current.team2].map((p) => p.id),
+              () => (isOccupied ? pinMutation.mutate(current) : startNowMutation.mutate(current)),
+            )
+          }
           data-testid={`button-up-next-lock-${court.id}`}
         >
           {isOccupied ? "Confirm — starts when game ends" : "Confirm — start now"}

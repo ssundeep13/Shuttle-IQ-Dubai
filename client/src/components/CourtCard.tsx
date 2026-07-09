@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { bandLabel, BAND_LABELS, COURT_SKILL_BANDS, type CourtSkillBand } from "@/lib/bands";
+import { friendlyMessage } from "@/lib/errors";
 import {
   Sheet,
   SheetContent,
@@ -257,7 +258,7 @@ export function CourtCard({
     onError: (error: any) => {
       toast({
         title: "Couldn't set the band",
-        description: error?.error || error?.message || "Try again",
+        description: friendlyMessage(error, "Try again"),
         variant: "destructive",
       });
     },

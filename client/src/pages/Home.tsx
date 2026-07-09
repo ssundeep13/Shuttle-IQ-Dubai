@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { useActiveSession } from "@/hooks/use-active-session";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { friendlyMessage } from "@/lib/errors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -190,7 +191,7 @@ export default function Home() {
       addNotification('Court removed', 'info');
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to remove court';
+      const message = friendlyMessage(error, 'Failed to remove court');
       addNotification(message, 'danger');
     },
   });
@@ -232,7 +233,7 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to update player';
+      const message = friendlyMessage(error, 'Failed to update player');
       addNotification(message, 'danger');
     },
   });
@@ -260,7 +261,7 @@ export default function Home() {
       addNotification(`Players assigned to court`, 'success');
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to assign players';
+      const message = friendlyMessage(error, 'Failed to assign players');
       addNotification(message, 'danger');
     },
   });
@@ -320,7 +321,7 @@ export default function Home() {
       for (const s of skipped) addNotification(s, 'warning');
     },
     onError: (error: any) => {
-      addNotification(error?.error || error?.message || 'Failed to fill courts', 'danger');
+      addNotification(friendlyMessage(error, 'Failed to fill courts'), 'danger');
     },
   });
 
@@ -350,7 +351,7 @@ export default function Home() {
       );
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to end game';
+      const message = friendlyMessage(error, 'Failed to end game');
       addNotification(message, 'danger');
     },
   });
@@ -367,7 +368,7 @@ export default function Home() {
       addNotification('Game canceled and players returned to queue', 'info');
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to cancel game';
+      const message = friendlyMessage(error, 'Failed to cancel game');
       addNotification(message, 'danger');
     },
   });
@@ -386,7 +387,7 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to update queue';
+      const message = friendlyMessage(error, 'Failed to update queue');
       addNotification(message, 'danger');
     },
   });
@@ -423,7 +424,7 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to delete player';
+      const message = friendlyMessage(error, 'Failed to delete player');
       addNotification(message, 'danger');
     },
   });
@@ -441,7 +442,7 @@ export default function Home() {
       addNotification('All games, stats, and courts have been reset', 'success');
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to reset games';
+      const message = friendlyMessage(error, 'Failed to reset games');
       addNotification(message, 'danger');
     },
   });
@@ -506,7 +507,7 @@ export default function Home() {
       navigate('/admin');
     },
     onError: (error: any) => {
-      const message = error?.error || error?.message || 'Failed to end session';
+      const message = friendlyMessage(error, 'Failed to end session');
       addNotification(message, 'danger');
       setShowEndSessionConfirm(false);
     },
@@ -713,7 +714,7 @@ export default function Home() {
       
       return response;
     } catch (error: any) {
-      const message = error?.error || error?.message || 'Failed to import players';
+      const message = friendlyMessage(error, 'Failed to import players');
       addNotification(message, 'danger');
       throw error;
     }
@@ -768,7 +769,7 @@ export default function Home() {
 
       return { imported, skipped, skippedDetails };
     } catch (error: any) {
-      const message = error?.error || error?.message || 'Failed to import CSV';
+      const message = friendlyMessage(error, 'Failed to import CSV');
       addNotification(message, 'danger');
       throw error;
     }

@@ -18,13 +18,22 @@ export function apiUrl(path: string): string {
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = await res.text();
+    // Parse FIRST, throw after: the old version threw inside its own try
+    // block, so its own catch re-threw { error: <raw JSON text> } for every
+    // JSON error body — the raw-JSON leak on every toast in the app. The
+    // structured payload (e.g. conflicts) rides along for self-healing.
+    let payload: any = null;
     try {
-      const json = JSON.parse(text);
-      const errorMessage = json.error || json.message || res.statusText;
-      throw { error: errorMessage, status: res.status, code: json.code };
+      payload = JSON.parse(text);
     } catch {
-      throw { error: text || res.statusText, status: res.status };
+      // not JSON — plain text or empty body
     }
+    throw {
+      error: payload?.error || payload?.message || text || res.statusText,
+      status: res.status,
+      code: payload?.code,
+      payload,
+    };
   }
 }
 

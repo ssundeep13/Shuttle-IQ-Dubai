@@ -2007,9 +2007,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           gameSession.id, court.id, playerIds, { treatAutoQueuedAsFree: true }),
       });
       if (conflicts.length > 0) {
+        // Conflict copy gate: carry player NAMES so the client never has to
+        // show ids — "X was just placed on another court".
+        const named = await Promise.all(conflicts.map(async c => ({
+          ...c,
+          name: (await storage.getPlayer(c.playerId))?.name ?? null,
+        })));
         return res.status(409).json({
-          error: "One or more players can't be queued for this court",
-          conflicts,
+          error: "Some players were just placed elsewhere",
+          conflicts: named,
         });
       }
 
@@ -2111,7 +2117,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           sessionId, suggestion.courtId, [inPlayerId], { treatAutoQueuedAsFree: true }),
       });
       if (conflicts.length > 0) {
-        return res.status(409).json({ error: "That player can't join this lineup", conflicts });
+        const named = await Promise.all(conflicts.map(async c => ({
+          ...c,
+          name: (await storage.getPlayer(c.playerId))?.name ?? null,
+        })));
+        return res.status(409).json({ error: "That player was just placed elsewhere", conflicts: named });
       }
 
       const result = await storage.swapQueuedSuggestionPlayer({ suggestionId, outPlayerId, inPlayerId });
