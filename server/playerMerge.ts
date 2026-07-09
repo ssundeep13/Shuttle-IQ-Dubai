@@ -7,10 +7,11 @@
 // semantics (counts from non-sandbox games; skill from the most recent game's
 // after-score — never averaged).
 import { randomUUID } from "crypto";
-import { sql, eq, and, inArray, isNull } from "drizzle-orm";
+import { sql, eq, and, inArray, notInArray, isNull } from "drizzle-orm";
 import { db } from "./db";
 import {
   players,
+  gameParticipants,
   marketplaceUsers,
   playerTags,
   tagSuggestions,
@@ -221,7 +222,7 @@ export async function mergePlayers(args: {
     const dupVoteRows = dupVotes.rows as any[];
     const dupVoteIds = dupVoteRows.map((r) => r.id as string);
     const moveVoteRows = await tx.select({ id: tagSuggestionVotes.id }).from(tagSuggestionVotes)
-      .where(and(eq(tagSuggestionVotes.votedByPlayerId, absorbedId), dupVoteIds.length ? sql`NOT (${tagSuggestionVotes.id} = ANY(${dupVoteIds}))` : sql`true`));
+      .where(and(eq(tagSuggestionVotes.votedByPlayerId, absorbedId), dupVoteIds.length ? notInArray(tagSuggestionVotes.id, dupVoteIds) : sql`true`));
 
     const referrerRows = await tx.select({ id: referrals.id }).from(referrals).where(eq(referrals.referrerId, absorbedId));
     const refereeRows = await tx.select({ id: referrals.id }).from(referrals).where(eq(referrals.refereePlayerId, absorbedId));
@@ -236,7 +237,7 @@ export async function mergePlayers(args: {
     const dupRestRows = dupRest.rows as any[];
     const dupRestIds = dupRestRows.map((r) => r.id as string);
     const moveRestRows = await tx.select({ id: sessionRestStatesTable.id }).from(sessionRestStatesTable)
-      .where(and(eq(sessionRestStatesTable.playerId, absorbedId), dupRestIds.length ? sql`NOT (${sessionRestStatesTable.id} = ANY(${dupRestIds}))` : sql`true`));
+      .where(and(eq(sessionRestStatesTable.playerId, absorbedId), dupRestIds.length ? notInArray(sessionRestStatesTable.id, dupRestIds) : sql`true`));
 
     // Pending link OTPs are voided (deleted, kept verbatim for undo);
     // consumed rows stay untouched as audit history.
@@ -292,7 +293,7 @@ export async function mergePlayers(args: {
     });
 
     // ── Re-point history ──────────────────────────────────────────────────
-    await tx.execute(sql`UPDATE game_participants SET player_id = ${survivorId} WHERE player_id = ${absorbedId}`);
+    await tx.update(gameParticipants).set({ playerId: survivorId }).where(eq(gameParticipants.playerId, absorbedId));
     await tx.update(playerTags).set({ taggedPlayerId: survivorId }).where(eq(playerTags.taggedPlayerId, absorbedId));
     await tx.update(playerTags).set({ taggedByPlayerId: survivorId }).where(eq(playerTags.taggedByPlayerId, absorbedId));
     await tx.update(tagSuggestions).set({ suggestedByPlayerId: survivorId }).where(eq(tagSuggestions.suggestedByPlayerId, absorbedId));
@@ -383,9 +384,9 @@ export async function undoPlayerMerge(args: { logId: string; adminId: string }):
     // the survivor (they were genuinely played as the survivor).
     const rp = log.repointed as Record<string, string[]>;
     if (rp.game_participants?.length) {
-      await tx.execute(sql`
-        UPDATE game_participants SET player_id = ${log.absorbedId}
-        WHERE player_id = ${log.survivorId} AND game_id = ANY(${rp.game_participants})`);
+      await tx.update(gameParticipants)
+        .set({ playerId: log.absorbedId })
+        .where(and(eq(gameParticipants.playerId, log.survivorId), inArray(gameParticipants.gameId, rp.game_participants)));
     }
     if (rp.player_tags_tagged?.length) {
       await tx.update(playerTags).set({ taggedPlayerId: log.absorbedId }).where(inArray(playerTags.id, rp.player_tags_tagged));

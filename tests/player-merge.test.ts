@@ -13,7 +13,7 @@ describe('player merge - transaction invariants', () => {
 
   it('merge log is written BEFORE any history is re-pointed', () => {
     const logInsert = src.indexOf('.insert(playerMergeLog)');
-    const firstRepoint = src.indexOf('UPDATE game_participants SET player_id');
+    const firstRepoint = src.indexOf('.update(gameParticipants)');
     expect(logInsert, 'merge-log insert not found').toBeGreaterThan(-1);
     expect(firstRepoint, 'game_participants re-point not found').toBeGreaterThan(-1);
     expect(logInsert, 'log must be written before re-pointing starts').toBeLessThan(firstRepoint);
