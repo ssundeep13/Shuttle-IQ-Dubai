@@ -98,6 +98,7 @@ import {
   type WalletTransaction,
 } from "@shared/schema";
 import { applyWalletDelta, applyClawbackWithFloor } from "./walletLedger";
+import { normalizeName } from "@shared/utils/playerMatching";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -927,9 +928,12 @@ export class DatabaseStorage implements IStorage {
     const referralCode = generateReferralCode(insertPlayer.name, shuttleIqId);
     const [player] = await db
       .insert(players)
-      .values({ 
-        ...insertPlayer, 
+      .values({
+        ...insertPlayer,
         id,
+        // P1: store names trimmed with internal whitespace collapsed so the
+        // same-person checks compare like with like. Casing untouched.
+        name: normalizeName(insertPlayer.name),
         shuttleIqId,
         referralCode,
         status: insertPlayer.status || 'waiting',
@@ -986,6 +990,8 @@ export class DatabaseStorage implements IStorage {
       .values({
         ...playerInsert,
         id: playerId,
+        // P1: same whitespace normalization as createPlayer.
+        name: normalizeName(playerInsert.name),
         shuttleIqId,
         referralCode,
         status: playerInsert.status || 'waiting',

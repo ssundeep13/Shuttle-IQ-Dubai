@@ -45,6 +45,7 @@ interface MarketplaceAuthContextType {
   completeProfile: (input: {
     gender: 'Male' | 'Female';
     assessmentAnswers: [number, number, number];
+    fullName?: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
@@ -283,6 +284,9 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
   const completeProfile = async (input: {
     gender: 'Male' | 'Female';
     assessmentAnswers: [number, number, number];
+    // P1 full-name policy: supplied when the Google profile name is a single
+    // word so player creation isn't blocked.
+    fullName?: string;
   }) => {
     if (!accessToken) {
       throw new Error('Not signed in');

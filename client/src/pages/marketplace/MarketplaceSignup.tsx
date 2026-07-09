@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff, CheckCircle, Loader2, Gift, ChevronLeft } from 'lucide-react';
 import { SiGoogle } from 'react-icons/si';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { isFullName } from '@shared/utils/playerMatching';
 import {
   SkillAssessmentStepper,
   type AssessmentAnswers,
@@ -97,6 +98,14 @@ export default function MarketplaceSignup() {
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // P1 full-name policy — instant feedback; the server enforces the same rule.
+    if (!isFullName(name)) {
+      toast({
+        title: 'Please enter your full name (first and last)',
+        variant: 'destructive',
+      });
+      return;
+    }
     setPhase('assessment');
   };
 

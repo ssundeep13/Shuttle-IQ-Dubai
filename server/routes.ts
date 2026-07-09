@@ -6,6 +6,7 @@ import fs from "fs";
 import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals } from "@shared/schema";
+import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
 import { z } from "zod";
@@ -600,6 +601,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ playerId: guest.linkedPlayerId, created: false });
       }
 
+      // P1a: captain picked an existing player from the same-person sheet —
+      // link the guest row to them instead of minting a duplicate. The CAS
+      // link keeps this idempotent under concurrent check-ins, and the queue
+      // add downstream already dedupes if they're in the session.
+      const linkToPlayerId = (req.body?.linkToPlayerId ?? '').toString();
+      if (linkToPlayerId) {
+        const existing = await storage.getPlayer(linkToPlayerId);
+        if (!existing) return res.status(404).json({ error: "Player not found" });
+        const linked = await storage.linkPlayerToGuest(guestId, linkToPlayerId);
+        if (!linked) {
+          const fresh = await storage.getBookingGuestById(guestId);
+          return res.json({ playerId: fresh?.linkedPlayerId ?? linkToPlayerId, created: false });
+        }
+        return res.json({ playerId: linkToPlayerId, created: false, linked: true });
+      }
+
+      // P1a: same-person check — before minting a player from a typed guest
+      // name, surface existing players who look like this person. The captain
+      // resolves with one tap: link a candidate, or forceNew to create.
+      // No candidates → fall through and create exactly as before.
+      if (req.body?.forceNew !== true) {
+        const candidates = findPlayerCandidates(await storage.getAllPlayers(), { name: guest.name });
+        if (candidates.length > 0) {
+          return res.json({ candidates, guestName: guest.name });
+        }
+      }
+
       // Pure guest → the captain picks the gender at check-in (no 'unknown').
       const gender = (req.body?.gender ?? '').toString();
       if (gender !== 'Male' && gender !== 'Female') {
@@ -906,7 +934,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const levelEntry = ALLOWED_LEVELS[validated.level] ?? { level: 'lower_intermediate', score: 80 };
       const skillScore = levelEntry.score;
       const normalizedLevel = levelEntry.level;
-      
+
+      // P1b: did-you-mean before insert. force:true (an explicit second tap)
+      // bypasses both the duplicate-candidate check and the single-name
+      // policy — Shannon is never hard-blocked mid-session.
+      if (req.body?.force !== true) {
+        const candidates = findPlayerCandidates(
+          await storage.getAllPlayers(),
+          { name: validated.name, phone: validated.phone },
+        );
+        const singleName = !isFullName(validated.name);
+        if (candidates.length > 0 || singleName) {
+          return res.status(409).json({
+            error: candidates.length > 0
+              ? "This may be an existing player"
+              : "That looks like a first name only",
+            code: candidates.length > 0 ? 'DUPLICATE_CANDIDATES' : 'SINGLE_NAME',
+            candidates,
+          });
+        }
+      }
+
       const player = await storage.createPlayer({ ...validated, level: normalizedLevel, skillScore });
       
       // Only add to queue if there's an active session

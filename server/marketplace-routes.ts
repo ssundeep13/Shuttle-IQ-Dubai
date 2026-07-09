@@ -39,6 +39,7 @@ import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhook
 import { findReusableInflightGuest, canAddGuest } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
+import { isFullName, normalizeName } from "@shared/utils/playerMatching";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, isWithinLateCancelWindow } from "./guestSlotRefund";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
@@ -278,7 +279,9 @@ export function registerMarketplaceRoutes(app: Express) {
       const schema = z.object({
         email: z.string().email(),
         password: z.string().min(6),
-        name: z.string().min(1),
+        // P1 full-name policy: new accounts need first and last name so
+        // session players are recognizable and duplicates are matchable.
+        name: z.string().min(1).refine(isFullName, 'Please enter your full name (first and last)'),
         phone: z.string().min(1, "Phone number is required"),
         gender: z.enum(['Male', 'Female'], {
           required_error: 'Gender is required',
@@ -293,7 +296,8 @@ export function registerMarketplaceRoutes(app: Express) {
         birthMonth: z.number().int().min(1).max(12).nullable().optional(),
         birthYear: z.number().int().min(1900).max(new Date().getFullYear()).nullable().optional(),
       });
-      const { email, password, name, phone, gender, assessmentAnswers, referralCode, birthDay, birthMonth, birthYear } = schema.parse(req.body);
+      const { email, password, name: rawName, phone, gender, assessmentAnswers, referralCode, birthDay, birthMonth, birthYear } = schema.parse(req.body);
+      const name = normalizeName(rawName);
 
       // Compute starting skill server-side. Hard cap at 95 — Advanced /
       // Professional are earned through gameplay only.
@@ -413,8 +417,11 @@ export function registerMarketplaceRoutes(app: Express) {
           assessmentAnswers: z
             .array(z.number().int().min(1).max(4))
             .length(3, 'Please answer all three skill questions'),
+          // P1 full-name policy: lets a user whose Google profile carries a
+          // single word supply their full name here instead of being stuck.
+          fullName: z.string().optional(),
         });
-        const { gender, assessmentAnswers } = schema.parse(req.body);
+        const { gender, assessmentAnswers, fullName } = schema.parse(req.body);
 
         const userId = req.user!.userId;
         const user = await storage.getMarketplaceUser(userId);
@@ -425,6 +432,16 @@ export function registerMarketplaceRoutes(app: Express) {
           return res.status(409).json({ error: "Profile already complete" });
         }
 
+        // P1 full-name policy — same rule as signup. Existing players are
+        // untouched; this only gates NEW player creation.
+        const effectiveName = normalizeName(fullName || user.name || '');
+        if (!isFullName(effectiveName)) {
+          return res.status(400).json({
+            error: 'Please enter your full name (first and last)',
+            code: 'FULL_NAME_REQUIRED',
+          });
+        }
+
         const { skillScore, level } = computeSkillFromAssessment(
           assessmentAnswers as [number, number, number],
         );
@@ -433,7 +450,7 @@ export function registerMarketplaceRoutes(app: Express) {
           const { user: linkedUser, player } = await storage.createPlayerForExistingMarketplaceUser({
             userId,
             playerInsert: {
-              name: user.name,
+              name: effectiveName,
               email: user.email,
               phone: user.phone || null,
               gender,
@@ -441,6 +458,13 @@ export function registerMarketplaceRoutes(app: Express) {
               skillScore,
             },
           });
+
+          // Keep the account name in step with the player when the user
+          // completed a single-word Google name here.
+          if (effectiveName !== user.name) {
+            await storage.updateMarketplaceUser(userId, { name: effectiveName });
+            linkedUser.name = effectiveName;
+          }
 
           res.json({
             user: {

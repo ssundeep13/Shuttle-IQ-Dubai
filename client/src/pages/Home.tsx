@@ -22,6 +22,8 @@ import { useActiveSession } from "@/hooks/use-active-session";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { friendlyMessage } from "@/lib/errors";
+import { SamePersonSheet } from "@/components/SamePersonSheet";
+import type { PlayerCandidate } from "@shared/utils/playerMatching";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -197,8 +199,8 @@ export default function Home() {
   });
 
   const addPlayerMutation = useMutation({
-    mutationFn: async ({ name, gender, level }: { name: string; gender: string; level: string }) => {
-      return await apiRequest('POST', '/api/players', { name, gender, level, gamesPlayed: 0, wins: 0, status: 'waiting' });
+    mutationFn: async ({ name, gender, level, force }: { name: string; gender: string; level: string; force?: boolean }) => {
+      return await apiRequest('POST', '/api/players', { name, gender, level, gamesPlayed: 0, wins: 0, status: 'waiting', ...(force ? { force: true } : {}) });
     },
     onSuccess: (data: Player) => {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
@@ -206,10 +208,45 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       addNotification(`${data.name} added to queue`, 'success');
     },
-    onError: () => {
-      addNotification('Failed to add player', 'danger');
+    onError: (error: any, variables) => {
+      // P1b did-you-mean: the server holds creation and answers 409 with
+      // look-alike candidates (or the single-name policy). One tap resolves.
+      const code = error?.payload?.code;
+      if (error?.status === 409 && (code === 'DUPLICATE_CANDIDATES' || code === 'SINGLE_NAME')) {
+        setAddPlayerPrompt({
+          name: variables.name,
+          gender: variables.gender,
+          level: variables.level,
+          candidates: error.payload.candidates ?? [],
+          code,
+        });
+        return;
+      }
+      addNotification(friendlyMessage(error, 'Failed to add player'), 'danger');
     },
   });
+
+  // P1b sheet state + actions: pick = queue the existing player instead of
+  // creating; secondary = retry the create with force (never hard-blocked).
+  const [addPlayerPrompt, setAddPlayerPrompt] = useState<{
+    name: string;
+    gender: string;
+    level: string;
+    candidates: PlayerCandidate[];
+    code: 'DUPLICATE_CANDIDATES' | 'SINGLE_NAME';
+  } | null>(null);
+
+  const useExistingPlayer = async (candidate: PlayerCandidate) => {
+    setAddPlayerPrompt(null);
+    try {
+      await apiRequest('POST', `/api/queue/${candidate.id}`, session?.id ? { sessionId: session.id } : undefined);
+      queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      addNotification(`${candidate.name} added to queue`, 'success');
+    } catch (error: any) {
+      addNotification(friendlyMessage(error, 'Failed to add player to queue'), 'danger');
+    }
+  };
 
   // Separate mutation for timer updates to avoid conflicts with winner selection
   const updateCourtTimerMutation = useMutation({
@@ -749,9 +786,14 @@ export default function Home() {
           });
           imported++;
           existingNames.add(player.name.toLowerCase());
-        } catch (err) {
+        } catch (err: any) {
           skipped++;
-          skippedDetails.push({ name: player.name, reason: 'Failed to create' });
+          // P1: the server now 409s on look-alike/single-word names — surface
+          // that as a skip reason instead of a generic failure.
+          skippedDetails.push({
+            name: player.name,
+            reason: err?.status === 409 ? 'Possible duplicate — add manually if new' : 'Failed to create',
+          });
         }
       }
 
@@ -972,6 +1014,28 @@ export default function Home() {
         onAddPlayer={handleAddPlayer}
         sessionId={session?.id}
         queuePlayerIds={queue}
+      />
+
+      <SamePersonSheet
+        open={!!addPlayerPrompt}
+        title={addPlayerPrompt?.code === 'SINGLE_NAME' ? 'First name only?' : 'Is this the same person?'}
+        description={
+          addPlayerPrompt?.code === 'SINGLE_NAME'
+            ? `Add a last name if you have it — or add "${addPlayerPrompt.name}" as is.`
+            : addPlayerPrompt
+              ? `"${addPlayerPrompt.name}" looks like an existing player. Tap to add them to the queue instead.`
+              : ''
+        }
+        candidates={addPlayerPrompt?.candidates ?? []}
+        onPick={useExistingPlayer}
+        secondaryLabel={addPlayerPrompt?.code === 'SINGLE_NAME' ? 'Add anyway' : 'Create new player'}
+        onSecondary={() => {
+          if (!addPlayerPrompt) return;
+          const { name, gender, level } = addPlayerPrompt;
+          setAddPlayerPrompt(null);
+          addPlayerMutation.mutate({ name, gender, level, force: true });
+        }}
+        onDismiss={() => setAddPlayerPrompt(null)}
       />
 
       <ImportPlayersModal

@@ -39,6 +39,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatSkillLevel, getTierDisplayName } from "@shared/utils/skillUtils";
 import { cn } from "@/lib/utils";
+import { SamePersonSheet } from "@/components/SamePersonSheet";
+import type { PlayerCandidate } from "@shared/utils/playerMatching";
 
 interface AddPlayerModalProps {
   open: boolean;
@@ -112,6 +114,14 @@ export function AddPlayerModal({
   // a selected pure guest can be added; linked guests already have a gender.
   const [guestGenderMap, setGuestGenderMap] = useState<Record<string, "Male" | "Female">>({});
   const [isSubmittingBooked, setIsSubmittingBooked] = useState(false);
+  // P1a same-person sheet: when ensure-player returns candidates instead of a
+  // player, the guest loop pauses on this promise until the captain resolves
+  // (tap a candidate to link, "New player" to create, dismiss to skip).
+  const [guestPrompt, setGuestPrompt] = useState<{
+    guestName: string;
+    candidates: PlayerCandidate[];
+    resolve: (choice: { linkToPlayerId: string } | { forceNew: true } | null) => void;
+  } | null>(null);
   const { toast } = useToast();
 
   const hasActiveSession = !!sessionId;
@@ -241,12 +251,29 @@ export function AddPlayerModal({
             // without it; this is a defensive skip.)
             const gender = guestGenderMap[guestId];
             if (!gender) continue;
-            const resp = await apiRequest<{ playerId: string }>(
-              "POST",
-              `/api/sessions/${sessionId}/guests/${guestId}/ensure-player`,
-              { gender },
-            );
-            playerId = resp.playerId;
+            const ensureUrl = `/api/sessions/${sessionId}/guests/${guestId}/ensure-player`;
+            let resp = await apiRequest<{
+              playerId?: string;
+              candidates?: PlayerCandidate[];
+              guestName?: string;
+            }>("POST", ensureUrl, { gender });
+            // P1a: server found existing players who look like this guest —
+            // pause for the captain's one-tap decision, then retry with it.
+            if (!resp.playerId && resp.candidates && resp.candidates.length > 0) {
+              const choice = await new Promise<
+                { linkToPlayerId: string } | { forceNew: true } | null
+              >((resolve) =>
+                setGuestPrompt({
+                  guestName: resp.guestName ?? "this guest",
+                  candidates: resp.candidates!,
+                  resolve,
+                }),
+              );
+              setGuestPrompt(null);
+              if (!choice) continue; // dismissed — leave this guest for later
+              resp = await apiRequest("POST", ensureUrl, { gender, ...choice });
+            }
+            playerId = resp.playerId ?? null;
           }
           if (!playerId) continue;
           await addToQueueMutation.mutateAsync(playerId);
@@ -967,6 +994,20 @@ export function AddPlayerModal({
           </TabsContent>
         </Tabs>
       </SheetContent>
+      <SamePersonSheet
+        open={!!guestPrompt}
+        title="Is this the same person?"
+        description={
+          guestPrompt
+            ? `"${guestPrompt.guestName}" looks like an existing player. Tap to check them in as that player.`
+            : ""
+        }
+        candidates={guestPrompt?.candidates ?? []}
+        onPick={(c) => guestPrompt?.resolve({ linkToPlayerId: c.id })}
+        secondaryLabel="New player"
+        onSecondary={() => guestPrompt?.resolve({ forceNew: true })}
+        onDismiss={() => guestPrompt?.resolve(null)}
+      />
     </Sheet>
   );
 }
