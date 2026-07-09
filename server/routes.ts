@@ -7,6 +7,8 @@ import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals } from "@shared/schema";
 import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
+import { mergePlayers, undoPlayerMerge, MergeError } from "./playerMerge";
+import { getSkillTier, getTierDisplayName } from "@shared/utils/skillUtils";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
 import { z } from "zod";
@@ -3635,6 +3637,117 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[RECALCULATE-STATS] Error:', error);
       res.status(500).json({ error: "Failed to recalculate player stats" });
+    }
+  });
+
+  // ─── Gate M1: admin player merge ──────────────────────────────────────────
+  const mergeErrorStatus = (code: string) => (code.endsWith("_NOT_FOUND") ? 404 : 409);
+
+  // Receipt cards for the pair-confirmation UI: name, games, rating, display
+  // tier, wallet, linked account, created date, likely creation path.
+  app.get("/api/admin/players/merge-preview", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const ids = [req.query.survivorId, req.query.absorbedId].map((v) => (v ?? "").toString());
+      if (!ids[0] || !ids[1]) return res.status(400).json({ error: "survivorId and absorbedId are required" });
+      const receipts = [];
+      for (const id of ids) {
+        const r = await db.execute(sql`
+          SELECT p.id, p.name, p.games_played, p.wins, p.skill_score, p.wallet_balance,
+                 p.created_at, p.external_id, p.shuttle_iq_id,
+                 mu.id AS mu_id, mu.email AS mu_email, mu.created_at AS mu_created,
+                 EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.linked_player_id = p.id) AS guest_created
+          FROM players p
+          LEFT JOIN marketplace_users mu ON mu.linked_player_id = p.id
+          WHERE p.id = ${id}`);
+        const row = (r.rows as any[])[0];
+        if (!row) return res.status(404).json({ error: "Player not found", playerId: id });
+        const createdMs = new Date(row.created_at).getTime();
+        const path = row.external_id
+          ? "Import"
+          : row.guest_created
+            ? "Guest check-in"
+            : row.mu_id && Math.abs(createdMs - new Date(row.mu_created).getTime()) < 10 * 60 * 1000
+              ? "Marketplace signup"
+              : row.mu_id
+                ? "Walk-in (claimed)"
+                : "Walk-in / admin add";
+        receipts.push({
+          id: row.id,
+          name: row.name,
+          shuttleIqId: row.shuttle_iq_id,
+          gamesPlayed: row.games_played,
+          wins: row.wins,
+          skillScore: row.skill_score,
+          tier: getTierDisplayName(getSkillTier(row.skill_score)),
+          walletFils: row.wallet_balance,
+          linkedAccount: !!row.mu_id,
+          createdAt: row.created_at,
+          creationPath: path,
+        });
+      }
+      res.json({ survivor: receipts[0], absorbed: receipts[1] });
+    } catch (error) {
+      console.error("merge-preview error:", error);
+      res.status(500).json({ error: "Failed to load merge preview" });
+    }
+  });
+
+  app.post("/api/admin/players/:survivorId/merge/:absorbedId", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const summary = await mergePlayers({
+        survivorId: req.params.survivorId,
+        absorbedId: req.params.absorbedId,
+        adminId: req.user?.userId ?? "unknown-admin",
+      });
+      res.json(summary);
+    } catch (error) {
+      if (error instanceof MergeError) {
+        return res.status(mergeErrorStatus(error.code)).json({ error: error.message, code: error.code });
+      }
+      console.error("player-merge error:", error);
+      res.status(500).json({ error: "Merge failed — nothing was changed" });
+    }
+  });
+
+  app.post("/api/admin/player-merges/:logId/undo", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { log } = await undoPlayerMerge({ logId: req.params.logId, adminId: req.user?.userId ?? "unknown-admin" });
+      res.json({ success: true, log });
+    } catch (error) {
+      if (error instanceof MergeError) {
+        return res.status(mergeErrorStatus(error.code)).json({ error: error.message, code: error.code });
+      }
+      console.error("player-merge undo error:", error);
+      res.status(500).json({ error: "Undo failed — nothing was changed" });
+    }
+  });
+
+  app.get("/api/admin/player-merges", requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    try {
+      const r = await db.execute(sql`
+        SELECT ml.id, ml.survivor_id, ml.absorbed_id, ml.admin_id, ml.status,
+               ml.created_at, ml.undone_at, ml.wallet_moved_fils,
+               ml.absorbed_snapshot->>'name' AS absorbed_name,
+               COALESCE(p.name, ml.absorbed_snapshot->>'name') AS survivor_name
+        FROM player_merge_log ml
+        LEFT JOIN players p ON p.id = ml.survivor_id
+        ORDER BY ml.created_at DESC
+        LIMIT 50`);
+      res.json((r.rows as any[]).map((row) => ({
+        id: row.id,
+        survivorId: row.survivor_id,
+        absorbedId: row.absorbed_id,
+        adminId: row.admin_id,
+        status: row.status,
+        createdAt: row.created_at,
+        undoneAt: row.undone_at,
+        walletMovedFils: row.wallet_moved_fils,
+        absorbedName: row.absorbed_name,
+        survivorName: row.survivor_name,
+      })));
+    } catch (error) {
+      console.error("player-merges list error:", error);
+      res.status(500).json({ error: "Failed to load merge history" });
     }
   });
 

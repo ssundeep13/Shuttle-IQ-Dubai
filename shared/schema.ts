@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex, unique, primaryKey, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, boolean, uniqueIndex, unique, primaryKey, index, jsonb } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -1051,6 +1051,33 @@ export const playerLinkRequests = pgTable("player_link_requests", {
 export const insertPlayerLinkRequestSchema = createInsertSchema(playerLinkRequests).omit({ id: true, createdAt: true });
 export type InsertPlayerLinkRequest = z.infer<typeof insertPlayerLinkRequestSchema>;
 export type PlayerLinkRequest = typeof playerLinkRequests.$inferSelect;
+
+// ─── Player merge log (Gate M1) ───────────────────────────────────────────
+// One row per admin-triggered player merge (absorbed → survivor). Carries the
+// full pre-merge state needed to undo: the absorbed player's row as JSON, the
+// survivor's pre-merge stats, per-table lists of re-pointed row ids, rows
+// deleted for dedupe (restored verbatim on undo), and the ids of the two
+// offsetting wallet adjustment entries (the ledger itself is append-only —
+// merges move balances with new entries, never by touching existing rows).
+export const playerMergeLog = pgTable("player_merge_log", {
+  id: varchar("id").primaryKey(),
+  survivorId: varchar("survivor_id").notNull(),
+  absorbedId: varchar("absorbed_id").notNull(),
+  adminId: varchar("admin_id").notNull(),
+  absorbedSnapshot: jsonb("absorbed_snapshot").notNull(), // full players row pre-merge
+  survivorSnapshot: jsonb("survivor_snapshot").notNull(), // survivor stats pre-merge
+  repointed: jsonb("repointed").notNull(), // { table: [row ids] } — exactly what moved
+  restoreRows: jsonb("restore_rows").notNull(), // { table: [full rows] } — dedupe-deleted, re-inserted on undo
+  walletMovedFils: integer("wallet_moved_fils").notNull().default(0),
+  walletDebitTxId: varchar("wallet_debit_tx_id"),
+  walletCreditTxId: varchar("wallet_credit_tx_id"),
+  accountLinkMovedUserId: varchar("account_link_moved_user_id"),
+  status: text("status").notNull().default('applied'), // 'applied' | 'undone'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  undoneAt: timestamp("undone_at"),
+  undoneByAdminId: varchar("undone_by_admin_id"),
+});
+export type PlayerMergeLog = typeof playerMergeLog.$inferSelect;
 
 // One-shot migration tracking (used by scripts/* to prevent re-runs). `key`
 // is the natural PK. Existing rows: discount_code_newbie_seed_v1 (2026-05-20)

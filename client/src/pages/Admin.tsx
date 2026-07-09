@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { LogOut, Users, FileDown, FolderKanban, Trophy, Lightbulb, Check, X, ThumbsUp, RefreshCw } from 'lucide-react';
+import { LogOut, Users, FileDown, FolderKanban, Trophy, Lightbulb, Check, X, ThumbsUp, RefreshCw, Merge } from 'lucide-react';
+import { PlayerMergeTool } from '@/components/PlayerMergeTool';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
 import { Leaderboard } from '@/components/Leaderboard';
@@ -296,10 +297,14 @@ export default function Admin() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4 max-w-2xl mb-8">
+          <TabsList className="grid w-full grid-cols-5 max-w-3xl mb-8">
             <TabsTrigger value="players" data-testid="tab-players">
               <Users className="w-4 h-4 mr-2" />
               Players
+            </TabsTrigger>
+            <TabsTrigger value="merge" data-testid="tab-merge">
+              <Merge className="w-4 h-4 mr-2" />
+              Merge
             </TabsTrigger>
             <TabsTrigger value="leaderboard" data-testid="tab-leaderboard">
               <Trophy className="w-4 h-4 mr-2" />
@@ -328,6 +333,10 @@ export default function Admin() {
                 <PlayerImport />
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="merge" className="space-y-6">
+            <PlayerMergeTool />
           </TabsContent>
 
           <TabsContent value="leaderboard" className="space-y-6">
