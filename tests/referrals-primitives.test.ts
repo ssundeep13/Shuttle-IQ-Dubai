@@ -115,13 +115,73 @@ describe('completeReferralOnPayment — bail cases', () => {
     expect(storage.applyReferralCompletionAtomic).not.toHaveBeenCalled();
   });
 
-  it('returns applied:false / reason:"not_pending" when the referral is clawed_back', async () => {
-    (storage.getReferralByRefereeUserId as any).mockResolvedValue({ ...PENDING_REFERRAL, status: 'clawed_back' });
+  // Revival (2026-07-10): clawed_back is no longer terminal — a later
+  // qualifying booking completes the referral again with a distinguishable
+  // method. The clawback reversed the original credits, so the fresh pair
+  // is not a double-pay.
+  it('REVIVES a clawed_back referral: CAS keyed on clawed_back, method first_payment_revived', async () => {
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue({ ...PENDING_REFERRAL, status: 'clawed_back', clawedBackAt: new Date() });
+    (storage.getMarketplaceUser as any).mockResolvedValue(REFEREE_USER_LINKED);
+    (storage.applyReferralCompletionAtomic as any).mockResolvedValue({
+      applied: true,
+      updatedReferrer: { ...REFERRER, walletBalance: 3000 },
+      refereeWasUnlinked: false,
+    });
+    (storage.getCompletedReferralCount as any).mockResolvedValue(1);
+    (storage.getPlayer as any).mockResolvedValue(REFERRER);
+
+    const result = await completeReferralOnPayment('mp-user-friend', 'booking-2');
+
+    expect(result.applied).toBe(true);
+    expect(storage.applyReferralCompletionAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        completionMethod: 'first_payment_revived',
+        expectedStatus: 'clawed_back',
+        triggeringBookingId: 'booking-2',
+      }),
+    );
+  });
+
+  it('normal pending completion is unaffected: method first_payment, CAS keyed on pending', async () => {
+    (storage.getReferralByRefereeUserId as any).mockResolvedValue(PENDING_REFERRAL);
+    (storage.getMarketplaceUser as any).mockResolvedValue(REFEREE_USER_LINKED);
+    (storage.applyReferralCompletionAtomic as any).mockResolvedValue({
+      applied: true,
+      updatedReferrer: { ...REFERRER, walletBalance: 3000 },
+      refereeWasUnlinked: false,
+    });
+    (storage.getCompletedReferralCount as any).mockResolvedValue(1);
+    (storage.getPlayer as any).mockResolvedValue(REFERRER);
 
     const result = await completeReferralOnPayment('mp-user-friend', 'booking-1');
 
-    expect(result.applied).toBe(false);
-    if (!result.applied) expect(result.reason).toBe('not_pending');
+    expect(result.applied).toBe(true);
+    expect(storage.applyReferralCompletionAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({ completionMethod: 'first_payment', expectedStatus: 'pending' }),
+    );
+  });
+
+  it('admin path revives too, stamping admin_revived and the optional trigger booking', async () => {
+    (storage.getReferral as any).mockResolvedValue({ ...PENDING_REFERRAL, status: 'clawed_back' });
+    (storage.getMarketplaceUser as any).mockResolvedValue(REFEREE_USER_LINKED);
+    (storage.applyReferralCompletionAtomic as any).mockResolvedValue({
+      applied: true,
+      updatedReferrer: { ...REFERRER, walletBalance: 3000 },
+      refereeWasUnlinked: false,
+    });
+    (storage.getCompletedReferralCount as any).mockResolvedValue(1);
+    (storage.getPlayer as any).mockResolvedValue(REFERRER);
+
+    const result = await completeReferral('ref-1', 'booking-2');
+
+    expect(result.success).toBe(true);
+    expect(storage.applyReferralCompletionAtomic).toHaveBeenCalledWith(
+      expect.objectContaining({
+        completionMethod: 'admin_revived',
+        expectedStatus: 'clawed_back',
+        triggeringBookingId: 'booking-2',
+      }),
+    );
   });
 
   it('blocks a self-referral when refereeUser.linkedPlayerId equals referrerId', async () => {

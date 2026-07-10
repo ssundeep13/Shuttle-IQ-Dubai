@@ -114,7 +114,8 @@ async function applyCompletion(params: {
   refereeName: string;
   refereeEmail: string;
   triggeringBookingId: string | null;
-  completionMethod: 'first_payment' | 'admin';
+  completionMethod: 'first_payment' | 'admin' | 'first_payment_revived' | 'admin_revived';
+  expectedStatus: 'pending' | 'clawed_back';
 }): Promise<CompleteOutcome> {
   const atomic = await storage.applyReferralCompletionAtomic({
     referralId: params.referralId,
@@ -123,6 +124,7 @@ async function applyCompletion(params: {
     triggeringBookingId: params.triggeringBookingId,
     completionMethod: params.completionMethod,
     creditFils: REFERRAL_CREDIT_FILS,
+    expectedStatus: params.expectedStatus,
   });
 
   if (!atomic.applied) {
@@ -173,7 +175,11 @@ export async function completeReferralOnPayment(
 ): Promise<CompleteOutcome> {
   const referral = await storage.getReferralByRefereeUserId(refereeUserId);
   if (!referral) return { applied: false, reason: 'no_referral' };
-  if (referral.status !== 'pending') {
+  // Revival (2026-07-10): clawed_back is no longer terminal. A referee who
+  // cancelled (clawback reversed both credits) and later completes a genuine
+  // qualifying booking earns the reward again — the clawback exists to stop
+  // cancel-refund gaming, not to punish someone who came back.
+  if (referral.status !== 'pending' && referral.status !== 'clawed_back') {
     return { applied: false, reason: 'not_pending' };
   }
 
@@ -190,6 +196,7 @@ export async function completeReferralOnPayment(
     return { applied: false, reason: 'self_referral_blocked' };
   }
 
+  const reviving = referral.status === 'clawed_back';
   return await applyCompletion({
     referralId: referral.id,
     referrerId: referral.referrerId,
@@ -198,7 +205,8 @@ export async function completeReferralOnPayment(
     refereeName: refereeUser.name,
     refereeEmail: refereeUser.email,
     triggeringBookingId,
-    completionMethod: 'first_payment',
+    completionMethod: reviving ? 'first_payment_revived' : 'first_payment',
+    expectedStatus: reviving ? 'clawed_back' : 'pending',
   });
 }
 
@@ -274,15 +282,22 @@ export async function linkReferralPostSignup(params: {
 // ─────────────────────────────────────────────────────────────────────────
 // PUBLIC: admin force-complete (existing endpoint at routes.ts:3699). Now
 // credits both sides via the shared primitive. Marked completionMethod='admin'
-// and triggeringBookingId=null so a booking cancel never claws this back.
+// (or 'admin_revived' when reviving a clawed_back row). triggeringBookingId
+// defaults to null (cancel never claws back); pass the real qualifying
+// booking id to keep the clawback story intact for that booking.
 // ─────────────────────────────────────────────────────────────────────────
 
 export async function completeReferral(
   referralId: string,
+  // Optional: ties the admin completion to the real qualifying booking so the
+  // ledger/clawback story stays truthful (a cancel of that booking can claw
+  // this back). Omitted → null, preserving the original admin semantics.
+  triggeringBookingId: string | null = null,
 ): Promise<{ success: boolean; error?: string }> {
   const referral = await storage.getReferral(referralId);
   if (!referral) return { success: false, error: 'Referral not found' };
-  if (referral.status !== 'pending') {
+  // Admin may also revive a clawed_back referral — admin action is deliberate.
+  if (referral.status !== 'pending' && referral.status !== 'clawed_back') {
     return { success: false, error: 'Referral already processed' };
   }
 
@@ -291,6 +306,7 @@ export async function completeReferral(
     return { success: false, error: 'Referee user not found' };
   }
 
+  const reviving = referral.status === 'clawed_back';
   const outcome = await applyCompletion({
     referralId: referral.id,
     referrerId: referral.referrerId,
@@ -298,8 +314,9 @@ export async function completeReferral(
     refereeLinkedPlayerId: refereeUser.linkedPlayerId,
     refereeName: refereeUser.name,
     refereeEmail: refereeUser.email,
-    triggeringBookingId: null,
-    completionMethod: 'admin',
+    triggeringBookingId,
+    completionMethod: reviving ? 'admin_revived' : 'admin',
+    expectedStatus: reviving ? 'clawed_back' : 'pending',
   });
 
   if (!outcome.applied) {

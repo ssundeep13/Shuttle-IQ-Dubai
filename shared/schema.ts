@@ -64,12 +64,12 @@ export const referrals = pgTable("referrals", {
   referrerId: varchar("referrer_id").notNull().references(() => players.id), // player.id of the person who referred
   refereeUserId: varchar("referee_user_id").notNull().unique(), // marketplace_users.id of the person who was referred (one referral per user)
   refereePlayerId: varchar("referee_player_id"), // player.id of the referee (populated when marketplace user links a player account)
-  status: text("status").notNull().default('pending'), // 'pending' | 'completed' | 'invalid' | 'clawed_back' (terminal)
+  status: text("status").notNull().default('pending'), // 'pending' | 'completed' | 'invalid' | 'clawed_back' (revivable since 2026-07-10: a later qualifying booking completes it again)
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   // PR1 additions — wiring deferred to PR2.
   triggeringBookingId: varchar("triggering_booking_id"), // booking.id whose first confirmed payment fired the credit; null for admin force-complete
-  completionMethod: text("completion_method"), // 'first_payment' | 'admin' (null pre-completion)
+  completionMethod: text("completion_method"), // 'first_payment' | 'admin' | 'first_payment_revived' | 'admin_revived' (null pre-completion)
   clawedBackAt: timestamp("clawed_back_at"),
 }, (table) => [
   index('idx_referrals_triggering_booking').on(table.triggeringBookingId),

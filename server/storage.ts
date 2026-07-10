@@ -512,15 +512,18 @@ export interface IStorage {
   backfillReferralCodes(): Promise<number>;
 
   // PR1 atomic referral primitives. Wired in PR2.
-  // applyReferralCompletionAtomic: CAS-flip referral pending→completed and
-  // credit both wallets (or stage on refereeUser when unlinked) in a single tx.
+  // applyReferralCompletionAtomic: CAS-flip referral pending|clawed_back →
+  // completed and credit both wallets (or stage on refereeUser when unlinked)
+  // in a single tx. clawed_back acceptance = revival (2026-07-10); the
+  // clawback reversed the original credits, so revival credits are fresh.
   applyReferralCompletionAtomic(params: {
     referralId: string;
     refereeUserId: string;
     refereeLinkedPlayerId: string | null;
     triggeringBookingId: string | null;
-    completionMethod: 'first_payment' | 'admin';
+    completionMethod: 'first_payment' | 'admin' | 'first_payment_revived' | 'admin_revived';
     creditFils: number;
+    expectedStatus: 'pending' | 'clawed_back';
   }): Promise<
     | { applied: true; updatedReferrer: Player; refereeWasUnlinked: boolean }
     | { applied: false }
@@ -4325,14 +4328,20 @@ export class DatabaseStorage implements IStorage {
     refereeUserId: string;
     refereeLinkedPlayerId: string | null;
     triggeringBookingId: string | null;
-    completionMethod: 'first_payment' | 'admin';
+    completionMethod: 'first_payment' | 'admin' | 'first_payment_revived' | 'admin_revived';
     creditFils: number;
+    // Revival (2026-07-10): a clawed_back referral may complete again on a
+    // later qualifying booking — the clawback fully reversed the original
+    // credits, so this fresh pair is not a double-pay. The caller read the
+    // row's status and passes it here; the CAS keys on that exact status so
+    // a concurrent flip loses cleanly.
+    expectedStatus: 'pending' | 'clawed_back';
   }): Promise<
     | { applied: true; updatedReferrer: Player; refereeWasUnlinked: boolean }
     | { applied: false }
   > {
     return await db.transaction(async (tx) => {
-      // CAS: only flip pending → completed. Stamps the trigger metadata.
+      // CAS: flip pending|clawed_back → completed. Stamps the trigger metadata.
       const [completedRef] = await tx
         .update(referrals)
         .set({
@@ -4341,7 +4350,7 @@ export class DatabaseStorage implements IStorage {
           triggeringBookingId: params.triggeringBookingId,
           completionMethod: params.completionMethod,
         })
-        .where(and(eq(referrals.id, params.referralId), eq(referrals.status, 'pending')))
+        .where(and(eq(referrals.id, params.referralId), eq(referrals.status, params.expectedStatus)))
         .returning();
       if (!completedRef) return { applied: false };
 

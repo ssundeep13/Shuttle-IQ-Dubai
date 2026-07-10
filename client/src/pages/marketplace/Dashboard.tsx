@@ -1036,7 +1036,10 @@ export default function Dashboard() {
                                 <span style={{ fontSize: 12, color: MKT.inkSub }}>AED 15</span>
                               )}
                               <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: ref.status === 'completed' ? MKT.navy : 'rgba(0,30,70,0.08)', color: ref.status === 'completed' ? '#fff' : MKT.inkSub }}>
-                                {ref.status === 'completed' ? 'Completed' : 'Pending'}
+                                {/* clawed_back deliberately reads Pending: since revival
+                                    shipped, the friend's next paid booking completes it —
+                                    behaviorally identical to pending for the player. */}
+                                {ref.status === 'completed' ? 'Completed' : ref.status === 'invalid' ? 'Not eligible' : 'Pending'}
                               </span>
                             </div>
                           </div>

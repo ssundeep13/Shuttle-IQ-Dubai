@@ -2951,10 +2951,15 @@ function ReferralsTabContent() {
                       <td className="py-2.5 pr-4">{ref.refereeEmail}</td>
                       <td className="py-2.5 pr-4">
                         <Badge
-                          variant={ref.status === 'completed' ? 'default' : 'secondary'}
+                          variant={ref.status === 'completed' ? 'default' : ref.status === 'clawed_back' ? 'outline' : 'secondary'}
                           className="text-xs no-default-hover-elevate no-default-active-elevate"
                         >
-                          {ref.status === 'completed' ? 'Completed' : 'Pending'}
+                          {/* Admin sees the real state; players see Pending for
+                              clawed_back (revivable on the next paid booking). */}
+                          {ref.status === 'completed' ? 'Completed'
+                            : ref.status === 'clawed_back' ? 'Clawed back'
+                            : ref.status === 'invalid' ? 'Invalid'
+                            : 'Pending'}
                         </Badge>
                       </td>
                       <td className="py-2.5 pr-4 text-muted-foreground">

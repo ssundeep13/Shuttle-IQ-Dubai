@@ -4731,7 +4731,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/referrals/:id/complete', requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
-      const result = await completeReferral(req.params.id);
+      // Optional: tie the completion to the real qualifying booking (must be
+      // the referee's own booking) so the ledger and any future clawback of
+      // that booking stay truthful.
+      let triggeringBookingId: string | null = null;
+      const rawBookingId = (req.body?.triggeringBookingId ?? '').toString();
+      if (rawBookingId) {
+        const referral = await storage.getReferral(req.params.id);
+        const booking = await storage.getBooking(rawBookingId);
+        if (!referral || !booking || booking.userId !== referral.refereeUserId) {
+          return res.status(400).json({ error: 'triggeringBookingId must be a booking of the referee' });
+        }
+        triggeringBookingId = booking.id;
+      }
+      const result = await completeReferral(req.params.id, triggeringBookingId);
       if (!result.success) {
         return res.status(400).json({ error: result.error });
       }
