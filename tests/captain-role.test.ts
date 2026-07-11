@@ -69,11 +69,15 @@ describe('captain role - allow-list tripwires', () => {
 
   it('the admin tab bar has ONE source of truth — no hardcoded TabsTrigger can bypass the captain filter', () => {
     // The C1 render check caught the desktop TabsList hardcoding all tabs
-    // while only the mobile drawer used the role-filtered tabConfig.
+    // while only the mobile drawer used the role-filtered tabConfig. Scoped
+    // to the dashboard bar: sub-tabs inside captain-hidden tab contents
+    // (registry/leaderboard/import/export) are fine.
     const src = read('client/src/pages/SessionsManagement.tsx');
-    const hardcoded = src.match(/<TabsTrigger value="/g) ?? [];
-    expect(hardcoded.length, 'render admin tabs only via tabConfig.map').toBe(0);
-    expect(src.includes('tabConfig.map')).toBe(true);
+    const barStart = src.indexOf('data-testid="tabs-admin-dashboard"');
+    expect(barStart).toBeGreaterThan(-1);
+    const bar = src.slice(barStart, src.indexOf('</TabsList>', barStart));
+    expect((bar.match(/<TabsTrigger value="/g) ?? []).length, 'render admin dashboard tabs only via tabConfig.map').toBe(0);
+    expect(bar.includes('tabConfig.map')).toBe(true);
   });
 
   it('the forbidden surfaces still carry requireAdmin (or stricter)', () => {
