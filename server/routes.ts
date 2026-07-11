@@ -15,7 +15,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { sql, eq, inArray, and, desc, asc } from "drizzle-orm";
-import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
+import { requireAuth, requireAdmin, requireCaptain, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import { verifyAccessToken } from "./auth/utils";
 import { 
   generateAccessToken, 
@@ -269,7 +269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Session routes - Protected with auth
-  app.post("/api/sessions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/sessions", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const requestData = {
         ...req.body,
@@ -298,7 +298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/sessions/unified", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/sessions/unified", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { marketplace: rawMarketplace, ...sessionData } = req.body;
       
@@ -443,7 +443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/sessions/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/sessions/:id", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const session = await storage.getSession(req.params.id);
       if (!session) {
@@ -502,7 +502,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/sessions/:id/end", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/sessions/:id/end", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const existing = await storage.getSession(req.params.id);
       if (!existing) {
@@ -530,7 +530,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/sessions/:id/bookings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/sessions/:id/bookings", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const sessionId = req.params.id;
       const bookableSession = await storage.getBookableSessionByLinkedSessionId(sessionId);
@@ -580,7 +580,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // a guest linked on a prior check-in); for a pure guest with no account/link it
   // auto-creates a lightweight Intermediate player and attaches it to the guest
   // row via CAS, so re-opening the modal never creates a duplicate.
-  app.post("/api/sessions/:id/guests/:guestId/ensure-player", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/sessions/:id/guests/:guestId/ensure-player", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const sessionId = req.params.id;
       const guestId = req.params.guestId;
@@ -661,7 +661,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/sessions/:id/bookings/:bookingId/checkin", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/sessions/:id/bookings/:bookingId/checkin", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const sessionId = req.params.id;
       const bookingId = req.params.bookingId;
@@ -741,7 +741,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Edit game result (update scores)
-  app.patch("/api/game-results/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/game-results/:id", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { team1Score, team2Score } = req.body;
       const gameId = req.params.id;
@@ -915,7 +915,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/players", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/players", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const activeSession = await storage.getActiveSession();
 
@@ -973,7 +973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/players/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/players/:id", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const updates = { ...req.body };
       // Keep skillScoreBaseline in sync when an admin manually edits skillScore,
@@ -1307,7 +1307,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/courts", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/courts", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       // Deferred-fix sweep: honor a body sessionId (validated) so Add Court
       // works on upcoming/sandbox sessions the admin is viewing — the old
@@ -1338,7 +1338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/courts/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/courts/:id", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const court = await storage.updateCourt(req.params.id, req.body);
       if (!court) {
@@ -1355,7 +1355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/courts/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/courts/:id", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const court = await storage.getCourt(req.params.id);
       if (!court) {
@@ -1397,7 +1397,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/queue", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.put("/api/queue", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       // Gate 2: honor an explicit sessionId like POST/DELETE do — this verb used to
       // hardcode the active session, so reordering while viewing another session
@@ -1435,7 +1435,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/queue/:playerId", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/queue/:playerId", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.body;
       const session = sessionId
@@ -1452,7 +1452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/queue/:playerId", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.delete("/api/queue/:playerId", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.body;
       const session = sessionId
@@ -1477,7 +1477,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Sit-out toggle routes
-  app.post("/api/sessions/:sessionId/queue/players/:playerId/sit-out", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/sessions/:sessionId/queue/players/:playerId/sit-out", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId, playerId } = req.params;
       const session = await storage.getSession(sessionId);
@@ -1504,7 +1504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ── Court Captain: pending match suggestions ──────────────────────────────
   // List pending suggestions for a session, with court name and lineup names
   // pre-joined. Polled every ~10s by the admin Home page.
-  app.get("/api/sessions/:sessionId/pending-suggestions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/sessions/:sessionId/pending-suggestions", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.params;
       const session = await storage.getSession(sessionId);
@@ -1538,7 +1538,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // the status flip is skipped and we go straight to placement. The
   // auto-approve SWEEP is deliberately unchanged (owner scope ruling) —
   // player-driven sessions keep their notify-then-player-starts flow.
-  app.post("/api/sessions/:sessionId/suggestions/:suggestionId/approve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/sessions/:sessionId/suggestions/:suggestionId/approve", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId, suggestionId } = req.params;
       const suggestion = await storage.getMatchSuggestion(suggestionId);
@@ -1636,7 +1636,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Dismiss: Court Captain rejects a pending suggestion before auto-approve.
   // Idempotent — already-dismissed returns 200.
-  app.post("/api/sessions/:sessionId/suggestions/:suggestionId/dismiss", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/sessions/:sessionId/suggestions/:suggestionId/dismiss", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId, suggestionId } = req.params;
       const suggestion = await storage.getMatchSuggestion(suggestionId);
@@ -1691,7 +1691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Court bands Gate 2 — set a court's suggestion band (mid-session allowed).
   // The band constrains suggestion generation and the auto Up Next
   // orchestrator ONLY; captain assigns/swaps/pins are never blocked by it.
-  app.patch("/api/courts/:courtId/skill-band", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/courts/:courtId/skill-band", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { skillBand, sessionId: bodySessionId } = req.body;
       if (!COURT_SKILL_BANDS.includes(skillBand)) {
@@ -1723,7 +1723,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // deduped against identical local options. Read-only: confirming the shown
   // lineup goes through the existing pin endpoint (queued row → game-end
   // promotion → 6b confirm/placement), no parallel mechanism.
-  app.get("/api/courts/:courtId/suggestions", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/courts/:courtId/suggestions", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const court = await storage.getCourt(req.params.courtId);
       if (!court) {
@@ -2005,7 +2005,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Queued players stay in the queue until promotion, exactly like
   // orchestrator-built rows. Unpin = the dismiss route above; promotion =
   // the same tryFlipQueuedToPendingForCourt path both origins share.
-  app.post("/api/courts/:courtId/queued-suggestion", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/courts/:courtId/queued-suggestion", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId: bodySessionId, teamAssignments } = req.body;
       if (!Array.isArray(teamAssignments) || teamAssignments.length !== 4) {
@@ -2104,7 +2104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // after this response observes the new row.
   // Gate 5d: honest outcomes — a pass that builds nothing says why, and a
   // non-operable session is a 409, never a silent success.
-  app.post("/api/sessions/:sessionId/queued-lineups/build", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/sessions/:sessionId/queued-lineups/build", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.params;
       const session = await storage.getSession(sessionId);
@@ -2129,7 +2129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Gate 5 — EDIT: swap one player on a 'queued' lineup before it goes live.
   // The storage CAS gates on status='queued' and flips source to 'captain'
   // (editing an auto lineup makes it captain-owned).
-  app.patch("/api/sessions/:sessionId/suggestions/:suggestionId/players", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/sessions/:sessionId/suggestions/:suggestionId/players", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId, suggestionId } = req.params;
       const { outPlayerId, inPlayerId } = req.body;
@@ -2201,7 +2201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/sessions/:sessionId/queue/sitting-out", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/sessions/:sessionId/queue/sitting-out", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.params;
       const session = await storage.getSession(sessionId);
@@ -2495,7 +2495,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Batch assign multiple courts at once (bracket-assign)
-  app.post("/api/matchmaking/bracket-assign", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/matchmaking/bracket-assign", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const schema = z.object({
         sessionId: z.string().optional(),
@@ -2692,7 +2692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Game management routes
-  app.post("/api/courts/:courtId/assign", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/courts/:courtId/assign", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { playerIds, teamAssignments, sessionId: bodySessionId } = req.body;
       
@@ -2778,7 +2778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/courts/:courtId/cancel-game", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/courts/:courtId/cancel-game", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { sessionId: bodySessionId } = req.body;
       console.log(`[CANCEL-GAME] Canceling game on court ${req.params.courtId}`);
@@ -2861,7 +2861,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/courts/:courtId/end-game", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/courts/:courtId/end-game", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       const { winningTeam, team1Score, team2Score, sessionId: bodySessionId } = req.body;
       

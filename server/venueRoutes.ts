@@ -8,7 +8,7 @@
 import type { Express } from "express";
 import { storage } from "./storage";
 import { z } from "zod";
-import { requireAuth, requireAdmin, requireSuperAdmin } from "./auth/middleware";
+import { requireAuth, requireCaptain, requireSuperAdmin } from "./auth/middleware";
 import type { Venue } from "@shared/schema";
 
 // Normalise an optional text field: trimmed string, or null when blank/absent.
@@ -24,7 +24,7 @@ export function registerVenueRoutes(app: Express): void {
   // requireAdmin (not super) on purpose: the session create/edit form (any admin,
   // gate d) reads this list for its venue dropdown. Mutations below stay super-admin,
   // and the Venues management tab remains super-admin-gated in the UI.
-  app.get("/api/venues", requireAuth, requireAdmin, async (_req, res) => {
+  app.get("/api/venues", requireAuth, requireCaptain, async (_req, res) => {
     try {
       const rows = await storage.listVenues();
       res.json(rows);

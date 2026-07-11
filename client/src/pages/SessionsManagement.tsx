@@ -224,7 +224,12 @@ export default function SessionsManagement() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   type TabEntry = { value: string; label: string; Icon: React.ElementType; badge?: number };
-  const tabConfig: TabEntry[] = [
+  // Gate C2: a captain runs sessions — nothing else. The server rejects the
+  // hidden tabs' endpoints anyway (requireAdmin); this keeps their UI clean.
+  const isCaptain = user?.role === 'captain';
+  const tabConfig: TabEntry[] = isCaptain
+    ? [{ value: 'sessions', label: 'Sessions', Icon: LayoutGrid }]
+    : [
     { value: 'sessions',          label: 'Sessions',           Icon: LayoutGrid  },
     { value: 'players',           label: 'Players',            Icon: Users       },
     { value: 'marketplace-users', label: 'Marketplace Users',  Icon: ShoppingBag },

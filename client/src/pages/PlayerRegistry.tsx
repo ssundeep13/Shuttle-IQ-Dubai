@@ -33,8 +33,11 @@ export default function PlayerRegistry() {
   const [deletingPlayer, setDeletingPlayer] = useState<Player | null>(null);
   const [activeTab, setActiveTab] = useState<'players' | 'leaderboard' | 'merge'>('players');
   const { toast } = useToast();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [location] = useLocation();
+  // Gate C2: merge, recalculate and delete are admin-only — explicit allow,
+  // mirroring the server guards (captains are rejected there regardless).
+  const isFullAdmin = isAuthenticated && (user?.role === 'admin' || user?.role === 'super_admin');
   
   // Determine if this is the admin view (authenticated + on admin path)
   const isAdminView = isAuthenticated && location.startsWith('/admin');
@@ -172,7 +175,7 @@ export default function PlayerRegistry() {
         </div>
 
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'players' | 'leaderboard' | 'merge')} className="w-full">
-          <TabsList className={`grid w-full ${isAuthenticated ? 'grid-cols-3' : 'grid-cols-2'} mb-4`}>
+          <TabsList className={`grid w-full ${isFullAdmin ? 'grid-cols-3' : 'grid-cols-2'} mb-4`}>
             <TabsTrigger value="players" className="flex items-center gap-2" data-testid="tab-players">
               <Users className="h-4 w-4" />
               Players
@@ -181,7 +184,7 @@ export default function PlayerRegistry() {
               <Trophy className="h-4 w-4" />
               Leaderboard
             </TabsTrigger>
-            {isAuthenticated && (
+            {isFullAdmin && (
               <TabsTrigger value="merge" className="flex items-center gap-2" data-testid="tab-merge">
                 <Merge className="h-4 w-4" />
                 Merge
@@ -267,15 +270,17 @@ export default function PlayerRegistry() {
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeletingPlayer(player)}
-                            data-testid={`button-delete-${player.id}`}
-                            className="hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {isFullAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeletingPlayer(player)}
+                              data-testid={`button-delete-${player.id}`}
+                              className="hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </>
                       )}
                       <Link href={`/player/${player.id}`}>
@@ -311,7 +316,7 @@ export default function PlayerRegistry() {
           </TabsContent>
 
           <TabsContent value="leaderboard" className="mt-0 space-y-4">
-            {isAuthenticated && (
+            {isFullAdmin && (
               <div className="flex items-center justify-between gap-3 flex-wrap rounded-md border bg-muted/30 px-4 py-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground">Recalculate player stats</p>
@@ -337,7 +342,7 @@ export default function PlayerRegistry() {
             />
           </TabsContent>
 
-          {isAuthenticated && (
+          {isFullAdmin && (
             <TabsContent value="merge" className="mt-0">
               <PlayerMergeTool />
             </TabsContent>

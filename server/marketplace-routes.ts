@@ -22,7 +22,7 @@ import {
 } from "./emailClient";
 import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
 import { createHash, randomInt } from "crypto";
-import { requireAuth, requireAdmin, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
+import { requireAuth, requireAdmin, requireCaptain, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -2335,7 +2335,7 @@ export function registerMarketplaceRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/marketplace/sessions/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  app.patch("/api/marketplace/sessions/:id", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
       // Validated partial update. Covers exactly the fields EditSessionModal sends today
       // (all optional), plus optional passthrough for the STEP 3/4 cost/captain fields so

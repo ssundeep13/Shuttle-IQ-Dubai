@@ -44,8 +44,29 @@ export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction
     return res.status(401).json({ error: 'Authentication required' });
   }
 
+  // DELIBERATELY excludes 'captain' — this is the default guard, so any
+  // endpoint not explicitly re-tagged with requireCaptain stays closed to
+  // captains (default-deny). Do not add 'captain' here.
   if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
     return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  next();
+}
+
+// Gate C2 (2026-07-10): the session-running guard. Captains run live
+// sessions — courts, queue, score entry, check-ins, session setup/edit —
+// but get NOTHING else (no merge, refunds, referrals admin, marketplace
+// admin, player delete, venue writes, imports). Apply this ONLY to
+// endpoints a Court Captain needs on session night; everything else keeps
+// requireAdmin and therefore rejects captains by default.
+export function requireCaptain(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  if (req.user.role !== 'captain' && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Captain access required' });
   }
 
   next();

@@ -9,13 +9,13 @@
 import type { Express } from "express";
 import { storage } from "./storage";
 import { z } from "zod";
-import { requireAuth, requireAdmin } from "./auth/middleware";
+import { requireAuth, requireCaptain } from "./auth/middleware";
 
 export function registerSessionCostRoutes(app: Express): void {
   // ── Session runners (captain list) ───────────────────────────────────────────
   // Returns ALL runners (active + inactive) so the edit form can DISPLAY an already-
   // stored inactive runner on an old session; the picker itself filters to active.
-  app.get("/api/session-runners", requireAuth, requireAdmin, async (_req, res) => {
+  app.get("/api/session-runners", requireAuth, requireCaptain, async (_req, res) => {
     try {
       const runners = await storage.listSessionRunners();
       res.json(runners);
@@ -28,7 +28,7 @@ export function registerSessionCostRoutes(app: Express): void {
   // ── A bookable session's cost row (for edit-form prefill) ─────────────────────
   // Returns { courtCostFils, shuttleCostFils, waterCostFils, captainId,
   // courtCostOverridden } or null if no session_costs row exists yet.
-  app.get("/api/sessions/:id/costs", requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/sessions/:id/costs", requireAuth, requireCaptain, async (req, res) => {
     try {
       const sessionId = z.string().min(1).parse(req.params.id);
       const costs = await storage.getSessionCosts(sessionId);
