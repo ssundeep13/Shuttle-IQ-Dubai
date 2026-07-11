@@ -342,55 +342,22 @@ export default function SessionsManagement() {
           {/* Desktop tab bar — hidden on mobile, replaced by hamburger nav */}
           <div className="hidden md:block">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              {/* Gate C2: single source of truth — the desktop bar renders the
+                  same role-filtered tabConfig as the mobile drawer, so a
+                  captain sees only Sessions on every viewport. Badge colors
+                  stay per-tab (disputes amber, refunds destructive). */}
               <TabsList data-testid="tabs-admin-dashboard">
-                <TabsTrigger value="sessions" data-testid="tab-sessions">
-                  <LayoutGrid className="w-4 h-4 mr-2" />
-                  Sessions
-                </TabsTrigger>
-                <TabsTrigger value="players" data-testid="tab-players">
-                  <Users className="w-4 h-4 mr-2" />
-                  Players
-                </TabsTrigger>
-                <TabsTrigger value="marketplace-users" data-testid="tab-marketplace-users">
-                  <ShoppingBag className="w-4 h-4 mr-2" />
-                  Marketplace Users
-                </TabsTrigger>
-                <TabsTrigger value="disputes" data-testid="tab-disputes" className="flex items-center gap-2">
-                  <Flag className="w-4 h-4" />
-                  Disputes
-                  {openDisputeCount > 0 && (
-                    <Badge className="ml-1 h-5 min-w-5 px-1 text-xs bg-amber-500 text-white border-0 no-default-hover-elevate no-default-active-elevate">
-                      {openDisputeCount}
-                    </Badge>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="refunds" data-testid="tab-refunds" className="flex items-center gap-2">
-                  <ReceiptText className="w-4 h-4" />
-                  Refunds
-                  {pendingRefundCount > 0 && (
-                    <Badge className="ml-1 h-5 min-w-5 px-1 text-xs bg-destructive text-destructive-foreground border-0 no-default-hover-elevate no-default-active-elevate">
-                      {pendingRefundCount}
-                    </Badge>
-                  )}
-                </TabsTrigger>
-                {isSuperAdmin && (
-                  <TabsTrigger value="venues" data-testid="tab-venues" className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
-                    Venues
+                {tabConfig.map(({ value, label, Icon, badge }) => (
+                  <TabsTrigger key={value} value={value} data-testid={`tab-${value}`} className="flex items-center gap-2">
+                    <Icon className="w-4 h-4" />
+                    {label}
+                    {badge !== undefined && badge > 0 && (
+                      <Badge className={`ml-1 h-5 min-w-5 px-1 text-xs border-0 no-default-hover-elevate no-default-active-elevate ${value === 'disputes' ? 'bg-amber-500 text-white' : 'bg-destructive text-destructive-foreground'}`}>
+                        {badge}
+                      </Badge>
+                    )}
                   </TabsTrigger>
-                )}
-                <TabsTrigger value="tag-suggestions" data-testid="tab-tag-suggestions" className="flex items-center gap-2">
-                  <Lightbulb className="w-4 h-4" />
-                  Tag Ideas
-                </TabsTrigger>
-                <TabsTrigger value="blog" data-testid="tab-blog" className="flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  Blog
-                </TabsTrigger>
-                <TabsTrigger value="referrals" data-testid="tab-referrals" className="flex items-center gap-2">
-                  <Gift className="w-4 h-4" />
-                  Referrals
-                </TabsTrigger>
+                ))}
               </TabsList>
 
               {activeTab === 'sessions' && (

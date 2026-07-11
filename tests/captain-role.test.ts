@@ -67,6 +67,15 @@ describe('captain role - allow-list tripwires', () => {
     }
   });
 
+  it('the admin tab bar has ONE source of truth — no hardcoded TabsTrigger can bypass the captain filter', () => {
+    // The C1 render check caught the desktop TabsList hardcoding all tabs
+    // while only the mobile drawer used the role-filtered tabConfig.
+    const src = read('client/src/pages/SessionsManagement.tsx');
+    const hardcoded = src.match(/<TabsTrigger value="/g) ?? [];
+    expect(hardcoded.length, 'render admin tabs only via tabConfig.map').toBe(0);
+    expect(src.includes('tabConfig.map')).toBe(true);
+  });
+
   it('the forbidden surfaces still carry requireAdmin (or stricter)', () => {
     const routes = read('server/routes.ts');
     const mkt = read('server/marketplace-routes.ts');
