@@ -8,6 +8,7 @@ import { startScheduler } from "./scheduler";
 import { seedTags } from "./tagSeed";
 import { registerZiinaWebhookRoute } from "./webhookHandler";
 import { shouldBlockCrossHost } from "./portal/hostGate";
+import { UPLOADS_ROOT } from "./uploadsRoot";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -41,7 +42,7 @@ app.use((req, res, next) => {
 
 app.use(
   "/uploads",
-  express.static(path.resolve(process.cwd(), "uploads"), {
+  express.static(UPLOADS_ROOT, {
     maxAge: "30d",
     setHeaders: (res) => {
       res.setHeader("X-Content-Type-Options", "nosniff");

@@ -8,6 +8,7 @@ import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals } from "@shared/schema";
 import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
 import { mergePlayers, undoPlayerMerge, MergeError } from "./playerMerge";
+import { BLOG_UPLOADS_DIR } from "./uploadsRoot";
 import { getSkillTier, getTierDisplayName } from "@shared/utils/skillUtils";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
@@ -4477,10 +4478,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin: list all blog posts (including drafts)
-  const uploadsDir = path.resolve(process.cwd(), "uploads/blog");
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
+  // Gate FV: root comes from uploadsRoot (UPLOADS_DIR env on Railway → the
+  // mounted volume; local default unchanged). Tree is created at import time.
+  const uploadsDir = BLOG_UPLOADS_DIR;
 
   const blogImageStorage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadsDir),

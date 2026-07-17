@@ -40,6 +40,7 @@ import { findReusableInflightGuest, canAddGuest } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { isFullName, normalizeName } from "@shared/utils/playerMatching";
+import { PROFILE_UPLOADS_DIR } from "./uploadsRoot";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, isWithinLateCancelWindow } from "./guestSlotRefund";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
@@ -931,10 +932,9 @@ export function registerMarketplaceRoutes(app: Express) {
   // PROFILE PHOTO
   // ============================================================
 
-  const profilePhotoDir = path.resolve(process.cwd(), "uploads/profile");
-  if (!fs.existsSync(profilePhotoDir)) {
-    fs.mkdirSync(profilePhotoDir, { recursive: true });
-  }
+  // Gate FV: root comes from uploadsRoot (UPLOADS_DIR env on Railway → the
+  // mounted volume; local default unchanged). Tree is created at import time.
+  const profilePhotoDir = PROFILE_UPLOADS_DIR;
 
   const PROFILE_ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp", "image/gif"];
   const PROFILE_MAX_SIZE = 5 * 1024 * 1024;
