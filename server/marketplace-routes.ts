@@ -5213,6 +5213,12 @@ export function registerMarketplaceRoutes(app: Express) {
     requireAuth,
     requireMarketplaceAuth,
     async (req: AuthRequest, res) => {
+      // Gate F0 (2026-07-10): captain-verified scoring is the product's core
+      // rule — only Court Captains enter scores. The self-scoring path below
+      // is PARKED, not deleted: one env flag away if the decision changes.
+      if (process.env.SELF_SCORING_ENABLED !== 'true') {
+        return res.status(403).json({ error: "Scores are entered by your Court Captain" });
+      }
       const suggestionId = req.params.suggestionId;
       try {
         // 1. Resolve caller's linked player FIRST. Marketplace users without

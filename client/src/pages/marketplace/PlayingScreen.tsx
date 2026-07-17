@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -80,14 +79,10 @@ export default function PlayingScreen() {
       return;
     }
 
-    // status is null or 'completed'.
-    if (sawPlayingRef.current) {
-      // The game we were watching just finished — proceed to score entry (P8).
-      setLocation('/marketplace/play/score');
-    } else {
-      // Stale/never-started: there's no game in progress for this player.
-      setLocation('/marketplace/play');
-    }
+    // status is null or 'completed'. Gate F0: score entry is captain-only —
+    // whether the game just finished or never started, players return to the
+    // waiting screen and the Court Captain records the result.
+    setLocation('/marketplace/play');
   }, [suggestion?.status, suggestionQuery.isPending, setLocation]);
 
   // Cosmetic count-up timer. Lives in its own effect so it never tangles with
@@ -204,20 +199,11 @@ function PlayingContent({
         </CardContent>
       </Card>
 
-      <Button
-        size="lg"
-        className="w-full text-base h-14"
-        onClick={() => setLocation('/marketplace/play/score')}
-        data-testid="button-end-game"
-      >
-        End game and enter score
-      </Button>
-
       <p
         className="text-xs text-center text-muted-foreground"
         data-testid="text-playing-caption"
       >
-        Tap when your match is over. Any player on the court can enter the score.
+        Your Court Captain records the score when the game ends.
       </p>
     </div>
   );

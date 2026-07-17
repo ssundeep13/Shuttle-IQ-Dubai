@@ -52,7 +52,6 @@ import BlogPost from "@/pages/marketplace/BlogPost";
 import Welcome from "@/pages/marketplace/Welcome";
 import Play from "@/pages/marketplace/Play";
 import PlayingScreen from "@/pages/marketplace/PlayingScreen";
-import ScoreEntry from "@/pages/marketplace/ScoreEntry";
 import SessionDone from "@/pages/marketplace/SessionDone";
 import InstagramCarousel from "@/pages/InstagramCarousel";
 import InstagramFeaturesCarousel from "@/pages/InstagramFeaturesCarousel";
@@ -213,9 +212,10 @@ function Router() {
         <Route path="/marketplace/play/playing">
           <MarketplaceAuthRoute component={PlayingScreen} />
         </Route>
-        <Route path="/marketplace/play/score">
-          <MarketplaceAuthRoute component={ScoreEntry} />
-        </Route>
+        {/* Gate F0: score entry is captain-only. ScoreEntry.tsx stays in the
+            repo, parked — restoring this route (plus SELF_SCORING_ENABLED
+            server-side) re-enables it. */}
+        <Route path="/marketplace/play/score"><Redirect to="/marketplace/play" /></Route>
         <Route path="/marketplace/play/done">
           <MarketplaceAuthRoute component={SessionDone} />
         </Route>
