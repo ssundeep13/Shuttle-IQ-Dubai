@@ -1079,6 +1079,44 @@ export const playerMergeLog = pgTable("player_merge_log", {
 });
 export type PlayerMergeLog = typeof playerMergeLog.$inferSelect;
 
+// ─── Feed events (Gate F2) ────────────────────────────────────────────────
+// One APPEND-mostly row per feed-worthy moment, generated inside the same
+// transaction as the source write (completeGameTransaction, tag create).
+// Render-from-payload principle: everything a card needs is FROZEN at event
+// time (display names, display tiers, positions) so recalcs and merges can't
+// silently change published posts. Score corrections supersede rather than
+// delete; the (type, dedupe_key) unique index makes generators re-runnable.
+export const feedEvents = pgTable("feed_events", {
+  id: varchar("id").primaryKey(),
+  type: text("type").notNull(), // 'tier_promotion' | 'milestone' | 'win_streak' | 'leaderboard_move' | 'tag_received' | (F4+: 'session_recap' | 'smash_of_week' | 'scarcity')
+  subjectPlayerId: varchar("subject_player_id"), // who the post is about; merge re-points this
+  gameResultId: varchar("game_result_id"), // correction anchor: score edits supersede by this
+  sessionId: varchar("session_id"),
+  relatedTagId: varchar("related_tag_id"),
+  payload: jsonb("payload").notNull(), // frozen display data — names + display tiers, never DB enums
+  dedupeKey: text("dedupe_key").notNull(),
+  status: text("status").notNull().default('published'), // 'published' | 'retracted' | 'superseded'
+  supersededByEventId: varchar("superseded_by_event_id"),
+  visibility: text("visibility").notNull().default('public'),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('uq_feed_event_dedupe').on(t.type, t.dedupeKey),
+  index('idx_feed_events_created').on(t.createdAt),
+  index('idx_feed_events_subject').on(t.subjectPlayerId),
+]);
+export type FeedEvent = typeof feedEvents.$inferSelect;
+
+// Real player likes: one per player per event. Merge re-points player_id
+// (deduping on the PK like tag_suggestion_votes).
+export const feedEventLikes = pgTable("feed_event_likes", {
+  eventId: varchar("event_id").notNull(),
+  playerId: varchar("player_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.eventId, t.playerId] }),
+]);
+export type FeedEventLike = typeof feedEventLikes.$inferSelect;
+
 // One-shot migration tracking (used by scripts/* to prevent re-runs). `key`
 // is the natural PK. Existing rows: discount_code_newbie_seed_v1 (2026-05-20)
 // and onboarding_completed_legacy_backfill_v1 (2026-05-12).

@@ -103,6 +103,7 @@ import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
+import { emitGameFeedEventsInTx } from "./feedEvents";
 
 // Helper function to add computed SKID to player object
 function addSkidToPlayer(player: typeof players.$inferSelect): Player {
@@ -5406,6 +5407,29 @@ export class DatabaseStorage implements IStorage {
           .set({ status: 'completed' })
           .where(eq(matchSuggestions.id, args.matchSuggestionId));
       }
+
+      // Feed events (Gate F2). Savepoint-guarded inside — a feed failure can
+      // never roll back the score entry above. Sandbox sessions emit nothing.
+      await emitGameFeedEventsInTx(tx, {
+        gameResultId: gameId,
+        sessionId: args.sessionId,
+        isSandbox: args.isSandboxSession,
+        perPlayer: computed.map(c => {
+          const fp = freshPlayers.find(f => f.id === c.playerId)!;
+          return {
+            playerId: c.playerId,
+            name: fp.name,
+            prevLevel: fp.level,
+            newLevel: (c.playerUpdates.level as string | undefined) ?? fp.level,
+            prevWins: fp.wins,
+            prevGames: fp.gamesPlayed,
+            newGames: (c.playerUpdates.gamesPlayed as number | undefined) ?? fp.gamesPlayed,
+            isWinner: c.team === args.winningTeam,
+            prevScore: c.skillBefore,
+            newScore: c.skillAfter,
+          };
+        }),
+      });
 
       return {
         gameId,

@@ -24,6 +24,8 @@ import {
   playerContactChangeRequests,
   walletTransactions,
   playerMergeLog,
+  feedEvents,
+  feedEventLikes,
   type Player,
   type PlayerMergeLog,
 } from "@shared/schema";
@@ -251,6 +253,20 @@ export async function mergePlayers(args: {
     const pendingContactReqs = await tx.select({ id: playerContactChangeRequests.id }).from(playerContactChangeRequests)
       .where(and(eq(playerContactChangeRequests.playerId, absorbedId), eq(playerContactChangeRequests.status, "pending")));
 
+    // Feed events (F2): subject re-points; likes dedupe on the (event, player)
+    // PK — if both identities liked the same event, the absorbed like is
+    // deleted (kept verbatim for undo); the rest re-point.
+    const feedSubjectRows = await tx.select({ id: feedEvents.id }).from(feedEvents).where(eq(feedEvents.subjectPlayerId, absorbedId));
+    const dupLikes = await tx.execute(sql`
+      SELECT b.* FROM feed_event_likes b
+      WHERE b.player_id = ${absorbedId}
+        AND EXISTS (SELECT 1 FROM feed_event_likes a
+                    WHERE a.event_id = b.event_id AND a.player_id = ${survivorId})`);
+    const dupLikeRows = dupLikes.rows as any[];
+    const dupLikeEventIds = dupLikeRows.map((r) => r.event_id as string);
+    const moveLikeRows = await tx.select({ eventId: feedEventLikes.eventId }).from(feedEventLikes)
+      .where(and(eq(feedEventLikes.playerId, absorbedId), dupLikeEventIds.length ? notInArray(feedEventLikes.eventId, dupLikeEventIds) : sql`true`));
+
     const repointed = {
       game_participants: gpGames,
       player_tags_tagged: taggedRows.map((r) => r.id),
@@ -263,11 +279,14 @@ export async function mergePlayers(args: {
       session_rest_states: moveRestRows.map((r) => r.id),
       player_link_requests_voided: pendingLinkReqs.map((r) => r.id),
       player_contact_changes_cancelled: pendingContactReqs.map((r) => r.id),
+      feed_events_subject: feedSubjectRows.map((r) => r.id),
+      feed_event_likes: moveLikeRows.map((r) => r.eventId),
     };
     const restoreRows = {
       tag_suggestion_votes: dupVoteRows,
       session_rest_states: dupRestRows,
       player_link_otps: pendingOtpRows,
+      feed_event_likes: dupLikeRows,
     };
 
     // ── Merge log FIRST — the undo record exists before anything moves ────
@@ -317,6 +336,11 @@ export async function mergePlayers(args: {
         .set({ status: "cancelled" })
         .where(inArray(playerContactChangeRequests.id, pendingContactReqs.map((r) => r.id)));
     }
+    await tx.update(feedEvents).set({ subjectPlayerId: survivorId }).where(eq(feedEvents.subjectPlayerId, absorbedId));
+    if (dupLikeEventIds.length) {
+      await tx.delete(feedEventLikes).where(and(eq(feedEventLikes.playerId, absorbedId), inArray(feedEventLikes.eventId, dupLikeEventIds)));
+    }
+    await tx.update(feedEventLikes).set({ playerId: survivorId }).where(eq(feedEventLikes.playerId, absorbedId));
 
     // ── Wallet: offsetting adjustment pair — never touch existing rows ────
     let walletDebitTxId: string | null = null;
@@ -438,6 +462,13 @@ export async function undoPlayerMerge(args: { logId: string; adminId: string }):
       await tx.update(playerContactChangeRequests).set({ status: "pending" })
         .where(inArray(playerContactChangeRequests.id, rp.player_contact_changes_cancelled));
     }
+    if (rp.feed_events_subject?.length) {
+      await tx.update(feedEvents).set({ subjectPlayerId: log.absorbedId }).where(inArray(feedEvents.id, rp.feed_events_subject));
+    }
+    if (rp.feed_event_likes?.length) {
+      await tx.update(feedEventLikes).set({ playerId: log.absorbedId })
+        .where(and(eq(feedEventLikes.playerId, log.survivorId), inArray(feedEventLikes.eventId, rp.feed_event_likes)));
+    }
 
     // Restore dedupe-deleted rows verbatim.
     const rr = log.restoreRows as Record<string, any[]>;
@@ -455,6 +486,11 @@ export async function undoPlayerMerge(args: { logId: string; adminId: string }):
       await tx.execute(sql`
         INSERT INTO player_link_otps (id, marketplace_user_id, player_id, channel, destination, code_hash, attempts, expires_at, consumed_at, created_at)
         VALUES (${row.id}, ${row.marketplace_user_id}, ${row.player_id}, ${row.channel}, ${row.destination}, ${row.code_hash}, ${row.attempts}, ${row.expires_at}, ${row.consumed_at}, ${row.created_at})`);
+    }
+    for (const row of rr.feed_event_likes ?? []) {
+      await tx.execute(sql`
+        INSERT INTO feed_event_likes (event_id, player_id, created_at)
+        VALUES (${row.event_id}, ${row.player_id}, ${row.created_at})`);
     }
 
     // Wallet: reverse with a NEW offsetting pair (append-only ledger).

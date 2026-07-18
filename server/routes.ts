@@ -6,6 +6,7 @@ import fs from "fs";
 import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals } from "@shared/schema";
+import { buildTagFeedEvents, buildCorrectionReplacements, insertFeedEvents, supersedeGameFeedEvents } from "./feedEvents";
 import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
 import { mergePlayers, undoPlayerMerge, MergeError } from "./playerMerge";
 import { BLOG_UPLOADS_DIR } from "./uploadsRoot";
@@ -797,6 +798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pointDifferential = Math.abs(team1Score - team2Score);
 
       // Process each participant
+      const correctionPlayers: Array<{ playerId: string; name: string; prevLevel: string; newLevel: string }> = [];
       for (const participant of participants) {
         const player = playerMap.get(participant.playerId);
         if (!player) continue;
@@ -857,6 +859,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           tierCandidateGames: tierResult.tierCandidateGames,
           wins: Math.max(0, player.wins + winsAdjustment),
         });
+
+        correctionPlayers.push({
+          playerId: participant.playerId,
+          name: player.name,
+          prevLevel: player.level,
+          newLevel: tierResult.level,
+        });
+      }
+
+      // Feed events (Gate F2): a correction that flips the winner or changes
+      // a tier outcome supersedes this game's published events and emits
+      // replacements. supersedeGameFeedEvents is self-guarded — a feed
+      // failure never fails the correction.
+      const tierChanged = correctionPlayers.some(p => p.newLevel !== p.prevLevel);
+      if (winnerChanged || tierChanged) {
+        await supersedeGameFeedEvents(gameId, buildCorrectionReplacements({
+          gameResultId: gameId,
+          sessionId: existingGame.sessionId,
+          newWinningTeam,
+          perPlayer: correctionPlayers,
+        }));
       }
 
       // Return updated game with session ID for cache invalidation
@@ -3936,7 +3959,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (participants.length === 0) return res.status(400).json({ error: "Game not found" });
 
       // Enforce 30-day tagging window
-      const [gameRow] = await db.select({ createdAt: gameResults.createdAt }).from(gameResults).where(eq(gameResults.id, gameResultId));
+      const [gameRow] = await db.select({ createdAt: gameResults.createdAt, sessionId: gameResults.sessionId }).from(gameResults).where(eq(gameResults.id, gameResultId));
       if (gameRow) {
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         if (gameRow.createdAt < thirtyDaysAgo) {
@@ -3951,7 +3974,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Validate all tag IDs exist in the catalog
       const requestedTagIds = [...new Set(parsed.data.tags.map(t => t.tagId))];
-      const validTagRows = await db.select({ id: tags.id }).from(tags).where(inArray(tags.id, requestedTagIds));
+      const validTagRows = await db.select({ id: tags.id, label: tags.label }).from(tags).where(inArray(tags.id, requestedTagIds));
       const validTagIds = new Set(validTagRows.map(r => r.id));
       const invalidTagId = requestedTagIds.find(id => !validTagIds.has(id));
       if (invalidTagId) return res.status(400).json({ error: `Unknown tag: ${invalidTagId}` });
@@ -4003,6 +4026,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
 
       const created = await storage.createPlayerTags(entries);
+
+      // Feed events (Gate F2) — guarded so a feed failure never fails the
+      // tag submission itself. Sandbox games emit nothing.
+      try {
+        const [sess] = gameRow?.sessionId
+          ? await db.select({ isSandbox: sessions.isSandbox }).from(sessions).where(eq(sessions.id, gameRow.sessionId))
+          : [];
+        const nameById = new Map(participants.map(p => [p.id, p.name]));
+        const labelById = new Map(validTagRows.map(r => [r.id, r.label]));
+        const giverName = nameById.get(callerId) ?? "A teammate";
+        await insertFeedEvents(db, buildTagFeedEvents({
+          gameResultId,
+          sessionId: gameRow?.sessionId ?? null,
+          isSandbox: sess?.isSandbox ?? false,
+          entries: entries.map(e => ({
+            receiverId: e.taggedPlayerId,
+            receiverName: nameById.get(e.taggedPlayerId) ?? "A player",
+            giverName,
+            tagId: e.tagId,
+            tagLabel: labelById.get(e.tagId) ?? e.tagId,
+          })),
+        }));
+      } catch (feedErr) {
+        console.error("[FeedEvents] tag emission failed (tags unaffected):", feedErr instanceof Error ? feedErr.message : feedErr);
+      }
 
       // Build enriched tagCounts: get cumulative count for each exact submitted player+tag pair
       const submittedPairs = entries.map(e => ({ playerId: e.taggedPlayerId, tagId: e.tagId }));
