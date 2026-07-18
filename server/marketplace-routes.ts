@@ -49,6 +49,7 @@ import { db } from "./db";
 import { sql, eq, and, or, inArray, desc, asc, gt } from "drizzle-orm";
 import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, feedEventLikes, marketplaceUsers, type BookableSession } from "@shared/schema";
 import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor, feedEventHeadline, assembleTagWall } from "./feedEvents";
+import { getTierDisplayName } from "@shared/utils/skillUtils";
 import { applyPendingWalletCredit } from "./promos";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import {
@@ -203,20 +204,9 @@ export function computeSkillFromAssessment(answers: [number, number, number]): {
 // normalise on lower-case before mapping. Player-facing copy must NEVER
 // surface the raw snake_case values.
 function tierDisplayName(level: string): string {
-  const normalized = (level ?? '').toLowerCase();
-  switch (normalized) {
-    case 'novice': return 'Novice';
-    case 'beginner': return 'Beginner';
-    case 'lower_intermediate': return 'Intermediate';
-    case 'upper_intermediate': return 'Competitive';
-    case 'advanced': return 'Advanced';
-    case 'professional': return 'Professional';
-    default:
-      // Defensive: never leak raw DB values (snake_case or otherwise) to
-      // player-facing copy. Log so we can spot rogue values in the data.
-      console.warn(`[tierDisplayName] unknown level value: ${JSON.stringify(level)}`);
-      return '—';
-  }
+  // F2.1: delegate to the single brand mapping (Advanced → Professional,
+  // no-leak default) instead of keeping a drifting local copy.
+  return getTierDisplayName(level ?? '');
 }
 
 export function registerMarketplaceRoutes(app: Express) {

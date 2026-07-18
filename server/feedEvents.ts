@@ -5,7 +5,7 @@
 // unique index + onConflictDoNothing make every generator safely
 // re-runnable — a conflict is a silent no-op.
 import { randomUUID } from "crypto";
-import { sql, eq, and, inArray } from "drizzle-orm";
+import { sql, eq, and, inArray, ne } from "drizzle-orm";
 import { db } from "./db";
 import { feedEvents } from "@shared/schema";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
@@ -50,7 +50,10 @@ export interface GameFeedInput {
 // ── Pure builders ───────────────────────────────────────────────────────────
 
 export const MILESTONE_GAMES = [50, 100];
-export const STREAK_MIN = 3;
+// F2.1: win_streak emits ONLY when a streak crosses one of these exact
+// values (streaks grow by 1 per game, so crossing = equality). Every game
+// at >=3 was feed spam — 47 cards in one night.
+export const STREAK_THRESHOLDS = [3, 5, 10, 15, 20];
 export const RANK_MOVE_MIN = 3;
 export const RANK_TOP_N = 20;
 
@@ -60,8 +63,12 @@ export function buildGameFeedEvents(input: GameFeedInput): FeedEventInsert[] {
   const base = { gameResultId: input.gameResultId, sessionId: input.sessionId, relatedTagId: null };
 
   for (const p of input.perPlayer) {
-    // tier_promotion — promotions only (never demotions), display tiers only.
-    if (p.newLevel !== p.prevLevel && tierIndex(p.newLevel) > tierIndex(p.prevLevel)) {
+    // tier_promotion — promotions only (never demotions), and only when the
+    // DISPLAY name changes (F2.1): the Advanced→Professional enum crossing
+    // is the same public tier, so no card.
+    const fromDisplay = getTierDisplayName(p.prevLevel);
+    const toDisplay = getTierDisplayName(p.newLevel);
+    if (toDisplay !== fromDisplay && tierIndex(p.newLevel) > tierIndex(p.prevLevel)) {
       out.push({
         ...base,
         type: "tier_promotion",
@@ -69,8 +76,8 @@ export function buildGameFeedEvents(input: GameFeedInput): FeedEventInsert[] {
         dedupeKey: `${input.gameResultId}:${p.playerId}`,
         payload: {
           playerName: p.name,
-          fromTier: getTierDisplayName(p.prevLevel),
-          toTier: getTierDisplayName(p.newLevel),
+          fromTier: fromDisplay,
+          toTier: toDisplay,
         },
       });
     }
@@ -92,9 +99,11 @@ export function buildGameFeedEvents(input: GameFeedInput): FeedEventInsert[] {
       });
     }
 
-    // win_streak — 3+ consecutive wins including this game.
+    // win_streak — only when the streak crosses a threshold exactly. The
+    // emitter supersedes the player's previous streak card so the feed
+    // shows one current-best card per player.
     const streak = input.streaks.get(p.playerId) ?? 0;
-    if (p.isWinner && streak >= STREAK_MIN) {
+    if (p.isWinner && STREAK_THRESHOLDS.includes(streak)) {
       out.push({
         ...base,
         type: "win_streak",
@@ -322,7 +331,9 @@ export function buildCorrectionReplacements(input: {
 }): FeedEventInsert[] {
   const out: FeedEventInsert[] = [];
   for (const p of input.perPlayer) {
-    if (p.newLevel !== p.prevLevel && tierIndex(p.newLevel) > tierIndex(p.prevLevel)) {
+    const fromDisplay = getTierDisplayName(p.prevLevel);
+    const toDisplay = getTierDisplayName(p.newLevel);
+    if (toDisplay !== fromDisplay && tierIndex(p.newLevel) > tierIndex(p.prevLevel)) {
       out.push({
         type: "tier_promotion",
         subjectPlayerId: p.playerId,
@@ -330,7 +341,7 @@ export function buildCorrectionReplacements(input: {
         sessionId: input.sessionId,
         relatedTagId: null,
         dedupeKey: `corr:${input.gameResultId}:${p.playerId}:${input.newWinningTeam}`,
-        payload: { playerName: p.name, fromTier: getTierDisplayName(p.prevLevel), toTier: getTierDisplayName(p.newLevel), corrected: true },
+        payload: { playerName: p.name, fromTier: fromDisplay, toTier: toDisplay, corrected: true },
       });
     }
   }
@@ -339,12 +350,18 @@ export function buildCorrectionReplacements(input: {
 
 // ── Emission ────────────────────────────────────────────────────────────────
 
-export async function insertFeedEvents(dbh: Tx | typeof db, events: FeedEventInsert[]): Promise<void> {
-  if (events.length === 0) return;
-  await dbh
+export async function insertFeedEvents(
+  dbh: Tx | typeof db,
+  events: FeedEventInsert[],
+): Promise<Array<{ id: string; type: string; subjectPlayerId: string | null }>> {
+  if (events.length === 0) return [];
+  // .returning() only yields rows that actually inserted — dedupe conflicts
+  // (silent no-ops) are absent, so callers can react to FIRST emissions only.
+  return await dbh
     .insert(feedEvents)
     .values(events.map((e) => ({ id: randomUUID(), ...e, status: "published", visibility: "public" })))
-    .onConflictDoNothing({ target: [feedEvents.type, feedEvents.dedupeKey] });
+    .onConflictDoNothing({ target: [feedEvents.type, feedEvents.dedupeKey] })
+    .returning({ id: feedEvents.id, type: feedEvents.type, subjectPlayerId: feedEvents.subjectPlayerId });
 }
 
 /**
@@ -415,7 +432,24 @@ export async function emitGameFeedEventsInTx(
         streaks,
         ranks,
       });
-      await insertFeedEvents(ftx, events);
+      const inserted = await insertFeedEvents(ftx, events);
+
+      // F2.1: a new streak-threshold card supersedes the player's previous
+      // win_streak card in the SAME savepoint — the feed shows one
+      // current-best streak per player. Dedupe no-ops (re-runs) return no
+      // rows from insertFeedEvents, so this never re-fires.
+      for (const row of inserted) {
+        if (row.type !== "win_streak" || !row.subjectPlayerId) continue;
+        await ftx
+          .update(feedEvents)
+          .set({ status: "superseded", supersededByEventId: row.id })
+          .where(and(
+            eq(feedEvents.type, "win_streak"),
+            eq(feedEvents.subjectPlayerId, row.subjectPlayerId),
+            eq(feedEvents.status, "published"),
+            ne(feedEvents.id, row.id),
+          ));
+      }
     });
   } catch (err) {
     console.error("[FeedEvents] emission failed (score entry unaffected):", err instanceof Error ? err.message : err);

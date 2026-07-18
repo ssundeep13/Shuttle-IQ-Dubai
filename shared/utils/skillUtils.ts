@@ -48,16 +48,29 @@ export function getSkillTier(skillScore: number): SkillTier {
 /**
  * Return the user-facing display name for a tier DB value.
  * Never show raw DB values (lower_intermediate / upper_intermediate) to users.
+ *
+ * Brand ruling (F2.1): the public tier ladder has FIVE names only —
+ * 'Advanced' is a brand CATEGORY tag (Entry/Developing/Mid level/Advanced/
+ * Elite), never a tier name. The DB 'Advanced' enum (110–159) displays as
+ * Professional, the public 110+ tier.
  */
+export const TIER_DISPLAY_NAMES = ['Novice', 'Beginner', 'Intermediate', 'Competitive', 'Professional'] as const;
+
 export function getTierDisplayName(tier: string): string {
   switch (tier) {
     case 'Novice': return 'Novice';
     case 'Beginner': return 'Beginner';
     case 'lower_intermediate': return 'Intermediate';
     case 'upper_intermediate': return 'Competitive';
-    case 'Advanced': return 'Advanced';
+    case 'Advanced': return 'Professional';
     case 'Professional': return 'Professional';
-    default: return tier;
+    default:
+      // Legacy alias rows store display names directly — those are valid.
+      if ((TIER_DISPLAY_NAMES as readonly string[]).includes(tier)) return tier;
+      // Never leak a raw value into player-facing copy: log and fall back
+      // to the mid-ladder name.
+      console.error(`[getTierDisplayName] unknown level ${JSON.stringify(tier)} — defaulting to Intermediate`);
+      return 'Intermediate';
   }
 }
 

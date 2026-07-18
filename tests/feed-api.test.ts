@@ -116,6 +116,17 @@ describe('Dashboard banner port (tripwires)', () => {
     expect(dash.includes("'/api/tags/tagged-games'")).toBe(true);
   });
 
+  it('F2.1 rider: Sessions chip hidden until session_recap events exist; per-filter empty copy', () => {
+    expect(feed.includes('SHOW_SESSIONS_FILTER = false')).toBe(true);
+    expect(feed.includes("SHOW_SESSIONS_FILTER || f.value !== 'sessions'")).toBe(true);
+    expect(feed.includes('Nothing about you yet')).toBe(true);
+    expect(feed.includes('Your next session will change that.')).toBe(true);
+    // "play your first session" copy stays exclusive to the All filter branch
+    const emptyBlock = feed.slice(feed.indexOf(`filter === 'you' ? (`), feed.indexOf('feed-empty-book-link'));
+    expect(emptyBlock.includes('Nothing about you yet')).toBe(true);
+    expect(emptyBlock.indexOf('Play your first session')).toBeGreaterThan(emptyBlock.indexOf(') : ('));
+  });
+
   it('CommunityFeed renders filter chips, show-more cursor paging, and the empty state', () => {
     // Chip testids are template-built: feed-filter-${f.value} over FILTERS.
     expect(feed.includes('feed-filter-${f.value}')).toBe(true);

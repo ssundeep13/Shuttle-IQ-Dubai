@@ -16,10 +16,11 @@ const {
   buildTagFeedEvents,
   buildCorrectionReplacements,
   MILESTONE_GAMES,
-  STREAK_MIN,
+  STREAK_THRESHOLDS,
   RANK_MOVE_MIN,
   RANK_TOP_N,
 } = await import('../server/feedEvents');
+const { getTierDisplayName, TIER_DISPLAY_NAMES } = await import('../shared/utils/skillUtils');
 
 const read = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8');
 
@@ -70,6 +71,53 @@ describe('buildGameFeedEvents — tier_promotion', () => {
     const events = buildGameFeedEvents(baseInput());
     expect(events.filter(e => e.type === 'tier_promotion')).toHaveLength(0);
   });
+
+  it('F2.1: emits on DISPLAY-name change only — the Advanced→Professional enum crossing is silent', () => {
+    const sameDisplay = buildGameFeedEvents(baseInput({
+      perPlayer: [{ ...basePlayer, prevLevel: 'Advanced', newLevel: 'Professional' }],
+    }));
+    expect(sameDisplay.filter(e => e.type === 'tier_promotion')).toHaveLength(0);
+
+    const intoPro = buildGameFeedEvents(baseInput({
+      perPlayer: [{ ...basePlayer, prevLevel: 'upper_intermediate', newLevel: 'Advanced' }],
+    }));
+    const promo = intoPro.find(e => e.type === 'tier_promotion');
+    expect(promo).toBeDefined();
+    expect(promo!.payload).toMatchObject({ fromTier: 'Competitive', toTier: 'Professional' });
+  });
+
+  it('F2.1: correction replacements use the same display gating', () => {
+    const out = buildCorrectionReplacements({
+      gameResultId: 'g', sessionId: 's', newWinningTeam: 1,
+      perPlayer: [
+        { playerId: 'p1', name: 'R', prevLevel: 'Advanced', newLevel: 'Professional' }, // same display — silent
+        { playerId: 'p2', name: 'A', prevLevel: 'upper_intermediate', newLevel: 'Advanced' }, // Competitive → Professional
+      ],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].payload).toMatchObject({ fromTier: 'Competitive', toTier: 'Professional' });
+  });
+});
+
+describe('getTierDisplayName — brand mapping tripwire (F2.1)', () => {
+  const LEVEL_ENUMS = ['Novice', 'Beginner', 'lower_intermediate', 'upper_intermediate', 'Advanced', 'Professional'];
+
+  it('EVERY level enum maps to a valid display name — a new enum can never silently leak', () => {
+    for (const level of LEVEL_ENUMS) {
+      const display = getTierDisplayName(level);
+      expect(TIER_DISPLAY_NAMES.includes(display as any), `${level} → ${display} is not a valid display name`).toBe(true);
+    }
+    expect(getTierDisplayName('Advanced')).toBe('Professional'); // the ruling, pinned
+  });
+
+  it('unknown values never leak raw strings — mapped to a valid name', () => {
+    const display = getTierDisplayName('some_future_enum');
+    expect(TIER_DISPLAY_NAMES.includes(display as any)).toBe(true);
+    expect(display).not.toBe('some_future_enum');
+    // Legacy display-name alias rows pass through unchanged.
+    expect(getTierDisplayName('Competitive')).toBe('Competitive');
+    expect(getTierDisplayName('Intermediate')).toBe('Intermediate');
+  });
 });
 
 describe('buildGameFeedEvents — milestone', () => {
@@ -115,27 +163,30 @@ describe('buildGameFeedEvents — milestone', () => {
   });
 });
 
-describe('buildGameFeedEvents — win_streak', () => {
-  it(`fires at ${STREAK_MIN}+ for winners only`, () => {
-    const streaking = buildGameFeedEvents(baseInput({
-      perPlayer: [{ ...basePlayer, isWinner: true }],
-      streaks: new Map([['p1', 3]]),
-    }));
-    const s = streaking.find(e => e.type === 'win_streak');
-    expect(s).toBeDefined();
-    expect(s!.payload).toEqual({ playerName: 'Rakesh Nair', streak: 3 });
+describe('buildGameFeedEvents — win_streak (F2.1 thresholds)', () => {
+  const withStreak = (streak: number, isWinner = true) => buildGameFeedEvents(baseInput({
+    perPlayer: [{ ...basePlayer, isWinner }],
+    streaks: new Map([['p1', streak]]),
+  }));
 
-    const below = buildGameFeedEvents(baseInput({
-      perPlayer: [{ ...basePlayer, isWinner: true }],
-      streaks: new Map([['p1', 2]]),
-    }));
-    expect(below.some(e => e.type === 'win_streak')).toBe(false);
+  it('thresholds are exactly {3, 5, 10, 15, 20}', () => {
+    expect(STREAK_THRESHOLDS).toEqual([3, 5, 10, 15, 20]);
+  });
 
-    const loser = buildGameFeedEvents(baseInput({
-      perPlayer: [{ ...basePlayer, isWinner: false }],
-      streaks: new Map([['p1', 5]]),
-    }));
-    expect(loser.some(e => e.type === 'win_streak')).toBe(false);
+  it('emits ONLY when the streak crosses a threshold — never on every game', () => {
+    for (const t of STREAK_THRESHOLDS) {
+      const ev = withStreak(t).find(e => e.type === 'win_streak');
+      expect(ev, `threshold ${t} must emit`).toBeDefined();
+      expect(ev!.payload).toEqual({ playerName: 'Rakesh Nair', streak: t });
+    }
+    // The spam values from tonight's session: 4, 6, 7, 8 must all be silent.
+    for (const n of [1, 2, 4, 6, 7, 8, 9, 11, 19, 21]) {
+      expect(withStreak(n).some(e => e.type === 'win_streak'), `streak ${n} must NOT emit`).toBe(false);
+    }
+  });
+
+  it('losers never emit even at a threshold streak value', () => {
+    expect(withStreak(5, false).some(e => e.type === 'win_streak')).toBe(false);
   });
 });
 
@@ -259,6 +310,17 @@ describe('feed emission — transaction safety (tripwires)', () => {
     expect(s.includes(`eq(feedEvents.status, "published")`)).toBe(true);
     expect(s.includes(`"superseded"`)).toBe(true);
     expect(s.includes('try {')).toBe(true);
+  });
+
+  it('F2.1: a new streak card supersedes the previous one in the SAME savepoint, from actually-inserted rows only', () => {
+    const emitStart = feedSrc.indexOf('export async function emitGameFeedEventsInTx');
+    const body = feedSrc.slice(emitStart, feedSrc.indexOf('export async function supersedeGameFeedEvents'));
+    expect(body.includes('const inserted = await insertFeedEvents(ftx, events);')).toBe(true);
+    expect(body.includes(`row.type !== "win_streak"`)).toBe(true);
+    expect(body.includes(`status: "superseded", supersededByEventId: row.id`)).toBe(true);
+    expect(body.includes('ne(feedEvents.id, row.id)')).toBe(true);
+    // insertFeedEvents returns only actually-inserted rows (dedupe no-ops absent)
+    expect(feedSrc.includes('.returning({ id: feedEvents.id, type: feedEvents.type, subjectPlayerId: feedEvents.subjectPlayerId })')).toBe(true);
   });
 
   it('completeGameTransaction emits INSIDE the same transaction, after the core writes', () => {

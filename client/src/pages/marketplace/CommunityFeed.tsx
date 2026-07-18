@@ -419,11 +419,15 @@ function FeedEventCard({ ev }: { ev: FeedItem }) {
 
 // ── Section ─────────────────────────────────────────────────────────────────
 
+// F2.1 rider: the Sessions chip stays hidden until session_recap events
+// exist — F5 flips this on (and removes the flag).
+const SHOW_SESSIONS_FILTER = false;
+
 const FILTERS: Array<{ value: FeedFilterValue; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'you', label: 'You' },
   { value: 'sessions', label: 'Sessions' },
-];
+].filter(f => SHOW_SESSIONS_FILTER || f.value !== 'sessions') as Array<{ value: FeedFilterValue; label: string }>;
 
 // Dashboard variant (Gate F3.6): capped at 6 post-grouping items, no cursor
 // paging — a "View all" link leads to the full feed at /marketplace/feed.
@@ -493,11 +497,20 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
             <div style={{ width: 44, height: 44, borderRadius: '50%', background: MKT.tealMist, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
               <Users className="h-5 w-5" style={{ color: MKT.tealD }} />
             </div>
-            <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink }}>No community activity yet</p>
-            <p style={{ margin: 0, marginTop: 4, fontFamily: FF_BODY, fontSize: 13, color: MKT.inkSub }}>
-              Play your first session and the feed comes alive.{' '}
-              <Link href="/marketplace/sessions" style={{ color: MKT.tealD, fontWeight: 600, textDecoration: 'none' }} data-testid="feed-empty-book-link">Book a session</Link>
-            </p>
+            {filter === 'you' ? (
+              <>
+                <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink }}>Nothing about you yet</p>
+                <p style={{ margin: 0, marginTop: 4, fontFamily: FF_BODY, fontSize: 13, color: MKT.inkSub }}>Your next session will change that.</p>
+              </>
+            ) : (
+              <>
+                <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink }}>No community activity yet</p>
+                <p style={{ margin: 0, marginTop: 4, fontFamily: FF_BODY, fontSize: 13, color: MKT.inkSub }}>
+                  Play your first session and the feed comes alive.{' '}
+                  <Link href="/marketplace/sessions" style={{ color: MKT.tealD, fontWeight: 600, textDecoration: 'none' }} data-testid="feed-empty-book-link">Book a session</Link>
+                </p>
+              </>
+            )}
           </div>
         )}
 
