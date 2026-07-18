@@ -250,6 +250,35 @@ export async function emitGameFeedEventsInTx(
   }
 }
 
+// ── Feed API helpers (Gate F3) ──────────────────────────────────────────────
+// Keyset cursor over (created_at, id) DESC — stable under concurrent inserts.
+export const FEED_PAGE_SIZE = 20;
+export const SESSION_FEED_TYPES = ["session_recap", "scarcity"]; // F5/F7 types — filter built now, returns empty
+export type FeedFilter = "all" | "you" | "sessions";
+
+export function parseFeedFilter(v: unknown): FeedFilter {
+  return v === "you" || v === "sessions" ? v : "all";
+}
+
+export function encodeFeedCursor(createdAt: Date, id: string): string {
+  return Buffer.from(`${createdAt.toISOString()}|${id}`).toString("base64url");
+}
+
+export function decodeFeedCursor(cursor: unknown): { createdAt: Date; id: string } | null {
+  if (typeof cursor !== "string" || !cursor) return null;
+  try {
+    const raw = Buffer.from(cursor, "base64url").toString("utf8");
+    const sep = raw.indexOf("|");
+    if (sep <= 0) return null;
+    const createdAt = new Date(raw.slice(0, sep));
+    const id = raw.slice(sep + 1);
+    if (!id || Number.isNaN(createdAt.getTime())) return null;
+    return { createdAt, id };
+  } catch {
+    return null;
+  }
+}
+
 /** Correction path: supersede published game-anchored events + insert replacements. */
 export async function supersedeGameFeedEvents(
   gameResultId: string,

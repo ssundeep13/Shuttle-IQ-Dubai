@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useState, useMemo, type CSSProperties, type ReactNode } from 'react';
 import { apiUrl } from '@/lib/queryClient';
 import { shareUrl } from '@/lib/shareLinks';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -7,10 +7,10 @@ import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, ExternalLink, Lightbulb, Gift, Copy, Wallet } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, Lightbulb, Gift, Copy, Wallet } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
 import { format } from 'date-fns';
-import { motion, useReducedMotion } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry, TagSuggestion, BookableSessionWithAvailability } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import { useToast } from '@/hooks/use-toast';
@@ -19,8 +19,7 @@ import { usePageTitle } from '@/hooks/usePageTitle';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
-
-const TAG_MILESTONES = [5, 10, 25, 50];
+import CommunityFeed from './CommunityFeed';
 
 const CATEGORY_BG: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -354,7 +353,6 @@ export default function Dashboard() {
   const { toast } = useToast();
   const reduce = useReducedMotion();
   const [showTrendingModal, setShowTrendingModal] = useState(false);
-  const [milestoneDismissed, setMilestoneDismissed] = useState(false);
 
   const { data: bookings, isLoading: bookingsLoading } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
@@ -497,23 +495,6 @@ export default function Dashboard() {
 
   const [approvedSuggestionDismissed, setApprovedSuggestionDismissed] = useState(false);
 
-  const milestoneBanner = useMemo(() => {
-    if (!firstTopTag || !linkedPlayerId) return null;
-    const count = firstTopTag.count;
-    const crossed = TAG_MILESTONES.filter(m => count >= m);
-    if (crossed.length === 0) return null;
-    const highest = crossed[crossed.length - 1];
-    const storageKey = `siq_milestone_${linkedPlayerId}_${firstTopTag.tag.id}_${highest}`;
-    if (typeof window !== 'undefined' && localStorage.getItem(storageKey) === 'seen') return null;
-    return { milestone: highest, tag: firstTopTag.tag, count, storageKey };
-  }, [firstTopTag, linkedPlayerId]);
-
-  useEffect(() => {
-    if (milestoneBanner) {
-      localStorage.setItem(milestoneBanner.storageKey, 'seen');
-    }
-  }, [milestoneBanner?.storageKey]);
-
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
@@ -585,7 +566,123 @@ export default function Dashboard() {
   }
   const greetingValueLine = greetingClauses.length > 0 ? greetingClauses.join('  ·  ') : "Here's your ShuttleIQ overview";
 
-  const bannerEntrance = reduce ? {} : { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.45, ease: [0.2, 0.7, 0.2, 1] as const } };
+
+  // ── Community section pinned cards (Gate F3) — the three ported ad-hoc
+  // banners restyled to feed-card chrome, keeping their original queries,
+  // mutations, gating and testids intact.
+  const feedCardChrome: CSSProperties = { background: '#fff', borderRadius: 14, border: '1px solid rgba(0,20,60,0.08)', padding: '14px 16px' };
+  const feedAvatar = (icon: ReactNode): ReactNode => (
+    <div style={{ flex: 'none', width: 44, height: 44, borderRadius: '50%', background: MKT.tealMist, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {icon}
+    </div>
+  );
+
+  const communityPinned = (
+    <>
+      {approvedSuggestionBanner && !approvedSuggestionDismissed && (
+        <div style={{ ...feedCardChrome, display: 'flex', alignItems: 'flex-start', gap: 12 }} data-testid="card-suggestion-approved-banner">
+          {feedAvatar(<Lightbulb className="h-5 w-5" style={{ color: MKT.tealD }} />)}
+          <div className="flex-1 min-w-0">
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>Your tag suggestion was approved!</p>
+            <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: MKT.inkSub }}>
+              <span style={{ fontWeight: 600, color: MKT.ink }}>{approvedSuggestionBanner.suggestion.label}</span> is now live in the community tag catalog
+            </p>
+            <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 10 }}>
+              <Link
+                to="/marketplace/rankings"
+                style={{ fontSize: 13, color: MKT.tealD, fontWeight: 600, textDecoration: 'none' }}
+                data-testid="link-view-active-tag"
+                onClick={() => {
+                  localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
+                  setApprovedSuggestionDismissed(true);
+                }}
+              >
+                View in Rankings
+              </Link>
+              <button
+                style={{ fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                onClick={() => {
+                  localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
+                  setApprovedSuggestionDismissed(true);
+                }}
+                data-testid="button-dismiss-suggestion-banner"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReferralNudge && (
+        <div style={{ ...feedCardChrome, display: 'flex', alignItems: 'flex-start', gap: 12 }} data-testid="card-referral-nudge">
+          {feedAvatar(<Gift className="h-5 w-5" style={{ color: MKT.tealD }} />)}
+          <div className="flex-1 min-w-0">
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>Got a referral code?</p>
+            <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: MKT.inkSub }}>
+              Add a friend's code and you'll <span style={{ fontWeight: 600, color: MKT.ink }}>both get AED 15</span> after your first game.
+            </p>
+            <form
+              className="flex items-center gap-2 flex-wrap"
+              style={{ marginTop: 10 }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (referralNudgeCode.trim() && !applyReferralMutation.isPending) {
+                  applyReferralMutation.mutate(referralNudgeCode);
+                }
+              }}
+            >
+              <input
+                type="text"
+                value={referralNudgeCode}
+                onChange={(e) => setReferralNudgeCode(e.target.value)}
+                placeholder="Enter code"
+                aria-label="Referral code"
+                data-testid="input-referral-nudge-code"
+                style={{
+                  fontFamily: FF_MONO, fontSize: 14, letterSpacing: '0.04em', textTransform: 'uppercase',
+                  padding: '8px 12px', borderRadius: 10, border: `1.5px solid ${MKT.navy}33`,
+                  background: '#fff', color: MKT.ink, minWidth: 0, flex: '1 1 160px', maxWidth: 220,
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!referralNudgeCode.trim() || applyReferralMutation.isPending}
+                data-testid="button-apply-referral-nudge"
+                style={{ ...navyBtn('sm'), background: MKT.teal, borderColor: MKT.teal, opacity: (!referralNudgeCode.trim() || applyReferralMutation.isPending) ? 0.6 : 1 }}
+              >
+                {applyReferralMutation.isPending ? 'Adding…' : 'Apply'}
+              </button>
+            </form>
+          </div>
+          <button
+            type="button"
+            onClick={() => dismissNudgeMutation.mutate()}
+            aria-label="Dismiss referral nudge"
+            data-testid="button-dismiss-referral-nudge"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, padding: 4, display: 'inline-flex', flex: 'none' }}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {linkedPlayerId && untaggedCount > 0 && (
+        <Link href="/marketplace/my-scores">
+          <div style={{ ...feedCardChrome, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} data-testid="card-tag-nudge">
+            {feedAvatar(<TagIcon className="h-5 w-5" style={{ color: MKT.tealD }} />)}
+            <div className="flex-1 min-w-0">
+              <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>
+                {untaggedCount === 1 ? '1 game waiting for your tags' : `${untaggedCount} games waiting for your tags`}
+              </p>
+              <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: MKT.inkSub }}>Recognise great play from your recent games</p>
+            </div>
+            <ChevronRight className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
+          </div>
+        </Link>
+      )}
+    </>
+  );
 
   return (
     <>
@@ -615,132 +712,7 @@ export default function Dashboard() {
           </div>
         </Reveal>
 
-        {/* Approved-suggestion banner */}
-        {approvedSuggestionBanner && !approvedSuggestionDismissed && (
-          <motion.div {...bannerEntrance} style={{ marginBottom: 20 }}>
-            <div style={{ borderRadius: 14, border: `1px solid ${MKT.teal}33`, background: MKT.tealMist, padding: '16px 18px', display: 'flex', alignItems: 'flex-start', gap: 14 }} data-testid="card-suggestion-approved-banner">
-              <div style={{ fontSize: 28, lineHeight: 1, marginTop: 2 }} className="shrink-0">{approvedSuggestionBanner.suggestion.emoji}</div>
-              <div className="flex-1 min-w-0">
-                <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '-0.01em' }}>Your tag suggestion was approved!</p>
-                <p style={{ fontSize: 14, color: MKT.inkSub, marginTop: 2 }}>
-                  <span style={{ fontWeight: 600, color: MKT.ink }}>{approvedSuggestionBanner.suggestion.emoji} {approvedSuggestionBanner.suggestion.label}</span> is now live in the community tag catalog!
-                </p>
-                <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 12 }}>
-                  <Link
-                    to="/marketplace/rankings"
-                    style={{ fontSize: 13, color: MKT.tealD, fontWeight: 600, textDecoration: 'none' }}
-                    data-testid="link-view-active-tag"
-                    onClick={() => {
-                      localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
-                      setApprovedSuggestionDismissed(true);
-                    }}
-                  >
-                    View in Rankings
-                  </Link>
-                  <button
-                    style={{ fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer' }}
-                    onClick={() => {
-                      localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
-                      setApprovedSuggestionDismissed(true);
-                    }}
-                    data-testid="button-dismiss-suggestion-banner"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
-              <Lightbulb className="h-5 w-5 shrink-0" style={{ color: MKT.teal, marginTop: 2 }} />
-            </div>
-          </motion.div>
-        )}
-
-        {/* Milestone banner */}
-        {milestoneBanner && !milestoneDismissed && (
-          <motion.div {...bannerEntrance} style={{ marginBottom: 20 }}>
-            <div style={{ borderRadius: 14, border: `1px solid ${MKT.amber}33`, background: '#F6E6CC55', padding: '16px 18px', display: 'flex', alignItems: 'flex-start', gap: 14 }} data-testid="card-milestone-banner">
-              <div style={{ fontSize: 28, lineHeight: 1, marginTop: 2 }} className="shrink-0">{milestoneBanner.tag.emoji}</div>
-              <div className="flex-1 min-w-0">
-                <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '-0.01em' }}>You've been celebrated!</p>
-                <p style={{ fontSize: 14, color: MKT.inkSub, marginTop: 2 }}>
-                  You're officially a <span style={{ fontWeight: 600, color: MKT.ink }}>{milestoneBanner.tag.label}</span> — tagged {milestoneBanner.milestone}× by your community!
-                </p>
-                <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 12 }}>
-                  <Link href={`/marketplace/players/${linkedPlayerId}/personality-card`} style={{ ...navyBtn('sm'), background: MKT.teal, borderColor: MKT.teal, textDecoration: 'none' }} data-testid="button-share-milestone">
-                    <ExternalLink className="h-3 w-3" /> Share your personality card
-                  </Link>
-                  <button
-                    style={{ fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer' }}
-                    onClick={() => setMilestoneDismissed(true)}
-                    data-testid="button-dismiss-milestone"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Post-signup referral nudge (PR4) — only for users who weren't referred,
-            still inside their 30-day window, and haven't dismissed it. */}
-        {showReferralNudge && (
-          <motion.div {...bannerEntrance} style={{ marginBottom: 20 }}>
-            <div style={{ borderRadius: 14, border: `1px solid ${MKT.teal}33`, background: MKT.tealMist, padding: '16px 18px', display: 'flex', alignItems: 'flex-start', gap: 14 }} data-testid="card-referral-nudge">
-              <div style={{ flex: 'none', width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,107,95,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
-                <Gift className="h-4 w-4" style={{ color: MKT.tealD }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '-0.01em' }}>Got a referral code?</p>
-                <p style={{ fontSize: 14, color: MKT.inkSub, marginTop: 2 }}>
-                  Add a friend's code and you'll <span style={{ fontWeight: 600, color: MKT.ink }}>both get AED 15</span> after your first game.
-                </p>
-                <form
-                  className="flex items-center gap-2 flex-wrap"
-                  style={{ marginTop: 12 }}
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (referralNudgeCode.trim() && !applyReferralMutation.isPending) {
-                      applyReferralMutation.mutate(referralNudgeCode);
-                    }
-                  }}
-                >
-                  <input
-                    type="text"
-                    value={referralNudgeCode}
-                    onChange={(e) => setReferralNudgeCode(e.target.value)}
-                    placeholder="Enter code"
-                    aria-label="Referral code"
-                    data-testid="input-referral-nudge-code"
-                    style={{
-                      fontFamily: FF_MONO, fontSize: 14, letterSpacing: '0.04em', textTransform: 'uppercase',
-                      padding: '8px 12px', borderRadius: 10, border: `1.5px solid ${MKT.navy}33`,
-                      background: '#fff', color: MKT.ink, minWidth: 0, flex: '1 1 160px', maxWidth: 220,
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={!referralNudgeCode.trim() || applyReferralMutation.isPending}
-                    data-testid="button-apply-referral-nudge"
-                    style={{ ...navyBtn('sm'), background: MKT.teal, borderColor: MKT.teal, opacity: (!referralNudgeCode.trim() || applyReferralMutation.isPending) ? 0.6 : 1 }}
-                  >
-                    {applyReferralMutation.isPending ? 'Adding…' : 'Apply'}
-                  </button>
-                </form>
-              </div>
-              <button
-                type="button"
-                onClick={() => dismissNudgeMutation.mutate()}
-                aria-label="Dismiss referral nudge"
-                data-testid="button-dismiss-referral-nudge"
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, padding: 4, display: 'inline-flex', flex: 'none' }}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Getting Started + tag nudge — full width, contextual */}
+        {/* Getting Started — full width, contextual */}
         {user && (
           <Reveal style={{ marginBottom: 20 }}>
             <GettingStartedCard
@@ -749,25 +721,6 @@ export default function Dashboard() {
               bookingsLoading={bookingsLoading}
               userId={user.id}
             />
-          </Reveal>
-        )}
-
-        {linkedPlayerId && untaggedCount > 0 && (
-          <Reveal style={{ marginBottom: 20 }}>
-                <Link href="/marketplace/my-scores">
-                  <div style={{ ...cardStyle, borderColor: `${MKT.teal}55`, background: MKT.tealMist, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} data-testid="card-tag-nudge">
-                    <div style={{ flex: 'none', width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,107,95,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <TagIcon className="h-4 w-4" style={{ color: MKT.tealD }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p style={{ fontSize: 14, fontWeight: 600, color: MKT.navy, lineHeight: 1.3 }}>
-                        {untaggedCount === 1 ? '1 game waiting — tag your teammates!' : `${untaggedCount} games waiting — tag your teammates!`}
-                      </p>
-                      <p style={{ fontSize: 12, color: MKT.inkSub }}>Recognise great play from your recent games</p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
-                  </div>
-                </Link>
           </Reveal>
         )}
 
@@ -780,6 +733,12 @@ export default function Dashboard() {
                 nextAvailableSession={nextAvailableSession}
                 bookingsLoading={bookingsLoading}
               />
+            </Reveal>
+
+            {/* Community feed (Gate F3) — real events from feed_events, with the
+                three ported prompt cards pinned on top. */}
+            <Reveal className="lg:col-span-2">
+              <CommunityFeed pinned={communityPinned} />
             </Reveal>
 
             {stats ? (

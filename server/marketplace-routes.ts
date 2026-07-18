@@ -47,7 +47,8 @@ import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from 
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and, inArray, desc, asc, gt } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, type BookableSession } from "@shared/schema";
+import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, type BookableSession } from "@shared/schema";
+import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor } from "./feedEvents";
 import { applyPendingWalletCredit } from "./promos";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import {
@@ -842,6 +843,66 @@ export function registerMarketplaceRoutes(app: Express) {
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get referral status" });
+    }
+  });
+
+  // Gate F3 — community feed. Render-ready: display data comes from the
+  // frozen event payload, never joined to live player state. The only
+  // enrichment is the session ANCHOR (venue + date for the meta line),
+  // batched and null-safe when a session has been deleted.
+  app.get("/api/marketplace/feed", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const filter = parseFeedFilter(req.query.filter);
+      const cursor = decodeFeedCursor(req.query.cursor);
+
+      const conds = [eq(feedEvents.status, "published")];
+      if (filter === "you") {
+        // Subject-only: received tags (receiver-led), own promotions,
+        // milestones, streaks, rank moves. Giver-side IDs join payloads in F4.
+        const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+        if (!mpUser?.linkedPlayerId) {
+          res.setHeader("Cache-Control", "no-store");
+          return res.json({ events: [], nextCursor: null });
+        }
+        conds.push(eq(feedEvents.subjectPlayerId, mpUser.linkedPlayerId));
+      } else if (filter === "sessions") {
+        conds.push(inArray(feedEvents.type, SESSION_FEED_TYPES));
+      }
+      if (cursor) {
+        conds.push(sql`(${feedEvents.createdAt}, ${feedEvents.id}) < (${cursor.createdAt}, ${cursor.id})`);
+      }
+
+      const rows = await db
+        .select()
+        .from(feedEvents)
+        .where(and(...conds))
+        .orderBy(desc(feedEvents.createdAt), desc(feedEvents.id))
+        .limit(FEED_PAGE_SIZE + 1);
+
+      const hasMore = rows.length > FEED_PAGE_SIZE;
+      const page = rows.slice(0, FEED_PAGE_SIZE);
+
+      const sessionIds = Array.from(new Set(page.map(r => r.sessionId).filter((s): s is string => !!s)));
+      const sessionRows = sessionIds.length
+        ? await db.select({ id: sessions.id, venueName: sessions.venueName, date: sessions.date }).from(sessions).where(inArray(sessions.id, sessionIds))
+        : [];
+      const sessionById = new Map(sessionRows.map(s => [s.id, { venueName: s.venueName, date: s.date }]));
+
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        events: page.map(r => ({
+          id: r.id,
+          type: r.type,
+          createdAt: r.createdAt,
+          subjectPlayerId: r.subjectPlayerId,
+          payload: r.payload,
+          session: (r.sessionId ? sessionById.get(r.sessionId) : null) ?? null,
+        })),
+        nextCursor: hasMore ? encodeFeedCursor(page[page.length - 1].createdAt, page[page.length - 1].id) : null,
+      });
+    } catch (error) {
+      console.error("Feed fetch error:", error);
+      res.status(500).json({ error: "Failed to load feed" });
     }
   });
 
