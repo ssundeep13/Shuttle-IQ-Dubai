@@ -69,8 +69,8 @@ const stagger = {
 const levelColor = (level: string) => {
   switch (level) {
     case 'Professional':
+    case 'Advanced': // displays as Professional (F2.1) — same navy chip
       return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[#003E8C] text-white border-[#003E8C]';
-    case 'Advanced':
     case 'upper_intermediate':
       return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(0,62,140,0.10)] text-[#003E8C] border-[rgba(0,62,140,0.20)] dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800';
     case 'lower_intermediate':

@@ -187,7 +187,7 @@ export default function ScoringGuide() {
               <CardContent className="p-5">
                 <ul className="space-y-2">
                   <BulletItem>New players start at score <strong>50</strong> (mid-Beginner).</BulletItem>
-                  <BulletItem>Self-reported Advanced or Professional players are capped at <strong>90</strong> (mid-Intermediate) — upper tiers must be earned through gameplay.</BulletItem>
+                  <BulletItem>Self-reported upper-tier players are capped at <strong>90</strong> (mid-Intermediate) — the Professional tier must be earned through gameplay.</BulletItem>
                   <BulletItem><strong>SKID</strong> (Skill ID) = score ÷ 10, giving a 1.0–20.0 display scale.</BulletItem>
                 </ul>
               </CardContent>
