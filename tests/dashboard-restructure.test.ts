@@ -94,6 +94,12 @@ describe('dashboard restructure (tripwires)', () => {
     expect(dash.includes('Browse sessions')).toBe(true);
   });
 
+  it('the next-available picker never offers an already-ended session (Dubai clock, not todayStart)', () => {
+    const picker = dash.slice(dash.indexOf('const nextAvailableSession'), dash.indexOf('[0] ?? null;', dash.indexOf('const nextAvailableSession')));
+    expect(picker.includes('!isSessionOver(')).toBe(true);
+    expect(picker.includes('todayStart'), 'naive local-midnight comparison is the stale-session bug class').toBe(false);
+  });
+
   it('no emoji anywhere on the dashboard', () => {
     expect(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(dash)).toBe(false);
   });

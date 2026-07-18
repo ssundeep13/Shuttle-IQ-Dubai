@@ -526,8 +526,11 @@ export default function Dashboard() {
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime())[0];
   const todayCheckedIn = !!todayBooking?.attendedAt;
 
+  // "Next up" must never offer a session that has already ended — same
+  // Dubai-clock rule as the session card (caught live: the naive
+  // >= todayStart comparison offered tonight's finished session).
   const nextAvailableSession = availableSessions
-    .filter(s => s.status === 'upcoming' && new Date(s.date) >= todayStart)
+    .filter(s => s.status === 'upcoming' && !isSessionOver(s.date as unknown as string, s.startTime, s.endTime ?? s.startTime))
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0] ?? null;
 
   // ── Real-data-derived display values (graceful omission when unavailable) ──
