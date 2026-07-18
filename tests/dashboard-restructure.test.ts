@@ -100,6 +100,12 @@ describe('dashboard restructure (tripwires)', () => {
     expect(picker.includes('todayStart'), 'naive local-midnight comparison is the stale-session bug class').toBe(false);
   });
 
+  it('nextBooking never surfaces a booking whose session already ended (same Dubai rule)', () => {
+    const filter = dash.slice(dash.indexOf('const upcomingBookings'), dash.indexOf('const nextBooking'));
+    expect(filter.includes('!isSessionOver(')).toBe(true);
+    expect(filter.includes('todayStart')).toBe(false);
+  });
+
   it('no emoji anywhere on the dashboard', () => {
     expect(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(dash)).toBe(false);
   });

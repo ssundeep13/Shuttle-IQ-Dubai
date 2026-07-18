@@ -509,8 +509,11 @@ export default function Dashboard() {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
+  // nextBooking must never be a booking whose session already ended — the
+  // Dubai session clock, not the naive local-midnight comparison (caught
+  // live: tonight's finished booking rendered as "Your Next Session").
   const upcomingBookings = (bookings || [])
-    .filter(b => b.status === 'confirmed' && new Date(b.session.date) >= todayStart)
+    .filter(b => b.status === 'confirmed' && !isSessionOver(b.session.date as unknown as string, b.session.startTime, b.session.endTime ?? b.session.startTime))
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime());
   const nextBooking = upcomingBookings[0];
 
