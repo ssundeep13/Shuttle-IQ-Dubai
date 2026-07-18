@@ -425,7 +425,13 @@ const FILTERS: Array<{ value: FeedFilterValue; label: string }> = [
   { value: 'sessions', label: 'Sessions' },
 ];
 
-export default function CommunityFeed({ pinned }: { pinned?: ReactNode }) {
+// Dashboard variant (Gate F3.6): capped at 6 post-grouping items, no cursor
+// paging — a "View all" link leads to the full feed at /marketplace/feed.
+// Full variant keeps the Show more / cursor behavior. Both mount the same
+// query keys, so navigation between them hits a warm cache.
+const DASHBOARD_FEED_CAP = 6;
+
+export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: ReactNode; variant?: 'dashboard' | 'full' }) {
   const [filter, setFilter] = useState<FeedFilterValue>('all');
 
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<FeedPage>({
@@ -438,7 +444,9 @@ export default function CommunityFeed({ pinned }: { pinned?: ReactNode }) {
     getNextPageParam: (last) => last.nextCursor,
   });
 
-  const events = (data?.pages ?? []).flatMap(pg => pg.events);
+  const allEvents = (data?.pages ?? []).flatMap(pg => pg.events);
+  const events = variant === 'dashboard' ? allEvents.slice(0, DASHBOARD_FEED_CAP) : allEvents;
+  const showViewAll = variant === 'dashboard' && (allEvents.length > DASHBOARD_FEED_CAP || !!hasNextPage);
 
   return (
     <section data-testid="section-community-feed">
@@ -495,7 +503,7 @@ export default function CommunityFeed({ pinned }: { pinned?: ReactNode }) {
 
         {events.map(ev => <FeedEventCard key={ev.id} ev={ev} />)}
 
-        {hasNextPage && (
+        {variant === 'full' && hasNextPage && (
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
@@ -508,6 +516,20 @@ export default function CommunityFeed({ pinned }: { pinned?: ReactNode }) {
           >
             {isFetchingNextPage ? 'Loading…' : 'Show more'}
           </button>
+        )}
+
+        {showViewAll && (
+          <Link
+            href="/marketplace/feed"
+            data-testid="feed-view-all"
+            style={{
+              fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, padding: '11px 18px', borderRadius: 10,
+              border: `1.5px solid ${MKT.navy}55`, background: '#fff', color: MKT.navy, cursor: 'pointer',
+              textAlign: 'center', textDecoration: 'none', display: 'block',
+            }}
+          >
+            View all
+          </Link>
         )}
       </div>
     </section>

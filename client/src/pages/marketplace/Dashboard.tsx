@@ -1,37 +1,23 @@
 import { useState, useMemo, type CSSProperties, type ReactNode } from 'react';
 import { apiUrl } from '@/lib/queryClient';
-import { shareUrl } from '@/lib/shareLinks';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Link } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Calendar, MapPin, Clock, BarChart3, TrendingUp, ArrowRight, ChevronRight, Target, Bookmark, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Trophy, Star, Lightbulb, Gift, Copy, Wallet } from 'lucide-react';
+import { Calendar, MapPin, Clock, BarChart3, ArrowRight, ChevronRight, Target, Download, Users, Tag as TagIcon, Check, Sparkles, X, Timer, Lightbulb, Gift } from 'lucide-react';
 import { getRelativeTimeLabel } from '@/lib/timeUtils';
+import { isSessionOver } from '@/lib/sessionTime';
 import { format } from 'date-fns';
 import { useReducedMotion } from 'framer-motion';
-import type { BookingWithDetails, PlayerStats, TrendingTag, PlayerTopTag, ReceivedTagEntry, TagSuggestion, BookableSessionWithAvailability } from '@shared/schema';
+import type { BookingWithDetails, PlayerStats, TagSuggestion, BookableSessionWithAvailability } from '@shared/schema';
 import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import { useToast } from '@/hooks/use-toast';
-import TagTrendingModal from '@/components/TagTrendingModal';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
-import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 import CommunityFeed from './CommunityFeed';
-
-const CATEGORY_BG: Record<string, string> = {
-  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
-  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
-  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
-  _default: 'bg-muted text-muted-foreground border-border',
-};
-const CATEGORY_COLOR: Record<string, string> = {
-  playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
-  social: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300 border-green-200 dark:border-green-800',
-  reputation: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800',
-};
 
 // ── Shared styled primitives (look only) ─────────────────────────────────────
 const cardStyle: CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${MKT.navy}12` };
@@ -220,6 +206,10 @@ function GettingStartedCard({
 }
 
 // ── Unified session card (merge of Today's banner + Your Next Session) ───────
+// Gate F3.6: state-driven. Priority when today's session has ENDED (Dubai
+// clock, display-only until F5's real close state): the player's own next
+// booking > the next bookable open session > a muted "Session complete"
+// card. A finished session must never show "Go to play screen".
 function UnifiedSessionCard({
   todayBooking,
   todayCheckedIn,
@@ -233,8 +223,35 @@ function UnifiedSessionCard({
   nextAvailableSession: BookableSessionWithAvailability | null;
   bookingsLoading: boolean;
 }) {
-  // TODAY MODE — navy hero with level accent band + manual-check-in-aware footer.
-  if (todayBooking) {
+  const sessionOver = !!todayBooking && isSessionOver(
+    todayBooking.session.date as unknown as string,
+    todayBooking.session.startTime,
+    todayBooking.session.endTime ?? todayBooking.session.startTime,
+  );
+
+  if (todayBooking && sessionOver && !nextBooking && !nextAvailableSession) {
+    // Session complete — nothing bookable to point at yet.
+    return (
+      <DashCard testid="card-session-complete">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <p style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Session complete</p>
+            <p style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em', marginTop: 4 }}>{todayBooking.session.venueName}</p>
+            <p style={{ fontSize: 13, color: MKT.inkSub, marginTop: 2 }}>
+              {todayBooking.session.startTime}{todayBooking.session.endTime ? ` – ${todayBooking.session.endTime}` : ''}
+            </p>
+          </div>
+          <Link href="/marketplace/feed" style={{ ...ghostBtn('sm'), textDecoration: 'none' }} data-testid="button-session-highlights">
+            See tonight's highlights <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      </DashCard>
+    );
+  }
+
+  // TODAY MODE — navy hero with level accent band + manual-check-in-aware
+  // footer. Only while the session hasn't ended.
+  if (todayBooking && !sessionOver) {
     const tone = levelTone(todayBooking.session.title);
     return (
       <div data-testid="card-next-session" style={{ background: MKT.navy, color: '#fff', borderRadius: 16, overflow: 'hidden', display: 'grid', gridTemplateColumns: '8px 1fr' }}>
@@ -323,21 +340,36 @@ function UnifiedSessionCard({
           </span>
         </div>
       ) : (
-        <div className="flex flex-col items-center text-center py-5 gap-3" data-testid="empty-next-session">
-          <div style={{ width: 40, height: 40, borderRadius: '50%', background: MKT.tealMist, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Calendar className="h-5 w-5" style={{ color: MKT.tealD }} />
-          </div>
-          <div>
-            <p style={{ fontSize: 14, fontWeight: 500, color: MKT.inkSub }}>No upcoming sessions booked</p>
-            {nextAvailableSession && (
-              <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 4 }}>
-                Next up: <span style={{ fontWeight: 600, color: MKT.tealD }}>{nextAvailableSession.venueName}</span>
-                {' · '}{format(new Date(nextAvailableSession.date), 'EEE, MMM d')}
-              </p>
-            )}
-          </div>
-          <Link href="/marketplace/book" style={{ ...navyBtn('sm'), textDecoration: 'none' }} data-testid="button-book-session-cta">
-            Book a session <ArrowRight className="h-3.5 w-3.5" />
+        // Find your next game (F3.6) — the no-booking dead-end replaced with
+        // the soonest bookable open session. Also serves the ended-session
+        // state when something is bookable.
+        <div data-testid="empty-next-session">
+          <p style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em', margin: 0 }}>Find your next game</p>
+          {nextAvailableSession ? (
+            <div className="flex items-center justify-between gap-4 flex-wrap" style={{ marginTop: 12, padding: 14, borderRadius: 12, background: MKT.cream }} data-testid="next-open-session">
+              <div className="min-w-0">
+                <p style={{ margin: 0, fontWeight: 600, fontSize: 15, color: MKT.ink }}>{nextAvailableSession.venueName}</p>
+                <div className="flex items-center gap-4 flex-wrap" style={{ fontSize: 13, color: MKT.inkSub, marginTop: 3 }}>
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {format(new Date(nextAvailableSession.date), 'EEE, MMM d')}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5" />
+                    {nextAvailableSession.startTime}
+                  </span>
+                  <span className="flex items-center gap-1" data-testid="text-spots-left">
+                    <Users className="h-3.5 w-3.5" />
+                    {nextAvailableSession.spotsRemaining} spots left
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: MKT.inkSub, marginTop: 6 }}>New sessions open every week across Dubai venues.</p>
+          )}
+          <Link href="/marketplace/book" style={{ ...navyBtn('sm'), textDecoration: 'none', marginTop: 12 }} data-testid="button-book-session-cta">
+            Browse sessions <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
       )}
@@ -352,7 +384,6 @@ export default function Dashboard() {
   const { canInstall, install } = useInstallPrompt();
   const { toast } = useToast();
   const reduce = useReducedMotion();
-  const [showTrendingModal, setShowTrendingModal] = useState(false);
 
   const { data: bookings, isLoading: bookingsLoading } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
@@ -369,26 +400,8 @@ export default function Dashboard() {
     staleTime: 60_000,
   });
 
-  const { data: trending = [], isLoading: trendingLoading } = useQuery<TrendingTag[]>({
-    queryKey: ['/api/tags/trending'],
-    staleTime: Infinity,
-  });
-
-  const { data: myTopTag } = useQuery<PlayerTopTag[]>({
-    queryKey: ['/api/tags/player', linkedPlayerId],
-    queryFn: () => fetch(apiUrl(`/api/tags/player/${linkedPlayerId}?limit=1`)).then(r => r.json()),
-    enabled: !!linkedPlayerId,
-    staleTime: Infinity,
-  });
-
   const { data: taggedGameIds = [] } = useQuery<string[]>({
     queryKey: ['/api/tags/tagged-games'],
-    enabled: !!linkedPlayerId,
-    staleTime: 0,
-  });
-
-  const { data: receivedTags = [] } = useQuery<ReceivedTagEntry[]>({
-    queryKey: ['/api/tags/received/recent'],
     enabled: !!linkedPlayerId,
     staleTime: 0,
   });
@@ -480,8 +493,6 @@ export default function Dashboard() {
     .filter(g => g.date && new Date(g.date) >= sevenDaysAgo && !taggedSet.has(g.gameId))
     .length;
 
-  const firstTopTag = myTopTag?.[0];
-
   const approvedSuggestionBanner = useMemo(() => {
     if (!linkedPlayerId) return null;
     const lastCheckKey = `siq_tag_check_${linkedPlayerId}`;
@@ -533,21 +544,6 @@ export default function Dashboard() {
     if (newest.skillScoreAfter == null || oldest.skillScoreBefore == null) return null;
     return newest.skillScoreAfter - oldest.skillScoreBefore;
   }, [stats?.recentGames]);
-
-  // Compact skill-trend sparkline — same recentGames source My Scores uses, just
-  // summarized. Ascending by date (left = older, right = newer), last 15 games.
-  // Needs ≥2 valid points to draw a trend; fewer → empty state.
-  const skillSpark = useMemo(() => {
-    return [...(stats?.recentGames ?? [])]
-      .filter(g => g.date && g.skillScoreAfter != null)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .slice(-15)
-      .map((g, i) => ({ i, score: g.skillScoreAfter as number }));
-  }, [stats?.recentGames]);
-
-  const sparkDelta = skillSpark.length >= 2
-    ? skillSpark[skillSpark.length - 1].score - skillSpark[0].score
-    : null;
 
   const totalLosses = stats ? Math.max(0, stats.totalGames - stats.totalWins) : 0;
   const tierLabel = stats ? getTierDisplayName(stats.player.level) : null;
@@ -738,7 +734,7 @@ export default function Dashboard() {
             {/* Community feed (Gate F3) — real events from feed_events, with the
                 three ported prompt cards pinned on top. */}
             <Reveal className="lg:col-span-2">
-              <CommunityFeed pinned={communityPinned} />
+              <CommunityFeed variant="dashboard" pinned={communityPinned} />
             </Reveal>
 
             {stats ? (
@@ -804,356 +800,26 @@ export default function Dashboard() {
               </Reveal>
             )}
 
-            {stats && linkedPlayerId && (
-              <Reveal className="lg:col-span-2">
-                <DashCard testid="card-skill-trend">
-                  <DashHeader
-                    icon={<TrendingUp className="h-4 w-4" />}
-                    title="Skill Trend"
-                    action={<Link href="/marketplace/my-scores" style={seeAllLink} data-testid="link-skill-trend-full-stats">View full stats <ChevronRight className="h-3 w-3" /></Link>}
-                  />
-                  {skillSpark.length < 2 ? (
-                    <div
-                      data-testid="empty-skill-trend"
-                      className="text-center"
-                      style={{ padding: '18px 8px', borderRadius: 12, background: MKT.cream }}
-                    >
-                      <TrendingUp className="h-7 w-7 mx-auto mb-2" style={{ color: MKT.inkSub }} />
-                      <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 2 }}>
-                        Current skill score: <span data-testid="text-skill-trend-score">{stats.player.skillScore}</span>
-                      </p>
-                      <p style={{ fontSize: 13, color: MKT.inkSub }}>Play a few games to see your skill trend.</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-end justify-between gap-3" style={{ marginBottom: 10 }}>
-                        <div>
-                          <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Skill score</div>
-                          <div style={{ marginTop: 6, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 3vw, 36px)', color: MKT.navy, letterSpacing: '-0.03em', lineHeight: 1 }} data-testid="text-skill-trend-score">{stats.player.skillScore}</div>
-                        </div>
-                        {sparkDelta != null && (
-                          <span
-                            data-testid="text-skill-trend-delta"
-                            style={{ fontFamily: FF_MONO, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: sparkDelta >= 0 ? '#DDEEE2' : '#F1D7D2', color: sparkDelta >= 0 ? '#1A6A45' : '#8E2C22', whiteSpace: 'nowrap' }}
-                          >
-                            {sparkDelta > 0 ? '+' : ''}{sparkDelta} pts
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ height: 64 }} data-testid="chart-skill-trend">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={skillSpark} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="dashSkillSpark" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={MKT.teal} stopOpacity={0.28} />
-                                <stop offset="95%" stopColor={MKT.teal} stopOpacity={0.02} />
-                              </linearGradient>
-                            </defs>
-                            <YAxis hide domain={['dataMin - 2', 'dataMax + 2']} />
-                            <Area type="monotone" dataKey="score" stroke={MKT.teal} strokeWidth={2} fill="url(#dashSkillSpark)" dot={false} isAnimationActive={false} />
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 6 }}>Last {skillSpark.length} games</p>
-                    </>
-                  )}
-                </DashCard>
-              </Reveal>
-            )}
-
             {referralData && linkedPlayerId && (
-              <Reveal>
-                <DashCard testid="card-my-referrals">
-                  <DashHeader icon={<Gift className="h-4 w-4" />} title="My Referrals" />
-                  <div className="space-y-4">
-                    {/* Wallet balance + friends played */}
-                    <div className="flex items-end gap-4" style={{ padding: 14, borderRadius: 12, background: MKT.cream }}>
+              <Reveal className="lg:col-span-2">
+                <Link href="/marketplace/referrals" data-testid="card-referral-teaser" style={{ textDecoration: 'none' }}>
+                  <DashCard style={{ cursor: 'pointer' }}>
+                    <div className="flex items-center gap-3">
+                      <div style={{ flex: 'none', width: 44, height: 44, borderRadius: '50%', background: MKT.tealMist, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Gift className="h-5 w-5" style={{ color: MKT.tealD }} />
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <p style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Wallet balance</p>
-                        <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 30, color: MKT.navy, letterSpacing: '-0.025em', lineHeight: 1, marginTop: 4 }} data-testid="text-wallet-balance">
-                          AED {(referralData.walletBalance / 100).toFixed(2)}
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: MKT.ink }}>Earn AED 15 per friend</p>
+                        <p style={{ margin: 0, marginTop: 2, fontSize: 12, color: MKT.inkSub }}>
+                          Share your code{referralData.walletBalance > 0 ? ` · AED ${(referralData.walletBalance / 100).toFixed(2)} in your wallet` : ''}
                         </p>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <p style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Friends played</p>
-                        <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 30, color: MKT.teal, letterSpacing: '-0.025em', lineHeight: 1, marginTop: 4 }}>{referralData.completedCount}</p>
-                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
                     </div>
-
-                    {/* Code + copy */}
-                    <div className="flex items-center justify-between gap-2" style={{ padding: '12px 14px', borderRadius: 10, background: MKT.cream, border: `1px dashed ${MKT.navy}33` }}>
-                      <div className="min-w-0">
-                        <p style={{ fontFamily: FF_MONO, fontSize: 9, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Your code</p>
-                        <p style={{ fontFamily: FF_MONO, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '0.02em', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} data-testid="text-referral-code">{referralData.referralCode}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(referralData.referralCode);
-                          toast({ title: 'Copied!', description: 'Referral code copied to clipboard' });
-                        }}
-                        data-testid="button-copy-referral"
-                        aria-label="Copy referral code"
-                        style={{ flex: 'none', padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${MKT.navy}33`, background: '#fff', color: MKT.navy, cursor: 'pointer', fontFamily: FF_BODY, fontWeight: 600, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                      >
-                        <Copy className="h-3.5 w-3.5" /> Copy
-                      </button>
-                    </div>
-
-                    {/* Share Your Code — real signup ?ref= link */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const url = shareUrl(`/marketplace/signup?ref=${encodeURIComponent(referralData.referralCode)}`);
-                        const nav = navigator as Navigator & { share?: (data: { title?: string; text?: string; url?: string }) => Promise<void> };
-                        if (typeof nav.share === 'function') {
-                          nav.share({ title: 'Join me on ShuttleIQ', text: 'Book badminton sessions in Dubai with me on ShuttleIQ.', url }).catch(() => {});
-                        } else {
-                          navigator.clipboard.writeText(url);
-                          toast({ title: 'Link copied!', description: 'Your referral link is on the clipboard' });
-                        }
-                      }}
-                      data-testid="button-share-referral"
-                      style={{ ...navyBtn('md'), width: '100%' }}
-                    >
-                      Share Your Code <ArrowRight className="h-4 w-4" />
-                    </button>
-
-                    {/* Next-reward progress (until Ambassador) */}
-                    {!referralData.ambassadorStatus && (
-                      <div>
-                        <div className="flex items-center justify-between" style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>
-                          <span style={{ color: MKT.inkSub }}>
-                            {referralData.completedCount < 5
-                              ? `Next reward · ${5 - referralData.completedCount} more`
-                              : `Next reward · ${10 - referralData.completedCount} more`}
-                          </span>
-                          <span style={{ color: MKT.tealD }}>
-                            {referralData.completedCount}/{referralData.completedCount < 5 ? 5 : 10}
-                          </span>
-                        </div>
-                        <div style={{ height: 8, borderRadius: 999, background: 'rgba(0,30,70,0.08)', overflow: 'hidden' }}>
-                          <div
-                            style={{
-                              height: '100%', borderRadius: 999, background: MKT.teal, transition: 'width 0.5s cubic-bezier(.2,.7,.2,1)',
-                              width: `${Math.min(100, (referralData.completedCount / (referralData.completedCount < 5 ? 5 : 10)) * 100)}%`,
-                            }}
-                            data-testid="progress-referral-milestone"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Reward ladder — both rungs */}
-                    <div className="space-y-2">
-                      {[
-                        { at: 5, label: 'Featured on the leaderboard' },
-                        { at: 10, label: 'Ambassador status + ShuttleIQ jersey' },
-                      ].map((m) => {
-                        const reached = referralData.completedCount >= m.at;
-                        return (
-                          <div key={m.at} className="flex items-center gap-2" style={{ fontSize: 13, color: reached ? MKT.ink : MKT.inkSub }}>
-                            {reached ? (
-                              <Check className="h-4 w-4 shrink-0" style={{ color: MKT.green }} />
-                            ) : (
-                              <span style={{ width: 16, height: 16, borderRadius: '50%', border: `1.5px solid ${MKT.line}`, background: '#fff', flex: 'none' }} />
-                            )}
-                            <span><b style={{ color: MKT.navy, fontWeight: 600 }}>{m.at}</b> referrals — {m.label}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {(referralData.leaderboardMention || referralData.ambassadorStatus || referralData.jerseyDispatched) && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {referralData.leaderboardMention && (
-                          <span style={{ background: MKT.teal, color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999 }} data-testid="badge-leaderboard-mention">
-                            Leaderboard Member
-                          </span>
-                        )}
-                        {referralData.ambassadorStatus && (
-                          <span style={{ background: MKT.navy, color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999 }} data-testid="badge-ambassador">
-                            Ambassador
-                          </span>
-                        )}
-                        {referralData.jerseyDispatched && (
-                          <span style={{ background: MKT.tealMist, color: MKT.tealD, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999 }} data-testid="badge-jersey">
-                            Jersey Dispatched
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {referralData.referrals.length > 0 && (
-                      <div className="space-y-2">
-                        <p style={{ fontSize: 11, color: MKT.inkSub, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Referred Players</p>
-                        {referralData.referrals.map((ref) => (
-                          <div key={ref.id} className="flex items-center justify-between gap-2" style={{ padding: '6px 0', borderBottom: `1px solid ${MKT.line}` }} data-testid={`row-referral-${ref.id}`}>
-                            <span style={{ fontSize: 14, color: MKT.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ref.refereeName || 'Pending link'}</span>
-                            <div className="flex items-center gap-2 shrink-0">
-                              {ref.status === 'completed' && (
-                                <span style={{ fontSize: 12, color: MKT.inkSub }}>AED 15</span>
-                              )}
-                              <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: ref.status === 'completed' ? MKT.navy : 'rgba(0,30,70,0.08)', color: ref.status === 'completed' ? '#fff' : MKT.inkSub }}>
-                                {/* clawed_back deliberately reads Pending: since revival
-                                    shipped, the friend's next paid booking completes it —
-                                    behaviorally identical to pending for the player. */}
-                                {ref.status === 'completed' ? 'Completed' : ref.status === 'invalid' ? 'Not eligible' : 'Pending'}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </DashCard>
+                  </DashCard>
+                </Link>
               </Reveal>
             )}
-
-            {upcomingBookings.length > 1 && (
-              <Reveal>
-                <DashCard testid="card-upcoming-bookings">
-                  <DashHeader
-                    icon={<Bookmark className="h-4 w-4" />}
-                    title="Upcoming Bookings"
-                    action={<Link href="/marketplace/my-bookings" style={seeAllLink} data-testid="link-view-all-bookings">View All <ChevronRight className="h-3 w-3" /></Link>}
-                  />
-                  <div className="space-y-3">
-                    {upcomingBookings.slice(1, 4).map(b => (
-                      <div key={b.id} className="flex items-center justify-between gap-3" style={{ padding: '8px 0', borderBottom: `1px solid ${MKT.line}` }} data-testid={`row-booking-${b.id}`}>
-                        <div className="min-w-0">
-                          <p style={{ fontSize: 14, fontWeight: 500, color: MKT.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.session.title}</p>
-                          <p style={{ fontSize: 12, color: MKT.inkSub }}>
-                            {format(new Date(b.session.date), 'EEE, MMM d')} at {b.session.startTime}
-                          </p>
-                        </div>
-                        <span style={{ flex: 'none', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: MKT.tealMist, color: MKT.tealD }}>
-                          {b.status === 'confirmed' ? 'Confirmed' : b.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </DashCard>
-              </Reveal>
-            )}
-
-            {linkedPlayerId && receivedTags.length > 0 && (
-              <Reveal>
-                <DashCard testid="card-received-tags">
-                  <DashHeader icon={<Star className="h-4 w-4" />} title="You've Been Tagged" />
-                  <div className="space-y-2.5">
-                    {receivedTags.map((entry, i) => {
-                      const cls = CATEGORY_BG[entry.tag.category] ?? CATEGORY_BG._default;
-                      return (
-                        <Reveal key={i} delay={reduce ? 0 : i * 0.05}>
-                          <div className="flex items-center gap-3" data-testid={`row-received-tag-${i}`}>
-                            <div style={{ width: 28, height: 28, borderRadius: '50%', background: MKT.cream, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: MKT.inkSub, flex: 'none' }}>
-                              {entry.taggerInitial}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cls}`}>
-                                  {entry.tag.emoji} {entry.tag.label}
-                                </span>
-                              </div>
-                              <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>at {entry.sessionName}</p>
-                            </div>
-                          </div>
-                        </Reveal>
-                      );
-                    })}
-                  </div>
-                </DashCard>
-              </Reveal>
-            )}
-
-            <Reveal>
-              <DashCard testid="card-player-personalities">
-                <DashHeader
-                  icon={<Users className="h-4 w-4" />}
-                  title="Player Personalities"
-                  action={<button type="button" onClick={() => setShowTrendingModal(true)} style={{ ...seeAllLink, background: 'transparent', border: 'none' }} data-testid="button-explore-personalities">Explore <ChevronRight className="h-3 w-3" /></button>}
-                />
-                <div className="space-y-4">
-                  {firstTopTag && (
-                    <div style={{ borderRadius: 12, border: `1px solid ${MKT.navy}10`, padding: 12, background: MKT.cream }}>
-                      <p style={{ fontFamily: FF_MONO, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: MKT.inkSub, marginBottom: 6, fontWeight: 600 }}>Your Top Tag</p>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`px-2.5 py-1 rounded-full text-sm font-medium border ${CATEGORY_COLOR[firstTopTag.tag.category]}`}>
-                          {firstTopTag.tag.emoji} {firstTopTag.tag.label}
-                        </span>
-                        <span style={{ fontSize: 12, color: MKT.inkSub }}>
-                          Community Tag &middot; {firstTopTag.count}×
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <div>
-                    <p style={{ fontFamily: FF_MONO, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: MKT.inkSub, marginBottom: 10, fontWeight: 600 }}>Trending This Week</p>
-                    {trendingLoading ? (
-                      <div className="flex flex-wrap gap-2">
-                        {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-7 w-24 rounded-full" />)}
-                      </div>
-                    ) : trending.length === 0 ? (
-                      <p style={{ fontSize: 14, color: MKT.inkSub }}>No tags yet. Tag players after your games!</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {trending.slice(0, 5).map(({ tag, count }) => (
-                          <button
-                            key={tag.id}
-                            onClick={() => setShowTrendingModal(true)}
-                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border cursor-pointer ${CATEGORY_COLOR[tag.category]}`}
-                            data-testid={`btn-personality-tag-${tag.id}`}
-                          >
-                            {tag.emoji} {tag.label}
-                            <span className="opacity-60 ml-0.5">{count}×</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {!linkedPlayerId && (
-                    <div className="text-center" style={{ paddingTop: 4 }}>
-                      <Link href="/marketplace/profile" style={{ ...ghostBtn('sm'), textDecoration: 'none', fontSize: 12, padding: '6px 12px' }} data-testid="button-link-for-tags">
-                        Link profile to earn tags <ArrowRight className="h-3 w-3" />
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              </DashCard>
-            </Reveal>
-
-            <Reveal>
-              <DashCard testid="card-leaderboard">
-                <DashHeader icon={<Trophy className="h-4 w-4" />} title="Leaderboard" />
-                <div className="text-center">
-                  {stats ? (
-                    <div style={{ marginBottom: 16 }}>
-                      <div style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 32, color: MKT.navy, letterSpacing: '-0.025em' }} data-testid="text-leaderboard-rank">#{stats.rankBySkillScore}</div>
-                      <div style={{ fontSize: 12, color: MKT.inkSub }}>Your current rank</div>
-                    </div>
-                  ) : (
-                    <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 16 }}>See how you stack up against all ShuttleIQ players.</p>
-                  )}
-                  <Link href="/marketplace/rankings" style={{ ...navyBtn('sm'), width: '100%', textDecoration: 'none' }} data-testid="button-view-rankings">
-                    View Rankings <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </div>
-              </DashCard>
-            </Reveal>
-
-            <Reveal>
-              <DashCard>
-                <div className="text-center" style={{ padding: '8px 0' }}>
-                  <TrendingUp className="h-8 w-8 mx-auto mb-2" style={{ color: MKT.teal }} />
-                  <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 4 }}>Find your next game</p>
-                  <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 16 }}>Book sessions across Dubai venues</p>
-                  <Link href="/marketplace/book" style={{ ...navyBtn('sm'), width: '100%', textDecoration: 'none' }} data-testid="button-find-session">
-                    Browse Sessions <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </div>
-              </DashCard>
-            </Reveal>
 
             {canInstall && (
               <Reveal>
@@ -1173,11 +839,6 @@ export default function Dashboard() {
       </div>
     </div>
 
-    <TagTrendingModal
-      open={showTrendingModal}
-      onOpenChange={setShowTrendingModal}
-      linkedPlayerId={linkedPlayerId}
-    />
     </>
   );
 }

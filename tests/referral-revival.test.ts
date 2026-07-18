@@ -68,8 +68,9 @@ describe('referral revival - clawback stays intact (gaming stays blocked)', () =
 });
 
 describe('referral revival - honest status display', () => {
-  it('player dashboard: explicit mapping, clawed_back deliberately reads Pending, invalid is honest', () => {
-    const src = read('client/src/pages/marketplace/Dashboard.tsx');
+  it('player referral screen: explicit mapping, clawed_back deliberately reads Pending, invalid is honest', () => {
+    // F3.6 relocated the referral block from the dashboard to /marketplace/referrals.
+    const src = read('client/src/pages/marketplace/ReferralScreen.tsx');
     expect(src.includes("'Not eligible'")).toBe(true);
     expect(src.includes('Clawed back'), 'internal jargon must not reach players').toBe(false);
     expect(src.includes('behaviorally identical to pending'), 'the Pending choice must stay documented').toBe(true);

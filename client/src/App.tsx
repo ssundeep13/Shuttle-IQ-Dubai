@@ -31,6 +31,8 @@ import BookSessions from "@/pages/marketplace/BookSessions";
 import SessionDetails from "@/pages/marketplace/SessionDetails";
 import MyBookings from "@/pages/marketplace/MyBookings";
 import MyScores from "@/pages/marketplace/MyScores";
+import FeedScreen from "@/pages/marketplace/FeedScreen";
+import ReferralScreen from "@/pages/marketplace/ReferralScreen";
 import Rankings from "@/pages/marketplace/Rankings";
 import Profile from "@/pages/marketplace/Profile";
 import Dashboard from "@/pages/marketplace/Dashboard";
@@ -236,6 +238,12 @@ function Router() {
 
         <Route path="/marketplace/my-bookings">
           <MarketplaceAuthRoute component={MyBookings} />
+        </Route>
+        <Route path="/marketplace/feed">
+          <MarketplaceAuthRoute component={FeedScreen} />
+        </Route>
+        <Route path="/marketplace/referrals">
+          <MarketplaceAuthRoute component={ReferralScreen} />
         </Route>
         <Route path="/marketplace/my-scores">
           <MarketplaceAuthRoute component={MyScores} />
