@@ -260,19 +260,28 @@ export function parseFeedFilter(v: unknown): FeedFilter {
   return v === "you" || v === "sessions" ? v : "all";
 }
 
-export function encodeFeedCursor(createdAt: Date, id: string): string {
-  return Buffer.from(`${createdAt.toISOString()}|${id}`).toString("base64url");
+// The cursor timestamp is carried as Postgres's own ::text rendering and
+// never round-tripped through a JS Date: Date has millisecond precision,
+// but created_at is stored with MICROseconds — truncation would place the
+// cursor slightly before the true boundary and silently drop every row
+// sharing that millisecond (found live: page 2 of a 24-event feed came
+// back empty because one insert batch shared a single timestamp).
+const CURSOR_TS_SHAPE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
+
+export function encodeFeedCursor(createdAt: Date | string, id: string): string {
+  const ts = typeof createdAt === "string" ? createdAt : createdAt.toISOString();
+  return Buffer.from(`${ts}|${id}`).toString("base64url");
 }
 
-export function decodeFeedCursor(cursor: unknown): { createdAt: Date; id: string } | null {
+export function decodeFeedCursor(cursor: unknown): { createdAt: string; id: string } | null {
   if (typeof cursor !== "string" || !cursor) return null;
   try {
     const raw = Buffer.from(cursor, "base64url").toString("utf8");
     const sep = raw.indexOf("|");
     if (sep <= 0) return null;
-    const createdAt = new Date(raw.slice(0, sep));
+    const createdAt = raw.slice(0, sep);
     const id = raw.slice(sep + 1);
-    if (!id || Number.isNaN(createdAt.getTime())) return null;
+    if (!id || !CURSOR_TS_SHAPE.test(createdAt)) return null;
     return { createdAt, id };
   } catch {
     return null;

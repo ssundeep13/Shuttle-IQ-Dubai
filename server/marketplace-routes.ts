@@ -869,11 +869,21 @@ export function registerMarketplaceRoutes(app: Express) {
         conds.push(inArray(feedEvents.type, SESSION_FEED_TYPES));
       }
       if (cursor) {
-        conds.push(sql`(${feedEvents.createdAt}, ${feedEvents.id}) < (${cursor.createdAt}, ${cursor.id})`);
+        conds.push(sql`(${feedEvents.createdAt}, ${feedEvents.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id})`);
       }
 
       const rows = await db
-        .select()
+        .select({
+          id: feedEvents.id,
+          type: feedEvents.type,
+          createdAt: feedEvents.createdAt,
+          // Microsecond-precise text for the cursor — a JS Date would
+          // truncate to ms and strand rows sharing the boundary timestamp.
+          createdAtRaw: sql<string>`${feedEvents.createdAt}::text`,
+          subjectPlayerId: feedEvents.subjectPlayerId,
+          sessionId: feedEvents.sessionId,
+          payload: feedEvents.payload,
+        })
         .from(feedEvents)
         .where(and(...conds))
         .orderBy(desc(feedEvents.createdAt), desc(feedEvents.id))
@@ -898,7 +908,7 @@ export function registerMarketplaceRoutes(app: Express) {
           payload: r.payload,
           session: (r.sessionId ? sessionById.get(r.sessionId) : null) ?? null,
         })),
-        nextCursor: hasMore ? encodeFeedCursor(page[page.length - 1].createdAt, page[page.length - 1].id) : null,
+        nextCursor: hasMore ? encodeFeedCursor(page[page.length - 1].createdAtRaw, page[page.length - 1].id) : null,
       });
     } catch (error) {
       console.error("Feed fetch error:", error);

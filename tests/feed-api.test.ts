@@ -24,8 +24,17 @@ describe('feed cursor', () => {
     const id = 'c654a13e-e09d-4fe1-8d60-fa854600aee5';
     const decoded = decodeFeedCursor(encodeFeedCursor(createdAt, id));
     expect(decoded).not.toBeNull();
-    expect(decoded!.createdAt.getTime()).toBe(createdAt.getTime());
+    expect(decoded!.createdAt).toBe('2026-07-18T08:52:51.561Z');
     expect(decoded!.id).toBe(id);
+  });
+
+  it('preserves Postgres MICROsecond timestamps verbatim — a ms-truncated cursor strands boundary rows', () => {
+    // Regression: one insert batch shares a single microsecond timestamp;
+    // truncating to Date (ms) made page 2 of a 24-event feed come back empty.
+    const raw = '2026-07-18 08:52:51.561234+00';
+    const decoded = decodeFeedCursor(encodeFeedCursor(raw, 'some-id'));
+    expect(decoded!.createdAt).toBe(raw); // exact string, microseconds intact
+    expect(decoded!.id).toBe('some-id');
   });
 
   it('rejects garbage without throwing', () => {
