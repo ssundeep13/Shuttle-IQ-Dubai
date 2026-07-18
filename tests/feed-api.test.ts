@@ -14,6 +14,8 @@ const {
   parseFeedFilter,
   FEED_PAGE_SIZE,
   SESSION_FEED_TYPES,
+  assembleTagWall,
+  TAG_WALL_MAX_GROUPS_PER_SESSION,
 } = await import('../server/feedEvents');
 
 const read = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8');
@@ -144,6 +146,142 @@ describe('Dashboard banner port (tripwires)', () => {
     const community = dash.indexOf('<CommunityFeed');
     expect(community).toBeGreaterThan(-1);
     expect(community).toBeGreaterThan(session);
+  });
+});
+
+// ── Gate F3.5: tag wall grouping + burst cap (pure, per page) ───────────────
+
+let tagSeq = 0;
+const mkTag = (subject: string, session: string | null, giver: string, label: string, minutesAgo: number) => ({
+  id: `ev-${++tagSeq}`,
+  type: 'tag_received',
+  createdAt: new Date(Date.UTC(2026, 6, 18, 12, 0 - minutesAgo)).toISOString(),
+  subjectPlayerId: subject,
+  sessionId: session,
+  payload: { receiverName: `Name ${subject}`, giverName: giver, tagLabel: label },
+  session: session ? { venueName: 'Bright Riders', date: '2026-07-18' } : null,
+  likeCount: 0, likedByMe: false, likePreview: [] as string[],
+});
+const mkOther = (type: string) => ({
+  id: `ev-${++tagSeq}`, type, createdAt: new Date().toISOString(), subjectPlayerId: 'px',
+  sessionId: 's9', payload: { playerName: 'X' }, session: null, likeCount: 0, likedByMe: false, likePreview: [] as string[],
+});
+
+describe('assembleTagWall — grouping', () => {
+  it('collapses tags sharing (subject, session) into one group; like state rides the NEWEST event', () => {
+    const a1 = mkTag('p1', 's1', 'DILJITH', 'Smasher', 1); // newest
+    a1.likeCount = 5; a1.likedByMe = true; a1.likePreview = ['Priya'];
+    const a2 = mkTag('p1', 's1', 'DILJITH', 'High Energy', 2);
+    const a3 = mkTag('p1', 's1', 'DILJITH', 'Soft Touch', 3);
+    const out = assembleTagWall([a1, a2, a3]);
+    expect(out).toHaveLength(1);
+    const g = out[0] as any;
+    expect(g.type).toBe('tag_received_group');
+    expect(g.eventIds).toEqual([a1.id, a2.id, a3.id]);
+    expect(g.tagLabels).toEqual(['Smasher', 'High Energy', 'Soft Touch']);
+    expect(g.subjectName).toBe('Name p1');
+    expect(g.likeTarget).toBe(a1.id);
+    expect(g.id).toBe(a1.id);
+    expect(g.likeCount).toBe(5);
+    expect(g.likedByMe).toBe(true);
+    expect(g.createdAt).toBe(a1.createdAt);
+  });
+
+  it('dedupes multiple givers in first-seen order', () => {
+    const out = assembleTagWall([
+      mkTag('p1', 's1', 'DILJITH', 'A', 1),
+      mkTag('p1', 's1', 'Priya', 'B', 2),
+      mkTag('p1', 's1', 'DILJITH', 'C', 3),
+    ]);
+    expect((out[0] as any).giverNames).toEqual(['DILJITH', 'Priya']);
+  });
+
+  it('solo tags pass through UNCHANGED (same object, type tag_received)', () => {
+    const solo = mkTag('p1', 's1', 'DILJITH', 'Smasher', 1);
+    const out = assembleTagWall([solo]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toBe(solo); // identity — page-boundary partial groups degrade to this too
+  });
+
+  it('same subject in DIFFERENT sessions stays separate; null-session tags group but never burst', () => {
+    const out = assembleTagWall([
+      mkTag('p1', 's1', 'G', 'A', 1), mkTag('p1', 's2', 'G', 'B', 2),
+      mkTag('p2', null, 'G', 'C', 3), mkTag('p2', null, 'G', 'D', 4),
+    ]);
+    expect(out).toHaveLength(3); // two solos + one null-session group
+    expect((out[2] as any).type).toBe('tag_received_group');
+  });
+
+  it('non-tag events pass through untouched with interleaved order preserved', () => {
+    const promo = mkOther('tier_promotion');
+    const t1 = mkTag('p1', 's1', 'G', 'A', 2);
+    const streak = mkOther('win_streak');
+    const t2 = mkTag('p1', 's1', 'G', 'B', 3);
+    const out = assembleTagWall([promo, t1, streak, t2]);
+    expect(out.map(o => o.type)).toEqual(['tier_promotion', 'tag_received_group', 'win_streak']);
+    expect(out[0]).toBe(promo);
+    expect(out[2]).toBe(streak);
+  });
+});
+
+describe('assembleTagWall — burst cap', () => {
+  it('caps at 4 groups per session by (tag count, then recency); the rest fold into ONE overflow in first folded position', () => {
+    expect(TAG_WALL_MAX_GROUPS_PER_SESSION).toBe(4);
+    // 6 clusters in s1: sizes 3,2,2,1,1,1 — kept: size3, both size2s, NEWEST size1.
+    const big = [mkTag('pA', 's1', 'G', 'a1', 1), mkTag('pA', 's1', 'G', 'a2', 2), mkTag('pA', 's1', 'G', 'a3', 3)];
+    const two1 = [mkTag('pB', 's1', 'G', 'b1', 4), mkTag('pB', 's1', 'G', 'b2', 5)];
+    const two2 = [mkTag('pC', 's1', 'G', 'c1', 6), mkTag('pC', 's1', 'G', 'c2', 7)];
+    const soloNew = mkTag('pD', 's1', 'G', 'd1', 8);
+    const soloMid = mkTag('pE', 's1', 'G', 'e1', 9);
+    const soloOld = mkTag('pF', 's1', 'G', 'f1', 10);
+    const out = assembleTagWall([...big, ...two1, ...two2, soloNew, soloMid, soloOld]);
+
+    const types = out.map(o => o.type);
+    expect(types).toEqual(['tag_received_group', 'tag_received_group', 'tag_received_group', 'tag_received', 'tag_overflow']);
+    expect(out[3]).toBe(soloNew); // newest solo survives the cap as a pass-through
+    const ov = out[4] as any;
+    expect(ov.playerCount).toBe(2);
+    expect(ov.previewNames).toEqual(['Name pE', 'Name pF']);
+    expect(ov.sessionId).toBe('s1');
+    // folded groups come in FULL group shape with their own like targets
+    expect(ov.groups.map((g: any) => g.type)).toEqual(['tag_received_group', 'tag_received_group']);
+    expect(ov.groups[0].likeTarget).toBe(soloMid.id);
+    expect(ov.groups[1].likeTarget).toBe(soloOld.id);
+    // and the overflow sits where the first folded cluster appeared (after soloNew)
+    expect(out.indexOf(ov)).toBe(4);
+  });
+
+  it('does not cap across different sessions', () => {
+    const items = ['p1', 'p2', 'p3'].map(p => mkTag(p, 's1', 'G', 'x', 1))
+      .concat(['p4', 'p5', 'p6'].map(p => mkTag(p, 's2', 'G', 'x', 2)));
+    const out = assembleTagWall(items);
+    expect(out.every(o => o.type === 'tag_received')).toBe(true); // 3 per session ≤ 4 → all solo pass-through
+    expect(out).toHaveLength(6);
+  });
+});
+
+describe('tag wall UI (tripwires)', () => {
+  const feed = read('client/src/pages/marketplace/CommunityFeed.tsx');
+
+  it('grouped + overflow cards render with testids and their own like bars', () => {
+    for (const t of ['feed-card-tag-group', 'feed-card-tag-overflow', 'feed-overflow-expand', 'feed-overflow-rows']) {
+      expect(feed.includes(t), `missing ${t}`).toBe(true);
+    }
+    expect(feed.includes('earned {g.tagLabels.length} tags')).toBe(true);
+    expect(feed.includes('<LikeBar ev={g} />')).toBe(true); // group card + overflow rows
+  });
+
+  it('optimistic like patch reaches groups nested inside a tag_overflow item', () => {
+    expect(feed.includes(`ov.type === 'tag_overflow'`)).toBe(true);
+    expect(feed.includes('ov.groups.some(g => g.id === ev.id)')).toBe(true);
+    expect(feed.includes('ov.groups.map(g => g.id === ev.id ? flip(g) : g)')).toBe(true);
+  });
+
+  it('route assembles the wall before responding; cursor still keys on RAW page rows', () => {
+    const src = read('server/marketplace-routes.ts');
+    const handler = src.slice(src.indexOf('app.get("/api/marketplace/feed"'), src.indexOf('app.post("/api/marketplace/feed/:eventId/like"'));
+    expect(handler.includes('assembleTagWall(')).toBe(true);
+    expect(handler.includes('encodeFeedCursor(page[page.length - 1].createdAtRaw')).toBe(true);
   });
 });
 

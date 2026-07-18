@@ -6,7 +6,7 @@ import { type CSSProperties, type ReactNode } from 'react';
 import { useState } from 'react';
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { Users, Heart } from 'lucide-react';
+import { Users, Heart, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { MKT, FF_BODY } from './LandingComponents';
 
@@ -29,8 +29,44 @@ interface FeedEventDto {
   likedByMe: boolean;
   likePreview: string[];
 }
+// F3.5 tag-wall items assembled server-side, per page.
+interface TagGroupDto {
+  type: 'tag_received_group';
+  id: string; // likeTarget — like anchor + React key
+  eventIds: string[];
+  subjectPlayerId: string | null;
+  subjectName: string;
+  giverNames: string[];
+  tagLabels: string[];
+  sessionId: string | null;
+  session: { venueName: string; date: string } | null;
+  createdAt: string;
+  likeTarget: string;
+  likeCount: number;
+  likedByMe: boolean;
+  likePreview: string[];
+}
+interface TagOverflowDto {
+  type: 'tag_overflow';
+  id: string;
+  sessionId: string;
+  session: { venueName: string; date: string } | null;
+  groups: TagGroupDto[];
+  playerCount: number;
+  previewNames: string[];
+}
+type FeedItem = FeedEventDto | TagGroupDto | TagOverflowDto;
+
+// The minimum LikeBar needs — real events and tag groups both satisfy it.
+interface Likeable {
+  id: string;
+  likeCount: number;
+  likedByMe: boolean;
+  likePreview: string[];
+}
+
 interface FeedPage {
-  events: FeedEventDto[];
+  events: FeedItem[];
   nextCursor: string | null;
 }
 
@@ -53,7 +89,7 @@ function timeAgo(iso: string): string {
   return w < 5 ? `${w}w ago` : new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-function metaLine(ev: FeedEventDto, extra?: string): string {
+function metaLine(ev: { session?: { venueName: string } | null; createdAt: string }, extra?: string): string {
   const bits = [extra, ev.session?.venueName, timeAgo(ev.createdAt)].filter(Boolean);
   return bits.join(' · ');
 }
@@ -76,29 +112,36 @@ const whiteCard: CSSProperties = { background: '#fff', borderRadius: 14, border:
 
 // ── Like row (Gate F4) — heart + avatar stack + inline liker expand ─────────
 
-function likePreviewText(ev: FeedEventDto): string | null {
+function likePreviewText(ev: Likeable): string | null {
   if (ev.likeCount === 0) return null;
   const first = ev.likedByMe && ev.likeCount === 1 ? 'You' : (ev.likePreview[0] ?? 'Someone');
   if (ev.likeCount === 1) return first === 'You' ? 'You like this' : `${first} likes this`;
   return `${first} and ${ev.likeCount - 1} other${ev.likeCount - 1 === 1 ? '' : 's'}`;
 }
 
-function LikeBar({ ev, onNavy = false }: { ev: FeedEventDto; onNavy?: boolean }) {
+function LikeBar({ ev, onNavy = false }: { ev: Likeable; onNavy?: boolean }) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
 
   // Optimistic delta applied across every cached filter variant; the paired
   // rollback in onError undoes it exactly, and onSettled lets server truth win.
+  // Also reaches groups folded inside a tag_overflow item (F3.5).
   const applyLocal = (liked: boolean) => {
+    const flip = <X extends Likeable>(x: X): X => ({ ...x, likedByMe: liked, likeCount: Math.max(0, x.likeCount + (liked ? 1 : -1)) });
     queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: ['/api/marketplace/feed'] }, (data) => {
       if (!data?.pages) return data;
       return {
         ...data,
         pages: data.pages.map(pg => ({
           ...pg,
-          events: pg.events.map(e => e.id === ev.id
-            ? { ...e, likedByMe: liked, likeCount: Math.max(0, e.likeCount + (liked ? 1 : -1)) }
-            : e),
+          events: pg.events.map(e => {
+            if (e.id === ev.id) return flip(e as FeedItem & Likeable);
+            const ov = e as TagOverflowDto;
+            if (ov.type === 'tag_overflow' && Array.isArray(ov.groups) && ov.groups.some(g => g.id === ev.id)) {
+              return { ...ov, groups: ov.groups.map(g => g.id === ev.id ? flip(g) : g) };
+            }
+            return e;
+          }),
         })),
       };
     });
@@ -249,6 +292,93 @@ function TagCard({ ev }: { ev: FeedEventDto }) {
   );
 }
 
+// Grouped tag card (F3.5) — the existing tag-card chrome with ALL labels
+// inline-wrapped inside ONE trophy block and a single like bar on likeTarget.
+function GroupedTagCard({ g }: { g: TagGroupDto }) {
+  const givers = g.giverNames.join(', ');
+  return (
+    <div style={whiteCard} data-testid="feed-card-tag-group">
+      <div className="flex items-center gap-3">
+        <AvatarCircle name={g.subjectName} size={44} bg={MKT.teal} fg="#fff" />
+        <div className="flex-1 min-w-0">
+          <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>
+            {g.subjectName} earned {g.tagLabels.length} tags
+          </p>
+          <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(g, `from ${givers}`)}</p>
+        </div>
+      </div>
+      <div style={{ marginTop: 12, background: TROPHY_BG, borderRadius: 10, padding: '10px 14px' }}>
+        <div className="flex flex-wrap" style={{ gap: '2px 14px' }}>
+          {g.tagLabels.map((label, i) => (
+            <span key={i} style={{ fontFamily: FF_BODY, fontWeight: 800, fontSize: 15, color: MKT.tealD }}>{label}</span>
+          ))}
+        </div>
+        <p style={{ margin: 0, marginTop: 3, fontFamily: FF_BODY, fontSize: 11, color: MKT.teal }}>Captain-verified session</p>
+      </div>
+      <LikeBar ev={g} />
+    </div>
+  );
+}
+
+// Overflow card (F3.5) — the burst cap's fold. Inline expand, same pattern
+// as the F4 liker list: each folded group becomes a full row with its own
+// like bar on that group's likeTarget.
+function OverflowCard({ o }: { o: TagOverflowDto }) {
+  const [expanded, setExpanded] = useState(false);
+  const Chevron = expanded ? ChevronUp : ChevronDown;
+  return (
+    <div style={whiteCard} data-testid="feed-card-tag-overflow">
+      <button
+        onClick={() => setExpanded(x => !x)}
+        data-testid="feed-overflow-expand"
+        aria-expanded={expanded}
+        style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, width: '100%', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left' }}
+      >
+        <div className="flex items-center shrink-0" aria-hidden>
+          {o.previewNames.slice(0, 2).map((n, i) => (
+            <div key={i} style={{
+              width: 36, height: 36, borderRadius: '50%', marginLeft: i === 0 ? 0 : -8,
+              background: MKT.tealMist, color: MKT.tealD, border: '2px solid #fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: FF_BODY, fontWeight: 800, fontSize: 12,
+            }}>
+              {initialsOf(n)}
+            </div>
+          ))}
+          {o.playerCount > 2 && (
+            <span style={{ marginLeft: 5, fontFamily: FF_BODY, fontSize: 12, fontWeight: 700, color: MKT.inkSub }}>+{o.playerCount - 2}</span>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>
+            {o.playerCount} more {o.playerCount === 1 ? 'player' : 'players'} earned tags
+          </p>
+          {o.session?.venueName && (
+            <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{o.session.venueName}</p>
+          )}
+        </div>
+        <Chevron className="h-4 w-4 shrink-0" style={{ color: MKT.inkSub }} />
+      </button>
+      {expanded && (
+        <div data-testid="feed-overflow-rows">
+          {o.groups.map(g => (
+            <div key={g.id} style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${CARD_BORDER}` }}>
+              <div className="flex items-center gap-2.5">
+                <AvatarCircle name={g.subjectName} size={32} bg={MKT.teal} fg="#fff" />
+                <div className="flex-1 min-w-0">
+                  <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 14, color: MKT.ink }}>{g.subjectName}</p>
+                  <p style={{ margin: 0, marginTop: 1, fontFamily: FF_BODY, fontSize: 12, fontWeight: 700, color: MKT.tealD }}>{g.tagLabels.join(' · ')}</p>
+                </div>
+              </div>
+              <LikeBar ev={g} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const MILESTONE_HEADLINES: Record<string, (name: string) => string> = {
   first_game: (n) => `${n} played their first game`,
   first_win: (n) => `${n} won their first game`,
@@ -256,26 +386,29 @@ const MILESTONE_HEADLINES: Record<string, (name: string) => string> = {
   game_100: (n) => `${n} hit 100 games`,
 };
 
-function FeedEventCard({ ev }: { ev: FeedEventDto }) {
-  const p = ev.payload;
-  switch (ev.type) {
+function FeedEventCard({ ev }: { ev: FeedItem }) {
+  if (ev.type === 'tag_received_group') return <GroupedTagCard g={ev as TagGroupDto} />;
+  if (ev.type === 'tag_overflow') return <OverflowCard o={ev as TagOverflowDto} />;
+  const evd = ev as FeedEventDto;
+  const p = evd.payload;
+  switch (evd.type) {
     case 'tier_promotion':
-      return <PromotionCard ev={ev} />;
+      return <PromotionCard ev={evd} />;
     case 'tag_received':
-      return <TagCard ev={ev} />;
+      return <TagCard ev={evd} />;
     case 'milestone': {
       const headline = (MILESTONE_HEADLINES[p.milestone] ?? ((n: string) => `${n} hit a milestone`))(p.playerName);
-      return <CompactCard ev={ev} name={p.playerName} headline={headline} meta={metaLine(ev)} testid="feed-card-milestone" />;
+      return <CompactCard ev={evd} name={p.playerName} headline={headline} meta={metaLine(evd)} testid="feed-card-milestone" />;
     }
     case 'win_streak':
-      return <CompactCard ev={ev} name={p.playerName} headline={`${p.playerName} is on a ${p.streak}-win streak`} meta={metaLine(ev)} testid="feed-card-win-streak" />;
+      return <CompactCard ev={evd} name={p.playerName} headline={`${p.playerName} is on a ${p.streak}-win streak`} meta={metaLine(evd)} testid="feed-card-win-streak" />;
     case 'leaderboard_move':
       return (
         <CompactCard
-          ev={ev}
+          ev={evd}
           name={p.playerName}
           headline={`${p.playerName} moved up ${p.fromRank - p.toRank} places`}
-          meta={metaLine(ev, `now #${p.toRank} on the leaderboard`)}
+          meta={metaLine(evd, `now #${p.toRank} on the leaderboard`)}
           testid="feed-card-leaderboard-move"
         />
       );

@@ -142,6 +142,163 @@ export function buildTagFeedEvents(input: TagFeedInput): FeedEventInsert[] {
   }));
 }
 
+// ── Tag wall assembly (Gate F3.5) — render-side only ────────────────────────
+// One giver tagging a whole session floods the feed with near-identical
+// cards. Two tiers, applied PER PAGE after fetch (pagination keys untouched;
+// a group splitting across a page boundary is accepted — rare, harmless):
+//   1. tag_received events sharing (subjectPlayerId, sessionId) collapse
+//      into one tag_received_group. Solo tags pass through unchanged.
+//   2. If one sessionId still yields >4 tag clusters on the page, the top 4
+//      (most tags, ties by recency) stay as cards and the rest fold into a
+//      single tag_overflow item at the first folded position.
+// Like state rides on the cluster's NEWEST event (likeTarget).
+
+export const TAG_WALL_MAX_GROUPS_PER_SESSION = 4;
+
+export interface WallEventBase {
+  id: string;
+  type: string;
+  createdAt: Date | string;
+  subjectPlayerId: string | null;
+  sessionId?: string | null;
+  payload: Record<string, any>;
+  session?: { venueName: string; date: Date | string } | null;
+  likeCount?: number;
+  likedByMe?: boolean;
+  likePreview?: string[];
+}
+
+export interface TagGroupItem<T extends WallEventBase> {
+  type: "tag_received_group";
+  id: string; // likeTarget — stable key + like anchor
+  eventIds: string[];
+  subjectPlayerId: string | null;
+  subjectName: string;
+  giverNames: string[]; // deduped, first-seen order
+  tagLabels: string[];
+  sessionId: string | null;
+  session: T["session"] | null;
+  createdAt: T["createdAt"]; // newest member
+  likeTarget: string;
+  likeCount: number;
+  likedByMe: boolean;
+  likePreview: string[];
+}
+
+export interface TagOverflowItem<T extends WallEventBase> {
+  type: "tag_overflow";
+  id: string;
+  sessionId: string;
+  session: T["session"] | null;
+  groups: Array<TagGroupItem<T>>;
+  playerCount: number;
+  previewNames: string[];
+}
+
+export type FeedWallItem<T extends WallEventBase> = T | TagGroupItem<T> | TagOverflowItem<T>;
+
+function toGroupItem<T extends WallEventBase>(members: T[]): TagGroupItem<T> {
+  const newest = members[0]; // page is newest-first
+  const giverNames: string[] = [];
+  for (const m of members) {
+    const g = m.payload.giverName ?? "A player";
+    if (!giverNames.includes(g)) giverNames.push(g);
+  }
+  return {
+    type: "tag_received_group",
+    id: newest.id,
+    eventIds: members.map((m) => m.id),
+    subjectPlayerId: newest.subjectPlayerId,
+    subjectName: newest.payload.receiverName ?? "A player",
+    giverNames,
+    tagLabels: members.map((m) => m.payload.tagLabel ?? ""),
+    sessionId: newest.sessionId ?? null,
+    session: newest.session ?? null,
+    createdAt: newest.createdAt,
+    likeTarget: newest.id,
+    likeCount: newest.likeCount ?? 0,
+    likedByMe: newest.likedByMe ?? false,
+    likePreview: newest.likePreview ?? [],
+  };
+}
+
+export function assembleTagWall<T extends WallEventBase>(items: T[]): Array<FeedWallItem<T>> {
+  // Cluster tag events by (subject, session); remember each cluster's members
+  // in page (newest-first) order.
+  const clusterKey = (e: T) => `${e.subjectPlayerId ?? "none"}|${e.sessionId ?? "none"}`;
+  const clusters = new Map<string, T[]>();
+  for (const e of items) {
+    if (e.type !== "tag_received") continue;
+    const key = clusterKey(e);
+    const list = clusters.get(key) ?? [];
+    list.push(e);
+    clusters.set(key, list);
+  }
+
+  // Burst cap per non-null session: rank clusters by (size desc, newest desc).
+  const foldedKeys = new Set<string>();
+  const overflowGroups = new Map<string, string[]>(); // sessionId → folded cluster keys, rank order
+  const bySession = new Map<string, string[]>();
+  for (const [key, members] of Array.from(clusters.entries())) {
+    const sid = members[0].sessionId ?? null;
+    if (!sid) continue;
+    const list = bySession.get(sid) ?? [];
+    list.push(key);
+    bySession.set(sid, list);
+  }
+  for (const [sid, keys] of Array.from(bySession.entries())) {
+    if (keys.length <= TAG_WALL_MAX_GROUPS_PER_SESSION) continue;
+    const ranked = [...keys].sort((a, b) => {
+      const A = clusters.get(a)!, B = clusters.get(b)!;
+      if (B.length !== A.length) return B.length - A.length;
+      return new Date(B[0].createdAt).getTime() - new Date(A[0].createdAt).getTime();
+    });
+    const folded = ranked.slice(TAG_WALL_MAX_GROUPS_PER_SESSION);
+    for (const k of folded) foldedKeys.add(k);
+    overflowGroups.set(sid, folded);
+  }
+
+  // Walk the page in order, emitting each cluster (or its overflow) once, at
+  // its first member's position. Non-tag events pass through untouched.
+  const out: Array<FeedWallItem<T>> = [];
+  const emittedClusters = new Set<string>();
+  const emittedOverflows = new Set<string>();
+  for (const e of items) {
+    if (e.type !== "tag_received") {
+      out.push(e);
+      continue;
+    }
+    const key = clusterKey(e);
+    if (emittedClusters.has(key)) continue;
+    if (foldedKeys.has(key)) {
+      const sid = e.sessionId!;
+      if (!emittedOverflows.has(sid)) {
+        emittedOverflows.add(sid);
+        const groups = (overflowGroups.get(sid) ?? []).map((k) => toGroupItem(clusters.get(k)!));
+        for (const k of overflowGroups.get(sid) ?? []) emittedClusters.add(k);
+        out.push({
+          type: "tag_overflow",
+          id: `overflow:${sid}`,
+          sessionId: sid,
+          session: e.session ?? null,
+          groups,
+          playerCount: groups.length,
+          previewNames: groups.slice(0, 2).map((g) => g.subjectName),
+        });
+      }
+      continue;
+    }
+    emittedClusters.add(key);
+    const members = clusters.get(key)!;
+    if (members.length === 1) {
+      out.push(e); // solo tag passes through UNCHANGED
+    } else {
+      out.push(toGroupItem(members));
+    }
+  }
+  return out;
+}
+
 /** Short human headline for an event — used by notification messages. */
 export function feedEventHeadline(type: string, payload: Record<string, any>): string {
   switch (type) {

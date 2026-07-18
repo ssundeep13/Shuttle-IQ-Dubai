@@ -48,7 +48,7 @@ import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and, or, inArray, desc, asc, gt } from "drizzle-orm";
 import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, feedEventLikes, marketplaceUsers, type BookableSession } from "@shared/schema";
-import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor, feedEventHeadline } from "./feedEvents";
+import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor, feedEventHeadline, assembleTagWall } from "./feedEvents";
 import { applyPendingWalletCredit } from "./promos";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import {
@@ -924,19 +924,25 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       }
 
+      // Tag wall (Gate F3.5): group per-player tag bursts and cap per-session
+      // floods — render-side only, applied per page; the cursor still keys on
+      // the RAW page rows below, so pagination is untouched.
+      const assembled = assembleTagWall(page.map(r => ({
+        id: r.id,
+        type: r.type,
+        createdAt: r.createdAt,
+        subjectPlayerId: r.subjectPlayerId,
+        sessionId: r.sessionId,
+        payload: r.payload as Record<string, any>,
+        session: (r.sessionId ? sessionById.get(r.sessionId) : null) ?? null,
+        likeCount: likeAgg.get(r.id)?.count ?? 0,
+        likedByMe: likeAgg.get(r.id)?.likedByMe ?? false,
+        likePreview: likeAgg.get(r.id)?.preview ?? [],
+      })));
+
       res.setHeader("Cache-Control", "no-store");
       res.json({
-        events: page.map(r => ({
-          id: r.id,
-          type: r.type,
-          createdAt: r.createdAt,
-          subjectPlayerId: r.subjectPlayerId,
-          payload: r.payload,
-          session: (r.sessionId ? sessionById.get(r.sessionId) : null) ?? null,
-          likeCount: likeAgg.get(r.id)?.count ?? 0,
-          likedByMe: likeAgg.get(r.id)?.likedByMe ?? false,
-          likePreview: likeAgg.get(r.id)?.preview ?? [],
-        })),
+        events: assembled,
         nextCursor: hasMore ? encodeFeedCursor(page[page.length - 1].createdAtRaw, page[page.length - 1].id) : null,
       });
     } catch (error) {
