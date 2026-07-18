@@ -123,7 +123,7 @@ export interface TagFeedInput {
   gameResultId: string;
   sessionId: string | null;
   isSandbox: boolean;
-  entries: Array<{ receiverId: string; receiverName: string; giverName: string; tagId: string; tagLabel: string }>;
+  entries: Array<{ receiverId: string; receiverName: string; giverId: string; giverName: string; tagId: string; tagLabel: string }>;
 }
 
 export function buildTagFeedEvents(input: TagFeedInput): FeedEventInsert[] {
@@ -135,8 +135,23 @@ export function buildTagFeedEvents(input: TagFeedInput): FeedEventInsert[] {
     sessionId: input.sessionId,
     relatedTagId: e.tagId,
     dedupeKey: `${input.gameResultId}:${e.giverName}:${e.receiverId}:${e.tagId}`,
-    payload: { receiverName: e.receiverName, giverName: e.giverName, tagLabel: e.tagLabel },
+    // F4 forward-fix: player IDs ride in NEW payloads so the "you" filter can
+    // match giver-side activity. Old payloads lack them — consumers must
+    // null-safe skip (no backfill).
+    payload: { receiverName: e.receiverName, giverName: e.giverName, tagLabel: e.tagLabel, giverPlayerId: e.giverId, receiverPlayerId: e.receiverId },
   }));
+}
+
+/** Short human headline for an event — used by notification messages. */
+export function feedEventHeadline(type: string, payload: Record<string, any>): string {
+  switch (type) {
+    case "tier_promotion": return `${payload.playerName} is now ${payload.toTier}`;
+    case "tag_received": return `${payload.receiverName} earned "${payload.tagLabel}"`;
+    case "milestone": return `${payload.playerName}'s milestone`;
+    case "win_streak": return `${payload.playerName}'s ${payload.streak}-win streak`;
+    case "leaderboard_move": return `${payload.playerName}'s leaderboard climb`;
+    default: return "your post";
+  }
 }
 
 // Correction (winner flip / tier change): replacement tier_promotion events.

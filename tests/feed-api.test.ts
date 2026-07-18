@@ -91,8 +91,9 @@ describe('feed endpoint (tripwires)', () => {
     expect((handler.match(/Cache-Control", "no-store"/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('"you" is subject-only and returns empty for unlinked users instead of leaking', () => {
-    expect(handler.includes('eq(feedEvents.subjectPlayerId, mpUser.linkedPlayerId)')).toBe(true);
+  it('"you" matches subject OR giver-side payload id, and returns empty for unlinked users instead of leaking', () => {
+    expect(handler.includes('eq(feedEvents.subjectPlayerId, callerPlayerId)')).toBe(true);
+    expect(handler.includes(`->>'giverPlayerId'`)).toBe(true);
     expect(handler.includes('events: [], nextCursor: null')).toBe(true);
   });
 });
@@ -127,10 +128,11 @@ describe('Dashboard banner port (tripwires)', () => {
   });
 
   it('feed cards follow the brand rule: brightened teal only on navy fills', () => {
-    // #2BB3A3 must appear only inside the navy PromotionCard context.
+    // #2BB3A3 must appear only in navy-card contexts: the declaration, the
+    // celebration overline, and the liked-heart color behind `onNavy`.
     expect(feed.includes("const TEAL_ON_NAVY = '#2BB3A3'")).toBe(true);
     const uses = feed.split('TEAL_ON_NAVY').length - 1;
-    expect(uses).toBe(2); // declaration + the overline inside the navy card
+    expect(uses).toBe(3);
   });
 
   it('no emoji rendered by feed UI (spec)', () => {
@@ -142,5 +144,99 @@ describe('Dashboard banner port (tripwires)', () => {
     const community = dash.indexOf('<CommunityFeed');
     expect(community).toBeGreaterThan(-1);
     expect(community).toBeGreaterThan(session);
+  });
+});
+
+// ── Gate F4: likes + notifications ──────────────────────────────────────────
+
+describe('feedEventHeadline', () => {
+  it('maps every event type to a short human headline', async () => {
+    const { feedEventHeadline } = await import('../server/feedEvents');
+    expect(feedEventHeadline('tier_promotion', { playerName: 'Rakesh', toTier: 'Competitive' })).toBe('Rakesh is now Competitive');
+    expect(feedEventHeadline('tag_received', { receiverName: 'Anita', tagLabel: 'Net Ninja' })).toBe('Anita earned "Net Ninja"');
+    expect(feedEventHeadline('win_streak', { playerName: 'Anita', streak: 4 })).toBe("Anita's 4-win streak");
+    expect(feedEventHeadline('unknown_future_type', {})).toBe('your post');
+  });
+});
+
+describe('like endpoints (tripwires)', () => {
+  const src = read('server/marketplace-routes.ts');
+  const likeAt = src.indexOf('app.post("/api/marketplace/feed/:eventId/like"');
+  const likeHandler = src.slice(likeAt, src.indexOf('app.delete("/api/marketplace/feed/:eventId/like"'));
+  const unlikeAt = src.indexOf('app.delete("/api/marketplace/feed/:eventId/like"');
+  const unlikeHandler = src.slice(unlikeAt, src.indexOf('app.get("/api/marketplace/feed/:eventId/likes"'));
+  const likersAt = src.indexOf('app.get("/api/marketplace/feed/:eventId/likes"');
+
+  it('all three like endpoints exist and are marketplace-auth gated', () => {
+    for (const at of [likeAt, unlikeAt, likersAt]) {
+      expect(at).toBeGreaterThan(-1);
+      const line = src.slice(at, src.indexOf('\n', at) + 100);
+      expect(line.includes('requireAuth')).toBe(true);
+      expect(line.includes('requireMarketplaceAuth')).toBe(true);
+    }
+  });
+
+  it('double-like is a PK no-op success (onConflictDoNothing), published-only, linked-player-only', () => {
+    expect(likeHandler.includes('.onConflictDoNothing()')).toBe(true);
+    expect(likeHandler.includes(`ev.status !== "published"`)).toBe(true);
+    expect(likeHandler.includes('Link your player profile first')).toBe(true);
+    expect(unlikeHandler.includes('Link your player profile first')).toBe(true);
+  });
+
+  it('feed_like notification: first-like only, never self, guarded, and only to linked accounts', () => {
+    expect(likeHandler.includes('firstLike && ev.subjectPlayerId && ev.subjectPlayerId !== mpUser.linkedPlayerId')).toBe(true);
+    expect(likeHandler.includes('"feed_like"')).toBe(true);
+    // guarded: notification try/catch cannot fail the like
+    const notifyBlock = likeHandler.slice(likeHandler.indexOf('firstLike &&'));
+    expect(notifyBlock.includes('try {')).toBe(true);
+    expect(notifyBlock.includes('catch')).toBe(true);
+  });
+
+  it('feed response is enriched with likeCount/likedByMe/likePreview from ONE batched join', () => {
+    const feedHandler = src.slice(src.indexOf('app.get("/api/marketplace/feed"'), likeAt);
+    for (const f of ['likeCount:', 'likedByMe:', 'likePreview:']) expect(feedHandler.includes(f), `missing ${f}`).toBe(true);
+    expect(feedHandler.includes('innerJoin(players')).toBe(true);
+    expect(feedHandler.includes('inArray(feedEventLikes.eventId, eventIds)')).toBe(true);
+  });
+
+  it('"you" filter extends to giver-side via payload IDs, null-safe on old payloads', () => {
+    const feedHandler = src.slice(src.indexOf('app.get("/api/marketplace/feed"'), likeAt);
+    expect(feedHandler.includes(`->>'giverPlayerId'`)).toBe(true);
+    expect(feedHandler.includes('eq(feedEvents.subjectPlayerId, callerPlayerId)')).toBe(true);
+  });
+});
+
+describe('feed_tag notification (tripwires)', () => {
+  it('lives inside the tag route guarded block, non-sandbox only, linked accounts only', () => {
+    const src = read('server/routes.ts');
+    const tagRoute = src.slice(src.indexOf('app.post("/api/tags/game/:gameResultId"'));
+    const guard = tagRoute.slice(tagRoute.indexOf('try {', tagRoute.indexOf('createPlayerTags(entries)')), tagRoute.indexOf('catch (feedErr)'));
+    expect(guard.includes('"feed_tag"')).toBe(true);
+    expect(guard.includes('if (!isSandbox)')).toBe(true);
+    expect(guard.includes('inArray(marketplaceUsers.linkedPlayerId, receiverIds)')).toBe(true);
+  });
+});
+
+describe('LikeBar UI (tripwires)', () => {
+  const feed = read('client/src/pages/marketplace/CommunityFeed.tsx');
+
+  it('optimistic toggle with paired rollback and server settle', () => {
+    expect(feed.includes('onMutate')).toBe(true);
+    expect(feed.includes('onError')).toBe(true);
+    expect(feed.includes('applyLocal(ctx.wasLiked)')).toBe(true); // rollback restores the snapshot state
+    expect(feed.includes('onSettled')).toBe(true);
+  });
+
+  it('heart, avatar stack and inline liker expand render with testids; likers fetched on first expand', () => {
+    for (const t of ['feed-like-button', 'feed-like-stack', 'feed-likers-expand', 'feed-likers-list']) {
+      expect(feed.includes(t), `missing ${t}`).toBe(true);
+    }
+    expect(feed.includes('enabled: expanded')).toBe(true);
+    expect(feed.includes('aria-pressed')).toBe(true);
+  });
+
+  it('all three card types carry the LikeBar; navy card uses the onNavy variant', () => {
+    expect((feed.match(/<LikeBar ev=\{ev\} \/>/g) ?? []).length).toBe(2); // TagCard + CompactCard
+    expect(feed.includes('<LikeBar ev={ev} onNavy />')).toBe(true); // PromotionCard
   });
 });

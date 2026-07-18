@@ -178,18 +178,21 @@ describe('buildGameFeedEvents — sandbox', () => {
 });
 
 describe('buildTagFeedEvents', () => {
-  it('freezes receiver name, giver name and tag label; receiver-led', () => {
+  it('freezes receiver/giver names + tag label, and carries player IDs (F4 forward-fix); receiver-led', () => {
     const events = buildTagFeedEvents({
       gameResultId: 'game-1',
       sessionId: 'sess-1',
       isSandbox: false,
-      entries: [{ receiverId: 'p2', receiverName: 'Anita Menon', giverName: 'Rakesh Nair', tagId: 'tag-net', tagLabel: 'Net Ninja' }],
+      entries: [{ receiverId: 'p2', receiverName: 'Anita Menon', giverId: 'p1', giverName: 'Rakesh Nair', tagId: 'tag-net', tagLabel: 'Net Ninja' }],
     });
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('tag_received');
     expect(events[0].subjectPlayerId).toBe('p2');
     expect(events[0].relatedTagId).toBe('tag-net');
-    expect(events[0].payload).toEqual({ receiverName: 'Anita Menon', giverName: 'Rakesh Nair', tagLabel: 'Net Ninja' });
+    expect(events[0].payload).toEqual({
+      receiverName: 'Anita Menon', giverName: 'Rakesh Nair', tagLabel: 'Net Ninja',
+      giverPlayerId: 'p1', receiverPlayerId: 'p2',
+    });
     expect(events[0].dedupeKey).toBe('game-1:Rakesh Nair:p2:tag-net');
   });
 
@@ -198,7 +201,7 @@ describe('buildTagFeedEvents', () => {
       gameResultId: 'game-1',
       sessionId: 'sess-1',
       isSandbox: true,
-      entries: [{ receiverId: 'p2', receiverName: 'Anita Menon', giverName: 'Rakesh Nair', tagId: 't', tagLabel: 'L' }],
+      entries: [{ receiverId: 'p2', receiverName: 'Anita Menon', giverId: 'p1', giverName: 'Rakesh Nair', tagId: 't', tagLabel: 'L' }],
     });
     expect(events).toHaveLength(0);
   });

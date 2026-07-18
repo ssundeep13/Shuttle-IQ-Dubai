@@ -46,9 +46,9 @@ import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, isWithinLateCa
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
-import { sql, eq, and, inArray, desc, asc, gt } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, type BookableSession } from "@shared/schema";
-import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor } from "./feedEvents";
+import { sql, eq, and, or, inArray, desc, asc, gt } from "drizzle-orm";
+import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, feedEventLikes, marketplaceUsers, type BookableSession } from "@shared/schema";
+import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor, feedEventHeadline } from "./feedEvents";
 import { applyPendingWalletCredit } from "./promos";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import {
@@ -854,17 +854,22 @@ export function registerMarketplaceRoutes(app: Express) {
     try {
       const filter = parseFeedFilter(req.query.filter);
       const cursor = decodeFeedCursor(req.query.cursor);
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      const callerPlayerId = mpUser?.linkedPlayerId ?? null;
 
       const conds = [eq(feedEvents.status, "published")];
       if (filter === "you") {
-        // Subject-only: received tags (receiver-led), own promotions,
-        // milestones, streaks, rank moves. Giver-side IDs join payloads in F4.
-        const mpUser = await storage.getMarketplaceUser(req.user!.userId);
-        if (!mpUser?.linkedPlayerId) {
+        // Subject match OR giver-side match on the F4 payload IDs. Old
+        // payloads lack giverPlayerId — ->> yields NULL there, which never
+        // equals the caller, so they are null-safe skipped (no backfill).
+        if (!callerPlayerId) {
           res.setHeader("Cache-Control", "no-store");
           return res.json({ events: [], nextCursor: null });
         }
-        conds.push(eq(feedEvents.subjectPlayerId, mpUser.linkedPlayerId));
+        conds.push(or(
+          eq(feedEvents.subjectPlayerId, callerPlayerId),
+          sql`${feedEvents.payload}->>'giverPlayerId' = ${callerPlayerId}`,
+        )!);
       } else if (filter === "sessions") {
         conds.push(inArray(feedEvents.type, SESSION_FEED_TYPES));
       }
@@ -898,6 +903,27 @@ export function registerMarketplaceRoutes(app: Express) {
         : [];
       const sessionById = new Map(sessionRows.map(s => [s.id, { venueName: s.venueName, date: s.date }]));
 
+      // Likes (Gate F4): ONE batched join over the page's events, aggregated
+      // here — count, likedByMe and the ≤3-name preview all come from it.
+      // Liker names are live social state by design; event payloads stay frozen.
+      const eventIds = page.map(r => r.id);
+      const likeAgg = new Map<string, { count: number; likedByMe: boolean; preview: string[] }>();
+      if (eventIds.length) {
+        const likeRows = await db
+          .select({ eventId: feedEventLikes.eventId, playerId: feedEventLikes.playerId, name: players.name })
+          .from(feedEventLikes)
+          .innerJoin(players, eq(feedEventLikes.playerId, players.id))
+          .where(inArray(feedEventLikes.eventId, eventIds))
+          .orderBy(asc(feedEventLikes.createdAt));
+        for (const l of likeRows) {
+          const agg = likeAgg.get(l.eventId) ?? { count: 0, likedByMe: false, preview: [] };
+          agg.count++;
+          if (l.playerId === callerPlayerId) agg.likedByMe = true;
+          if (agg.preview.length < 3) agg.preview.push(l.name);
+          likeAgg.set(l.eventId, agg);
+        }
+      }
+
       res.setHeader("Cache-Control", "no-store");
       res.json({
         events: page.map(r => ({
@@ -907,12 +933,98 @@ export function registerMarketplaceRoutes(app: Express) {
           subjectPlayerId: r.subjectPlayerId,
           payload: r.payload,
           session: (r.sessionId ? sessionById.get(r.sessionId) : null) ?? null,
+          likeCount: likeAgg.get(r.id)?.count ?? 0,
+          likedByMe: likeAgg.get(r.id)?.likedByMe ?? false,
+          likePreview: likeAgg.get(r.id)?.preview ?? [],
         })),
         nextCursor: hasMore ? encodeFeedCursor(page[page.length - 1].createdAtRaw, page[page.length - 1].id) : null,
       });
     } catch (error) {
       console.error("Feed fetch error:", error);
       res.status(500).json({ error: "Failed to load feed" });
+    }
+  });
+
+  // Gate F4 — like a feed post. The feed_event_likes PK is the dedupe: a
+  // double-like hits ON CONFLICT DO NOTHING and returns the same success
+  // shape. Only published events are likeable.
+  app.post("/api/marketplace/feed/:eventId/like", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
+      const [ev] = await db.select().from(feedEvents).where(eq(feedEvents.id, req.params.eventId));
+      if (!ev) return res.status(404).json({ error: "Post not found" });
+      if (ev.status !== "published") return res.status(409).json({ error: "This post can no longer be liked" });
+
+      const inserted = await db
+        .insert(feedEventLikes)
+        .values({ eventId: ev.id, playerId: mpUser.linkedPlayerId })
+        .onConflictDoNothing();
+      const firstLike = (inserted.rowCount ?? 0) > 0;
+
+      // feed_like notification: first like per liker per event (the PK insert
+      // above just succeeded), never for self-likes, only when the subject has
+      // a marketplace account. Guarded — a notification bug never fails the like.
+      if (firstLike && ev.subjectPlayerId && ev.subjectPlayerId !== mpUser.linkedPlayerId) {
+        try {
+          const [subjectUser] = await db
+            .select({ id: marketplaceUsers.id })
+            .from(marketplaceUsers)
+            .where(eq(marketplaceUsers.linkedPlayerId, ev.subjectPlayerId));
+          if (subjectUser) {
+            const [liker] = await db.select({ name: players.name }).from(players).where(eq(players.id, mpUser.linkedPlayerId));
+            await storage.createMarketplaceNotification({
+              userId: subjectUser.id,
+              type: "feed_like",
+              title: `${liker?.name ?? "A player"} liked your post`,
+              message: feedEventHeadline(ev.type, ev.payload as Record<string, any>),
+            });
+          }
+        } catch (notifyErr) {
+          console.error("[FeedLike] notification failed (like unaffected):", notifyErr instanceof Error ? notifyErr.message : notifyErr);
+        }
+      }
+
+      const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(feedEventLikes).where(eq(feedEventLikes.eventId, ev.id));
+      res.json({ likeCount: n, likedByMe: true });
+    } catch (error) {
+      console.error("Feed like error:", error);
+      res.status(500).json({ error: "Failed to like the post" });
+    }
+  });
+
+  app.delete("/api/marketplace/feed/:eventId/like", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
+      await db.delete(feedEventLikes).where(and(
+        eq(feedEventLikes.eventId, req.params.eventId),
+        eq(feedEventLikes.playerId, mpUser.linkedPlayerId),
+      ));
+      const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(feedEventLikes).where(eq(feedEventLikes.eventId, req.params.eventId));
+      res.json({ likeCount: n, likedByMe: false });
+    } catch (error) {
+      console.error("Feed unlike error:", error);
+      res.status(500).json({ error: "Failed to unlike the post" });
+    }
+  });
+
+  // Liker names for the inline expand — like-time order, capped at 50.
+  app.get("/api/marketplace/feed/:eventId/likes", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const likers = await db
+        .select({ name: players.name })
+        .from(feedEventLikes)
+        .innerJoin(players, eq(feedEventLikes.playerId, players.id))
+        .where(eq(feedEventLikes.eventId, req.params.eventId))
+        .orderBy(asc(feedEventLikes.createdAt))
+        .limit(50);
+      const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(feedEventLikes).where(eq(feedEventLikes.eventId, req.params.eventId));
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ likers, count: n });
+    } catch (error) {
+      console.error("Feed likers error:", error);
+      res.status(500).json({ error: "Failed to load likes" });
     }
   });
 

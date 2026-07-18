@@ -4,9 +4,9 @@
 // F4 — no dead interactive-looking affordances here by design.
 import { type CSSProperties, type ReactNode } from 'react';
 import { useState } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { Users } from 'lucide-react';
+import { Users, Heart } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { MKT, FF_BODY } from './LandingComponents';
 
@@ -25,6 +25,9 @@ interface FeedEventDto {
   subjectPlayerId: string | null;
   payload: Record<string, any>;
   session: { venueName: string; date: string } | null;
+  likeCount: number;
+  likedByMe: boolean;
+  likePreview: string[];
 }
 interface FeedPage {
   events: FeedEventDto[];
@@ -71,14 +74,127 @@ function AvatarCircle({ name, size, bg, fg }: { name?: string; size: number; bg:
 
 const whiteCard: CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${CARD_BORDER}`, padding: '14px 16px' };
 
+// ── Like row (Gate F4) — heart + avatar stack + inline liker expand ─────────
+
+function likePreviewText(ev: FeedEventDto): string | null {
+  if (ev.likeCount === 0) return null;
+  const first = ev.likedByMe && ev.likeCount === 1 ? 'You' : (ev.likePreview[0] ?? 'Someone');
+  if (ev.likeCount === 1) return first === 'You' ? 'You like this' : `${first} likes this`;
+  return `${first} and ${ev.likeCount - 1} other${ev.likeCount - 1 === 1 ? '' : 's'}`;
+}
+
+function LikeBar({ ev, onNavy = false }: { ev: FeedEventDto; onNavy?: boolean }) {
+  const queryClient = useQueryClient();
+  const [expanded, setExpanded] = useState(false);
+
+  // Optimistic delta applied across every cached filter variant; the paired
+  // rollback in onError undoes it exactly, and onSettled lets server truth win.
+  const applyLocal = (liked: boolean) => {
+    queryClient.setQueriesData<InfiniteData<FeedPage>>({ queryKey: ['/api/marketplace/feed'] }, (data) => {
+      if (!data?.pages) return data;
+      return {
+        ...data,
+        pages: data.pages.map(pg => ({
+          ...pg,
+          events: pg.events.map(e => e.id === ev.id
+            ? { ...e, likedByMe: liked, likeCount: Math.max(0, e.likeCount + (liked ? 1 : -1)) }
+            : e),
+        })),
+      };
+    });
+  };
+
+  const toggle = useMutation({
+    mutationFn: () => apiRequest(ev.likedByMe ? 'DELETE' : 'POST', `/api/marketplace/feed/${ev.id}/like`),
+    onMutate: () => {
+      const wasLiked = ev.likedByMe;
+      applyLocal(!wasLiked);
+      return { wasLiked };
+    },
+    onError: (_err, _v, ctx) => { if (ctx) applyLocal(ctx.wasLiked); },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['/api/marketplace/feed'] }),
+  });
+
+  const { data: likersData, isLoading: likersLoading } = useQuery<{ likers: Array<{ name: string }>; count: number }>({
+    queryKey: ['/api/marketplace/feed', ev.id, 'likes'],
+    enabled: expanded,
+    staleTime: 0,
+  });
+
+  const heartColor = onNavy
+    ? (ev.likedByMe ? TEAL_ON_NAVY : 'rgba(255,255,255,0.7)')
+    : (ev.likedByMe ? MKT.teal : MKT.inkSub);
+  const textColor = onNavy ? 'rgba(255,255,255,0.75)' : MKT.inkSub;
+  const stackRing = onNavy ? MKT.navy : '#fff';
+  const preview = likePreviewText(ev);
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div className="flex items-center gap-2.5">
+        <button
+          onClick={() => toggle.mutate()}
+          aria-label={ev.likedByMe ? 'Unlike' : 'Like'}
+          aria-pressed={ev.likedByMe}
+          data-testid="feed-like-button"
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, margin: -4, display: 'inline-flex', color: heartColor }}
+        >
+          <Heart className="h-[18px] w-[18px]" fill={ev.likedByMe ? 'currentColor' : 'none'} strokeWidth={2} />
+        </button>
+        {ev.likePreview.length > 0 && (
+          <div className="flex items-center" data-testid="feed-like-stack" aria-hidden>
+            {ev.likePreview.slice(0, 3).map((n, i) => (
+              <div key={i} style={{
+                width: 22, height: 22, borderRadius: '50%', marginLeft: i === 0 ? 0 : -6,
+                background: onNavy ? 'rgba(255,255,255,0.18)' : MKT.tealMist,
+                color: onNavy ? '#fff' : MKT.tealD,
+                border: `2px solid ${stackRing}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontFamily: FF_BODY, fontWeight: 800, fontSize: 8, letterSpacing: '0.02em',
+              }}>
+                {initialsOf(n)}
+              </div>
+            ))}
+            {ev.likeCount > 3 && (
+              <span style={{ marginLeft: 4, fontFamily: FF_BODY, fontSize: 11, fontWeight: 700, color: textColor }}>+{ev.likeCount - 3}</span>
+            )}
+          </div>
+        )}
+        {preview && (
+          <button
+            onClick={() => setExpanded(x => !x)}
+            data-testid="feed-likers-expand"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: FF_BODY, fontSize: 12, color: textColor, textAlign: 'left' }}
+          >
+            {preview}
+          </button>
+        )}
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 8, paddingLeft: 2 }} data-testid="feed-likers-list">
+          {likersLoading && <p style={{ margin: 0, fontFamily: FF_BODY, fontSize: 12, color: textColor }}>Loading…</p>}
+          {likersData?.likers.map((l, i) => (
+            <p key={i} style={{ margin: 0, marginTop: i === 0 ? 0 : 3, fontFamily: FF_BODY, fontSize: 12, fontWeight: 600, color: onNavy ? '#fff' : MKT.ink }}>{l.name}</p>
+          ))}
+          {likersData && likersData.count > likersData.likers.length && (
+            <p style={{ margin: 0, marginTop: 3, fontFamily: FF_BODY, fontSize: 11, color: textColor }}>and {likersData.count - likersData.likers.length} more</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompactCard({ ev, name, headline, meta, testid }: { ev: FeedEventDto; name?: string; headline: ReactNode; meta: string; testid: string }) {
   return (
-    <div style={{ ...whiteCard, display: 'flex', alignItems: 'center', gap: 12 }} data-testid={testid}>
-      <AvatarCircle name={name} size={44} bg={MKT.teal} fg="#fff" />
-      <div className="flex-1 min-w-0">
-        <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>{headline}</p>
-        <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{meta}</p>
+    <div style={whiteCard} data-testid={testid}>
+      <div className="flex items-center gap-3">
+        <AvatarCircle name={name} size={44} bg={MKT.teal} fg="#fff" />
+        <div className="flex-1 min-w-0">
+          <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>{headline}</p>
+          <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{meta}</p>
+        </div>
       </div>
+      <LikeBar ev={ev} />
     </div>
   );
 }
@@ -107,6 +223,7 @@ function PromotionCard({ ev }: { ev: FeedEventDto }) {
           <p style={{ margin: 0, marginTop: 3, fontFamily: FF_BODY, fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>{metaLine(ev)}</p>
         </div>
       </div>
+      <LikeBar ev={ev} onNavy />
     </div>
   );
 }
@@ -127,6 +244,7 @@ function TagCard({ ev }: { ev: FeedEventDto }) {
         <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 16, color: MKT.tealD }}>{tagLabel}</p>
         <p style={{ margin: 0, marginTop: 1, fontFamily: FF_BODY, fontSize: 11, color: MKT.teal }}>Captain-verified session</p>
       </div>
+      <LikeBar ev={ev} />
     </div>
   );
 }

@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
-import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals } from "@shared/schema";
+import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals, marketplaceUsers } from "@shared/schema";
 import { buildTagFeedEvents, buildCorrectionReplacements, insertFeedEvents, supersedeGameFeedEvents } from "./feedEvents";
 import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
 import { mergePlayers, undoPlayerMerge, MergeError } from "./playerMerge";
@@ -4027,27 +4027,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const created = await storage.createPlayerTags(entries);
 
-      // Feed events (Gate F2) — guarded so a feed failure never fails the
-      // tag submission itself. Sandbox games emit nothing.
+      // Feed events (Gate F2) + feed_tag notifications (Gate F4) — guarded so
+      // a feed/notification failure never fails the tag submission itself.
+      // Sandbox games emit nothing.
       try {
         const [sess] = gameRow?.sessionId
           ? await db.select({ isSandbox: sessions.isSandbox }).from(sessions).where(eq(sessions.id, gameRow.sessionId))
           : [];
+        const isSandbox = sess?.isSandbox ?? false;
         const nameById = new Map(participants.map(p => [p.id, p.name]));
         const labelById = new Map(validTagRows.map(r => [r.id, r.label]));
         const giverName = nameById.get(callerId) ?? "A teammate";
         await insertFeedEvents(db, buildTagFeedEvents({
           gameResultId,
           sessionId: gameRow?.sessionId ?? null,
-          isSandbox: sess?.isSandbox ?? false,
+          isSandbox,
           entries: entries.map(e => ({
             receiverId: e.taggedPlayerId,
             receiverName: nameById.get(e.taggedPlayerId) ?? "A player",
+            giverId: callerId,
             giverName,
             tagId: e.tagId,
             tagLabel: labelById.get(e.tagId) ?? e.tagId,
           })),
         }));
+
+        // feed_tag: tell each receiver with a marketplace account. The tag
+        // endpoint already 409s duplicates, so this fires once per real tag.
+        if (!isSandbox) {
+          const receiverIds = Array.from(new Set(entries.map(e => e.taggedPlayerId)));
+          const receiverUsers = await db.select({ id: marketplaceUsers.id, linkedPlayerId: marketplaceUsers.linkedPlayerId })
+            .from(marketplaceUsers).where(inArray(marketplaceUsers.linkedPlayerId, receiverIds));
+          const userByPlayer = new Map(receiverUsers.map(u => [u.linkedPlayerId, u]));
+          for (const e of entries) {
+            const u = userByPlayer.get(e.taggedPlayerId);
+            if (!u) continue;
+            await storage.createMarketplaceNotification({
+              userId: u.id,
+              type: "feed_tag",
+              title: "You earned a tag",
+              message: `${giverName} tagged you "${labelById.get(e.tagId) ?? e.tagId}"`,
+            });
+          }
+        }
       } catch (feedErr) {
         console.error("[FeedEvents] tag emission failed (tags unaffected):", feedErr instanceof Error ? feedErr.message : feedErr);
       }
