@@ -100,7 +100,7 @@ import {
 import { applyWalletDelta, applyClawbackWithFloor } from "./walletLedger";
 import { normalizeName } from "@shared/utils/playerMatching";
 import { db } from "./db";
-import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, SQL } from "drizzle-orm";
+import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, ne, SQL } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 import { emitGameFeedEventsInTx } from "./feedEvents";
@@ -5406,6 +5406,70 @@ export class DatabaseStorage implements IStorage {
           .update(matchSuggestions)
           .set({ status: 'completed' })
           .where(eq(matchSuggestions.id, args.matchSuggestionId));
+      }
+
+      // Automatic attendance (badge Gate 2a): a captain-recorded game IS the
+      // venue verification — every participant's booking for this session
+      // gets attended_at stamped. Savepoint-guarded: an attendance bug can
+      // never roll back the score entry. Idempotent (attended_at only set
+      // when NULL — later games never overwrite); cancelled bookings are
+      // never touched; earliest non-cancelled booking wins if duplicates
+      // ever exist; walk-ins (no account / no booking) are logged, never
+      // fatal. Sandbox sessions are never attendance.
+      if (!args.isSandboxSession) {
+        try {
+          await tx.transaction(async (atx) => {
+            const [bs] = await atx
+              .select({ id: bookableSessions.id })
+              .from(bookableSessions)
+              .where(eq(bookableSessions.linkedSessionId, args.sessionId))
+              .limit(1);
+            if (!bs) return; // session has no marketplace listing — nothing to attend
+
+            const linkedUsers = await atx
+              .select({ userId: marketplaceUsers.id, playerId: marketplaceUsers.linkedPlayerId })
+              .from(marketplaceUsers)
+              .where(inArray(marketplaceUsers.linkedPlayerId, args.playerIds));
+            const linkedPlayerIds = new Set(linkedUsers.map(u => u.playerId));
+
+            for (const u of linkedUsers) {
+              const [eligible] = await atx
+                .select({ id: bookings.id })
+                .from(bookings)
+                .where(and(
+                  eq(bookings.sessionId, bs.id),
+                  eq(bookings.userId, u.userId),
+                  isNull(bookings.attendedAt),
+                  ne(bookings.status, 'cancelled'),
+                ))
+                .orderBy(asc(bookings.createdAt))
+                .limit(1);
+              if (eligible) {
+                await atx
+                  .update(bookings)
+                  .set({ attendedAt: new Date() })
+                  .where(and(eq(bookings.id, eligible.id), isNull(bookings.attendedAt)));
+              } else {
+                const [anyBooking] = await atx
+                  .select({ id: bookings.id })
+                  .from(bookings)
+                  .where(and(eq(bookings.sessionId, bs.id), eq(bookings.userId, u.userId)))
+                  .limit(1);
+                if (!anyBooking) {
+                  console.info(`[AutoAttend] player ${u.playerId} has no booking for session ${args.sessionId} (walk-in / data gap)`);
+                }
+                // else: already attended (idempotent no-op) or cancelled (never touched)
+              }
+            }
+            for (const pid of args.playerIds) {
+              if (!linkedPlayerIds.has(pid)) {
+                console.info(`[AutoAttend] player ${pid} has no marketplace account — no attendance write`);
+              }
+            }
+          });
+        } catch (err) {
+          console.error('[AutoAttend] failed (score entry unaffected):', err instanceof Error ? err.message : err);
+        }
       }
 
       // Feed events (Gate F2). Savepoint-guarded inside — a feed failure can
