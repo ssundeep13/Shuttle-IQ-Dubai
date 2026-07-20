@@ -7,11 +7,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import type { CommunitySpotlightEntry, BookableSessionWithAvailability } from '@shared/schema';
+import BrandAvatar from '@/components/BrandAvatar';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import {
   MKT, FF_DISPLAY, FF_BODY, FF_MONO,
   MarketingStyles, Reveal, useCountUp, Eyebrow, MIcon, MarkWord,
-  PlayerAvatar, StepIllustration, avatarVariantFor, accentForCategory,
+  StepIllustration, accentForCategory,
 } from './LandingComponents';
 
 const WHATSAPP_URL = 'https://chat.whatsapp.com/EPeC5K3IaM2Fa4910p8XpE';
@@ -522,7 +523,6 @@ function PersonalityCard({ entry, idx, reduce }: { entry: CommunitySpotlightEntr
   const accent = accentForCategory(entry.tag.category);
   const bg = CARD_BGS[idx % CARD_BGS.length];
   const player = entry.topPlayer;
-  const variant = avatarVariantFor(player.id || player.name);
 
   const inner = (
     <div data-testid={`card-spotlight-${entry.tag.id}`} style={{ position: 'relative', borderRadius: 22, padding: '18px 18px 16px', background: bg, color: MKT.ink, overflow: 'hidden', height: '100%' }}>
@@ -545,11 +545,7 @@ function PersonalityCard({ entry, idx, reduce }: { entry: CommunitySpotlightEntr
       </div>
       <div style={{ position: 'relative', marginTop: 14, display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 14, background: MKT.paper, border: `1px solid ${MKT.navy}12` }}>
         <span style={{ flex: 'none', width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', display: 'inline-block', boxShadow: `0 0 0 3px ${accent}33` }}>
-          {player.photoUrl ? (
-            <img src={player.photoUrl} alt={player.name} data-testid={`img-spotlight-${entry.tag.id}`} style={{ width: 40, height: 40, objectFit: 'cover', display: 'block' }} />
-          ) : (
-            <PlayerAvatar size={40} variant={variant} bg={bg} />
-          )}
+          <BrandAvatar photoUrl={player.photoUrl} name={player.name} size={40} testid={`img-spotlight-${entry.tag.id}`} />
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: FF_BODY, fontSize: 13, fontWeight: 700, color: MKT.navy, letterSpacing: '-0.005em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

@@ -50,6 +50,15 @@ app.use(
   }),
 );
 
+// Gate FV.1a: a miss under /uploads is a real 404 — never the SPA shell.
+// Before this, missing files fell through to the catch-all and browsers
+// cached index.html AS the image for up to 30 days. no-store keeps the 404
+// itself from sticking once a file appears. Real files short-circuit above.
+app.use("/uploads", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.status(404).json({ error: "File not found" });
+});
+
 // Register the Ziina webhook endpoint BEFORE express.json() so we can read
 // the raw request body for HMAC-SHA256 signature verification.
 registerZiinaWebhookRoute(app);

@@ -1,3 +1,4 @@
+import BrandAvatar from '@/components/BrandAvatar';
 import { useState, type CSSProperties } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -493,18 +494,7 @@ export default function Rankings() {
                       <div className="w-6 text-center shrink-0">
                         <span className="text-sm text-muted-foreground font-medium">{index + 1}</span>
                       </div>
-                      {recruiter.photoUrl ? (
-                        <img
-                          src={recruiter.photoUrl}
-                          alt={recruiter.playerName}
-                          className="w-8 h-8 rounded-full object-cover shrink-0"
-                          data-testid={`img-recruiter-${recruiter.playerId}`}
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold shrink-0">
-                          {recruiter.playerName.charAt(0).toUpperCase()}
-                        </div>
-                      )}
+                      <BrandAvatar photoUrl={recruiter.photoUrl} name={recruiter.playerName} size={32} testid={`img-recruiter-${recruiter.playerId}`} />
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{recruiter.playerName}</div>
                         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
