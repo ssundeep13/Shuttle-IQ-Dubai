@@ -91,8 +91,8 @@ describe('Profile wiring (tripwires)', () => {
     expect(src.includes("background: '#E5E7EB', color: '#4B5563'")).toBe(true);
   });
 
-  it('progress card: title copy, teal #006B5F bar, subline via progressSubline, founding earned date via formatEarnedDate', () => {
-    expect(src.includes('This month &middot;')).toBe(true);
+  it('progress card: title via progressTitle (Gate 4 copy fix), teal #006B5F bar, subline via progressSubline, founding earned date via formatEarnedDate', () => {
+    expect(src.includes('progressTitle(user.badgeProgress.currentCheckins, user.badgeProgress.threshold)')).toBe(true);
     expect(src.includes("background: '#006B5F'")).toBe(true);
     expect(src.includes('progressSubline({')).toBe(true);
     expect(src.includes('Founding Court since {formatEarnedDate(user.foundingCourtEarnedDate)}')).toBe(true);

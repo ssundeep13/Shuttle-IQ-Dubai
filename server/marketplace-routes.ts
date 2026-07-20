@@ -41,7 +41,7 @@ import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { isFullName, normalizeName } from "@shared/utils/playerMatching";
 import { PROFILE_UPLOADS_DIR } from "./uploadsRoot";
-import { getBadgeForUser } from "./badges";
+import { getBadgeForUser, getActiveBadgesForPlayers } from "./badges";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, isWithinLateCancelWindow } from "./guestSlotRefund";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
@@ -4152,6 +4152,17 @@ export function registerMarketplaceRoutes(app: Express) {
           : [];
         const nameById = new Map(playerRecords.map(p => [p.id, p.name]));
 
+        // Badge Gate 4: active badge display names beside lineup names.
+        // Batch lookup (one query), guarded — a badge failure must never
+        // break the game-flow payload. Dormant badges never appear here
+        // by construction (getActiveBadgesForPlayers cannot express them).
+        let badgeByPlayerId = new Map<string, string>();
+        try {
+          badgeByPlayerId = await getActiveBadgesForPlayers(playerIds);
+        } catch (err) {
+          console.error('[Badges] suggestion badge lookup failed:', err instanceof Error ? err.message : err);
+        }
+
         // Identify which team the requesting player is on so the frontend can
         // render "Your team" vs "Opponents" from the player's perspective.
         const selfRow = playerRows.find(p => p.playerId === linkedPlayerId);
@@ -4177,6 +4188,7 @@ export function registerMarketplaceRoutes(app: Express) {
               playerId: p.playerId,
               playerName: nameById.get(p.playerId) ?? 'Player',
               team: p.team,
+              badge: badgeByPlayerId.get(p.playerId) ?? null,
             })),
           },
         });

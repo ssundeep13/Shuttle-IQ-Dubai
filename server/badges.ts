@@ -114,6 +114,42 @@ export function computeBadge(
 }
 
 /**
+ * Batch ACTIVE badge display names for public surfaces (queue cards, match
+ * screens — badge Gate 4), keyed by operational player id. One grouped
+ * aggregate + the award join, READ-ONLY: no award persistence here (that
+ * stays on the own-profile read), and dormancy is never computed — this
+ * function cannot express a dormant badge, which is the server-side half
+ * of the no-dormant-leak guarantee (the client half is BadgeTag itself).
+ * Players with no linked account or no active badge are simply absent.
+ */
+export async function getActiveBadgesForPlayers(playerIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (playerIds.length === 0) return out;
+  const agg = await db.execute(sql`
+    SELECT mu.linked_player_id AS player_id,
+      count(b.id) FILTER (WHERE b.attended_at >  now() - interval '30 days')::int AS m1,
+      count(b.id) FILTER (WHERE b.attended_at <= now() - interval '30 days' AND b.attended_at > now() - interval '60 days')::int AS m2,
+      count(b.id) FILTER (WHERE b.attended_at <= now() - interval '60 days' AND b.attended_at > now() - interval '90 days')::int AS m3,
+      bool_or(fca.user_id IS NOT NULL) AS has_award
+    FROM marketplace_users mu
+    LEFT JOIN bookings b ON b.user_id = mu.id AND b.attended_at IS NOT NULL AND b.status != 'cancelled'
+    LEFT JOIN founding_court_awards fca ON fca.user_id = mu.id
+    WHERE mu.linked_player_id = ANY(${playerIds})
+    GROUP BY mu.linked_player_id
+  `);
+  for (const r of agg.rows as Array<{ player_id: string; m1: number; m2: number; m3: number; has_award: boolean }>) {
+    const founding = r.has_award
+      || (r.m1 >= BADGE_THRESHOLDS.inner_circle && r.m2 >= BADGE_THRESHOLDS.inner_circle && r.m3 >= BADGE_THRESHOLDS.inner_circle);
+    const display = founding ? DISPLAY.founding_court
+      : r.m1 >= BADGE_THRESHOLDS.inner_circle ? DISPLAY.inner_circle
+      : r.m1 >= BADGE_THRESHOLDS.insider ? DISPLAY.insider
+      : null;
+    if (display) out.set(r.player_id, display);
+  }
+  return out;
+}
+
+/**
  * Badge info for a marketplace user: one aggregate over their verified
  * check-ins + the founding award row. Persists the Founding Court award on
  * first detection (idempotent — PK on user_id, ON CONFLICT DO NOTHING).

@@ -12,7 +12,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Gift, Wallet } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import type { PlayerStats } from '@shared/schema';
-import BadgeTag, { formatEarnedDate, progressSubline } from '@/components/BadgeTag';
+import BadgeTag, { formatEarnedDate, progressSubline, progressTitle } from '@/components/BadgeTag';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -558,7 +558,7 @@ export default function Profile() {
               <Card style={cardChrome} data-testid="card-badge-progress">
                 <CardContent className="p-4">
                   <div style={{ fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 600, fontSize: 14, color: '#1A1F2B' }} data-testid="text-badge-progress-title">
-                    This month &middot; {user.badgeProgress.currentCheckins} of {user.badgeProgress.threshold} check-ins
+                    {progressTitle(user.badgeProgress.currentCheckins, user.badgeProgress.threshold)}
                   </div>
                   <div style={{ marginTop: 10, height: 6, borderRadius: 3, background: 'rgba(0,107,95,0.15)', overflow: 'hidden' }}>
                     <div

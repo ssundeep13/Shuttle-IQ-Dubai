@@ -12,7 +12,7 @@ const NAVY = '#003E8C';
 const CREAM = '#F5EFE0';
 const TEAL = '#006B5F';
 
-export default function BadgeTag({ badge, testid }: { badge: string | null | undefined; testid?: string }) {
+export default function BadgeTag({ badge, testid, small }: { badge: string | null | undefined; testid?: string; small?: boolean }) {
   if (!badge) return null;
   const founding = badge === 'Founding Court';
   return (
@@ -20,16 +20,29 @@ export default function BadgeTag({ badge, testid }: { badge: string | null | und
       data-testid={testid}
       style={{
         display: 'inline-flex', alignItems: 'center',
-        borderRadius: 3, padding: '2px 8px',
-        fontFamily: FF_INTER, fontWeight: 500, fontSize: 11, letterSpacing: '0.02em',
+        borderRadius: 3, padding: small ? '1px 6px' : '2px 8px',
+        fontFamily: FF_INTER, fontWeight: 500, fontSize: small ? 10 : 11, letterSpacing: '0.02em',
         background: founding ? TEAL : NAVY,
         color: founding ? '#fff' : CREAM,
+        // The badge name never truncates — nowrap with no overflow clipping;
+        // tight rows shrink OTHER elements first (clarity over completeness).
         whiteSpace: 'nowrap',
       }}
     >
       {badge}
     </span>
   );
+}
+
+/**
+ * Progress-card title (Gate 4 copy fix). At or past the threshold the
+ * "of Y" target reads as overshoot ("10 of 8"), so it drops away; below
+ * threshold the target stays.
+ */
+export function progressTitle(currentCheckins: number, threshold: number): string {
+  return currentCheckins >= threshold
+    ? `This month · ${currentCheckins} check-ins`
+    : `This month · ${currentCheckins} of ${threshold} check-ins`;
 }
 
 /**

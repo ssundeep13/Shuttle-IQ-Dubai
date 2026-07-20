@@ -4,11 +4,14 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import BadgeTag from '@/components/BadgeTag';
 
 interface CurrentSuggestionPlayer {
   playerId: string;
   playerName: string;
   team: number;
+  // Active badge display name (badge Gate 4) — null when unbadged.
+  badge?: string | null;
 }
 
 interface CurrentSuggestion {
@@ -230,13 +233,15 @@ function TeamRow({
           <p className="text-sm text-muted-foreground">—</p>
         ) : (
           players.map((p) => (
-            <p
-              key={p.playerId}
-              className="text-base font-medium"
-              data-testid={`text-player-${p.playerId}`}
-            >
-              {p.playerName}
-            </p>
+            <div key={p.playerId} className="flex items-center gap-2 flex-wrap">
+              <p
+                className="text-base font-medium"
+                data-testid={`text-player-${p.playerId}`}
+              >
+                {p.playerName}
+              </p>
+              <BadgeTag badge={p.badge} small testid={`tag-badge-${p.playerId}`} />
+            </div>
           ))
         )}
       </div>
