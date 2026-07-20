@@ -17,6 +17,12 @@ interface MarketplaceUser {
   birthMonth?: number | null;
   birthYear?: number | null;
   birthdayDiscountUsedAt?: string | null;
+  // Consistency badge (Gate 2b/3) — display names only, from /auth/me.
+  badge?: string | null;
+  badgeStatus?: 'active' | 'dormant' | null;
+  sessionsToReactivate?: number;
+  badgeProgress?: { currentCheckins: number; threshold: number; windowDays: number } | null;
+  foundingCourtEarnedDate?: string;
 }
 
 interface MarketplaceAuthContextType {

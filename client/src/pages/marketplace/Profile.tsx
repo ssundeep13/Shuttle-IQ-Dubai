@@ -11,6 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Gift, Wallet } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import type { PlayerStats } from '@shared/schema';
+import BadgeTag, { formatEarnedDate, progressSubline } from '@/components/BadgeTag';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -129,6 +131,12 @@ export default function Profile() {
   const { data: walletData } = useQuery<{ walletBalance: number }>({
     queryKey: ['/api/marketplace/me/wallet'],
     staleTime: 30_000,
+    enabled: !!user?.linkedPlayerId,
+  });
+
+  // Streak stat (badge Gate 3) — same source the Dashboard stat row uses.
+  const { data: playerStats } = useQuery<PlayerStats>({
+    queryKey: ['/api/players', user?.linkedPlayerId, 'stats'],
     enabled: !!user?.linkedPlayerId,
   });
   const [referralCodeInput, setReferralCodeInput] = useState('');
@@ -497,7 +505,27 @@ export default function Profile() {
             </Button>
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-semibold" data-testid="text-profile-name" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: '#003E8C', letterSpacing: '-0.02em' }}>{user?.name}</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-semibold" data-testid="text-profile-name" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: '#003E8C', letterSpacing: '-0.02em' }}>{user?.name}</h2>
+              {user?.badge && user.badgeStatus === 'active' && (
+                <BadgeTag badge={user.badge} testid="tag-profile-badge" />
+              )}
+              {/* Dormant is own-profile-only, rendered HERE (never via the
+                  shared BadgeTag, which has no dormant path by design). */}
+              {user?.badge && user.badgeStatus === 'dormant' && (
+                <span
+                  data-testid="tag-profile-badge-dormant"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center',
+                    borderRadius: 3, padding: '2px 8px',
+                    fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 500, fontSize: 11, letterSpacing: '0.02em',
+                    background: '#E5E7EB', color: '#4B5563', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {user.badge} &middot; dormant
+                </span>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground">{user?.email}</p>
             <div className="flex flex-wrap items-center gap-2 mt-1">
               {user?.linkedPlayer && (
@@ -521,6 +549,46 @@ export default function Profile() {
         </motion.div>
 
         <div className="space-y-6">
+          {/* Consistency badge progress (Gate 3). Bar + copy come straight
+              from /auth/me badgeProgress; Founding Court shows its earned
+              date (date-only — the naive-timestamp serialization caveat)
+              instead of a maintenance subline. */}
+          {user?.badgeProgress && (
+            <motion.div variants={fadeInUp}>
+              <Card style={cardChrome} data-testid="card-badge-progress">
+                <CardContent className="p-4">
+                  <div style={{ fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 600, fontSize: 14, color: '#1A1F2B' }} data-testid="text-badge-progress-title">
+                    This month &middot; {user.badgeProgress.currentCheckins} of {user.badgeProgress.threshold} check-ins
+                  </div>
+                  <div style={{ marginTop: 10, height: 6, borderRadius: 3, background: 'rgba(0,107,95,0.15)', overflow: 'hidden' }}>
+                    <div
+                      data-testid="bar-badge-progress"
+                      style={{
+                        height: '100%', borderRadius: 3, background: '#006B5F',
+                        width: `${Math.min(100, Math.round((user.badgeProgress.currentCheckins / user.badgeProgress.threshold) * 100))}%`,
+                        transition: 'width 0.4s ease',
+                      }}
+                    />
+                  </div>
+                  {user.badge === 'Founding Court' && user.foundingCourtEarnedDate ? (
+                    <div style={{ marginTop: 8, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 12, fontWeight: 500, color: '#006B5F' }} data-testid="text-badge-progress-subline">
+                      Founding Court since {formatEarnedDate(user.foundingCourtEarnedDate)}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 8, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 12, color: '#5B6472' }} data-testid="text-badge-progress-subline">
+                      {progressSubline({
+                        badge: user.badge ?? null,
+                        badgeStatus: user.badgeStatus ?? null,
+                        sessionsToReactivate: user.sessionsToReactivate,
+                        currentCheckins: user.badgeProgress.currentCheckins,
+                        threshold: user.badgeProgress.threshold,
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
           {walletData !== undefined && (
             <motion.div variants={fadeInUp}>
               <Card style={cardChrome} data-testid="card-wallet-balance">
@@ -759,6 +827,11 @@ export default function Profile() {
                       <div className="text-right">
                         <div className="text-xl font-bold">{user.linkedPlayer.skillScore}</div>
                         <Badge variant="secondary" className="text-xs">{getTierDisplayName(user.linkedPlayer.level)}</Badge>
+                        {playerStats?.currentStreak?.type === 'win' && playerStats.currentStreak.count > 0 && (
+                          <div data-testid="text-profile-streak" style={{ marginTop: 4, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 12, fontWeight: 600, color: '#006B5F' }}>
+                            {playerStats.currentStreak.count}-win streak
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 text-sm text-green-600">
