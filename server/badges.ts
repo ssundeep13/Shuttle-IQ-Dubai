@@ -10,7 +10,7 @@
 // Windows are rolling from now: m1 (0-30d], m2 (30-60d], m3 (60-90d] —
 // same methodology as the Gate 1 calibration.
 import { sql } from "drizzle-orm";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { foundingCourtAwards } from "@shared/schema";
 
 export const BADGE_WINDOW_DAYS = 30;
@@ -125,8 +125,11 @@ export function computeBadge(
 export async function getActiveBadgesForPlayers(playerIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (playerIds.length === 0) return out;
-  const agg = await db.execute(sql`
-    SELECT mu.linked_player_id AS player_id,
+  // Raw pool query, NOT the drizzle sql template: drizzle serializes a JS
+  // array param in a way ANY($1) silently mismatches (live-caught — every
+  // badge came back null). node-postgres passes the array natively.
+  const agg = await pool.query(
+    `SELECT mu.linked_player_id AS player_id,
       count(b.id) FILTER (WHERE b.attended_at >  now() - interval '30 days')::int AS m1,
       count(b.id) FILTER (WHERE b.attended_at <= now() - interval '30 days' AND b.attended_at > now() - interval '60 days')::int AS m2,
       count(b.id) FILTER (WHERE b.attended_at <= now() - interval '60 days' AND b.attended_at > now() - interval '90 days')::int AS m3,
@@ -134,9 +137,10 @@ export async function getActiveBadgesForPlayers(playerIds: string[]): Promise<Ma
     FROM marketplace_users mu
     LEFT JOIN bookings b ON b.user_id = mu.id AND b.attended_at IS NOT NULL AND b.status != 'cancelled'
     LEFT JOIN founding_court_awards fca ON fca.user_id = mu.id
-    WHERE mu.linked_player_id = ANY(${playerIds})
-    GROUP BY mu.linked_player_id
-  `);
+    WHERE mu.linked_player_id = ANY($1)
+    GROUP BY mu.linked_player_id`,
+    [playerIds],
+  );
   for (const r of agg.rows as Array<{ player_id: string; m1: number; m2: number; m3: number; has_award: boolean }>) {
     const founding = r.has_award
       || (r.m1 >= BADGE_THRESHOLDS.inner_circle && r.m2 >= BADGE_THRESHOLDS.inner_circle && r.m3 >= BADGE_THRESHOLDS.inner_circle);

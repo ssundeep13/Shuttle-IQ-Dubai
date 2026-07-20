@@ -47,6 +47,12 @@ describe('getActiveBadgesForPlayers (tripwires)', () => {
     expect(fn.includes("interval '30 days'")).toBe(true);
     expect(fn.includes('founding_court_awards')).toBe(true);
   });
+
+  it('array param goes through pool.query, never the drizzle sql template (live-caught: drizzle serializes the array so ANY() silently matches nothing)', () => {
+    expect(fn.includes('pool.query(')).toBe(true);
+    expect(fn.includes('ANY($1)')).toBe(true);
+    expect(fn.includes('db.execute')).toBe(false);
+  });
 });
 
 describe('current-suggestion enrichment (tripwires)', () => {
