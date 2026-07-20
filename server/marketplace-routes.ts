@@ -41,6 +41,7 @@ import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { isFullName, normalizeName } from "@shared/utils/playerMatching";
 import { PROFILE_UPLOADS_DIR } from "./uploadsRoot";
+import { getBadgeForUser } from "./badges";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, isWithinLateCancelWindow } from "./guestSlotRefund";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
@@ -716,6 +717,15 @@ export function registerMarketplaceRoutes(app: Express) {
         linkedPlayer = await storage.getPlayer(user.linkedPlayerId);
       }
 
+      // Consistency badge (Gate 2b): recomputed on read, guarded — a badge
+      // failure must never break the profile response. Display names only.
+      let badgeInfo = null;
+      try {
+        badgeInfo = await getBadgeForUser(user.id);
+      } catch (err) {
+        console.error("[Badges] profile badge lookup failed:", err instanceof Error ? err.message : err);
+      }
+
       res.json({
         id: user.id,
         email: user.email,
@@ -731,6 +741,11 @@ export function registerMarketplaceRoutes(app: Express) {
         birthMonth: user.birthMonth,
         birthYear: user.birthYear,
         birthdayDiscountUsedAt: user.birthdayDiscountUsedAt,
+        badge: badgeInfo?.badge ?? null,
+        badgeStatus: badgeInfo?.badgeStatus ?? null,
+        sessionsToReactivate: badgeInfo?.sessionsToReactivate,
+        badgeProgress: badgeInfo?.progress ?? null,
+        foundingCourtEarnedDate: badgeInfo?.foundingCourtEarnedDate,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get user" });

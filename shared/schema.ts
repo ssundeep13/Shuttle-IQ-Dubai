@@ -1117,6 +1117,18 @@ export const feedEventLikes = pgTable("feed_event_likes", {
 ]);
 export type FeedEventLike = typeof feedEventLikes.$inferSelect;
 
+// Consistency badges, Gate 2b. Insider / Inner Circle are recomputed on
+// read from verified check-ins (bookings.attended_at, non-cancelled) —
+// nothing stored. Founding Court is PERMANENT once earned, so it needs a
+// persisted award: one row per marketplace user, written the first time a
+// read-time computation detects 3 consecutive qualifying 30-day windows.
+// Rows are never deleted or revoked.
+export const foundingCourtAwards = pgTable("founding_court_awards", {
+  userId: varchar("user_id").primaryKey(),
+  earnedAt: timestamp("earned_at").notNull().defaultNow(),
+});
+export type FoundingCourtAward = typeof foundingCourtAwards.$inferSelect;
+
 // One-shot migration tracking (used by scripts/* to prevent re-runs). `key`
 // is the natural PK. Existing rows: discount_code_newbie_seed_v1 (2026-05-20)
 // and onboarding_completed_legacy_backfill_v1 (2026-05-12).
