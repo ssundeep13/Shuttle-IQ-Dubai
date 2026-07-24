@@ -15,7 +15,7 @@ interface ImportPlayersModalProps {
 }
 
 export function ImportPlayersModal({ open, onClose, onImport, onImportCSV }: ImportPlayersModalProps) {
-  const [url, setUrl] = useState("https://shuttleiq.ssundeep13.repl.co/api/players");
+  const [url, setUrl] = useState("https://shuttleiq.ai/api/players");
   const [isImporting, setIsImporting] = useState(false);
   const [urlResult, setUrlResult] = useState<{ imported: number; skipped: number; skippedDetails?: any[] } | null>(null);
   const [csvResult, setCsvResult] = useState<{ imported: number; skipped: number; skippedDetails?: any[] } | null>(null);
@@ -161,7 +161,7 @@ export function ImportPlayersModal({ open, onClose, onImport, onImportCSV }: Imp
   };
 
   const handleClose = () => {
-    setUrl("https://shuttleiq.ssundeep13.repl.co/api/players");
+    setUrl("https://shuttleiq.ai/api/players");
     setSelectedFile(null);
     setCsvResult(null);
     setUrlResult(null);
@@ -287,7 +287,7 @@ export function ImportPlayersModal({ open, onClose, onImport, onImportCSV }: Imp
               <Label htmlFor="import-url">API URL</Label>
               <Input
                 id="import-url"
-                placeholder="https://shuttleiq.ssundeep13.repl.co/api/players"
+                placeholder="https://shuttleiq.ai/api/players"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 disabled={isImporting}
@@ -295,7 +295,7 @@ export function ImportPlayersModal({ open, onClose, onImport, onImportCSV }: Imp
                 data-testid="input-import-url"
               />
               <p className="text-xs text-muted-foreground">
-                Only URLs from approved ShuttleIQ instances on replit.com, replit.app, or repl.co domains are allowed.
+                Paste the /api/players URL of another ShuttleIQ instance.
               </p>
             </div>
 
