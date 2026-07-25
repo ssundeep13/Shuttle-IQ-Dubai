@@ -48,6 +48,21 @@ export function canAddGuest(opts: {
   return opts.inflightCount < opts.max;
 }
 
+// Capacity (Gate G1): does the session's provisional-spot reservation block
+// this add-guest? Every in-flight pending guest on the session reserves one
+// spot — but the reservation belonging to THIS request's own reusable row
+// must not block its retry (the 10:35/10:39 incident: the first attempt
+// reserved the last spot, then the retry was refused by the very spot held
+// for it, and the reuse path downstream never ran).
+export function capacityBlocksGuestAdd(opts: {
+  spotsRemaining: number;
+  sessionInflight: number;
+  reusesOwnRow: boolean;
+}): boolean {
+  const reserved = opts.sessionInflight - (opts.reusesOwnRow ? 1 : 0);
+  return opts.spotsRemaining - reserved < 1;
+}
+
 // Sweep predicate (canonical spec): is this pending guest a sweepable add-guest
 // orphan? True only for a non-primary, still-pending slot that has a Ziina intent
 // which never produced a completed payment, on a non-cancelled parent booking,

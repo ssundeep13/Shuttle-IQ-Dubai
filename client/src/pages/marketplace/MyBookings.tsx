@@ -40,6 +40,17 @@ import { GuestRow, type Guest } from '@/components/marketplace/GuestRow';
 const WIN_GREEN = '#1F8A5B';
 const LOSS_RED = '#B23A2E';
 const EMPTY_GUEST: Guest = { name: '', email: '', linkedFromSearch: false };
+
+// The request layer throws a plain { error, status, code } object, not an
+// Error — reading .message rendered an EMPTY toast description, so users only
+// ever saw the bare title (Gate G1 incident). Always surface the real server copy.
+function serverErrorMessage(error: unknown): string {
+  return (
+    (error as { error?: string })?.error ??
+    (error as { message?: string })?.message ??
+    'Something went wrong — please try again.'
+  );
+}
 const AMBER = '#C97B17';
 
 const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
@@ -283,8 +294,8 @@ export default function MyBookings() {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/notifications'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
     },
-    onError: (error: Error) => {
-      toast({ title: 'Failed to cancel', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: 'Could not cancel', description: serverErrorMessage(error), variant: 'destructive' });
     },
   });
 
@@ -304,8 +315,8 @@ export default function MyBookings() {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
     },
-    onError: (error: Error) => {
-      toast({ title: 'Failed to cancel guest spot', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: 'Could not cancel guest spot', description: serverErrorMessage(error), variant: 'destructive' });
     },
   });
 
@@ -317,8 +328,8 @@ export default function MyBookings() {
       toast({ title: 'Guest details updated' });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
     },
-    onError: (error: Error) => {
-      toast({ title: 'Failed to update guest', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: 'Could not update guest', description: serverErrorMessage(error), variant: 'destructive' });
     },
   });
 
@@ -331,8 +342,8 @@ export default function MyBookings() {
         void openCheckoutRedirect(data.redirectUrl);
       }
     },
-    onError: (error: Error) => {
-      toast({ title: 'Failed to start payment', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: 'Could not start payment', description: serverErrorMessage(error), variant: 'destructive' });
     },
   });
 
@@ -365,8 +376,8 @@ export default function MyBookings() {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
     },
-    onError: (error: Error) => {
-      toast({ title: 'Failed to add guest', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: 'Could not add guest', description: serverErrorMessage(error), variant: 'destructive' });
     },
   });
 

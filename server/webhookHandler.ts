@@ -33,15 +33,73 @@ export async function confirmGuestByIntentId(
   // Idempotency — webhook may have beaten us here
   if (pendingGuest.status === "confirmed") return { confirmed: true, alreadyConfirmed: true };
 
+  // ── Confirm-time gates (Gate G1). A stale payment link can complete long
+  // after the world moved on — never confirm a guest onto a cancelled
+  // booking, and never confirm into a full session. Both refusals cancel
+  // the row AND clear the intent linkage (a status-only cancel would be
+  // re-confirmable by a webhook retry — the intent lookup is status-blind),
+  // record the captured payment for audit, and queue an admin
+  // refund_required so the money lands in the Refunds tab. No automatic
+  // Ziina refund — admin-triggered per house policy.
+  const session = await storage.getBookableSessionWithAvailability(parentBooking.sessionId);
+  const priceAed = session?.priceAed ?? 0;
+
+  const refuseConfirm = async (
+    reason: "guest_confirm_parent_cancelled" | "guest_confirm_session_full",
+    title: string,
+    message: string,
+  ) => {
+    await storage.updateBookingGuest(pendingGuest.id, {
+      status: "cancelled",
+      pendingPaymentIntentId: null,
+    });
+    const existingPayments = await storage.getPaymentsByBookingId(parentBooking.id);
+    if (!existingPayments.some((p) => p.ziinaPaymentIntentId === intentId)) {
+      await storage.createPayment({
+        bookingId: parentBooking.id,
+        ziinaPaymentIntentId: intentId,
+        amount: priceAed,
+        currency: "aed",
+        status: "completed",
+        completedAt: new Date(),
+      });
+    }
+    await storage.createMarketplaceNotification({
+      userId: parentBooking.userId,
+      type: "refund_required",
+      title,
+      message,
+      relatedBookingId: parentBooking.id,
+      refundAmountFils: priceAed * 100,
+      refundPreference: "bank",
+    });
+    console.warn(`[Ziina] Guest confirm REFUSED (${reason}) for intent ${intentId}`, {
+      bookingId: parentBooking.id,
+      guestId: pendingGuest.id,
+    });
+    return { confirmed: false, error: reason };
+  };
+
+  if (parentBooking.status === "cancelled") {
+    return refuseConfirm(
+      "guest_confirm_parent_cancelled",
+      "Refund needed — guest paid on a cancelled booking",
+      `${pendingGuest.name}'s guest payment (AED ${priceAed}) completed after the parent booking was cancelled. The guest was NOT added — refund the payment in Ziina.`,
+    );
+  }
+  if (!session || session.spotsRemaining < 1) {
+    return refuseConfirm(
+      "guest_confirm_session_full",
+      "Refund needed — guest paid into a full session",
+      `${pendingGuest.name}'s guest payment (AED ${priceAed}) completed but the session is now full. The guest was NOT added — refund the payment in Ziina.`,
+    );
+  }
+
   // Confirm the guest slot and clear the pending intent ID
   await storage.updateBookingGuest(pendingGuest.id, {
     status: "confirmed",
     pendingPaymentIntentId: null,
   });
-
-  // Increment parent booking spots and amount
-  const session = await storage.getBookableSession(parentBooking.sessionId);
-  const priceAed = session?.priceAed ?? 0;
   await storage.updateBooking(parentBooking.id, {
     spotsBooked: (parentBooking.spotsBooked ?? 1) + 1,
     amountAed: parentBooking.amountAed + priceAed,

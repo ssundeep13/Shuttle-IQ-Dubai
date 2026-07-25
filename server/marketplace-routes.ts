@@ -36,7 +36,7 @@ import { isSchemeAllowed, buildOAuthCallbackRedirect } from "./oauthReturn";
 import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhookHandler";
-import { findReusableInflightGuest, canAddGuest } from "./guestAddGuards";
+import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
 import { isFullName, normalizeName } from "@shared/utils/playerMatching";
@@ -3425,12 +3425,37 @@ export function registerMarketplaceRoutes(app: Express) {
 
       const bookableSession = await storage.getBookableSessionWithAvailability(booking.sessionId);
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
+
+      // Dedup lookup FIRST (Gate G1): the reuse decision must be known before
+      // the capacity guard runs, because a retry's own in-flight pending row
+      // already holds the reserved spot this request needs — refusing it here
+      // bricked the exact retry the reuse path below exists for (the
+      // 10:35/10:39 Al Manara incident).
+      // (Pure helpers — unit-tested in tests/guest-add-guards.test.ts and
+      // tests/guest-capacity-fix.test.ts.)
+      const MAX_INFLIGHT_GUESTS_PER_BOOKING = 1;
+      const existingGuests = await storage.getBookingGuests(booking.id);
+      const inflightGuests = existingGuests.filter(g => !g.isPrimary && g.status === 'pending');
+      const duplicate = findReusableInflightGuest(existingGuests, guestName, guestEmail);
+
       // Pending guests don't yet count toward spots_booked (only confirmed ones
       // do), so reserve a provisional spot for each in-flight pending guest on the
       // session — otherwise two add-guest attempts could both claim the last seat.
+      // A retry reusing its OWN row is exempted from exactly that one reservation.
       const sessionInflight = await storage.getInFlightPendingGuestCountForSession(booking.sessionId);
-      if (bookableSession.spotsRemaining - sessionInflight < 1) {
+      if (capacityBlocksGuestAdd({
+        spotsRemaining: bookableSession.spotsRemaining,
+        sessionInflight,
+        reusesOwnRow: !!duplicate,
+      })) {
         return res.status(400).json({ error: "This session is full — no spots available" });
+      }
+
+      // Ceiling: on retry, reuse the SAME guest's in-flight pending row instead
+      // of stacking duplicates (the 3-"Shiela" bug); otherwise allow only one
+      // in-flight guest payment per booking at a time.
+      if (!canAddGuest({ inflightCount: inflightGuests.length, isDuplicate: !!duplicate, max: MAX_INFLIGHT_GUESTS_PER_BOOKING })) {
+        return res.status(409).json({ error: "You already have a guest payment in progress. Finish or cancel it before adding another." });
       }
 
       const baseUrl = process.env.REPLIT_DOMAINS
@@ -3453,19 +3478,6 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!linkedUserId && siqPlayerId) {
         const mpUserViaSiq = await storage.getMarketplaceUserByLinkedPlayerId(siqPlayerId);
         if (mpUserViaSiq) linkedUserId = mpUserViaSiq.id;
-      }
-
-      // Dedup + ceiling (batch 2): on retry, reuse the SAME guest's in-flight
-      // pending row instead of stacking duplicates (the 3-"Shiela" bug); otherwise
-      // allow only one in-flight guest payment per booking at a time so distinct
-      // guests can't pile up unpaid.
-      // (Pure helpers — unit-tested in tests/guest-add-guards.test.ts.)
-      const MAX_INFLIGHT_GUESTS_PER_BOOKING = 1;
-      const existingGuests = await storage.getBookingGuests(booking.id);
-      const inflightGuests = existingGuests.filter(g => !g.isPrimary && g.status === 'pending');
-      const duplicate = findReusableInflightGuest(existingGuests, guestName, guestEmail);
-      if (!canAddGuest({ inflightCount: inflightGuests.length, isDuplicate: !!duplicate, max: MAX_INFLIGHT_GUESTS_PER_BOOKING })) {
-        return res.status(409).json({ error: "You already have a guest payment in progress. Finish or cancel it before adding another." });
       }
 
       // Cash retired — the only accepted method is Ziina.
