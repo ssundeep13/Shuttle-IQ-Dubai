@@ -43,7 +43,7 @@ import { isFullName, normalizeName } from "@shared/utils/playerMatching";
 import { PROFILE_UPLOADS_DIR } from "./uploadsRoot";
 import { getBadgeForUser, getActiveBadgesForPlayers } from "./badges";
 import { maybeCreateRefundNotification } from "./refundNotifications";
-import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, isWithinLateCancelWindow } from "./guestSlotRefund";
+import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, promoteWaitlistForFreedSpots, isWithinLateCancelWindow } from "./guestSlotRefund";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -2568,6 +2568,10 @@ export function registerMarketplaceRoutes(app: Express) {
       const updates: Partial<BookableSession> = { ...sessionFields };
       if (date !== undefined) updates.date = typeof date === 'string' ? new Date(date) : date;
 
+      // Gate W2: the capacity-increase promotion below needs the PRE-update
+      // capacity to compute the delta — the update returns only post-state.
+      const beforeSession = await storage.getBookableSession(req.params.id);
+
       const session = await storage.updateBookableSession(req.params.id, updates);
       if (!session) return res.status(404).json({ error: "Session not found" });
 
@@ -2607,6 +2611,27 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       } catch (costErr) {
         console.error(`[SessionCost] edit — cost upsert failed for session ${session.id} (edit still applied):`, costErr instanceof Error ? costErr.message : costErr);
+      }
+
+      // Gate W2: a capacity INCREASE frees spots — pull the waitlist
+      // automatically, the exact production path a cancellation fires.
+      // Strict-increase gate: decreases and capacity-less edits run zero new
+      // code. Guarded: a promotion failure must never fail the edit. All
+      // capacity math lives inside promoteFirstFittingWaitlisted per call
+      // (confirmed + attended + pending_payment reserved), so organic
+      // bookings landing mid-loop shrink or stop the run — never oversell.
+      const capacityIncreased = parsed.capacity !== undefined
+        && !!beforeSession && parsed.capacity > beforeSession.capacity;
+      if (capacityIncreased) {
+        try {
+          const delta = parsed.capacity! - beforeSession!.capacity;
+          const promoted = await promoteWaitlistForFreedSpots(session.id, delta);
+          // Always log on an increase — "promoted 0" is the observable proof
+          // the trigger fired against an empty waitlist.
+          console.log(`[Waitlist] capacity ${beforeSession!.capacity}→${parsed.capacity} on session ${session.id}: promoted ${promoted} from waitlist`);
+        } catch (promoErr) {
+          console.error(`[Waitlist] capacity-increase promotion failed for session ${session.id} (edit still applied):`, promoErr instanceof Error ? promoErr.message : promoErr);
+        }
       }
 
       res.json(session);

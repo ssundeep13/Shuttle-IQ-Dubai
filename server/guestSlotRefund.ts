@@ -284,3 +284,26 @@ export async function promoteFirstFittingWaitlisted(
 
   return { bookingId: first.id, userId: first.userId };
 }
+
+/**
+ * Promote up to maxPromotions waitlisted bookings (Gate W2 — the capacity-
+ * increase trigger). ALL capacity math stays inside the per-call promote
+ * function, which recomputes free spots (confirmed + attended +
+ * pending_payment reserved) on every iteration and returns null when
+ * nothing fits or the waitlist is empty — so an organic booking landing
+ * mid-loop shrinks or stops the run, never oversells. The loop's only own
+ * guard is the hard iteration cap. `promote` is injectable for tests.
+ */
+export async function promoteWaitlistForFreedSpots(
+  sessionId: string,
+  maxPromotions: number,
+  promote: (sid: string) => Promise<{ bookingId: string; userId: string } | null> = promoteFirstFittingWaitlisted,
+): Promise<number> {
+  let promoted = 0;
+  for (let i = 0; i < maxPromotions; i++) {
+    const result = await promote(sessionId);
+    if (!result) break;
+    promoted++;
+  }
+  return promoted;
+}
