@@ -3,6 +3,7 @@ import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendBirthdayRemin
 import { retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaClient";
 import { confirmZiinaBookingByIntentId } from "./webhookHandler";
 import { daysUntilBirthday, birthdayWindowRange } from "@shared/birthday";
+import { formatDubaiDeadline, paymentDeadline } from "@shared/dubaiTime";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { runExpiredPendingGuestSweep } from "./guestOrphanSweep";
 import { db } from "./db";
@@ -274,17 +275,19 @@ async function runExpiredPaymentJob(): Promise<void> {
 
           // Cash is no longer accepted — every promotion is a Ziina booking:
           // hold the spot as pending_payment with a 4-hour payment window.
+          const promotedAt = new Date();
           await storage.updateBooking(next.id, {
             status: 'pending_payment',
             waitlistPosition: null,
-            promotedAt: new Date(),
+            promotedAt,
           });
 
           await storage.createMarketplaceNotification({
             userId: next.userId,
             type: 'waitlist_promoted',
             title: 'Spot available — complete payment!',
-            message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`,
+            // Explicit Asia/Dubai deadline (server clock is UTC).
+            message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
             relatedBookingId: next.id,
           });
 

@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { applyWalletDelta } from "./walletLedger";
 import { sendWaitlistPromotionEmail } from "./emailClient";
 import { sessionStartEpochMs } from "@shared/sessionTime";
+import { formatDubaiDeadline, paymentDeadline } from "@shared/dubaiTime";
 
 /**
  * Shared money + capacity logic for cancelling a single guest slot on a
@@ -240,10 +241,11 @@ export async function promoteFirstFittingWaitlisted(
   const first = waitlisted.find((w) => (w.spotsBooked ?? 1) <= spotsAvailable);
   if (!first) return null;
 
+  const promotedAt = new Date();
   await storage.updateBooking(first.id, {
     status: "pending_payment",
     waitlistPosition: null,
-    promotedAt: new Date(),
+    promotedAt,
   });
 
   const dateLabel = new Date(bookableSession.date).toLocaleDateString("en-GB", {
@@ -255,7 +257,9 @@ export async function promoteFirstFittingWaitlisted(
     userId: first.userId,
     type: "waitlist_promoted",
     title: "Spot available — complete payment!",
-    message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`,
+    // Explicit Asia/Dubai deadline — the server clock is UTC, so a locally
+    // formatted time would state an hour the player never sees.
+    message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
     relatedBookingId: first.id,
   });
 

@@ -39,6 +39,7 @@ import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhook
 import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
+import { formatDubaiDeadline, paymentDeadline } from "@shared/dubaiTime";
 import { isFullName, normalizeName } from "@shared/utils/playerMatching";
 import { PROFILE_UPLOADS_DIR } from "./uploadsRoot";
 import { getBadgeForUser, getActiveBadgesForPlayers } from "./badges";
@@ -3777,10 +3778,11 @@ export function registerMarketplaceRoutes(app: Express) {
 
             // Cash is no longer accepted — every promotion is a Ziina booking:
             // hold the spot as pending_payment with a 4-hour payment window.
+            const promotedAt = new Date();
             await storage.updateBooking(first.id, {
               status: 'pending_payment',
               waitlistPosition: null,
-              promotedAt: new Date(),
+              promotedAt,
             });
 
             promoted = { bookingId: first.id, userId: first.userId };
@@ -3791,7 +3793,8 @@ export function registerMarketplaceRoutes(app: Express) {
               userId: first.userId,
               type: 'waitlist_promoted',
               title: 'Spot available — complete payment!',
-              message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. You have 4 hours to complete payment to secure your spot.`,
+              // Explicit Asia/Dubai deadline (server clock is UTC).
+              message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
               relatedBookingId: first.id,
             });
 
@@ -4549,8 +4552,13 @@ export function registerMarketplaceRoutes(app: Express) {
       if (booking.paymentMethod === 'cash') {
         return res.status(400).json({ error: "This action is for Ziina bookings. Use the cash-paid toggle for cash bookings." });
       }
-      if (booking.status !== 'pending') {
-        return res.status(400).json({ error: `Only pending bookings can be marked as payment-not-received (this one is '${booking.status}').` });
+      // Gate H1: also accepts pending_payment (waitlist-promoted holds) so an
+      // admin can release a hold before its 4-hour window ends. The 'pending'
+      // path below is unchanged; the hold path adds the sweep's treatment
+      // (refund backstop + notification + cascade).
+      const isHold = booking.status === 'pending_payment';
+      if (booking.status !== 'pending' && !isHold) {
+        return res.status(400).json({ error: `Only pending or awaiting-payment bookings can be released (this one is '${booking.status}').` });
       }
 
       // Guard 1: a recorded completed payment means it WAS paid — never cancel here.
@@ -4575,9 +4583,38 @@ export function registerMarketplaceRoutes(app: Express) {
       const updated = await storage.updateBooking(booking.id, {
         status: 'cancelled',
         cancelledAt: new Date(),
-        cancellationReason: 'payment_not_received',
+        cancellationReason: isHold ? 'hold_cancelled_by_admin' : 'payment_not_received',
       });
-      console.log(`[Admin] Booking ${booking.id} marked payment_not_received by admin (no refund, no email).`);
+
+      if (isHold) {
+        // Same treatment the 4-hour sweep gives an expired hold. The money
+        // backstop is idempotent and a no-op for the normal unpaid hold; it
+        // only fires if a payment landed in the seconds-wide sliver after the
+        // guards above (the webhook and the reconciliation sweep both refuse
+        // to resurrect a cancelled booking, so the row stays cancelled and the
+        // captured money surfaces as an admin refund item).
+        await maybeCreateRefundNotification(booking.id);
+
+        const bookableSession = await storage.getBookableSession(booking.sessionId);
+        await storage.createMarketplaceNotification({
+          userId: booking.userId,
+          type: 'hold_cancelled',
+          title: 'Spot hold released',
+          message: `Your reserved spot for "${bookableSession?.title ?? 'the session'}" was released by the organiser before payment was completed. No charge was made. You can re-join from the session page if spots remain.`,
+          relatedBookingId: booking.id,
+        });
+
+        // The released hold frees a spot — offer it to the next waitlisted
+        // player, exactly as the expiry sweep does.
+        try {
+          await promoteFirstFittingWaitlisted(booking.sessionId);
+        } catch (promoErr) {
+          console.error(`[Admin] hold release — cascade promotion failed for session ${booking.sessionId} (hold still released):`, promoErr instanceof Error ? promoErr.message : promoErr);
+        }
+        console.log(`[Admin] Hold ${booking.id} released by admin (no charge) — spot freed and cascaded.`);
+      } else {
+        console.log(`[Admin] Booking ${booking.id} marked payment_not_received by admin (no refund, no email).`);
+      }
       return res.json({ booking: updated });
     } catch (error) {
       console.error('[Admin] payment-not-received error:', error);

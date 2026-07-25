@@ -1358,7 +1358,7 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
               Confirm Payment
             </Button>
           )}
-          {booking.paymentMethod !== 'cash' && booking.status === 'pending' && (
+          {booking.paymentMethod !== 'cash' && (booking.status === 'pending' || booking.status === 'pending_payment') && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
@@ -1369,20 +1369,26 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                   data-testid={`button-payment-not-received-${booking.id}`}
                 >
                   <XCircle className="h-3 w-3" />
-                  Payment Not Received
+                  {booking.status === 'pending_payment' ? 'Release Hold' : 'Payment Not Received'}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Payment not received?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {booking.status === 'pending_payment' ? 'Release this hold?' : 'Payment not received?'}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    No payment received from Ziina? This will cancel the booking.
+                    {booking.status === 'pending_payment'
+                      ? `This releases ${booking.user?.name || 'this player'}'s reserved spot before their payment window ends. No charge was made. The next waitlisted player (if any) will be offered the spot automatically.`
+                      : 'No payment received from Ziina? This will cancel the booking.'}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Keep booking</AlertDialogCancel>
+                  <AlertDialogCancel>
+                    {booking.status === 'pending_payment' ? 'Keep hold' : 'Keep booking'}
+                  </AlertDialogCancel>
                   <AlertDialogAction onClick={() => paymentNotReceivedMutation.mutate(booking.id)}>
-                    Cancel booking
+                    {booking.status === 'pending_payment' ? 'Release hold' : 'Cancel booking'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

@@ -19,6 +19,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { sessionStartEpochMs } from '@shared/sessionTime';
+import { formatDubaiTime, paymentDeadline } from '@shared/dubaiTime';
 import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
@@ -506,6 +507,16 @@ export default function MyBookings() {
                   <p style={{ fontFamily: FF_MONO, fontSize: 12, marginTop: 2, fontVariantNumeric: 'tabular-nums', color: countdown.expired ? MKT.inkSub : AMBER }}>
                     {countdown.expired ? 'Expired' : `Time remaining: ${countdown.label}`}
                   </p>
+                  {/* Absolute deadline in Dubai time — the countdown answers
+                      "how long", this answers "by when" (Gate H1). */}
+                  {booking.promotedAt && !countdown.expired && (
+                    <p
+                      style={{ fontFamily: "'Inter', system-ui, sans-serif", fontSize: 12, marginTop: 2, color: MKT.inkSub }}
+                      data-testid={`text-pay-by-${booking.id}`}
+                    >
+                      Pay by {formatDubaiTime(paymentDeadline(booking.promotedAt))}
+                    </p>
+                  )}
                 </div>
                 {!countdown.expired && (
                   <button
