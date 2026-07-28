@@ -23,6 +23,15 @@ interface MarketplaceUser {
   sessionsToReactivate?: number;
   badgeProgress?: { currentCheckins: number; threshold: number; windowDays: number } | null;
   foundingCourtEarnedDate?: string;
+  // Founding Member (venue badge) — coexists with the consistency badge above.
+  // seenAt null means the award screen has not been dismissed yet.
+  foundingMember?: {
+    badge: string;
+    subtitle: string;
+    venueId: string;
+    awardedAt: string;
+    seenAt: string | null;
+  } | null;
 }
 
 interface MarketplaceAuthContextType {

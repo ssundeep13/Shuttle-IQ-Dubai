@@ -45,6 +45,7 @@ import { PROFILE_UPLOADS_DIR } from "./uploadsRoot";
 import { getBadgeForUser, getActiveBadgesForPlayers } from "./badges";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, promoteWaitlistForFreedSpots, isWithinLateCancelWindow } from "./guestSlotRefund";
+import { syncFoundingMemberForUser, getFoundingMemberForUser, getFoundingMemberPlayerIds, markFoundingMemberSeen } from "./venueAwards";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -126,6 +127,19 @@ async function mintPaymentResumeParam(marketplaceUserId: string, bookingId: stri
     console.error('[ResumeToken] Failed to mint resume token', { bookingId, error: err instanceof Error ? err.message : err });
     return '';
   }
+}
+
+// Founding Member live hook, fire-and-forget. A venue badge must never delay or
+// fail a booking, a payment or a cancellation, so every call site is unawaited
+// and every failure is logged, not thrown. The helper itself is idempotent,
+// both-directional (award or revoke on a recount) and a no-op after the seal,
+// so calling it on any booking change for any user is always safe.
+function syncFoundingMember(userId: string, site: string): void {
+  syncFoundingMemberForUser(userId)
+    .then(result => {
+      if (result !== 'unchanged') console.log(`[VenueAward] founding_member ${result} for ${userId} (${site})`);
+    })
+    .catch(err => console.error(`[VenueAward] sync failed at ${site}:`, err instanceof Error ? err.message : err));
 }
 
 async function refundBookingWalletCredit(booking: { id: string; walletAmountUsed: number | null; userId: string }) {
@@ -727,6 +741,16 @@ export function registerMarketplaceRoutes(app: Express) {
         console.error("[Badges] profile badge lookup failed:", err instanceof Error ? err.message : err);
       }
 
+      // Founding Member (venue badge). Coexists with the consistency badge
+      // above rather than replacing it — separate table, separate surface
+      // (seal icon + its own profile card). Same guard: never break /auth/me.
+      let foundingMember = null;
+      try {
+        foundingMember = await getFoundingMemberForUser(user.id);
+      } catch (err) {
+        console.error("[VenueAward] founding-member lookup failed:", err instanceof Error ? err.message : err);
+      }
+
       res.json({
         id: user.id,
         email: user.email,
@@ -747,9 +771,23 @@ export function registerMarketplaceRoutes(app: Express) {
         sessionsToReactivate: badgeInfo?.sessionsToReactivate,
         badgeProgress: badgeInfo?.progress ?? null,
         foundingCourtEarnedDate: badgeInfo?.foundingCourtEarnedDate,
+        foundingMember,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get user" });
+    }
+  });
+
+  // Dismiss the Founding Member award screen. Stamps seen_at once (the helper
+  // only writes when it is still NULL), so the screen can never replay — not on
+  // the next app open, and not if the award is revoked and later re-earned.
+  app.post("/api/marketplace/badges/founding-member/seen", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      await markFoundingMemberSeen(req.user!.userId);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('[VenueAward] mark-seen failed:', error instanceof Error ? error.message : error);
+      res.status(500).json({ error: "Failed to record dismissal" });
     }
   });
 
@@ -2930,6 +2968,7 @@ export function registerMarketplaceRoutes(app: Express) {
         // PR2 trigger site 4/5: full-wallet booking confirms at creation
         // (decision A — any first confirmed booking counts as the trigger).
         fireReferralOnPayment(req.user.userId, booking.id);
+        syncFoundingMember(req.user.userId, 'wallet-confirm');
 
         try {
           if (primaryUser) {
@@ -3338,6 +3377,7 @@ export function registerMarketplaceRoutes(app: Express) {
         // settle: the full remaining amount is owed, and Gate 3B's helper
         // flags exactly that (idempotently) from the untouched amountAed.
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 });
+        syncFoundingMember(booking.userId, 'last-guest-slot-cancel');
         await maybeCreateRefundNotification(booking.id);
         await promoteFirstFittingWaitlisted(booking.sessionId);
         return res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: 0, bookingCancelled: true, refundFlaggedForAdmin: true });
@@ -3592,6 +3632,8 @@ export function registerMarketplaceRoutes(app: Express) {
         cashPaid: false,
       });
 
+      syncFoundingMember(userId, 'admin-cash-booking');
+
       const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
       res.json(bookingWithDetails);
     } catch (error) {
@@ -3680,6 +3722,11 @@ export function registerMarketplaceRoutes(app: Express) {
         .where(and(eq(bookings.id, booking.id), sql`${bookings.status} <> 'cancelled'`))
         .returning();
       if (!updated) return res.status(400).json({ error: "Already cancelled" });
+      // Revoke side of the live hook — only fires if this was the player's LAST
+      // qualifying launch-week booking (the helper recounts), and only before
+      // the seal. Placed after the winning CAS so a losing double-cancel never
+      // triggers it.
+      syncFoundingMember(booking.userId, 'player-cancel');
 
       if (refundEligible) {
         refundAmountAed = cashToRefundFils / 100;
@@ -4202,6 +4249,14 @@ export function registerMarketplaceRoutes(app: Express) {
         } catch (err) {
           console.error('[Badges] suggestion badge lookup failed:', err instanceof Error ? err.message : err);
         }
+        // Founding Member seal — a separate flag beside the badge name, not a
+        // competing badge value, so both can render on the same row.
+        let foundingSeals = new Set<string>();
+        try {
+          foundingSeals = await getFoundingMemberPlayerIds(playerIds);
+        } catch (err) {
+          console.error('[VenueAward] suggestion seal lookup failed:', err instanceof Error ? err.message : err);
+        }
 
         // Identify which team the requesting player is on so the frontend can
         // render "Your team" vs "Opponents" from the player's perspective.
@@ -4229,6 +4284,7 @@ export function registerMarketplaceRoutes(app: Express) {
               playerName: nameById.get(p.playerId) ?? 'Player',
               team: p.team,
               badge: badgeByPlayerId.get(p.playerId) ?? null,
+              foundingMember: foundingSeals.has(p.playerId),
             })),
           },
         });
@@ -4650,6 +4706,7 @@ export function registerMarketplaceRoutes(app: Express) {
       // referral trigger fires. Pre-condition above (status !== 'confirmed'
       // and !== 'attended') is the per-route idempotency guard.
       fireReferralOnPayment(booking.userId, booking.id);
+      syncFoundingMember(booking.userId, 'admin-confirm');
 
       // Record the payment if not already present
       if (booking.ziinaPaymentIntentId) {
@@ -4734,6 +4791,7 @@ export function registerMarketplaceRoutes(app: Express) {
         waitlistPosition: null,
         promotedAt: new Date(),
       });
+      syncFoundingMember(booking.userId, 'admin-promote');
 
       // Confirm all pending guest slots (leave cancelled slots untouched)
       const slots = await storage.getBookingGuests(booking.id);
@@ -4771,7 +4829,7 @@ export function registerMarketplaceRoutes(app: Express) {
       const sessionBookings = await storage.getSessionBookings(req.params.id);
       const confirmedBookings = sessionBookings.filter(b => b.status === 'confirmed' || b.status === 'attended');
 
-      const playerEntries: Array<{ name: string; level: string | null; skillScore: number | null; linkedPlayerId: string | null; photoUrl: string | null; isGuest?: boolean }> = [];
+      const playerEntries: Array<{ name: string; level: string | null; skillScore: number | null; linkedPlayerId: string | null; photoUrl: string | null; isGuest?: boolean; foundingMember?: boolean }> = [];
 
       for (const booking of confirmedBookings) {
         let level: string | null = null;
@@ -4827,6 +4885,20 @@ export function registerMarketplaceRoutes(app: Express) {
             });
           }
         }
+      }
+
+      // Founding Member seals, one batched lookup over the assembled grid.
+      // Guest rows without a linked player simply never match. Guarded — the
+      // grid must still render if the venue-award lookup fails.
+      try {
+        const seals = await getFoundingMemberPlayerIds(
+          playerEntries.map(p => p.linkedPlayerId).filter((id): id is string => Boolean(id)),
+        );
+        for (const entry of playerEntries) {
+          entry.foundingMember = Boolean(entry.linkedPlayerId && seals.has(entry.linkedPlayerId));
+        }
+      } catch (err) {
+        console.error('[VenueAward] whos-playing seal lookup failed:', err instanceof Error ? err.message : err);
       }
 
       res.json(playerEntries);

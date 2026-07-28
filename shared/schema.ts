@@ -1129,6 +1129,34 @@ export const foundingCourtAwards = pgTable("founding_court_awards", {
 });
 export type FoundingCourtAward = typeof foundingCourtAwards.$inferSelect;
 
+// Venue-scoped badges (e.g. Founding Member at a specific venue). Deliberately
+// a SEPARATE table from founding_court_awards: that one is keyed by user alone
+// and is written by the live read-time award path, so widening it would mean
+// dropping its primary key on logic that runs on every profile read. Here the
+// composite PK is the idempotency guarantee — one award per player per venue
+// per badge type, so the live hook and the backfill pass are both re-runnable.
+//
+// Revocation is SOFT: revoked_at is stamped (never a DELETE) before the venue's
+// seal time if the player's last qualifying booking is cancelled, and cleared
+// again if they rebook. After the seal the cohort is frozen in both directions.
+// Soft revoke is what makes seen_at survive a revoke→rebook round trip — a hard
+// delete would take it with the row and replay the one-time award screen.
+// EVERY read must filter revoked_at IS NULL.
+//
+// seen_at gates the one-time award screen: stamped on dismiss, never re-stamped,
+// and neither an idempotent re-award nor a reinstatement touches it.
+export const venueAwards = pgTable("venue_awards", {
+  userId: varchar("user_id").notNull(),
+  venueId: varchar("venue_id").notNull(),
+  badgeType: text("badge_type").notNull(),
+  earnedAt: timestamp("earned_at").notNull().defaultNow(),
+  seenAt: timestamp("seen_at"),
+  revokedAt: timestamp("revoked_at"),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.venueId, t.badgeType] }),
+]);
+export type VenueAward = typeof venueAwards.$inferSelect;
+
 // One-shot migration tracking (used by scripts/* to prevent re-runs). `key`
 // is the natural PK. Existing rows: discount_code_newbie_seed_v1 (2026-05-20)
 // and onboarding_completed_legacy_backfill_v1 (2026-05-12).

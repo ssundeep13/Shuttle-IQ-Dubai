@@ -4,6 +4,7 @@ import express from "express";
 import { storage } from "./storage";
 import { isZiinaPaymentSuccessful, isZiinaRefundSuccessful } from "./ziinaClient";
 import { fireReferralOnPayment } from "./referrals";
+import { syncFoundingMemberForUser } from "./venueAwards";
 import {
   sendBookingConfirmationEmail,
   sendGuestBookingEmail,
@@ -182,6 +183,13 @@ export async function confirmZiinaBookingByIntentId(
   }
 
   await storage.updateBooking(booking.id, { status: "confirmed" });
+
+  // Founding Member (venue badge): payment success is the qualifying moment,
+  // and this path carries BOTH a normal booking and a waitlist promotion that
+  // has now been paid for. Idempotent and guarded — a badge failure must never
+  // affect a confirmed payment.
+  syncFoundingMemberForUser(booking.userId).catch(err =>
+    console.error('[VenueAward] founding-member sync failed after confirm:', err instanceof Error ? err.message : err));
 
   // Birthday free-game: the discount is "consumed" only when the booking
   // actually confirms (here), not at submission — so an abandoned Ziina payment

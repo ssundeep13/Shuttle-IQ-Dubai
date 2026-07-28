@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import FoundingMemberSeal from '@/components/FoundingMemberSeal';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import {
   Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info,
@@ -41,6 +42,7 @@ interface SessionPlayer {
   skillScore: number | null;
   linkedPlayerId: string | null;
   photoUrl: string | null;
+  foundingMember?: boolean;
 }
 
 
@@ -147,7 +149,12 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
                   </AvatarFallback>
                 </Avatar>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate" data-testid={`text-player-name-${idx}`}>{player.name}</p>
+                  {/* Seal sits after the name inside the same row; the name keeps
+                      its truncation and the 16px seal never shrinks. */}
+                  <p className="text-sm font-medium truncate flex items-center gap-1" data-testid={`text-player-name-${idx}`}>
+                    <span className="truncate">{player.name}</span>
+                    <FoundingMemberSeal show={player.foundingMember} size={16} testid={`seal-player-${idx}`} />
+                  </p>
                   {player.level ? (
                     <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded capitalize mt-0.5 ${levelColor}`}>
                       {getTierDisplayName(player.level)}

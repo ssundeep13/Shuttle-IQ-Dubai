@@ -10,6 +10,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useToast } from '@/hooks/use-toast';
 import BadgeTag from '@/components/BadgeTag';
+import FoundingMemberSeal from '@/components/FoundingMemberSeal';
 import type { BookingWithDetails } from '@shared/schema';
 
 interface ActiveSessionResponse {
@@ -22,6 +23,8 @@ interface CurrentSuggestionPlayer {
   team: number;
   // Active badge display name (badge Gate 4) — null when unbadged.
   badge?: string | null;
+  // Founding Member seal — a separate flag, so it renders beside the badge.
+  foundingMember?: boolean;
 }
 
 interface CurrentSuggestion {
@@ -581,6 +584,7 @@ function TeamRow({
               <p className="text-base font-medium" data-testid={`text-player-${p.playerId}`}>
                 {p.playerName}
               </p>
+              <FoundingMemberSeal show={p.foundingMember} size={18} testid={`seal-${p.playerId}`} />
               <BadgeTag badge={p.badge} small testid={`tag-badge-${p.playerId}`} />
             </div>
           ))

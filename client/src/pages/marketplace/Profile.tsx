@@ -13,6 +13,7 @@ import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import type { PlayerStats } from '@shared/schema';
 import BadgeTag, { formatEarnedDate, progressSubline, progressTitle } from '@/components/BadgeTag';
+import FoundingMemberSeal from '@/components/FoundingMemberSeal';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
@@ -507,6 +508,9 @@ export default function Profile() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="font-semibold" data-testid="text-profile-name" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: '#003E8C', letterSpacing: '-0.02em' }}>{user?.name}</h2>
+              {/* Founding Member seal — immediately after the name, before the
+                  consistency tag, so both coexist on the same row. */}
+              <FoundingMemberSeal show={!!user?.foundingMember} size={20} testid="seal-profile-founding-member" />
               {user?.badge && user.badgeStatus === 'active' && (
                 <BadgeTag badge={user.badge} testid="tag-profile-badge" />
               )}
@@ -549,6 +553,39 @@ export default function Profile() {
         </motion.div>
 
         <div className="space-y-6">
+          {/* Founding Member card. Sits ABOVE the consistency progress card
+              rather than replacing it — the two badges are independent, and a
+              player can hold both. Display strings come from the server. */}
+          {user?.foundingMember && (
+            <motion.div variants={fadeInUp}>
+              <Card style={cardChrome} data-testid="card-founding-member">
+                <CardContent className="p-4">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <img
+                      src="/badges/founding-member-medal-sm.png"
+                      alt="Founding Member medal"
+                      data-testid="img-founding-member-medal-sm"
+                      style={{ width: 56, height: 56, flexShrink: 0 }}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        data-testid="text-founding-member-card-title"
+                        style={{ fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 700, fontSize: 15, color: '#003E8C' }}
+                      >
+                        {user.foundingMember.badge}
+                      </div>
+                      <div
+                        data-testid="text-founding-member-card-subtitle"
+                        style={{ marginTop: 3, fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 500, fontSize: 12, color: '#5B6472' }}
+                      >
+                        {user.foundingMember.subtitle}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
           {/* Consistency badge progress (Gate 3). Bar + copy come straight
               from /auth/me badgeProgress; Founding Court shows its earned
               date (date-only — the naive-timestamp serialization caveat)
