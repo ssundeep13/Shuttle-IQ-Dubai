@@ -1,18 +1,19 @@
 import { useState, useCallback, useEffect, FormEvent } from "react";
-import { PnlPage, WeeklyPage, SessionsPage, RunnerPayPage } from "./pages";
+import { PnlPage, WeeklyPage, SessionsPage, RunnerPayPage, SocialMediaPayPage } from "./pages";
 import { ReconcilePage } from "./ReconcilePage";
 import { GrowthPage } from "./GrowthPage";
 import { ExpensesPage } from "./ExpensesPage";
 
 const TOKEN_KEY = "siq_portal_token";
 
-type PageKey = "pnl" | "weekly" | "sessions" | "pay" | "reconcile" | "growth" | "expenses";
+type PageKey = "pnl" | "weekly" | "sessions" | "pay" | "socialpay" | "reconcile" | "growth" | "expenses";
 
 const NAV: Array<{ key: PageKey; title: string }> = [
   { key: "pnl", title: "P&L" },
   { key: "weekly", title: "Weekly" },
   { key: "sessions", title: "Sessions" },
   { key: "pay", title: "Runner Pay" },
+  { key: "socialpay", title: "Social Media Pay" },
   { key: "reconcile", title: "Reconciliation" },
   { key: "growth", title: "Growth" },
   { key: "expenses", title: "Expenses" },
@@ -222,6 +223,7 @@ export function PortalApp() {
         {page === "weekly" && <WeeklyPage token={token} onAuthFail={logout} />}
         {page === "sessions" && <SessionsPage token={token} onAuthFail={logout} />}
         {page === "pay" && <RunnerPayPage token={token} onAuthFail={logout} />}
+        {page === "socialpay" && <SocialMediaPayPage token={token} onAuthFail={logout} />}
         {page === "reconcile" && <ReconcilePage token={token} onAuthFail={logout} />}
         {page === "growth" && <GrowthPage token={token} onAuthFail={logout} />}
         {page === "expenses" && <ExpensesPage token={token} onAuthFail={logout} />}

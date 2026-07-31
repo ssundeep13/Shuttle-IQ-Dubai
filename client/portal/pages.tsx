@@ -247,6 +247,57 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
   );
 }
 
+// ── Social media pay ──────────────────────────────────────────────────────────
+interface SocialMediaPayData {
+  weeks: Array<{
+    isoWeek: string;
+    label: string;
+    weekStart: string;
+    weekEnd: string;
+    socialMediaPayAed: number;
+  }>;
+}
+
+export function SocialMediaPayPage({ token, onAuthFail }: { token: string; onAuthFail: () => void }) {
+  const { data, loading, error } = usePortalGet<SocialMediaPayData>(
+    "/api/portal/finance/social-media-pay", token, onAuthFail,
+  );
+  if (loading) return <Loading />;
+  if (error || !data) return <LoadError message={error ?? "No data."} />;
+  return (
+    <div className="report">
+      <p className="note">
+        15% of each session's collected profit, zero-floored per session, sessions from Mon 27 Jul 2026 onward.
+      </p>
+      {data.weeks.length === 0 && <p className="note">No qualifying weeks yet.</p>}
+      {data.weeks.map((w) => (
+        <div className="payweek" key={w.label}>
+          <h3>
+            {w.label}
+            <span className="sub">{fmtDay(w.weekStart)} – {fmtDay(w.weekEnd)}</span>
+          </h3>
+          <div className="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Week</th>
+                  <th className="num">15% share</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{fmtDay(w.weekStart)} – {fmtDay(w.weekEnd)}</td>
+                  <td className="num strong"><Amount value={w.socialMediaPayAed} /></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Runner pay ────────────────────────────────────────────────────────────────
 interface RunnerPayData {
   weeks: Array<{

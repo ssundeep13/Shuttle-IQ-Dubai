@@ -43,6 +43,20 @@ export function accruedSocialMediaPayFils(profitFils: number): number {
   return Math.round(profitFils * SOCIAL_MEDIA_PROFIT_SHARE);
 }
 
+// Her contract start (Mon 27 Jul 2026, opening ISO week W31). Sessions dated before
+// this contribute ZERO regardless of profit — attribution is by session date, the
+// locked rule. ISO dateIso strings compare correctly with plain <.
+export const SOCIAL_MEDIA_PAY_START = "2026-07-27";
+
+// THE per-session social-media accrual — cutoff + formula in one place. Both the
+// monthly P&L line and the weekly pay view call this; they can never drift. (Weekly
+// and monthly period totals may differ by a few fils across a month boundary week —
+// both sum these same per-session values, only the grouping differs.)
+export function sessionSocialMediaPayFils(r: Pick<SessionFinanceRow, "dateIso" | "profitFils">): number {
+  if (r.dateIso < SOCIAL_MEDIA_PAY_START) return 0;
+  return accruedSocialMediaPayFils(r.profitFils);
+}
+
 export interface SessionFinanceRow {
   sessionId: string;
   dateIso: string; // YYYY-MM-DD (session date — the attribution key)
@@ -182,9 +196,10 @@ export function aggregateMonthlyPnl(
     // management and contributes ZERO here. Monthly only; weekly never accumulates this.
     if (r.captainId) p.runnerPayFils += accruedPayFils(r.valueProfitFils);
     // Social-media line: 15% of COLLECTED profit, per session, UNCONDITIONAL — she is
-    // paid on every session whether or not a captain is assigned. Monthly only, like
-    // runner pay; the weekly aggregation never accumulates this.
-    p.socialMediaPayFils += accruedSocialMediaPayFils(r.profitFils);
+    // paid on every session whether or not a captain is assigned. Contract-start
+    // cutoff lives inside the shared helper. Monthly P&L only; the P&L's weekly
+    // aggregation never accumulates this (her weekly figures have their own view).
+    p.socialMediaPayFils += sessionSocialMediaPayFils(r);
   }
   for (const e of generalExpenses) {
     const p = byMonth.get(e.dateIso.slice(0, 7));
@@ -215,6 +230,34 @@ export function aggregateWeeklyPnl(
   const weeks = Array.from(byWeek.values()).sort((a, b) => a.weekStart.localeCompare(b.weekStart));
   for (const w of weeks) finishPnl(w);
   return weeks;
+}
+
+// Social-media pay, weekly — the dedicated pay view. ISO weeks, newest first,
+// mirroring the runner view's convention: a week appears iff it has at least one
+// session on/after the contract start (a zero-pay week with sessions is information,
+// like a runner session listed at pay 0); pre-start weeks never appear. Each week
+// sums the SAME per-session accruals the monthly P&L sums — one helper, no drift.
+export interface SocialMediaPayWeek {
+  label: string;
+  weekStart: string;
+  weekEnd: string;
+  payFils: number;
+}
+
+export function aggregateSocialMediaPayWeekly(rows: SessionFinanceRow[]): SocialMediaPayWeek[] {
+  const byWeek = new Map<string, SocialMediaPayWeek>();
+  for (const r of rows) {
+    if (r.dateIso < SOCIAL_MEDIA_PAY_START) continue; // pre-start sessions create no weeks
+    const w = isoWeekOf(r.dateIso);
+    let entry = byWeek.get(w.label);
+    if (!entry) {
+      entry = { label: w.label, weekStart: w.weekStart, weekEnd: w.weekEnd, payFils: 0 };
+      byWeek.set(w.label, entry);
+    }
+    entry.payFils += sessionSocialMediaPayFils(r);
+  }
+  // Newest first, matching the runner pay view.
+  return Array.from(byWeek.values()).sort((a, b) => b.weekStart.localeCompare(a.weekStart));
 }
 
 // Runner pay: per ISO week, per runner — each session's VALUE profit × 25%, rounded to

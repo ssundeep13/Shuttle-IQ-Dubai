@@ -13,6 +13,7 @@ import {
   aggregateMonthlyPnl,
   aggregateWeeklyPnl,
   aggregateRunnerPay,
+  aggregateSocialMediaPayWeekly,
   filterRunnerPayWeeksForRunner,
 } from "./portalFinance";
 import { reconcileZiinaCsv, loadReconcileInput } from "./portalReconcile";
@@ -272,6 +273,28 @@ export function registerPortalRoutes(app: Express): void {
     } catch (err: unknown) {
       console.error("[Portal] runner-pay error:", err instanceof Error ? err.message : err);
       res.status(500).json({ error: "Failed to load runner pay." });
+    }
+  });
+
+  // Social-media pay, weekly (owner-only for now — the scoped 'social' role is a
+  // later gate). Projection at the edge: week identity + her pay figure, nothing
+  // else from the P&L ever enters this response.
+  app.get("/api/portal/finance/social-media-pay", requirePortalAuth, requirePortalOwner, async (_req: Request, res: Response) => {
+    try {
+      const rows = await loadSessionFinanceRows();
+      const weeks = aggregateSocialMediaPayWeekly(rows);
+      res.json({
+        weeks: weeks.map((w) => ({
+          isoWeek: w.label,
+          label: w.label,
+          weekStart: w.weekStart,
+          weekEnd: w.weekEnd,
+          socialMediaPayAed: filsToAed(w.payFils),
+        })),
+      });
+    } catch (err: unknown) {
+      console.error("[Portal] social-media-pay error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load social media pay." });
     }
   });
 
