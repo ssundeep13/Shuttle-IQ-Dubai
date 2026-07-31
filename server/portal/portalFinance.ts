@@ -31,6 +31,18 @@ export function accruedPayFils(valueProfitFils: number): number {
   return Math.round(valueProfitFils * RUNNER_PROFIT_SHARE);
 }
 
+// Social media manager: 15% of each session's COLLECTED-basis profit (profitFils —
+// max(0, collected − court − shuttle − water)), rounded to whole fils per session.
+// DELIBERATELY a different revenue basis from runner pay (owner ruling): the runner is
+// paid on VALUE (collected + wallet); she is paid on actual collections only. The
+// zero floor is already inside profitFils, so a losing session contributes nothing
+// and the monthly sum can never go negative — no period-level floor exists or is
+// needed. Unlike runner pay this accrues on EVERY session, captain assigned or not.
+export const SOCIAL_MEDIA_PROFIT_SHARE = 0.15;
+export function accruedSocialMediaPayFils(profitFils: number): number {
+  return Math.round(profitFils * SOCIAL_MEDIA_PROFIT_SHARE);
+}
+
 export interface SessionFinanceRow {
   sessionId: string;
   dateIso: string; // YYYY-MM-DD (session date — the attribution key)
@@ -61,7 +73,8 @@ export interface PeriodPnlFils {
   walletPaidFils: number; // informational only — NOT part of the net formula
   // Build A (monthly P&L only; weekly leaves these at zero/net):
   runnerPayFils: number;        // accrued pay, ASSIGNED captains only — Unassigned pays nobody
-  managementProfitFils: number; // netProfitFils − runnerPayFils (may go negative)
+  socialMediaPayFils: number;   // 15% of per-session COLLECTED profit, every session
+  managementProfitFils: number; // netProfitFils − runnerPayFils − socialMediaPayFils (may go negative)
 }
 
 // ── DB assembly ───────────────────────────────────────────────────────────────
@@ -126,7 +139,8 @@ export async function loadGeneralExpenseRows(): Promise<GeneralExpenseRow[]> {
 function emptyPnl(): PeriodPnlFils {
   return {
     collectedRevenueFils: 0, sessionCostsFils: 0, generalExpensesFils: 0,
-    netProfitFils: 0, walletPaidFils: 0, runnerPayFils: 0, managementProfitFils: 0,
+    netProfitFils: 0, walletPaidFils: 0, runnerPayFils: 0, socialMediaPayFils: 0,
+    managementProfitFils: 0,
   };
 }
 
@@ -138,7 +152,7 @@ function addSession(p: PeriodPnlFils, r: SessionFinanceRow): void {
 
 function finishPnl(p: PeriodPnlFils): void {
   p.netProfitFils = p.collectedRevenueFils - p.sessionCostsFils - p.generalExpensesFils;
-  p.managementProfitFils = p.netProfitFils - p.runnerPayFils;
+  p.managementProfitFils = p.netProfitFils - p.runnerPayFils - p.socialMediaPayFils;
 }
 
 // Month rows from the epoch month through `throughMonth` ('YYYY-MM') inclusive —
@@ -167,6 +181,10 @@ export function aggregateMonthlyPnl(
     // captains only — an Unassigned session pays nobody, so its profit stays with
     // management and contributes ZERO here. Monthly only; weekly never accumulates this.
     if (r.captainId) p.runnerPayFils += accruedPayFils(r.valueProfitFils);
+    // Social-media line: 15% of COLLECTED profit, per session, UNCONDITIONAL — she is
+    // paid on every session whether or not a captain is assigned. Monthly only, like
+    // runner pay; the weekly aggregation never accumulates this.
+    p.socialMediaPayFils += accruedSocialMediaPayFils(r.profitFils);
   }
   for (const e of generalExpenses) {
     const p = byMonth.get(e.dateIso.slice(0, 7));

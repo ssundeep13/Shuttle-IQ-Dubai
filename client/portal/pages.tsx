@@ -67,7 +67,8 @@ interface PnlRow {
   generalExpensesAed: number;
   netProfitAed: number;           // BEFORE runner pay
   runnerPayAed?: number;          // monthly P&L only — accrued, assigned runners only
-  managementProfitAed?: number;   // monthly P&L only — net − runner pay
+  socialMediaPayAed?: number;     // monthly P&L only — 15% of collected session profit
+  managementProfitAed?: number;   // monthly P&L only — net − runner pay − social media
   walletPaidAed?: number; // monthly P&L only — informational, not in the net formula
 }
 
@@ -82,7 +83,7 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
   if (error || !data) return <LoadError message={error ?? "No data."} />;
   return (
     <div className="report">
-      <p className="formula">Collected revenue − Session costs − General expenses = Net profit (before runner pay) − Runner pay = Management profit</p>
+      <p className="formula">Collected revenue − Session costs − General expenses = Net profit − Runner pay − Social media = Management profit</p>
       <p className="note">June 2026 onwards. Revenue is attributed to the session's date and netted of refunds.</p>
       <div className="tablewrap">
         <table>
@@ -94,6 +95,7 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
               <th className="num">General expenses</th>
               <th className="num">Net profit (before runner pay)</th>
               <th className="num">− Runner pay</th>
+              <th className="num">− Social media (15%)</th>
               <th className="num">Management profit</th>
               <th className="num">Wallet-paid (info)</th>
             </tr>
@@ -107,6 +109,7 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
                 <td className="num"><Amount value={m.generalExpensesAed} /></td>
                 <td className="num"><Amount value={m.netProfitAed} /></td>
                 <td className="num"><Amount value={m.runnerPayAed ?? 0} /></td>
+                <td className="num"><Amount value={m.socialMediaPayAed ?? 0} /></td>
                 <td className="num strong"><Amount value={m.managementProfitAed ?? m.netProfitAed} /></td>
                 <td className="num"><Amount value={m.walletPaidAed ?? 0} /></td>
               </tr>

@@ -5,8 +5,11 @@ import {
   aggregateMonthlyPnl,
   aggregateWeeklyPnl,
   aggregateRunnerPay,
+  accruedSocialMediaPayFils,
+  SOCIAL_MEDIA_PROFIT_SHARE,
   type SessionFinanceRow,
 } from '../server/portal/portalFinance';
+import { computeProfitFils } from '../server/portal/sessionProfit';
 
 // Pure aggregation tests — the DB assembly is exercised by the live June trace; here we
 // pin the bucketing rules, the two revenue bases, and the 25% zero-floor-PER-SESSION
@@ -142,6 +145,87 @@ describe('aggregateMonthlyPnl — June 2026 onwards, formula not floored', () =>
     expect(negMonths[0].netProfitFils).toBe(1_000);
     expect(negMonths[0].runnerPayFils).toBe(10_000);
     expect(negMonths[0].managementProfitFils).toBe(-9_000); // negative, shown as-is
+  });
+});
+
+describe('social media pay — 15% of COLLECTED profit per session, monthly only', () => {
+  it('the share is 15% and is applied per session with per-session rounding', () => {
+    expect(SOCIAL_MEDIA_PROFIT_SHARE).toBe(0.15);
+    expect(accruedSocialMediaPayFils(82_000)).toBe(12_300);
+    expect(accruedSocialMediaPayFils(333)).toBe(50); // round(49.95)
+    expect(accruedSocialMediaPayFils(0)).toBe(0);
+  });
+
+  it('normal month: sums per-session accruals across the month', () => {
+    const months = aggregateMonthlyPnl([
+      row({ sessionId: 'a', dateIso: '2026-06-13', revenueFils: 100_000, courtCostFils: 20_000, profitFils: 80_000 }),
+      row({ sessionId: 'b', dateIso: '2026-06-16', revenueFils: 50_000, courtCostFils: 10_000, profitFils: 40_000 }),
+    ], [], '2026-06');
+    expect(months[0].socialMediaPayFils).toBe(12_000 + 6_000);
+    expect(months[0].managementProfitFils).toBe(months[0].netProfitFils - months[0].runnerPayFils - 18_000);
+  });
+
+  it('zero-revenue month: the line is zero, never negative', () => {
+    const months = aggregateMonthlyPnl(
+      [row({ sessionId: 'a', dateIso: '2026-06-13', revenueFils: 0, courtCostFils: 30_000, profitFils: 0 })],
+      [{ dateIso: '2026-06-14', amountFils: 5_000 }], '2026-06',
+    );
+    expect(months[0].netProfitFils).toBe(-35_000);       // net itself may be negative...
+    expect(months[0].socialMediaPayFils).toBe(0);        // ...the pay line never is
+  });
+
+  it('a losing session contributes ZERO while profitable sessions in the same month still pay', () => {
+    // The floor lives upstream in computeProfitFils — build the loser through it so the
+    // chain is pinned end-to-end, not just assumed.
+    const loserProfit = computeProfitFils({ revenueFils: 1_000, courtCostFils: 50_000, shuttleCostFils: 0, waterCostFils: 0 });
+    expect(loserProfit).toBe(0); // floored per session, upstream
+    const months = aggregateMonthlyPnl([
+      row({ sessionId: 'loss', dateIso: '2026-06-02', revenueFils: 1_000, courtCostFils: 50_000, profitFils: loserProfit }),
+      row({ sessionId: 'win', dateIso: '2026-06-04', revenueFils: 40_000, courtCostFils: 20_000, profitFils: 20_000 }),
+    ], [], '2026-06');
+    expect(months[0].socialMediaPayFils).toBe(3_000); // 15% of the winner only
+  });
+
+  it('rounds PER SESSION, not on the monthly sum', () => {
+    // Two sessions of 3 fils profit: per-session round(0.45)=0 twice → 0.
+    // A monthly-sum basis would give round(6 × 0.15) = 1. Pin the difference.
+    const months = aggregateMonthlyPnl([
+      row({ sessionId: 'a', dateIso: '2026-06-02', profitFils: 3 }),
+      row({ sessionId: 'b', dateIso: '2026-06-03', profitFils: 3 }),
+    ], [], '2026-06');
+    expect(months[0].socialMediaPayFils).toBe(0);
+  });
+
+  it('BASIS: reads profitFils (collected), NOT valueProfitFils — wallet revenue splits the two pay lines', () => {
+    // 10,000 collected + 20,000 wallet, 5,000 costs:
+    //   profitFils      = 5,000  → social  = 750
+    //   valueProfitFils = 25,000 → runner  = 6,250
+    const months = aggregateMonthlyPnl([row({
+      sessionId: 'a', dateIso: '2026-06-13',
+      revenueFils: 10_000, walletPaidFils: 20_000, valueFils: 30_000, courtCostFils: 5_000,
+      profitFils: 5_000, valueProfitFils: 25_000,
+    })], [], '2026-06');
+    expect(months[0].socialMediaPayFils).toBe(750);
+    expect(months[0].runnerPayFils).toBe(6_250);
+    expect(months[0].socialMediaPayFils).not.toBe(months[0].runnerPayFils);
+    expect(months[0].managementProfitFils).toBe(months[0].netProfitFils - 6_250 - 750);
+  });
+
+  it('UNLIKE runner pay, an unassigned session still accrues the social line', () => {
+    const months = aggregateMonthlyPnl([
+      row({ sessionId: 'a', dateIso: '2026-06-02', captainId: null, captainName: null, profitFils: 10_000, valueProfitFils: 10_000 }),
+    ], [], '2026-06');
+    expect(months[0].runnerPayFils).toBe(0);          // unassigned pays no runner
+    expect(months[0].socialMediaPayFils).toBe(1_500); // ...but she is still paid
+  });
+
+  it('weekly view leaves the line at zero (deliberate, mirrors runner pay)', () => {
+    const weeks = aggregateWeeklyPnl(
+      [row({ dateIso: '2026-06-02', revenueFils: 100_000, courtCostFils: 30_000, profitFils: 70_000 })],
+      [],
+    );
+    expect(weeks[0].socialMediaPayFils).toBe(0);
+    expect(weeks[0].managementProfitFils).toBe(weeks[0].netProfitFils); // nothing subtracted weekly
   });
 });
 
