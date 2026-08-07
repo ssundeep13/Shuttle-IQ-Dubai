@@ -331,14 +331,16 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   const aiLandedButHeld =
     aiModeEnabled && !!sugAi && !aiAdoptedRef.current && !queued && !confirmRow;
 
-  // New DATA ⇒ drop local edits and show the top option again. Keyed on the
-  // datasets, not the selected object — edits must never trigger their own
-  // reset (that was the oscillation).
+  // New PRIMARY data ⇒ drop local edits and show the top option again
+  // (the pool changed under the edits). Deliberately NOT keyed on sugAi:
+  // an AI landing must never clear the captain's in-progress edits — that
+  // is exactly the "edited" race the adoption guard protects. When edits
+  // exist at landing, the result waits behind "Use AI pick" instead.
   useEffect(() => {
     setComposed(null);
     setOptionIdx(0);
     setEphemeralSwapSlot(null);
-  }, [sugPrimary, sugAi]);
+  }, [sugPrimary]);
 
   // Tick the countdown only while a real-session pending row is on screen.
   useEffect(() => {
