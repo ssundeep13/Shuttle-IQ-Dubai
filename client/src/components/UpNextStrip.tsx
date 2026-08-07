@@ -54,6 +54,10 @@ type CourtSuggestionsResponse = {
   eligibleCount?: number;
   relaxed?: boolean;
   fromAI?: boolean;
+  // Gate 3: the server's small-pool fallback re-admitted players other
+  // courts' suggestions already hold (duplicates allowed over false "no
+  // players") — surfaced as a chip in the receipts row.
+  sharedPool?: boolean;
   waiterCount?: number;
   currentCount?: number;
   uneven?: boolean; // best available option exceeds the fair-game gap
@@ -72,6 +76,10 @@ interface UpNextStripProps {
   // Gate 3: session-level "AI matchmaking" toggle — flows into the per-court
   // suggestion query key, so flipping it regenerates every court's lineup.
   aiModeEnabled: boolean;
+  // Gate 3 (cross-court dedup): courts BEFORE this one in the shared fixed
+  // order — their displayed ephemeral picks seed this court's exclude list
+  // so sibling panels stop proposing the same four players.
+  earlierCourtIds?: string[];
 }
 
 function formatCountdown(ms: number): string {
@@ -96,7 +104,7 @@ const gapOf = (team1: SuggestionPlayer[], team2: SuggestionPlayer[]) => {
 //     (cycles ranked alternates), Confirm (pins via the existing queued
 //     endpoint), Dismiss; amber insufficient-eligible state with the
 //     nearest-tier relax action.
-export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled }: UpNextStripProps) {
+export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled, earlierCourtIds = [] }: UpNextStripProps) {
   const sessionId = court.sessionId;
   const band = (court as any).skillBand ?? "all_levels";
   // Gate 4: THIS court's on-court four — the only players allowed to repeat
@@ -200,6 +208,31 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   // empty court is the one the captain can fill right now.
   const needSuggestion = !suggestionDismissed && (isOccupied ? !queued : !confirmRow);
 
+  // Gate 3 (cross-court dedup): players currently DISPLAYED on earlier
+  // courts' ephemeral suggestions. Persisted rows (locked/pending) are the
+  // server's job; ephemerals never touch the DB, so only the client can see
+  // them — read straight from the sibling query caches at fetch time (no
+  // reactivity needed: every refetch snapshots the current cache, and the
+  // ["/api/courts"] prefix invalidations below are what trigger refetches).
+  const earlierEphemeralExcludes = (): string => {
+    const out = new Set<string>();
+    for (const earlierId of earlierCourtIds) {
+      const entries = queryClient.getQueriesData<CourtSuggestionsResponse>({
+        queryKey: ["/api/courts", earlierId, "suggestions"],
+      });
+      let newest: CourtSuggestionsResponse | undefined;
+      let newestAt = -1;
+      for (const [key, data] of entries) {
+        const at = queryClient.getQueryState(key)?.dataUpdatedAt ?? 0;
+        if (data?.options?.length && at > newestAt) { newest = data; newestAt = at; }
+      }
+      const top = newest?.options?.[0];
+      for (const p of [...(top?.team1 ?? []), ...(top?.team2 ?? [])]) out.add(p.id);
+    }
+    const ids = Array.from(out).slice(0, 64);
+    return ids.length > 0 ? `&exclude=${encodeURIComponent(ids.join(","))}` : "";
+  };
+
   // Gate 3: the court's ephemeral next-game suggestion. aiMode + relax are in
   // the key, so toggling AI (session-wide) or asking for nearest-tier players
   // triggers a fresh generation; a plain queue change does NOT (Regenerate is
@@ -208,7 +241,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     queryKey: ["/api/courts", court.id, "suggestions", { aiMode: aiModeEnabled, relax }],
     queryFn: async () => {
       const res = await fetch(
-        apiUrl(`/api/courts/${court.id}/suggestions?aiMode=${aiModeEnabled}&relax_band=${relax}`),
+        apiUrl(`/api/courts/${court.id}/suggestions?aiMode=${aiModeEnabled}&relax_band=${relax}${earlierEphemeralExcludes()}`),
         { headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` } },
       );
       if (!res.ok) throw new Error("Failed to generate suggestion");
@@ -226,7 +259,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     queryKey: ["/api/courts", court.id, "suggestions", { aiMode: false, relax, instant: true }],
     queryFn: async () => {
       const res = await fetch(
-        apiUrl(`/api/courts/${court.id}/suggestions?aiMode=false&relax_band=${relax}`),
+        apiUrl(`/api/courts/${court.id}/suggestions?aiMode=false&relax_band=${relax}${earlierEphemeralExcludes()}`),
         { headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` } },
       );
       if (!res.ok) throw new Error("Failed to generate suggestion");
@@ -262,6 +295,10 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       apiRequest("PATCH", `/api/sessions/${sessionId}/suggestions/${suggestionId}/players`, { outPlayerId, inPlayerId }),
     onSuccess: () => {
       invalidate();
+      // Gate 3 (cross-court invalidation): a committed swap moves a claim —
+      // the swapped-IN player must vanish from sibling panels and the
+      // swapped-OUT one become offerable, within one refetch, not one poll.
+      queryClient.invalidateQueries({ queryKey: ["/api/courts"], exact: false });
       setSwapOutId(null);
       toast({ title: "Lineup updated" });
     },
@@ -284,6 +321,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       apiRequest("POST", `/api/sessions/${sessionId}/suggestions/${suggestionId}/dismiss`),
     onSuccess: () => {
       invalidate();
+      // Gate 3 (cross-court invalidation): an Undo frees four claims —
+      // sibling panels should offer those players again immediately.
+      queryClient.invalidateQueries({ queryKey: ["/api/courts"], exact: false });
       setConfirmRemove(false);
       toast({ title: "Lineup unlocked" });
     },
@@ -827,6 +867,15 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         {sug.relaxed && (
           <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
             Nearest tier
+          </Badge>
+        )}
+        {sug.sharedPool && (
+          <Badge
+            variant="outline"
+            className="text-xs text-muted-foreground border-muted-foreground/30 shrink-0"
+            data-testid={`badge-shared-pool-${court.id}`}
+          >
+            Shared pool
           </Badge>
         )}
         {!composed && (baseOption.uneven ?? sug.uneven) && (

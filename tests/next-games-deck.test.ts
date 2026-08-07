@@ -31,20 +31,23 @@ describe('Gate 2: NEXT GAMES deck-lite relocation', () => {
     expect(deckIdx).toBeLessThan(gridIdx); // deck ABOVE the grid
   });
 
-  it('the deck mounts UpNextStrip with the same 5 props the CourtCard mount passed', () => {
+  it('the deck mounts UpNextStrip with the 5 props the CourtCard mount passed (+ Gate 3 exclude seed)', () => {
     const mount = deck.slice(deck.indexOf('<UpNextStrip'), deck.indexOf('/>', deck.indexOf('<UpNextStrip')));
-    for (const prop of ['court=', 'queuePlayers=', 'playingPlayerIds=', 'isSandboxSession=', 'aiModeEnabled=']) {
+    for (const prop of ['court=', 'queuePlayers=', 'playingPlayerIds=', 'isSandboxSession=', 'aiModeEnabled=', 'earlierCourtIds=']) {
       expect(mount.includes(prop), `strip mount missing ${prop}`).toBe(true);
     }
   });
 
-  it("UpNextStrip's own props interface gained nothing (behavior comes along unchanged)", () => {
+  it("UpNextStrip's props interface holds at the Gate 2 five + Gate 3's earlierCourtIds", () => {
     const iface = strip.slice(
       strip.indexOf('interface UpNextStripProps'),
       strip.indexOf('}', strip.indexOf('interface UpNextStripProps')),
     );
     const props = iface.match(/^\s{2}\w+[?]?:/gm) ?? [];
-    expect(props.length).toBe(5); // court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled
+    // court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled
+    // + earlierCourtIds (Gate 3 cross-court dedup seed — optional).
+    expect(props.length).toBe(6);
+    expect(iface.includes('earlierCourtIds?:')).toBe(true);
   });
 
   it('CourtCard no longer mounts the strip or any assign flow', () => {

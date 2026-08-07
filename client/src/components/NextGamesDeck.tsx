@@ -237,7 +237,7 @@ export function NextGamesDeck({
         onScroll={handleScroll}
         className="flex overflow-x-auto snap-x snap-mandatory gap-3 pb-1 -mx-1 px-1 md:grid md:grid-cols-2 md:overflow-x-visible md:mx-0 md:px-0 md:gap-4"
       >
-        {courts.map((court) => {
+        {courts.map((court, courtIdx) => {
           const isAvailable = court.status === "available";
           return (
             <div
@@ -265,14 +265,17 @@ export function NextGamesDeck({
                 </Badge>
               </div>
 
-              {/* The strip, unchanged — same component, same props as its old
-                  CourtCard mount. It decides its own states per court. */}
+              {/* The strip — same component as its old CourtCard mount.
+                  earlierCourtIds (Gate 3): courts before this one in the
+                  shared fixed order seed its exclude list, so sibling
+                  panels stop proposing the same four players. */}
               <UpNextStrip
                 court={court}
                 queuePlayers={queuePlayers}
                 playingPlayerIds={playingPlayerIds}
                 isSandboxSession={isSandboxSession}
                 aiModeEnabled={aiModeEnabled}
+                earlierCourtIds={courts.slice(0, courtIdx).map((c) => c.id)}
               />
 
               {/* Manual assignment lives in the deck now (free courts — the

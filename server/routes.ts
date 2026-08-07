@@ -1776,6 +1776,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await ensureRestStatesHydrated(sessionId);
       const { getPlayersOnOpenSuggestionsForOtherCourts } = await import('./auto-matchmaking');
+      const { chooseSuggestionPool } = await import('./suggestionPool');
       const queue = await storage.getQueue(sessionId);
       const sittingOut = new Set(getSittingOutPlayers(sessionId));
       // Gate 4 (rotation planner) — court-scoped claims: only suggestions
@@ -1784,29 +1785,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // never block its own next lineup — same-court repeats are legal.
       const ownCourtPlayerIds = await storage.getCourtPlayers(court.id);
       const claimCheckIds = Array.from(new Set([...queue, ...ownCourtPlayerIds]));
-      // Captain outranks background auto-claims: waiters held only by an
-      // unconfirmed orchestrator auto-row stay in THIS court's pool (fix a —
-      // otherwise two auto-rows can hold all eight waiters and starve every
-      // other court into suggesting its own current four).
-      const claimedElsewhere = await getPlayersOnOpenSuggestionsForOtherCourts(
-        sessionId, court.id, claimCheckIds, { treatAutoQueuedAsFree: true });
-
-      // WAITERS: today's pool — in queue, not sitting out, not claimed by
-      // another court. They are seated before ANY current player.
-      const queueSet = new Set(queue);
-      const waiterIds = queue.filter(id => !sittingOut.has(id) && !claimedElsewhere.has(id));
-      // CURRENTS: this court's own on-court four (court-scoped exemption).
-      const currentIds = ownCourtPlayerIds.filter(id =>
-        !queueSet.has(id) && !sittingOut.has(id) && !claimedElsewhere.has(id));
-      const currentSet = new Set(currentIds);
-      const basePool = [...waiterIds, ...currentIds];
+      // Gate 3 (cross-court dedup): the client seeds `exclude` with players
+      // already SHOWN on earlier courts' ephemeral suggestions — those never
+      // touch the DB, so only the requester can see them.
+      const excludeIds = new Set(
+        String(req.query.exclude ?? '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 64));
+      // Two claim tiers. STRICT counts every other court's open row — the
+      // auto-locked exemption ("captain outranks auto-claims", fix a) is
+      // deliberately dropped from this PLANNING view: it's why two panels
+      // could both offer players a third court had locked in. The exemption
+      // stays where it belongs — pin/assign conflict validation, so the
+      // captain can still ACT on auto-held players (capture-release evicts).
+      // LEGACY is the pre-Gate-3 pool, used only by the small-pool fallback
+      // inside chooseSuggestionPool: with under 4 strict-eligible players a
+      // duplicate suggestion beats a false "no players" state.
+      const [strictClaimed, legacyClaimed] = await Promise.all([
+        getPlayersOnOpenSuggestionsForOtherCourts(sessionId, court.id, claimCheckIds, {}),
+        getPlayersOnOpenSuggestionsForOtherCourts(sessionId, court.id, claimCheckIds, { treatAutoQueuedAsFree: true }),
+      ]);
 
       const allPlayers = await storage.getAllPlayers();
       const byId = new Map(allPlayers.map(p => [p.id, p]));
+
+      const { waiterIds, currentIds, sharedPool } = chooseSuggestionPool({
+        queue,
+        sittingOut,
+        ownCourtPlayerIds,
+        strictClaimed,
+        legacyClaimed,
+        excludeIds,
+        passesBand: (id: string) => playerPassesBand(band, byId.get(id)?.level ?? ''),
+      });
+      const currentSet = new Set(currentIds);
+      const basePool = [...waiterIds, ...currentIds];
       const inBand = basePool.filter(id => playerPassesBand(band, byId.get(id)?.level ?? ''));
 
       if (inBand.length < 4 && !relax) {
-        return res.json({ band, insufficientEligible: true, eligibleCount: inBand.length });
+        return res.json({ band, insufficientEligible: true, eligibleCount: inBand.length, ...(sharedPool ? { sharedPool: true } : {}) });
       }
 
       // relax_band: nearest-tier expansion — closest out-of-band players
@@ -1824,7 +1839,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         candidateIds = [...inBand, ...Array.from(outsideBand)];
         if (candidateIds.length < 4) {
-          return res.json({ band, insufficientEligible: true, eligibleCount: candidateIds.length, relaxed: true });
+          return res.json({ band, insufficientEligible: true, eligibleCount: candidateIds.length, relaxed: true, ...(sharedPool ? { sharedPool: true } : {}) });
         }
       }
 
@@ -2015,6 +2030,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         band,
         relaxed: relax && outsideBand.size > 0,
         fromAI,
+        // Gate 3: the small-pool fallback re-admitted players other courts'
+        // suggestions already hold — the strip shows a "Shared pool" chip.
+        ...(sharedPool ? { sharedPool: true } : {}),
         eligibleCount: inBand.length,
         // Gate 4: pool composition for the strip's copy and the smokes.
         waiterCount: rotationCandidates.filter(c => c.kind === 'waiter').length,
