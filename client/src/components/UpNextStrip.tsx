@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CourtWithPlayers, Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -319,17 +319,23 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     swapSlotOpen: ephemeralSwapSlot !== null,
     cycledIndex: optionIdx,
   });
-  // Adoption LATCHES per AI dataset (live-verify fix): selecting the display
-  // straight off adoptAi oscillated — cycling/swapping on an adopted ladder
-  // flipped the display to local, the reset effect wiped the edit, adoption
-  // flipped back. The latch keeps the adopted ladder on screen through the
-  // captain's edits; only fresh DATA (either query refetching) unlatches.
-  const aiAdoptedRef = useRef(false);
-  useEffect(() => { aiAdoptedRef.current = false; }, [sugPrimary, sugAi]);
-  if (aiModeEnabled && sugAi && adoptAi) aiAdoptedRef.current = true;
-  const sug = aiModeEnabled && sugAi && aiAdoptedRef.current ? sugAi : sugPrimary;
-  const aiLandedButHeld =
-    aiModeEnabled && !!sugAi && !aiAdoptedRef.current && !queued && !confirmRow;
+  // Adoption LATCHES per AI dataset (live-verify fixes): selecting the
+  // display straight off adoptAi oscillated (edits flipped the display, the
+  // reset wiped them, adoption flipped back), and a ref-based latch went
+  // stale — the unlatch effect ran after render without causing one, so the
+  // held state could wait forever. Reactive latch, adjusted DURING render
+  // (React's adjust-state-on-prop-change pattern): a new AI dataset
+  // unlatches; an untouched panel latches; both settle in ≤2 passes.
+  const [aiAdopted, setAiAdopted] = useState(false);
+  const [lastAiData, setLastAiData] = useState<CourtSuggestionsResponse | undefined>(undefined);
+  if (sugAi !== lastAiData) {
+    setLastAiData(sugAi);
+    setAiAdopted(false);
+  } else if (aiModeEnabled && sugAi && adoptAi && !aiAdopted) {
+    setAiAdopted(true);
+  }
+  const sug = aiModeEnabled && sugAi && aiAdopted ? sugAi : sugPrimary;
+  const aiLandedButHeld = aiModeEnabled && !!sugAi && !aiAdopted && !queued && !confirmRow;
 
   // New PRIMARY data ⇒ drop local edits and show the top option again
   // (the pool changed under the edits). Deliberately NOT keyed on sugAi:
