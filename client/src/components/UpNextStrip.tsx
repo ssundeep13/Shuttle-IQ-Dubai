@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { bandLabel, playerPassesBand } from "@/lib/bands";
 import { friendlyMessage, isConflictError, conflictNames, conflictCopy } from "@/lib/errors";
+import { formatSkillLevel } from "@shared/utils/skillUtils";
 import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Repeat2, X } from "lucide-react";
 
 // Same shape the pending-suggestions endpoint returns (shared query key —
@@ -58,6 +59,9 @@ type CourtSuggestionsResponse = {
   // courts' suggestions already hold (duplicates allowed over false "no
   // players") — surfaced as a chip in the receipts row.
   sharedPool?: boolean;
+  // Gate 4: in-band survivors of the strict claim tier. 0 with sharedPool
+  // = FULL recycle → honest empty-pool state instead of a recycled lineup.
+  strictEligibleCount?: number;
   waiterCount?: number;
   currentCount?: number;
   uneven?: boolean; // best available option exceeds the fair-game gap
@@ -113,6 +117,28 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
 
   const nameOfId = (id: string): string | undefined =>
     queuePlayers.find((p) => p.id === id)?.name ?? (court.players ?? []).find((p) => p.id === id)?.name;
+
+  // Gate 4 (ratings): same data source as the court cards — the Player
+  // objects. Compact "(NN)" on mobile; "M/F · Tier (NN)" from md up.
+  const playerOfId = (id: string): Player | undefined =>
+    queuePlayers.find((p) => p.id === id) ?? ((court.players ?? []) as Player[]).find((p) => p.id === id);
+  const ratingScore = (id: string, fallbackScore?: number): number =>
+    playerOfId(id)?.skillScore ?? fallbackScore ?? 90;
+  const ratingFull = (id: string, fallbackScore?: number): string => {
+    const p = playerOfId(id);
+    const g = p?.gender === "Female" ? "F · " : p?.gender === "Male" ? "M · " : "";
+    return `${g}${formatSkillLevel(ratingScore(id, fallbackScore))}`;
+  };
+  const RatingText = ({ id, fallbackScore }: { id: string; fallbackScore?: number }) => (
+    <>
+      <span className="text-xs text-muted-foreground shrink-0 md:hidden" data-testid={`text-rating-${court.id}-${id}`}>
+        ({ratingScore(id, fallbackScore)})
+      </span>
+      <span className="text-xs text-muted-foreground shrink-0 hidden md:inline">
+        {ratingFull(id, fallbackScore)}
+      </span>
+    </>
+  );
 
   // Conflict self-healing: plain copy (names when the payload has them),
   // then refetch this court's ladder — the fresh claims drop the conflicted
@@ -437,7 +463,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     // a member still mid-game (on any court) blocks placement.
     const busyMembers = confirmRow.players.filter((p) => playingPlayerIds.includes(p.playerId));
     const memberLabel = (p: { playerId: string; name: string }) =>
-      playingPlayerIds.includes(p.playerId) ? `${p.name} (in game)` : p.name;
+      playingPlayerIds.includes(p.playerId)
+        ? `${p.name} (${ratingScore(p.playerId)}) — in game`
+        : `${p.name} (${ratingScore(p.playerId)})`;
     const statusLine =
       busyMembers.length > 0
         ? `Waiting for ${busyMembers.map((p) => p.name).join(", ")} to finish`
@@ -450,7 +478,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
               : "Confirming…";
     return (
       <div
-        className="mt-1 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 space-y-1.5"
+        className="mt-1 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 space-y-2"
         data-testid={`strip-up-next-${court.id}`}
       >
         <div className="flex items-center gap-2">
@@ -545,8 +573,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           {team.map((p) => {
             const conflict = conflictFor(p.playerId);
             return (
-              <div key={p.playerId} className="flex items-center gap-1.5 flex-wrap" data-testid={`upnext-player-${court.id}-${p.playerId}`}>
+              <div key={p.playerId} className="flex items-center gap-2 flex-wrap" data-testid={`upnext-player-${court.id}-${p.playerId}`}>
                 <span className={cn("text-sm truncate", conflict ? "text-amber-600" : "text-foreground")}>{p.name}</span>
+                <RatingText id={p.playerId} />
                 {receiptText(p, ownCourtIds.has(p.playerId)) && (
                   <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-locked-${court.id}-${p.playerId}`}>
                     {receiptText(p, ownCourtIds.has(p.playerId))}
@@ -569,7 +598,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-1.5 text-xs text-muted-foreground"
+                  className="h-6 px-2 text-xs text-muted-foreground"
                   onClick={() => setSwapOutId(swapOutId === p.playerId ? null : p.playerId)}
                   data-testid={`button-upnext-swap-${court.id}-${p.playerId}`}
                 >
@@ -595,6 +624,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           data-testid={`button-upnext-swap-in-${court.id}-${p.id}`}
         >
           {p.name}
+          <span className="text-muted-foreground ml-1">({p.skillScore ?? 90})</span>
           {ownCourtIds.has(p.id) && <span className="text-muted-foreground ml-1">· In game</span>}
         </Button>
       ));
@@ -631,25 +661,25 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
 
         {expanded && (
           <div className="mt-2 rounded-md border border-border p-3 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {teamChips(team1, "Team 1")}
               {teamChips(team2, "Team 2")}
             </div>
 
             {swapOutId && (
-              <div className="space-y-1.5" data-testid={`upnext-swap-picker-${court.id}`}>
+              <div className="space-y-2" data-testid={`upnext-swap-picker-${court.id}`}>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Swap in from queue</p>
                 {inBandCandidates.length === 0 && outBandCandidates.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No eligible players in the queue</p>
                 ) : (
                   <>
                     {inBandCandidates.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">{candidateButtons(inBandCandidates)}</div>
+                      <div className="flex flex-wrap gap-2">{candidateButtons(inBandCandidates)}</div>
                     )}
                     {outBandCandidates.length > 0 && (
                       <>
                         <p className="text-xs text-muted-foreground uppercase tracking-wide pt-1">Outside band</p>
-                        <div className="flex flex-wrap gap-1.5">{candidateButtons(outBandCandidates)}</div>
+                        <div className="flex flex-wrap gap-2">{candidateButtons(outBandCandidates)}</div>
                       </>
                     )}
                   </>
@@ -732,7 +762,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   if (sug.insufficientEligible) {
     const isAllLevels = (sug.band ?? "all_levels") === "all_levels";
     return (
-      <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 space-y-1.5" data-testid={`strip-up-next-${court.id}`}>
+      <div className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 space-y-2" data-testid={`strip-up-next-${court.id}`}>
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-wide text-amber-700 shrink-0">Up next</span>
           <span className="text-xs text-amber-700 flex-1" data-testid={`text-up-next-insufficient-${court.id}`}>
@@ -764,6 +794,37 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         <span className="text-xs text-muted-foreground flex-1" data-testid={`text-up-next-empty-${court.id}`}>
           {claimedAwareCopy}
         </span>
+      </div>
+    );
+  }
+
+  // Gate 4 (honest empty-pool): FULL recycle — every eligible waiter is
+  // already booked to earlier courts' lineups, so the fallback could only
+  // recycle them. Say so instead of showing a recycled lineup. Partial
+  // overlap (strictEligibleCount > 0) keeps the lineup + Shared-pool chip.
+  if (sug.sharedPool && (sug.strictEligibleCount ?? 0) === 0 && !composed) {
+    return (
+      <div
+        className="mt-1 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 space-y-2"
+        data-testid={`strip-up-next-${court.id}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Up next</span>
+          <span className="text-xs text-muted-foreground flex-1" data-testid={`text-up-next-full-recycle-${court.id}`}>
+            All waiters are booked to earlier courts — this lineup fills as games finish
+          </span>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs text-muted-foreground w-full"
+          disabled={sugLoading}
+          onClick={() => refetchSuggestion()}
+          data-testid={`button-up-next-regenerate-${court.id}`}
+        >
+          <RefreshCw className="h-3.5 w-3.5 mr-1" />
+          Regenerate
+        </Button>
       </div>
     );
   }
@@ -811,8 +872,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
       <div className="space-y-1">
         {team.map((p, i) => (
-          <div key={p.id} className="flex items-center gap-1.5 flex-wrap" data-testid={`upnext-sug-player-${court.id}-${p.id}`}>
+          <div key={p.id} className="flex items-center gap-2 flex-wrap" data-testid={`upnext-sug-player-${court.id}-${p.id}`}>
             <span className="text-sm truncate">{p.name}</span>
+            <RatingText id={p.id} fallbackScore={p.skillScore} />
             {receiptText(sug?.receipts?.[p.id], !!p.inGame) && (
               <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-${court.id}-${p.id}`}>
                 {receiptText(sug?.receipts?.[p.id], !!p.inGame)}
@@ -835,7 +897,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 px-1.5 text-xs text-muted-foreground"
+              className="h-6 px-2 text-xs text-muted-foreground"
               onClick={() =>
                 setEphemeralSwapSlot(
                   ephemeralSwapSlot?.team === teamNo && ephemeralSwapSlot?.index === i ? null : { team: teamNo, index: i },
@@ -901,23 +963,24 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {suggestionTeam(current.team1, 1, "Team 1")}
         {suggestionTeam(current.team2, 2, "Team 2")}
       </div>
 
       {ephemeralSwapSlot && (
-        <div className="space-y-1.5" data-testid={`upnext-sug-swap-picker-${court.id}`}>
+        <div className="space-y-2" data-testid={`upnext-sug-swap-picker-${court.id}`}>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Swap in from queue</p>
           {inBandEph.length === 0 && outBandEph.length === 0 ? (
             <p className="text-xs text-muted-foreground">No eligible players in the queue</p>
           ) : (
             <>
               {inBandEph.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {inBandEph.map((p) => (
                     <Button key={p.id} size="sm" variant="outline" className="h-8 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-${court.id}-${p.id}`}>
                       {p.name}
+                      <span className="text-muted-foreground ml-1">({p.skillScore ?? 90})</span>
                       {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id)) && (
                         <span className="text-muted-foreground ml-1">· {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id))}</span>
                       )}
@@ -929,10 +992,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
               {outBandEph.length > 0 && (
                 <>
                   <p className="text-xs text-muted-foreground uppercase tracking-wide pt-1">Outside band</p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-2">
                     {outBandEph.map((p) => (
                       <Button key={p.id} size="sm" variant="outline" className="h-8 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-out-${court.id}-${p.id}`}>
                         {p.name}
+                        <span className="text-muted-foreground ml-1">({p.skillScore ?? 90})</span>
                         {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id)) && (
                           <span className="text-muted-foreground ml-1">· {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id))}</span>
                         )}

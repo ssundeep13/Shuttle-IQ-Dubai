@@ -33,6 +33,10 @@ interface NextGamesDeckProps {
   teamAssignments: Record<string, { team1: string[]; team2: string[] }>;
   onTogglePlayerSelection: (courtId: string, playerId: string, team: number) => void;
   onAssignPlayers: (courtId: string) => void;
+  // Gate 4: the AssignSheet's open-state lives in Home so the grid's free
+  // card and the deck link are two entry points into ONE sheet.
+  assignCourtId: string | null;
+  onOpenAssign: (courtId: string | null) => void;
 }
 
 // Compact gender·level string (same helper CourtCard uses for its rosters)
@@ -202,10 +206,11 @@ export function NextGamesDeck({
   teamAssignments,
   onTogglePlayerSelection,
   onAssignPlayers,
+  assignCourtId,
+  onOpenAssign,
 }: NextGamesDeckProps) {
   const courts = sortCourts(courtsProp);
   const playingPlayerIds = courts.flatMap((c) => c.players.map((p) => p.id));
-  const [assignCourtId, setAssignCourtId] = useState<string | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const panelRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -283,7 +288,7 @@ export function NextGamesDeck({
               {isAvailable && (
                 <button
                   type="button"
-                  onClick={() => setAssignCourtId(court.id)}
+                  onClick={() => onOpenAssign(court.id)}
                   className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
                   data-testid={`button-assign-manually-${court.id}`}
                 >
@@ -321,11 +326,12 @@ export function NextGamesDeck({
         </div>
       )}
 
-      {/* Bottom sheet (free courts only) — same sheet, new home */}
+      {/* Bottom sheet (free courts only) — ONE sheet, two entry points:
+          the deck link above and the grid's free card (Gate 4). */}
       {assignCourt && assignCourt.status === "available" && (
         <AssignSheet
           open={true}
-          onClose={() => setAssignCourtId(null)}
+          onClose={() => onOpenAssign(null)}
           court={assignCourt}
           queuePlayers={queuePlayers}
           team1Players={teamAssignments[assignCourt.id]?.team1 ?? []}

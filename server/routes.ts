@@ -1807,7 +1807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allPlayers = await storage.getAllPlayers();
       const byId = new Map(allPlayers.map(p => [p.id, p]));
 
-      const { waiterIds, currentIds, sharedPool } = chooseSuggestionPool({
+      const { waiterIds, currentIds, sharedPool, strictEligibleCount } = chooseSuggestionPool({
         queue,
         sittingOut,
         ownCourtPlayerIds,
@@ -2032,7 +2032,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fromAI,
         // Gate 3: the small-pool fallback re-admitted players other courts'
         // suggestions already hold — the strip shows a "Shared pool" chip.
-        ...(sharedPool ? { sharedPool: true } : {}),
+        // Gate 4: strictEligibleCount rides along so the strip can tell FULL
+        // recycle (0 → honest empty-pool state) from partial overlap (chip).
+        ...(sharedPool ? { sharedPool: true, strictEligibleCount } : {}),
         eligibleCount: inBand.length,
         // Gate 4: pool composition for the strip's copy and the smokes.
         waiterCount: rotationCandidates.filter(c => c.kind === 'waiter').length,

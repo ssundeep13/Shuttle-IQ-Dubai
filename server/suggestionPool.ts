@@ -11,6 +11,10 @@
 //   excludes) — a duplicate suggestion beats a false "no players" state.
 // sharedPool is true only when the fallback actually re-admitted someone,
 // so the UI chip never shows on a genuinely insufficient pool.
+// strictEligibleCount (Gate 4, display-only) carries how many in-band
+// players survived the strict tier: 0 with sharedPool means FULL recycle —
+// the UI shows an honest "all waiters are booked" state instead of a
+// recycled lineup; 1-3 is partial overlap and keeps the Shared-pool chip.
 export function chooseSuggestionPool(input: {
   queue: string[];
   sittingOut: Set<string>;
@@ -19,7 +23,7 @@ export function chooseSuggestionPool(input: {
   legacyClaimed: Set<string>;
   excludeIds: Set<string>;
   passesBand: (id: string) => boolean;
-}): { waiterIds: string[]; currentIds: string[]; sharedPool: boolean } {
+}): { waiterIds: string[]; currentIds: string[]; sharedPool: boolean; strictEligibleCount: number } {
   const queueSet = new Set(input.queue);
   const build = (claimed: Set<string>, useExcludes: boolean) => {
     const blocked = (id: string) =>
@@ -32,8 +36,8 @@ export function chooseSuggestionPool(input: {
   };
   const strict = build(input.strictClaimed, true);
   const strictInBand = [...strict.waiterIds, ...strict.currentIds].filter(input.passesBand);
-  if (strictInBand.length >= 4) return { ...strict, sharedPool: false };
+  if (strictInBand.length >= 4) return { ...strict, sharedPool: false, strictEligibleCount: strictInBand.length };
   const legacy = build(input.legacyClaimed, false);
   const legacyInBand = [...legacy.waiterIds, ...legacy.currentIds].filter(input.passesBand);
-  return { ...legacy, sharedPool: legacyInBand.length > strictInBand.length };
+  return { ...legacy, sharedPool: legacyInBand.length > strictInBand.length, strictEligibleCount: strictInBand.length };
 }

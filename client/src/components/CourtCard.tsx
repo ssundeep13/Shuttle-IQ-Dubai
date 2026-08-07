@@ -24,6 +24,9 @@ interface CourtCardProps {
   onRemoveCourt: (courtId: string) => void;
   onRecordGame: (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => void;
   onCancelGame: (courtId: string) => void;
+  // Gate 4: the free card is the grid-side entry point into the SAME
+  // AssignSheet the deck link opens (state lives in Home).
+  onOpenAssign: (courtId: string) => void;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -52,6 +55,7 @@ export function CourtCard({
   onRemoveCourt,
   onRecordGame,
   onCancelGame,
+  onOpenAssign,
 }: CourtCardProps) {
   const [bandPickerOpen, setBandPickerOpen] = useState(false);
   // Hot-path score entry: winner tap opens the inline panel; all state is
@@ -203,17 +207,21 @@ export function CourtCard({
           </div>
         )}
 
-        {/* ── Available state: slim placeholder — the court's actions
-               (confirm, assign manually) live in the NEXT GAMES deck. ── */}
+        {/* ── Available state: slim placeholder, now actionable (Gate 4) —
+               the whole card area opens the SAME AssignSheet the deck link
+               opens (state lives in Home; one flow, two entry points). ── */}
         {isAvailable && (
-          <div
-            className="flex-1 flex items-center justify-center py-6 rounded-lg bg-muted/40 border border-dashed border-border"
+          <button
+            type="button"
+            onClick={() => onOpenAssign(court.id)}
+            className="flex-1 flex flex-col items-center justify-center gap-1 py-6 rounded-lg bg-muted/40 border border-dashed border-border hover:bg-muted/60 active:scale-[0.99] transition-colors min-h-11"
             data-testid={`free-placeholder-${court.id}`}
           >
-            <p className="text-sm text-muted-foreground">
-              Free — set up the next game in Next Games
+            <p className="text-sm text-muted-foreground">Free</p>
+            <p className="text-sm font-semibold text-secondary underline-offset-2 underline">
+              Assign players
             </p>
-          </div>
+          </button>
         )}
 
         {/* ── Occupied state ── */}

@@ -61,6 +61,9 @@ export default function Home() {
   const sessionLoading = urlSessionId ? urlSessionLoading : activeSessionLoading;
 
   const [teamAssignments, setTeamAssignments] = useState<Record<string, { team1: string[]; team2: string[] }>>({});
+  // Gate 4: the AssignSheet's open-state — shared by its two entry points
+  // (deck "Assign manually" link + the grid's free card).
+  const [assignSheetCourtId, setAssignSheetCourtId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('courts');
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [showImportPlayers, setShowImportPlayers] = useState(false);
@@ -982,6 +985,8 @@ export default function Home() {
                 teamAssignments={teamAssignments}
                 onTogglePlayerSelection={handleTogglePlayerSelection}
                 onAssignPlayers={handleAssignPlayers}
+                assignCourtId={assignSheetCourtId}
+                onOpenAssign={setAssignSheetCourtId}
               />
 
               <CourtManagement
@@ -990,6 +995,7 @@ export default function Home() {
                 onRemoveCourt={handleRemoveCourt}
                 onRecordGame={handleRecordGame}
                 onCancelGame={handleCancelGame}
+                onOpenAssign={setAssignSheetCourtId}
               />
             </>
           )}
