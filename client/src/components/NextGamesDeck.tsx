@@ -240,7 +240,7 @@ export function NextGamesDeck({
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
-        className="flex overflow-x-auto snap-x snap-mandatory gap-3 pb-1 -mx-1 px-1 md:grid md:grid-cols-2 md:overflow-x-visible md:mx-0 md:px-0 md:gap-4"
+        className="flex items-start overflow-x-auto snap-x snap-mandatory gap-3 pb-1 -mx-1 px-1 md:grid md:grid-cols-2 md:overflow-x-visible md:mx-0 md:px-0 md:gap-4"
       >
         {courts.map((court, courtIdx) => {
           const isAvailable = court.status === "available";

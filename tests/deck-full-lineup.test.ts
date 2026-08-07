@@ -46,6 +46,14 @@ describe('always-visible deck lineups', () => {
     expect(block.includes('text-up-next-confirm-state-')).toBe(true);
   });
 
+  it('panels hug their own content — no tallest-sibling stretch (Finding B)', () => {
+    const deck = readFileSync(join(__dirname, '..', 'client/src/components/NextGamesDeck.tsx'), 'utf8');
+    // items-start covers BOTH the mobile flex carousel and the md/lg grid:
+    // flex/grid default (stretch) inflated every panel to the tallest sibling.
+    const scroller = deck.slice(deck.indexOf('overflow-x-auto') - 200, deck.indexOf('overflow-x-auto') + 200);
+    expect(scroller.includes('items-start')).toBe(true);
+  });
+
   it('EPHEMERAL state: lineup + why-line remain always-visible (regression pin)', () => {
     const whyIdx = strip.indexOf('text-up-next-reason-');
     const teamsIdx = strip.indexOf('{suggestionTeam(current.team2, 2, "Team 2")}');
