@@ -281,6 +281,15 @@ export function clearSittingOutPlayer(sessionId: string, playerId: string): void
 
 // ─── Fix 3: Partner history helpers ──────────────────────────────────────────
 
+// Gate 5 (repeat penalty weights): re-partnering is what players notice —
+// standing next to the same person again reads as "the app forgot us";
+// facing the same person across the net is routine in a one-night rotation.
+// Opponent weight is a third of partner weight, and both terms are capped so
+// the penalty can only ever decide between arrangements the balance sort
+// already scored as equal (±0.01 gap) — it never outbids a fairer game.
+export const PARTNER_REPEAT_WEIGHT = 15;  // per prior pairing, cap 30/pair, subtotal cap 60
+export const OPPONENT_REPEAT_WEIGHT = 5;  // per prior matchup, cap 10/pair, subtotal cap 20
+
 function partnerKey(a: string, b: string): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
@@ -290,6 +299,18 @@ function getSessionPartnerHistory(sessionId: string): Map<string, number> {
     sessionPartnerHistory.set(sessionId, new Map());
   }
   return sessionPartnerHistory.get(sessionId)!;
+}
+
+// Gate 5: opponent history — same replay source as partner history (the
+// loaded game participants), no new tracking. pairKey(me, opponent) → times
+// they have faced each other this session.
+const sessionOpponentHistory = new Map<string, Map<string, number>>();
+
+function getSessionOpponentHistory(sessionId: string): Map<string, number> {
+  if (!sessionOpponentHistory.has(sessionId)) {
+    sessionOpponentHistory.set(sessionId, new Map());
+  }
+  return sessionOpponentHistory.get(sessionId)!;
 }
 
 /**
@@ -309,6 +330,14 @@ export function updatePartnerHistory(
   if (team2.length >= 2) {
     const key = partnerKey(team2[0].id, team2[1].id);
     history.set(key, (history.get(key) ?? 0) + 1);
+  }
+  // Gate 5: opponents too — every cross-net pair faced each other once.
+  const opponents = getSessionOpponentHistory(sessionId);
+  for (const a of team1) {
+    for (const b of team2) {
+      const key = partnerKey(a.id, b.id);
+      opponents.set(key, (opponents.get(key) ?? 0) + 1);
+    }
   }
 }
 
@@ -330,6 +359,10 @@ export function buildPartnerHistoryFromHistory(
     gameGroups.get(p.gameId)!.push(p);
   }
 
+  // Gate 5: opponent counts rebuilt from the same rows — same idempotent
+  // replay, no new tracking.
+  const opponents = new Map<string, number>();
+
   for (const participants of gameGroups.values()) {
     const team1Ids = participants.filter(p => p.team === 1).map(p => p.playerId);
     const team2Ids = participants.filter(p => p.team === 2).map(p => p.playerId);
@@ -342,9 +375,16 @@ export function buildPartnerHistoryFromHistory(
       const key = partnerKey(team2Ids[0], team2Ids[1]);
       history.set(key, (history.get(key) ?? 0) + 1);
     }
+    for (const a of team1Ids) {
+      for (const b of team2Ids) {
+        const key = partnerKey(a, b);
+        opponents.set(key, (opponents.get(key) ?? 0) + 1);
+      }
+    }
   }
 
   sessionPartnerHistory.set(sessionId, history);
+  sessionOpponentHistory.set(sessionId, opponents);
 }
 
 /**
@@ -423,18 +463,56 @@ function calculateSplitPenalty(
   sessionId: string
 ): number {
   const history = getSessionPartnerHistory(sessionId);
-  let total = 0;
+  let partnerTotal = 0;
 
   if (team1.length >= 2) {
     const times = history.get(partnerKey(team1[0].id, team1[1].id)) ?? 0;
-    total += Math.min(30, times * 15);
+    partnerTotal += Math.min(30, times * PARTNER_REPEAT_WEIGHT);
   }
   if (team2.length >= 2) {
     const times = history.get(partnerKey(team2[0].id, team2[1].id)) ?? 0;
-    total += Math.min(30, times * 15);
+    partnerTotal += Math.min(30, times * PARTNER_REPEAT_WEIGHT);
   }
 
-  return Math.min(60, total);
+  // Gate 5: repeat-opponent term — lighter (a third of the partner weight)
+  // and capped, so it orders arrangements only after partner repeats agree.
+  const opponents = getSessionOpponentHistory(sessionId);
+  let opponentTotal = 0;
+  for (const a of team1) {
+    for (const b of team2) {
+      const times = opponents.get(partnerKey(a.id, b.id)) ?? 0;
+      opponentTotal += Math.min(10, times * OPPONENT_REPEAT_WEIGHT);
+    }
+  }
+
+  return Math.min(60, partnerTotal) + Math.min(20, opponentTotal);
+}
+
+/**
+ * Gate 5 receipts — the honest one-liner for a LOCAL option:
+ *   - a pair in this arrangement already partnered this session →
+ *     "played together this session" (the unavoidable-repeat case);
+ *   - none did, and at least one of the four has partnered with someone
+ *     this session → "no repeat partners" (the avoidance is real);
+ *   - nobody here has partner history yet → null (the claim is vacuous).
+ */
+export function repeatReceipt(
+  team1Ids: string[],
+  team2Ids: string[],
+  sessionId: string,
+): string | null {
+  const history = getSessionPartnerHistory(sessionId);
+  const pairCount = (ids: string[]) =>
+    ids.length >= 2 ? (history.get(partnerKey(ids[0], ids[1])) ?? 0) : 0;
+  if (pairCount(team1Ids) > 0 || pairCount(team2Ids) > 0) {
+    return "played together this session";
+  }
+  const all = [...team1Ids, ...team2Ids];
+  const anyHasHistory = Array.from(history.keys()).some(key => {
+    const [a, b] = key.split(":");
+    return all.includes(a) || all.includes(b);
+  });
+  return anyHasHistory ? "no repeat partners" : null;
 }
 
 // ─── Fix 5: Dynamic window sizing ────────────────────────────────────────────

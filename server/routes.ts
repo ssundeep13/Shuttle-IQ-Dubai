@@ -40,6 +40,7 @@ import {
 } from "./auth/storage";
 import {
   buildPartnerHistoryFromHistory,
+  repeatReceipt,
   selectOptimalPlayers,
   findBalancedTeams,
   generateAllMatchupOptions,
@@ -1891,7 +1892,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       type Option = {
         team1: any[]; team2: any[]; skillGap: number; team1Avg: number; team2Avg: number;
-        uneven: boolean; fromAI?: boolean; reason?: string;
+        uneven: boolean; fromAI?: boolean; reason?: string; splitPenalty?: number;
       };
       const playerOut = (p: any) => ({
         id: p.id,
@@ -1935,9 +1936,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const arranged = seatings
         .map(seat => pickArrangement(findBalancedTeams(seat.map(c => c.player), 3, true, sessionId), currentPairing))
         .filter((c): c is TeamCombination => !!c);
+      // Gate 5: splitPenalty rides into the option so rankByBalance can break
+      // equal-gap ties on repeats, and the local receipt says why the pick is
+      // fresh ("no repeat partners") or honest about an unavoidable repeat.
       let options: Option[] = rankByBalance(arranged)
         .slice(0, maxOptions)
-        .map(c => toOption(c.team1, c.team2));
+        .map(c => {
+          const receipt = repeatReceipt(
+            c.team1.map((p: any) => p.id), c.team2.map((p: any) => p.id), sessionId);
+          return {
+            ...toOption(c.team1, c.team2),
+            splitPenalty: c.splitPenalty,
+            ...(receipt ? { reason: receipt } : {}),
+          };
+        });
       let fromAI = false;
 
       // AI five-option set (2026-07 gate): ONE call returns the full ladder.

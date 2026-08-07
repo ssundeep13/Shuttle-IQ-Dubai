@@ -177,8 +177,14 @@ export function buildRotationSeatings(ordered: RotationCandidate[]): RotationCan
 export const FAIR_GAME_GAP = 8;
 
 // Balance-first option ranking (owner ruling): among rotation-legal
-// seatings, the lowest skill gap wins. Stable sort — equal gaps keep
-// rotation order, so fairness still breaks balance ties.
-export function rankByBalance<T extends { skillGap: number }>(arranged: T[]): T[] {
-  return [...arranged].sort((a, b) => a.skillGap - b.skillGap);
+// seatings, the lowest skill gap wins. Gate 5: within a gap tie (±0.01,
+// same threshold findBalancedTeams uses), fewer repeat partners/opponents
+// win (splitPenalty asc). Stable sort — full ties still keep rotation
+// order, so wait-time fairness remains the final tie-break, and options
+// without a penalty (AI-authored) sort as penalty 0.
+export function rankByBalance<T extends { skillGap: number; splitPenalty?: number }>(arranged: T[]): T[] {
+  return [...arranged].sort((a, b) => {
+    if (Math.abs(a.skillGap - b.skillGap) >= 0.01) return a.skillGap - b.skillGap;
+    return (a.splitPenalty ?? 0) - (b.splitPenalty ?? 0);
+  });
 }
