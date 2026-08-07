@@ -1768,6 +1768,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const band = court.skillBand ?? 'all_levels';
       const relax = req.query.relax_band === 'true';
       const aiMode = req.query.aiMode !== 'false';
+      // Gate 6 (local-first async AI): the base request NEVER waits for the
+      // AI — it returns the local ladder immediately with aiPending: true,
+      // and the client follows up with aiOnly=true, which runs the existing
+      // AI block (same 10s timeout, same validation, same local fallback)
+      // against the freshest pool. Stateless by design: no server cache to
+      // go stale under the orchestrator's constant churn.
+      const aiOnly = req.query.aiOnly === 'true';
       // Deferred-fix sweep: response-size cap only (ranking unchanged). The
       // fill-all path asks for the FULL ladder: at exactly 8 players the
       // one disjoint complement of another court's pick can rank anywhere
@@ -1962,7 +1969,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // guard); invalid ones are dropped and backfilled from the local
       // ladder. Total failure/timeout → the local ladder stands untouched.
       const orderedWaiters = ordered.filter(c => c.kind === 'waiter');
-      if (aiMode && process.env.ANTHROPIC_API_KEY && orderedWaiters.length >= 4) {
+      // Gate 6: same eligibility the AI block always had — but the block now
+      // runs ONLY on the aiOnly follow-up; the base request flags aiPending
+      // instead of blocking on the model call.
+      const aiEligible = aiMode && !!process.env.ANTHROPIC_API_KEY && orderedWaiters.length >= 4;
+      if (aiEligible && aiOnly) {
         try {
           const candidates = orderedWaiters.slice(0, 10).map(c => c.player);
           const recentPairings = deriveRecentPairings(history);
@@ -2042,6 +2053,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         band,
         relaxed: relax && outsideBand.size > 0,
         fromAI,
+        // Gate 6: the base response says an AI pass is worth a follow-up;
+        // the aiOnly response never sets it (it IS the follow-up).
+        ...(aiEligible && !aiOnly ? { aiPending: true } : {}),
         // Gate 3: the small-pool fallback re-admitted players other courts'
         // suggestions already hold — the strip shows a "Shared pool" chip.
         // Gate 4: strictEligibleCount rides along so the strip can tell FULL

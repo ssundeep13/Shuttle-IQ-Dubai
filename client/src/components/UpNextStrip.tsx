@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { bandLabel, playerPassesBand } from "@/lib/bands";
 import { friendlyMessage, isConflictError, conflictNames, conflictCopy } from "@/lib/errors";
 import { formatSkillLevel } from "@shared/utils/skillUtils";
+import { shouldAdoptAiResult } from "@/lib/aiAdoption";
 import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Repeat2, X } from "lucide-react";
 
 // Same shape the pending-suggestions endpoint returns (shared query key —
@@ -62,6 +63,9 @@ type CourtSuggestionsResponse = {
   // Gate 4: in-band survivors of the strict claim tier. 0 with sharedPool
   // = FULL recycle → honest empty-pool state instead of a recycled lineup.
   strictEligibleCount?: number;
+  // Gate 6: the base (non-blocking) response says an AI enrichment pass is
+  // available — the client follows up with aiOnly=true.
+  aiPending?: boolean;
   waiterCount?: number;
   currentCount?: number;
   uneven?: boolean; // best available option exceeds the fair-game gap
@@ -267,6 +271,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   // the key, so toggling AI (session-wide) or asking for nearest-tier players
   // triggers a fresh generation; a plain queue change does NOT (Regenerate is
   // the explicit refresh — keeps AI spend deliberate).
+  // Gate 6: this base request is now ALWAYS instant — the server returns the
+  // local ladder immediately with aiPending, so the separate free-court
+  // "instant" query is gone (it existed only because this one blocked 10s).
   const { data: sugPrimary, isFetching: sugLoading, refetch: refetchSuggestion } = useQuery<CourtSuggestionsResponse>({
     queryKey: ["/api/courts", court.id, "suggestions", { aiMode: aiModeEnabled, relax }],
     queryFn: async () => {
@@ -282,26 +289,42 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     refetchOnWindowFocus: false,
   });
 
-  // AI five-option gate: the AI set can take up to 10s. A FREE court must be
-  // actionable NOW — a fast local ladder renders immediately and the AI set
-  // replaces it when it lands (the sug swap below resets cycling state).
-  const { data: sugInstant } = useQuery<CourtSuggestionsResponse>({
-    queryKey: ["/api/courts", court.id, "suggestions", { aiMode: false, relax, instant: true }],
+  // Gate 6: the async AI follow-up — fires once the base response says an AI
+  // pass is worth it. Same endpoint, aiOnly=true: the server runs the
+  // unchanged AI block (10s timeout, validation, local fallback) against the
+  // freshest pool and returns the merged ladder.
+  const { data: sugAi, isFetching: aiFetching, refetch: refetchAi } = useQuery<CourtSuggestionsResponse>({
+    queryKey: ["/api/courts", court.id, "suggestions", { aiOnly: true, relax }],
     queryFn: async () => {
       const res = await fetch(
-        apiUrl(`/api/courts/${court.id}/suggestions?aiMode=false&relax_band=${relax}${earlierEphemeralExcludes()}`),
+        apiUrl(`/api/courts/${court.id}/suggestions?aiMode=true&aiOnly=true&relax_band=${relax}${earlierEphemeralExcludes()}`),
         { headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` } },
       );
-      if (!res.ok) throw new Error("Failed to generate suggestion");
+      if (!res.ok) throw new Error("Failed to enrich suggestion");
       return res.json();
     },
-    enabled: needSuggestion && !isOccupied && aiModeEnabled,
+    enabled: needSuggestion && aiModeEnabled && !!sugPrimary?.aiPending,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
-  const sug = sugPrimary ?? (!isOccupied && aiModeEnabled ? sugInstant : undefined);
 
-  // New data ⇒ drop local edits and show the top option again.
+  // Gate 6 race guard: a late AI result may replace the DISPLAY only while
+  // the captain hasn't touched anything. Persisted rows (locked/confirm)
+  // render from their own branches before this value is ever used — the
+  // helper makes that rule explicit and unit-testable. "Use AI pick" below
+  // is the one-tap adoption: clearing the edits is what adopts.
+  const adoptAi = shouldAdoptAiResult({
+    hasPersistedRow: !!queued || !!confirmRow,
+    hasComposedEdit: composed !== null,
+    swapSlotOpen: ephemeralSwapSlot !== null,
+    cycledIndex: optionIdx,
+  });
+  const sug = aiModeEnabled && sugAi && adoptAi ? sugAi : sugPrimary;
+  const aiLandedButHeld = aiModeEnabled && !!sugAi && !adoptAi && !queued && !confirmRow;
+
+  // New data ⇒ drop local edits and show the top option again. (Adoption
+  // only flips `sug` when nothing was touched, so this reset is a no-op in
+  // that case; it still clears edits when the BASE ladder refreshes.)
   useEffect(() => {
     setComposed(null);
     setOptionIdx(0);
@@ -822,7 +845,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           size="sm"
           variant="ghost"
           className="h-8 text-xs text-muted-foreground w-full"
-          disabled={sugLoading}
+          disabled={sugLoading || aiFetching}
           onClick={() => refetchSuggestion()}
           data-testid={`button-up-next-regenerate-${court.id}`}
         >
@@ -952,18 +975,31 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             Best available — teams uneven
           </span>
         )}
-        {!composed && baseOption.reason && (
-          <span
-            className="text-xs text-muted-foreground truncate"
-            data-testid={`text-up-next-reason-${court.id}`}
-          >
-            {baseOption.reason}
-          </span>
-        )}
         {sugLoading && (
           <span className="text-xs text-muted-foreground shrink-0 animate-pulse">
             Finding best matches…
           </span>
+        )}
+        {/* Gate 6: async AI status — enrichment in flight, or landed while
+            the captain was mid-edit (one tap adopts by clearing the edits). */}
+        {aiFetching && (
+          <span
+            className="text-xs text-muted-foreground shrink-0 animate-pulse"
+            data-testid={`text-up-next-ai-pending-${court.id}`}
+          >
+            Improving with AI…
+          </span>
+        )}
+        {aiLandedButHeld && !aiFetching && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs text-secondary border-secondary/40 shrink-0"
+            onClick={() => { setComposed(null); setEphemeralSwapSlot(null); setOptionIdx(0); }}
+            data-testid={`button-up-next-use-ai-${court.id}`}
+          >
+            Use AI pick
+          </Button>
         )}
       </div>
 
@@ -971,6 +1007,17 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         {suggestionTeam(current.team1, 1, "Team 1")}
         {suggestionTeam(current.team2, 2, "Team 2")}
       </div>
+
+      {/* Gate 6: the why-line — the option's reason as one quiet line under
+          the lineup (relocated from the meta row; same testid). */}
+      {!composed && baseOption.reason && (
+        <p
+          className="text-xs text-secondary"
+          data-testid={`text-up-next-reason-${court.id}`}
+        >
+          {baseOption.reason}
+        </p>
+      )}
 
       {ephemeralSwapSlot && (
         <div className="space-y-2" data-testid={`upnext-sug-swap-picker-${court.id}`}>
@@ -1036,13 +1083,15 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             size="sm"
             variant="ghost"
             className="h-8 text-xs text-muted-foreground"
-            disabled={sugLoading}
+            disabled={sugLoading || aiFetching}
             onClick={() => {
               if (composed) { setComposed(null); return; }
               // Cycle the merged ladder; when exhausted, refetch — which may
               // fire a fresh AI call (one per exhaust, see gate report).
               if (optionIdx + 1 < options.length) setOptionIdx(optionIdx + 1);
-              else { setOptionIdx(0); refetchSuggestion(); }
+              // Gate 6: exhausting the ladder goes straight to the AI path
+              // when AI is on (spinner above); local refresh otherwise.
+              else { setOptionIdx(0); if (aiModeEnabled) refetchAi(); else refetchSuggestion(); }
             }}
             data-testid={`button-up-next-regenerate-${court.id}`}
           >
