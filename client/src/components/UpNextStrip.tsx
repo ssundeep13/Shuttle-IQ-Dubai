@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CourtWithPlayers, Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -319,17 +319,26 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     swapSlotOpen: ephemeralSwapSlot !== null,
     cycledIndex: optionIdx,
   });
-  const sug = aiModeEnabled && sugAi && adoptAi ? sugAi : sugPrimary;
-  const aiLandedButHeld = aiModeEnabled && !!sugAi && !adoptAi && !queued && !confirmRow;
+  // Adoption LATCHES per AI dataset (live-verify fix): selecting the display
+  // straight off adoptAi oscillated — cycling/swapping on an adopted ladder
+  // flipped the display to local, the reset effect wiped the edit, adoption
+  // flipped back. The latch keeps the adopted ladder on screen through the
+  // captain's edits; only fresh DATA (either query refetching) unlatches.
+  const aiAdoptedRef = useRef(false);
+  useEffect(() => { aiAdoptedRef.current = false; }, [sugPrimary, sugAi]);
+  if (aiModeEnabled && sugAi && adoptAi) aiAdoptedRef.current = true;
+  const sug = aiModeEnabled && sugAi && aiAdoptedRef.current ? sugAi : sugPrimary;
+  const aiLandedButHeld =
+    aiModeEnabled && !!sugAi && !aiAdoptedRef.current && !queued && !confirmRow;
 
-  // New data ⇒ drop local edits and show the top option again. (Adoption
-  // only flips `sug` when nothing was touched, so this reset is a no-op in
-  // that case; it still clears edits when the BASE ladder refreshes.)
+  // New DATA ⇒ drop local edits and show the top option again. Keyed on the
+  // datasets, not the selected object — edits must never trigger their own
+  // reset (that was the oscillation).
   useEffect(() => {
     setComposed(null);
     setOptionIdx(0);
     setEphemeralSwapSlot(null);
-  }, [sug]);
+  }, [sugPrimary, sugAi]);
 
   // Tick the countdown only while a real-session pending row is on screen.
   useEffect(() => {
