@@ -11,10 +11,12 @@ const deck = read('client/src/components/NextGamesDeck.tsx');
 const home = read('client/src/pages/Home.tsx');
 
 describe('Gate 4.1 — ratings on every deck player row', () => {
-  it('RatingText renders compact "(NN)" below md and "M/F · Tier (NN)" from md up, from the Player source', () => {
+  it('RatingText renders compact "(NN)" below lg and "M/F · Tier (NN)" from lg up, from the Player source', () => {
+    // lg, not md: live verification showed the full form wraps rows to 100px+
+    // in md's two-up panels — the spec's "at md+ IF it fits" resolves to lg.
     expect(strip.includes('const RatingText')).toBe(true);
-    expect(strip.includes('md:hidden')).toBe(true);          // compact on mobile
-    expect(strip.includes('hidden md:inline')).toBe(true);   // full at md+
+    expect(strip.includes('lg:hidden')).toBe(true);          // compact below lg
+    expect(strip.includes('hidden lg:inline')).toBe(true);   // full at lg+
     expect(strip.includes('formatSkillLevel(ratingScore(')).toBe(true); // same source as court cards
   });
 

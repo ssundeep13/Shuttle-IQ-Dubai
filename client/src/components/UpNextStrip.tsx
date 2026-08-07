@@ -131,10 +131,14 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   };
   const RatingText = ({ id, fallbackScore }: { id: string; fallbackScore?: number }) => (
     <>
-      <span className="text-xs text-muted-foreground shrink-0 md:hidden" data-testid={`text-rating-${court.id}-${id}`}>
+      {/* Full form only from lg: md deck panels are two-up (~360px) with
+          half-width team columns, where "M · Tier (NN)" wraps rows to 100px+.
+          The spec's own rule — full form at md+ IF it fits without wrapping —
+          resolves to lg, where panels are wide enough. */}
+      <span className="text-xs text-muted-foreground shrink-0 lg:hidden" data-testid={`text-rating-${court.id}-${id}`}>
         ({ratingScore(id, fallbackScore)})
       </span>
-      <span className="text-xs text-muted-foreground shrink-0 hidden md:inline">
+      <span className="text-xs text-muted-foreground shrink-0 hidden lg:inline">
         {ratingFull(id, fallbackScore)}
       </span>
     </>
