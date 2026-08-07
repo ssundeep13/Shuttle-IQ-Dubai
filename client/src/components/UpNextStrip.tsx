@@ -665,7 +665,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
 
         {expanded && (
           <div className="mt-2 rounded-md border border-border p-3 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               {teamChips(team1, "Team 1")}
               {teamChips(team2, "Team 2")}
             </div>
@@ -967,7 +967,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {suggestionTeam(current.team1, 1, "Team 1")}
         {suggestionTeam(current.team2, 2, "Team 2")}
       </div>
