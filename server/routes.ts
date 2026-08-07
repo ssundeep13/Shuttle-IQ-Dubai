@@ -1388,7 +1388,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (court.status === 'occupied') {
         return res.status(400).json({ error: "Cannot delete occupied court" });
       }
-      
+
+      // Gate 1 (claim-leak fix): release every open suggestion row — auto AND
+      // captain-pinned — BEFORE the court disappears. Without this, the dead
+      // court's rows keep their player claims forever and silently shrink
+      // every other court's pool (the stale-auto sweep only covers 'auto'
+      // rows, and only on assignment).
+      const released = await storage.releaseOpenSuggestionsForCourt(req.params.id);
+      if (released > 0) {
+        console.log(`[Court delete] released ${released} open suggestion row(s) for court ${req.params.id}`);
+      }
+
       const deleted = await storage.deleteCourt(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Court not found" });

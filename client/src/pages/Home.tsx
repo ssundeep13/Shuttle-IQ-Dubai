@@ -100,6 +100,9 @@ export default function Home() {
       return await apiRequest('GET', url);
     },
     enabled: hasSession,
+    // Two-captain staleness (Gate 0 A2): a second captain's confirms appear
+    // within one poll — matches the Up Next strip's cadence.
+    refetchInterval: 10_000,
   });
 
   // Fetch players (only when session exists)

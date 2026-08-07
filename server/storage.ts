@@ -277,6 +277,9 @@ export interface IStorage {
   // Gate 4b CAS transitions — return true only if this caller won the state
   // change; on false the caller must NOT proceed with side effects.
   dismissSuggestionIfInFlight(suggestionId: string, pendingUntil: Date): Promise<boolean>;
+  // Court-delete cascade: release EVERY open suggestion row for a court (auto
+  // and captain-pinned alike) so its player claims return to the pool.
+  releaseOpenSuggestionsForCourt(courtId: string): Promise<number>;
   occupyCourtIfAvailable(courtId: string): Promise<boolean>;
   
   // Complex queries
@@ -1703,6 +1706,25 @@ export class DatabaseStorage implements IStorage {
         )
       );
     });
+  }
+
+  // Court-delete cascade — mirrors the end-session dismissal (the sessionId-
+  // scoped sweep above) but scoped to ONE court. Statuses match the claim
+  // query in auto-matchmaking (getPlayersOnOpenSuggestions*): a row in any of
+  // these states holds player claims, so dismissing exactly this set is what
+  // returns those players to every other court's pool. 'playing' can only
+  // exist here as stale data (the delete route refuses occupied courts), so
+  // releasing it too is cleanup, never a live-game kill.
+  async releaseOpenSuggestionsForCourt(courtId: string): Promise<number> {
+    const released = await db
+      .update(matchSuggestions)
+      .set({ status: 'dismissed' })
+      .where(and(
+        eq(matchSuggestions.courtId, courtId),
+        inArray(matchSuggestions.status, ['pending', 'approved', 'playing', 'queued']),
+      ))
+      .returning({ id: matchSuggestions.id });
+    return released.length;
   }
 
   // ─── Gate 4b CAS transitions ───────────────────────────────────────────────
