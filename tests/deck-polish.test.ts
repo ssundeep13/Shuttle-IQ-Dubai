@@ -25,7 +25,9 @@ describe('Gate 4.1 — ratings on every deck player row', () => {
     expect(strip.includes('<RatingText id={p.id} fallbackScore={p.skillScore} />')).toBe(true); // ephemeral rows
     // swap pickers append the compact score inside candidate buttons
     expect((strip.match(/\(\{p\.skillScore \?\? 90\}\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
-    expect(strip.includes('${p.name} (${ratingScore(p.playerId)})')).toBe(true); // confirm-row memberLabel
+    // confirm rows: full team lines with RatingText (always-visible-lineup
+    // gate replaced the old memberLabel summary)
+    expect(strip.includes('upnext-confirm-player-')).toBe(true);
   });
 
   it('nothing renders under 12px — rating text is text-xs', () => {

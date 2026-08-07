@@ -506,10 +506,27 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     // Gate 4: Confirm-to-START is gated until every member is off court —
     // a member still mid-game (on any court) blocks placement.
     const busyMembers = confirmRow.players.filter((p) => playingPlayerIds.includes(p.playerId));
-    const memberLabel = (p: { playerId: string; name: string }) =>
-      playingPlayerIds.includes(p.playerId)
-        ? `${p.name} (${ratingScore(p.playerId)}) — in game`
-        : `${p.name} (${ratingScore(p.playerId)})`;
+    // Always-visible lineup (real-phone gate): the truncating one-line
+    // summary hid who's next — the four names + ratings now render in full
+    // on every width, no tap required.
+    const confirmTeam = (team: typeof t1, label: string) => (
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
+        <div className="space-y-1">
+          {team.map((p) => (
+            <div key={p.playerId} className="flex items-center gap-2 flex-wrap" data-testid={`upnext-confirm-player-${court.id}-${p.playerId}`}>
+              <span className="text-sm truncate">{p.name}</span>
+              <RatingText id={p.playerId} />
+              {playingPlayerIds.includes(p.playerId) && (
+                <Badge variant="outline" className="text-xs text-muted-foreground border-muted-foreground/30 shrink-0">
+                  In game
+                </Badge>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
     const statusLine =
       busyMembers.length > 0
         ? `Waiting for ${busyMembers.map((p) => p.name).join(", ")} to finish`
@@ -538,9 +555,10 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           >
             {isCaptainRow ? "Captain" : "Auto"}
           </Badge>
-          <span className="text-xs text-muted-foreground truncate flex-1">
-            {t1.map(memberLabel).join(" + ")} vs {t2.map(memberLabel).join(" + ")}
-          </span>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {confirmTeam(t1, "Team 1")}
+          {confirmTeam(t2, "Team 2")}
         </div>
         <div className="space-y-2">
           <span className="block text-xs text-muted-foreground" data-testid={`text-up-next-confirm-state-${court.id}`}>
@@ -639,16 +657,20 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
                     {conflict}
                   </Badge>
                 )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 px-2 text-xs text-muted-foreground"
-                  onClick={() => setSwapOutId(swapOutId === p.playerId ? null : p.playerId)}
-                  data-testid={`button-upnext-swap-${court.id}-${p.playerId}`}
-                >
-                  <Repeat2 className="h-3 w-3 mr-1" />
-                  Swap
-                </Button>
+                {/* Always-visible lineup (real-phone gate): the Swap control
+                    is the only part that stays behind the Edit toggle. */}
+                {expanded && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs text-muted-foreground"
+                    onClick={() => setSwapOutId(swapOutId === p.playerId ? null : p.playerId)}
+                    data-testid={`button-upnext-swap-${court.id}-${p.playerId}`}
+                  >
+                    <Repeat2 className="h-3 w-3 mr-1" />
+                    Swap
+                  </Button>
+                )}
               </div>
             );
           })}
@@ -697,19 +719,23 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           {conflicts.length > 0 && (
             <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" data-testid={`icon-up-next-conflict-${court.id}`} />
           )}
-          <span className="text-xs text-muted-foreground truncate flex-1">
-            {team1.map((p) => p.name).join(" + ")} vs {team2.map((p) => p.name).join(" + ")}
+          {/* Real-phone gate: the truncating names summary is gone — the
+              full lineup renders below on every width; the toggle now only
+              reveals the edit controls (Swap, Undo). */}
+          <span className="text-xs text-muted-foreground shrink-0 ml-auto">
+            {expanded ? "Done" : "Edit"}
           </span>
           {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
         </button>
 
-        {expanded && (
-          <div className="mt-2 rounded-md border border-border p-3 space-y-3">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {teamChips(team1, "Team 1")}
-              {teamChips(team2, "Team 2")}
-            </div>
+        <div className="mt-2 rounded-md border border-border p-3 space-y-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {teamChips(team1, "Team 1")}
+            {teamChips(team2, "Team 2")}
+          </div>
 
+          {expanded && (
+            <>
             {swapOutId && (
               <div className="space-y-2" data-testid={`upnext-swap-picker-${court.id}`}>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Swap in from queue</p>
@@ -742,8 +768,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
               <X className="h-4 w-4 mr-1" />
               Undo
             </Button>
-          </div>
-        )}
+            </>
+          )}
+        </div>
 
         <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
           <AlertDialogContent>
