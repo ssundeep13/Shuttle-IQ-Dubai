@@ -5,7 +5,7 @@
 // same query keys, so both screens share a cache.
 import { useState, type CSSProperties } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { ArrowLeft, ArrowRight, Check, Copy, Gift } from 'lucide-react';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -39,6 +39,7 @@ interface ReferralStatus {
 
 export default function ReferralScreen() {
   usePageTitle('Referrals');
+  const [, navigate] = useLocation();
   const { user } = useMarketplaceAuth();
   const linkedPlayerId = user?.linkedPlayerId;
   const { toast } = useToast();
@@ -101,7 +102,19 @@ export default function ReferralScreen() {
               <div className="space-y-4">
                 {/* Wallet balance + friends played */}
                 <div className="flex items-end gap-4" style={{ padding: 14, borderRadius: 12, background: MKT.cream }}>
-                  <div className="flex-1 min-w-0">
+                  {/* Wallet figure taps through to the history view — same
+                      pattern as the Profile card (press state + keyboard).
+                      The "Friends played" half of the strip stays static. */}
+                  <div
+                    className="flex-1 min-w-0 transition-transform active:scale-[0.99]"
+                    style={{ cursor: 'pointer' }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="View wallet history"
+                    data-testid="button-referrals-wallet"
+                    onClick={() => navigate('/marketplace/wallet')}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/marketplace/wallet'); } }}
+                  >
                     <p style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Wallet balance</p>
                     <p style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 30, color: MKT.navy, letterSpacing: '-0.025em', lineHeight: 1, marginTop: 4 }} data-testid="text-wallet-balance">
                       AED {(referralData.walletBalance / 100).toFixed(2)}

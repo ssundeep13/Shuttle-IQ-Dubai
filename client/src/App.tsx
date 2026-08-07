@@ -45,6 +45,7 @@ import ResetPassword from "@/pages/marketplace/ResetPassword";
 import VerifyEmail from "@/pages/marketplace/VerifyEmail";
 import GuestCancel from "@/pages/marketplace/GuestCancel";
 import GameHistory from "@/pages/marketplace/GameHistory";
+import WalletScreen from "@/pages/marketplace/WalletScreen";
 import JoinTheCrew from "@/pages/marketplace/JoinTheCrew";
 import ScoringGuide from "@/pages/marketplace/ScoringGuide";
 import GoogleAuthCallback from "@/pages/marketplace/GoogleAuthCallback";
@@ -250,6 +251,9 @@ function Router() {
         </Route>
         <Route path="/marketplace/game-history">
           <MarketplaceAuthRoute component={GameHistory} />
+        </Route>
+        <Route path="/marketplace/wallet">
+          <MarketplaceAuthRoute component={WalletScreen} />
         </Route>
         <Route path="/marketplace/profile">
           <MarketplaceAuthRoute component={Profile} />

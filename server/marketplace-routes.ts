@@ -51,7 +51,8 @@ import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from 
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
 import { sql, eq, and, or, inArray, desc, asc, gt } from "drizzle-orm";
-import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, feedEventLikes, marketplaceUsers, type BookableSession } from "@shared/schema";
+import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, feedEventLikes, marketplaceUsers, walletTransactions, type BookableSession } from "@shared/schema";
+import { walletDisplayLabel } from "./walletDisplay";
 import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor, feedEventHeadline, assembleTagWall } from "./feedEvents";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
 import { applyPendingWalletCredit } from "./promos";
@@ -867,6 +868,56 @@ export function registerMarketplaceRoutes(app: Express) {
       return res.json({ walletBalance: player?.walletBalance ?? 0 });
     } catch {
       res.status(500).json({ error: "Failed to fetch wallet balance" });
+    }
+  });
+
+  // Wallet transaction history — READ-ONLY over the ledger, SELF-SCOPED by
+  // construction: the player is resolved from the authenticated user alone;
+  // no query/param can name another player. Display labels are mapped
+  // server-side (walletDisplayLabel) — raw ledger enums never leave here.
+  app.get("/api/marketplace/me/wallet/transactions", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) ?? "50", 10) || 50));
+      const offset = Math.max(0, parseInt((req.query.offset as string) ?? "0", 10) || 0);
+
+      const user = await storage.getMarketplaceUser(req.user.userId);
+      if (!user?.linkedPlayerId) {
+        return res.json({ walletBalanceAed: 0, total: 0, transactions: [] });
+      }
+      const player = await storage.getPlayer(user.linkedPlayerId);
+
+      const rows = await db
+        .select({
+          amountFils: walletTransactions.amountFils,
+          balanceAfterFils: walletTransactions.balanceAfterFils,
+          type: walletTransactions.type,
+          description: walletTransactions.description,
+          createdAt: walletTransactions.createdAt,
+        })
+        .from(walletTransactions)
+        .where(eq(walletTransactions.playerId, user.linkedPlayerId))
+        .orderBy(desc(walletTransactions.createdAt), desc(walletTransactions.id))
+        .limit(limit)
+        .offset(offset);
+      const [{ total }] = await db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(walletTransactions)
+        .where(eq(walletTransactions.playerId, user.linkedPlayerId));
+
+      res.json({
+        walletBalanceAed: (player?.walletBalance ?? 0) / 100,
+        total,
+        transactions: rows.map((r) => ({
+          date: r.createdAt.toISOString(),
+          amountAed: r.amountFils / 100,
+          label: walletDisplayLabel(r.type, r.description),
+          balanceAfterAed: r.balanceAfterFils / 100,
+        })),
+      });
+    } catch (err) {
+      console.error("[Wallet] transactions error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load wallet history" });
     }
   });
 

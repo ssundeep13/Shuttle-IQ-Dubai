@@ -1,4 +1,5 @@
 import { useRef, useState, type CSSProperties } from 'react';
+import { useLocation } from 'wouter';
 import { apiUrl } from '@/lib/queryClient';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
@@ -88,6 +89,7 @@ function BirthdayCard({ birthDay, birthMonth, birthYear }: { birthDay?: number |
 
 export default function Profile() {
   usePageTitle('Profile');
+  const [, navigate] = useLocation();
   const { user, logout } = useMarketplaceAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -628,7 +630,18 @@ export default function Profile() {
           )}
           {walletData !== undefined && (
             <motion.div variants={fadeInUp}>
-              <Card style={cardChrome} data-testid="card-wallet-balance">
+              {/* Whole card navigates to the wallet history view. Same press
+                  affordance as the app's other tap targets (active scale). */}
+              <Card
+                style={{ ...cardChrome, cursor: 'pointer' }}
+                className="transition-transform active:scale-[0.99]"
+                data-testid="card-wallet-balance"
+                role="button"
+                tabIndex={0}
+                aria-label="View wallet history"
+                onClick={() => navigate('/marketplace/wallet')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/marketplace/wallet'); } }}
+              >
                 <CardContent className="p-4 flex items-center gap-3">
                   <div className={`h-9 w-9 rounded-md flex items-center justify-center shrink-0 ${walletData.walletBalance > 0 ? 'bg-secondary/15' : 'bg-muted'}`}>
                     <Wallet className={`h-5 w-5 ${walletData.walletBalance > 0 ? 'text-secondary' : 'text-muted-foreground'}`} />
