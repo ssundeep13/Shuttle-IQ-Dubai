@@ -2,6 +2,11 @@
 //
 //   npx tsx scripts/launch-week-credit.mts <sessionId>            # dry run, writes nothing
 //   npx tsx scripts/launch-week-credit.mts <sessionId> --execute  # credit
+//   npx tsx scripts/launch-week-credit.mts <sessionId> --label "Dubailand promo" --execute
+//
+// --label sets the ledger description AND idempotency key as
+// "<label> · session <id>". Omitted, it defaults to "launch week credit" so
+// every past run stays matched and re-runs stay idempotent.
 //
 // WHO QUALIFIES — paid AND played:
 //   A. Booking holders: a CONFIRMED booking on this session with amount_aed > 0
@@ -29,15 +34,18 @@ import { applyWalletDelta } from '../server/walletLedger';
 const LAUNCH_CREDIT_FILS = 1500;
 const args = process.argv.slice(2);
 const EXECUTE = args.includes('--execute');
-const SESSION_ID = args.find(a => !a.startsWith('--'));
+const labelIdx = args.indexOf('--label');
+const LABEL = labelIdx >= 0 && args[labelIdx + 1] ? args[labelIdx + 1] : 'launch week credit';
+// The session id is the first non-flag arg that is NOT the --label value.
+const SESSION_ID = args.find((a, i) => !a.startsWith('--') && i !== labelIdx + 1);
 
 if (!SESSION_ID) {
-  console.error('Usage: npx tsx scripts/launch-week-credit.mts <sessionId> [--execute]');
+  console.error('Usage: npx tsx scripts/launch-week-credit.mts <sessionId> [--label "<promo label>"] [--execute]');
   process.exit(1);
 }
 
 /** The idempotency key AND the finance trace, in one string. */
-const marker = (sessionId: string) => `launch week credit · session ${sessionId}`;
+const marker = (sessionId: string) => `${LABEL} · session ${sessionId}`;
 
 interface Row {
   playerId: string;

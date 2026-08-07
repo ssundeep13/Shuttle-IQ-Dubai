@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { isZiinaPaymentSuccessful, isZiinaRefundSuccessful } from "./ziinaClient";
 import { fireReferralOnPayment } from "./referrals";
 import { syncFoundingMemberForUser } from "./venueAwards";
+import { applyDubailandPromo } from "./dubailandPromo";
 import {
   sendBookingConfirmationEmail,
   sendGuestBookingEmail,
@@ -190,6 +191,13 @@ export async function confirmZiinaBookingByIntentId(
   // affect a confirmed payment.
   syncFoundingMemberForUser(booking.userId).catch(err =>
     console.error('[VenueAward] founding-member sync failed after confirm:', err instanceof Error ? err.message : err));
+
+  // Dubailand promo: instant AED 15 on payment success for the one pinned
+  // session. Idempotent for life (cancel-and-rebook never re-credits) and
+  // fire-and-forget — a promo failure must never affect a confirmed payment.
+  applyDubailandPromo(booking.userId)
+    .then(r => { if (r === 'credited') console.log(`[DubailandPromo] credited ${booking.userId} (ziina-confirm)`); })
+    .catch(err => console.error('[DubailandPromo] credit failed at ziina-confirm:', err instanceof Error ? err.message : err));
 
   // Birthday free-game: the discount is "consumed" only when the booking
   // actually confirms (here), not at submission — so an abandoned Ziina payment

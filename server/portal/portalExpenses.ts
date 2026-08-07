@@ -15,6 +15,7 @@ import { storage } from "../storage";
 import { expenseCategories, bookings, bookableSessions, marketplaceUsers, EXPENSE_PAID_BY_OPTIONS } from "@shared/schema";
 import { sql, eq, and, inArray } from "drizzle-orm";
 import { fireReferralOnPayment } from "../referrals";
+import { applyDubailandPromo } from "../dubailandPromo";
 
 const DEFAULT_CATEGORIES = [
   { name: "Court Booking",  icon: "map-pin",        color: "#3B82F6" },
@@ -254,6 +255,11 @@ export function registerPortalExpenseRoutes(
       const updated = await storage.updateBooking(req.params.id, { cashPaid: newCashPaid });
       if (wasFalseTransitioningToTrue) {
         fireReferralOnPayment(booking.userId, booking.id);
+        // Dubailand promo: for a cash booking, THIS is the "paid" moment.
+        // Idempotent, session-pinned, fire-and-forget.
+        applyDubailandPromo(booking.userId)
+          .then(r => { if (r === 'credited') console.log(`[DubailandPromo] credited ${booking.userId} (cash-paid-toggle)`); })
+          .catch(err => console.error('[DubailandPromo] credit failed at cash-paid-toggle:', err instanceof Error ? err.message : err));
       }
       res.json(updated);
     } catch (err: unknown) {

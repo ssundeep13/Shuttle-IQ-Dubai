@@ -46,6 +46,7 @@ import { getBadgeForUser, getActiveBadgesForPlayers } from "./badges";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, promoteWaitlistForFreedSpots, isWithinLateCancelWindow } from "./guestSlotRefund";
 import { syncFoundingMemberForUser, getFoundingMemberForUser, getFoundingMemberPlayerIds, markFoundingMemberSeen } from "./venueAwards";
+import { applyDubailandPromo, reverseDubailandPromo, sweepDubailandPromoReversals } from "./dubailandPromo";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -140,6 +141,21 @@ function syncFoundingMember(userId: string, site: string): void {
       if (result !== 'unchanged') console.log(`[VenueAward] founding_member ${result} for ${userId} (${site})`);
     })
     .catch(err => console.error(`[VenueAward] sync failed at ${site}:`, err instanceof Error ? err.message : err));
+}
+
+// Dubailand promo hooks, fire-and-forget like the founding-member sync: a promo
+// failure must never delay or fail a booking, payment or cancellation. Both
+// directions are idempotent and hard-scoped to the one pinned session, so
+// calling them on any booking change is always safe.
+function fireDubailandPromo(userId: string, site: string): void {
+  applyDubailandPromo(userId)
+    .then(r => { if (r === 'credited') console.log(`[DubailandPromo] credited ${userId} (${site})`); })
+    .catch(err => console.error(`[DubailandPromo] credit failed at ${site}:`, err instanceof Error ? err.message : err));
+}
+function fireDubailandPromoReversal(userId: string, site: string): void {
+  reverseDubailandPromo(userId)
+    .then(r => { if (r !== 'unchanged') console.log(`[DubailandPromo] ${r} for ${userId} (${site})`); })
+    .catch(err => console.error(`[DubailandPromo] reversal failed at ${site}:`, err instanceof Error ? err.message : err));
 }
 
 async function refundBookingWalletCredit(booking: { id: string; walletAmountUsed: number | null; userId: string }) {
@@ -2485,6 +2501,14 @@ export function registerMarketplaceRoutes(app: Express) {
 
       const result = await storage.cancelBookableSessionAndRefund(req.params.id);
 
+      // Dubailand promo: an event-cancel kills every booking at once, so the
+      // per-user cancel hooks never fire — sweep instead. Scoped inside the
+      // module to the one pinned session; a cancel of any OTHER session finds
+      // no credited players and reverses nothing.
+      sweepDubailandPromoReversals()
+        .then(n => { if (n > 0) console.log(`[DubailandPromo] event-cancel sweep reversed ${n}`); })
+        .catch(err => console.error('[DubailandPromo] event-cancel sweep failed:', err instanceof Error ? err.message : err));
+
       if (result.alreadyCancelled) {
         return res.json({
           success: true,
@@ -2969,6 +2993,7 @@ export function registerMarketplaceRoutes(app: Express) {
         // (decision A — any first confirmed booking counts as the trigger).
         fireReferralOnPayment(req.user.userId, booking.id);
         syncFoundingMember(req.user.userId, 'wallet-confirm');
+        fireDubailandPromo(req.user.userId, 'wallet-confirm');
 
         try {
           if (primaryUser) {
@@ -3378,6 +3403,7 @@ export function registerMarketplaceRoutes(app: Express) {
         // flags exactly that (idempotently) from the untouched amountAed.
         await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 });
         syncFoundingMember(booking.userId, 'last-guest-slot-cancel');
+        fireDubailandPromoReversal(booking.userId, 'last-guest-slot-cancel');
         await maybeCreateRefundNotification(booking.id);
         await promoteFirstFittingWaitlisted(booking.sessionId);
         return res.json({ cancelled: true, guestId: guest.id, newSpotsBooked: 0, bookingCancelled: true, refundFlaggedForAdmin: true });
@@ -3727,6 +3753,7 @@ export function registerMarketplaceRoutes(app: Express) {
       // the seal. Placed after the winning CAS so a losing double-cancel never
       // triggers it.
       syncFoundingMember(booking.userId, 'player-cancel');
+      fireDubailandPromoReversal(booking.userId, 'player-cancel');
 
       if (refundEligible) {
         refundAmountAed = cashToRefundFils / 100;
@@ -4707,6 +4734,7 @@ export function registerMarketplaceRoutes(app: Express) {
       // and !== 'attended') is the per-route idempotency guard.
       fireReferralOnPayment(booking.userId, booking.id);
       syncFoundingMember(booking.userId, 'admin-confirm');
+      fireDubailandPromo(booking.userId, 'admin-confirm');
 
       // Record the payment if not already present
       if (booking.ziinaPaymentIntentId) {
@@ -4792,6 +4820,7 @@ export function registerMarketplaceRoutes(app: Express) {
         promotedAt: new Date(),
       });
       syncFoundingMember(booking.userId, 'admin-promote');
+      fireDubailandPromo(booking.userId, 'admin-promote');
 
       // Confirm all pending guest slots (leave cancelled slots untouched)
       const slots = await storage.getBookingGuests(booking.id);
