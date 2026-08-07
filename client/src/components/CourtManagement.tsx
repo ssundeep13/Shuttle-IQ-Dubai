@@ -1,45 +1,29 @@
 import { Plus, Minus } from "lucide-react";
-import { CourtWithPlayers, Player } from "@shared/schema";
+import { CourtWithPlayers } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { CourtCard } from "./CourtCard";
+import { sortCourts } from "@/lib/courtOrder";
+
+// Gate 2 (deck-lite): the grid is the LIVE-GAME zone — assignment and
+// next-game controls moved to the NEXT GAMES deck above it, so the props
+// that only fed those flows moved out with them.
 
 interface CourtManagementProps {
   courts: CourtWithPlayers[];
-  queuePlayers: Player[];
-  isSandboxSession: boolean;
-  aiModeEnabled: boolean;
-  teamAssignments: Record<string, { team1: string[]; team2: string[] }>;
   onAddCourt: () => void;
   onRemoveCourt: (courtId: string) => void;
-  onTogglePlayerSelection: (courtId: string, playerId: string, team: number) => void;
-  onAssignPlayers: (courtId: string) => void;
   onRecordGame: (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => void;
   onCancelGame: (courtId: string) => void;
 }
 
-// Fixed court order: cards NEVER move — status changes card contents, not
-// card position. Server orders too; this is the belt-and-braces.
-function courtNumber(name: string): number {
-  const n = parseInt(name.replace(/\D+/g, ""), 10);
-  return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n;
-}
-
 export function CourtManagement({
   courts: courtsProp,
-  queuePlayers,
-  isSandboxSession,
-  aiModeEnabled,
-  teamAssignments,
   onAddCourt,
   onRemoveCourt,
-  onTogglePlayerSelection,
-  onAssignPlayers,
   onRecordGame,
   onCancelGame,
 }: CourtManagementProps) {
-  const courts = [...courtsProp].sort(
-    (a, b) => courtNumber(a.name) - courtNumber(b.name) || a.name.localeCompare(b.name),
-  );
+  const courts = sortCourts(courtsProp);
   const lastCourt = courts[courts.length - 1];
   const canRemoveLastCourt = courts.length > 1 && lastCourt?.status === "available";
 
@@ -74,32 +58,16 @@ export function CourtManagement({
 
       {/* Court grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {courts.map((court) => {
-          const courtTeams = teamAssignments[court.id] || { team1: [], team2: [] };
-          const selectedPlayers = [...courtTeams.team1, ...courtTeams.team2];
-
-          return (
-            <CourtCard
-              key={court.id}
-              court={court}
-              queuePlayers={queuePlayers}
-              playingPlayerIds={courts.flatMap((c) => c.players.map((p) => p.id))}
-              isSandboxSession={isSandboxSession}
-              aiModeEnabled={aiModeEnabled}
-              selectedPlayers={selectedPlayers}
-              team1Players={courtTeams.team1}
-              team2Players={courtTeams.team2}
-              canRemoveCourt={courts.length > 1 && court.status === "available"}
-              onRemoveCourt={onRemoveCourt}
-              onTogglePlayerSelection={(playerId, team) =>
-                onTogglePlayerSelection(court.id, playerId, team)
-              }
-              onAssignPlayers={onAssignPlayers}
-              onRecordGame={onRecordGame}
-              onCancelGame={onCancelGame}
-            />
-          );
-        })}
+        {courts.map((court) => (
+          <CourtCard
+            key={court.id}
+            court={court}
+            canRemoveCourt={courts.length > 1 && court.status === "available"}
+            onRemoveCourt={onRemoveCourt}
+            onRecordGame={onRecordGame}
+            onCancelGame={onCancelGame}
+          />
+        ))}
       </div>
     </div>
   );

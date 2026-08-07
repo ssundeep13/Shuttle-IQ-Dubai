@@ -7,6 +7,7 @@ import { CourtWithPlayers, Player, Notification, AppStats, Session } from "@shar
 import { Header } from "@/components/Header";
 import { TabNavigation } from "@/components/TabNavigation";
 import { CourtManagement } from "@/components/CourtManagement";
+import { NextGamesDeck } from "@/components/NextGamesDeck";
 import { PlayerQueue } from "@/components/PlayerQueue";
 import { GameHistory } from "@/components/GameHistory";
 import { AddPlayerModal } from "@/components/AddPlayerModal";
@@ -970,16 +971,23 @@ export default function Home() {
                 </Button>
               </div>
 
-              <CourtManagement
+              {/* Gate 2 (deck-lite): NEXT GAMES — every court's UpNextStrip
+                  in one section between the tab bar and the courts grid.
+                  Manual assignment (AssignSheet) moved here with it. */}
+              <NextGamesDeck
                 courts={courts}
                 queuePlayers={queuePlayers}
                 isSandboxSession={!!session?.isSandbox}
                 aiModeEnabled={aiMatchmaking}
                 teamAssignments={teamAssignments}
-                onAddCourt={handleAddCourt}
-                onRemoveCourt={handleRemoveCourt}
                 onTogglePlayerSelection={handleTogglePlayerSelection}
                 onAssignPlayers={handleAssignPlayers}
+              />
+
+              <CourtManagement
+                courts={courts}
+                onAddCourt={handleAddCourt}
+                onRemoveCourt={handleRemoveCourt}
                 onRecordGame={handleRecordGame}
                 onCancelGame={handleCancelGame}
               />
