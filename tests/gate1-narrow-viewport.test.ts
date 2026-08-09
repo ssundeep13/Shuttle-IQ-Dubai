@@ -41,6 +41,11 @@ describe('Gate 1 — narrow-viewport integrity', () => {
     const row = s.slice(s.indexOf('Date — pushed right'), s.indexOf('{/* Chevron */}'));
     expect(row.includes('truncate')).toBe(true);
     expect(row.includes('shrink-0')).toBe(false);
+    // fixed children must fit at 380 with the date at zero width:
+    // tight gap + trigger padding (live-measured: gap-3/px-4 left edit at 382)
+    const trigger = s.slice(s.indexOf('<AccordionTrigger'), s.indexOf('{/* Expanded detail */}'));
+    expect(trigger.includes('gap-2 w-full min-w-0')).toBe(true);
+    expect(trigger.includes('px-3 py-3')).toBe(true);
   });
 
   it('F8: deck player rows are two-line — Swap right-aligned on the meta line, both states', () => {

@@ -118,10 +118,12 @@ function GameCard({
     >
       {/* Collapsed summary row */}
       <AccordionTrigger
-        className="px-4 py-3 hover:no-underline hover-elevate group [&>svg]:hidden"
+        className="px-3 py-3 hover:no-underline hover-elevate group [&>svg]:hidden"
         data-testid={`accordion-trigger-${game.id}`}
       >
-        <div className="flex items-center gap-3 w-full min-w-0">
+        {/* gap-2 + px-3: at 380px the fixed children (badge/score/chip/
+            chevron/edit) alone must fit even with the date fully truncated. */}
+        <div className="flex items-center gap-2 w-full min-w-0">
           {/* Game number */}
           <Badge
             variant="outline"
