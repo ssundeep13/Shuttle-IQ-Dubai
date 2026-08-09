@@ -36,21 +36,24 @@ export function Header({
   return (
     <div className="space-y-4">
       {/* Top Bar — Logo + Session Status + Auth */}
-      <div className="flex items-center justify-between py-3 px-4 bg-card rounded-lg border border-border">
-        <div className="flex items-center gap-4">
+      {/* flex-wrap + min-w-0: this row's intrinsic width (~412px) forced a
+          page-wide horizontal pan on every tab below 412px. Groups now shrink
+          and the auth cluster wraps right-aligned when the line is tight. */}
+      <div className="flex flex-wrap items-center justify-between gap-y-2 py-3 px-4 bg-card rounded-lg border border-border">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <h1 className="text-2xl font-bold">
             <span className="text-primary">Shuttle</span>
             <span className="text-chart-2">IQ</span>
           </h1>
           {session && (
-            <Badge variant="outline" className="bg-success/10 text-success border-success/20">
+            <Badge variant="outline" className="bg-success/10 text-success border-success/20 whitespace-nowrap shrink-0">
               Active Session
             </Badge>
           )}
         </div>
 
         {/* Auth Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-auto">
           {authState === "guest" ? (
             <Button
               onClick={onLogin}
@@ -69,8 +72,8 @@ export function Header({
                 size="sm"
                 data-testid="button-admin-nav"
               >
-                <Shield className="w-4 h-4 mr-2" />
-                Admin
+                <Shield className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Admin</span>
               </Button>
               <Button
                 onClick={onLogout}

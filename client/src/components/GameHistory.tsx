@@ -148,8 +148,9 @@ function GameCard({
             {winnerLabel}
           </Badge>
 
-          {/* Date — pushed right */}
-          <span className="ml-auto text-xs text-muted-foreground shrink-0">
+          {/* Date — pushed right; the one flexible child: it truncates so the
+              chevron + edit button never leave the canvas at 360-412px. */}
+          <span className="ml-auto min-w-0 truncate text-xs text-muted-foreground">
             {format(new Date(game.createdAt), "MMM d, h:mm a")}
           </span>
 
@@ -318,7 +319,7 @@ export function GameHistory({ games, onResetGames, sessionId }: GameHistoryProps
     <div className="bg-card rounded-xl border border-border p-4 sm:p-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-4">
-        <h2 className="text-lg font-semibold text-foreground">
+        <h2 className="min-w-0 truncate whitespace-nowrap text-lg font-semibold text-foreground">
           Game History
           {games.length > 0 && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">
@@ -327,7 +328,7 @@ export function GameHistory({ games, onResetGames, sessionId }: GameHistoryProps
           )}
         </h2>
         {games.length > 0 && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Button
               onClick={downloadCSV}
               variant="outline"

@@ -71,13 +71,13 @@ export function NotificationToast({ notifications, onDismiss }: NotificationToas
         <div
           key={notification.id}
           className={cn(
-            "flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border-2 animate-in slide-in-from-right-full fade-in pointer-events-auto",
+            "flex items-center gap-3 px-4 py-3 rounded-md shadow-lg border-2 animate-in slide-in-from-right-full fade-in pointer-events-auto max-w-[calc(100vw-2rem)]",
             getStyles(notification.type)
           )}
           data-testid={`notification-${notification.id}`}
         >
           {getIcon(notification.type)}
-          <span className="font-medium">{notification.message}</span>
+          <span className="font-medium min-w-0 break-words">{notification.message}</span>
         </div>
       ))}
     </div>

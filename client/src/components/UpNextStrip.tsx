@@ -632,44 +632,55 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       <div className="min-w-0">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
         <div className="space-y-1">
+          {/* Two-line player block (audit F8) — same structure as the
+              ephemeral helper: line 1 name+rating, line 2 meta + Swap
+              right-aligned. Line 2 only renders when it has content. */}
           {team.map((p) => {
             const conflict = conflictFor(p.playerId);
+            const inGame = ownCourtIds.has(p.playerId);
+            const receipt = receiptText(p, inGame);
             return (
-              <div key={p.playerId} className="flex items-center gap-2 flex-wrap" data-testid={`upnext-player-${court.id}-${p.playerId}`}>
-                <span className={cn("text-sm truncate", conflict ? "text-amber-600" : "text-foreground")}>{p.name}</span>
-                <RatingText id={p.playerId} />
-                {receiptText(p, ownCourtIds.has(p.playerId)) && (
-                  <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-locked-${court.id}-${p.playerId}`}>
-                    {receiptText(p, ownCourtIds.has(p.playerId))}
-                  </span>
-                )}
-                {ownCourtIds.has(p.playerId) && (
-                  <Badge
-                    variant="outline"
-                    className="text-xs text-muted-foreground border-muted-foreground/30 shrink-0"
-                    data-testid={`badge-upnext-ingame-${court.id}-${p.playerId}`}
-                  >
-                    In game
-                  </Badge>
-                )}
-                {conflict && (
-                  <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
-                    {conflict}
-                  </Badge>
-                )}
-                {/* Always-visible lineup (real-phone gate): the Swap control
-                    is the only part that stays behind the Edit toggle. */}
-                {expanded && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-2 text-xs text-muted-foreground"
-                    onClick={() => setSwapOutId(swapOutId === p.playerId ? null : p.playerId)}
-                    data-testid={`button-upnext-swap-${court.id}-${p.playerId}`}
-                  >
-                    <Repeat2 className="h-3 w-3 mr-1" />
-                    Swap
-                  </Button>
+              <div key={p.playerId} className="min-w-0" data-testid={`upnext-player-${court.id}-${p.playerId}`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={cn("text-sm truncate", conflict ? "text-amber-600" : "text-foreground")}>{p.name}</span>
+                  <RatingText id={p.playerId} />
+                </div>
+                {(receipt || inGame || conflict || expanded) && (
+                  <div className="flex items-center gap-2">
+                    {receipt && (
+                      <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-locked-${court.id}-${p.playerId}`}>
+                        {receipt}
+                      </span>
+                    )}
+                    {inGame && (
+                      <Badge
+                        variant="outline"
+                        className="text-xs text-muted-foreground border-muted-foreground/30 shrink-0"
+                        data-testid={`badge-upnext-ingame-${court.id}-${p.playerId}`}
+                      >
+                        In game
+                      </Badge>
+                    )}
+                    {conflict && (
+                      <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
+                        {conflict}
+                      </Badge>
+                    )}
+                    {/* Always-visible lineup (real-phone gate): the Swap control
+                        is the only part that stays behind the Edit toggle. */}
+                    {expanded && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs text-muted-foreground ml-auto"
+                        onClick={() => setSwapOutId(swapOutId === p.playerId ? null : p.playerId)}
+                        data-testid={`button-upnext-swap-${court.id}-${p.playerId}`}
+                      >
+                        <Repeat2 className="h-3 w-3 mr-1" />
+                        Swap
+                      </Button>
+                    )}
+                  </div>
                 )}
               </div>
             );
@@ -942,43 +953,50 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     <div className="min-w-0">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</p>
       <div className="space-y-1">
+        {/* Two-line player block (audit F8): line 1 name+rating, line 2
+            receipts/badges left + Swap right — a wrapped Swap can no longer
+            float ambiguously between two names at narrow widths. */}
         {team.map((p, i) => (
-          <div key={p.id} className="flex items-center gap-2 flex-wrap" data-testid={`upnext-sug-player-${court.id}-${p.id}`}>
-            <span className="text-sm truncate">{p.name}</span>
-            <RatingText id={p.id} fallbackScore={p.skillScore} />
-            {receiptText(sug?.receipts?.[p.id], !!p.inGame) && (
-              <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-${court.id}-${p.id}`}>
-                {receiptText(sug?.receipts?.[p.id], !!p.inGame)}
-              </span>
-            )}
-            {p.inGame && (
-              <Badge
-                variant="outline"
-                className="text-xs text-muted-foreground border-muted-foreground/30 shrink-0"
-                data-testid={`badge-upnext-sug-ingame-${court.id}-${p.id}`}
+          <div key={p.id} className="min-w-0" data-testid={`upnext-sug-player-${court.id}-${p.id}`}>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm truncate">{p.name}</span>
+              <RatingText id={p.id} fallbackScore={p.skillScore} />
+            </div>
+            <div className="flex items-center gap-2">
+              {receiptText(sug?.receipts?.[p.id], !!p.inGame) && (
+                <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-${court.id}-${p.id}`}>
+                  {receiptText(sug?.receipts?.[p.id], !!p.inGame)}
+                </span>
+              )}
+              {p.inGame && (
+                <Badge
+                  variant="outline"
+                  className="text-xs text-muted-foreground border-muted-foreground/30 shrink-0"
+                  data-testid={`badge-upnext-sug-ingame-${court.id}-${p.id}`}
+                >
+                  In game
+                </Badge>
+              )}
+              {p.outsideBand && (
+                <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
+                  Outside band
+                </Badge>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs text-muted-foreground ml-auto"
+                onClick={() =>
+                  setEphemeralSwapSlot(
+                    ephemeralSwapSlot?.team === teamNo && ephemeralSwapSlot?.index === i ? null : { team: teamNo, index: i },
+                  )
+                }
+                data-testid={`button-upnext-sug-swap-${court.id}-${p.id}`}
               >
-                In game
-              </Badge>
-            )}
-            {p.outsideBand && (
-              <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 shrink-0">
-                Outside band
-              </Badge>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-2 text-xs text-muted-foreground"
-              onClick={() =>
-                setEphemeralSwapSlot(
-                  ephemeralSwapSlot?.team === teamNo && ephemeralSwapSlot?.index === i ? null : { team: teamNo, index: i },
-                )
-              }
-              data-testid={`button-upnext-sug-swap-${court.id}-${p.id}`}
-            >
-              <Repeat2 className="h-3 w-3 mr-1" />
-              Swap
-            </Button>
+                <Repeat2 className="h-3 w-3 mr-1" />
+                Swap
+              </Button>
+            </div>
           </div>
         ))}
       </div>

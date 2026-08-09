@@ -313,7 +313,7 @@ export function NextGamesDeck({
                 })
               }
               className={cn(
-                "px-2 py-1 rounded-full text-[11px] font-semibold transition-colors",
+                "px-2 py-1 rounded-full text-xs font-semibold transition-colors",
                 i === activeIdx
                   ? "bg-secondary text-secondary-foreground"
                   : "bg-muted text-muted-foreground",

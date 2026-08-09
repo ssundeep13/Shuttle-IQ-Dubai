@@ -99,7 +99,7 @@ export function PlayerQueue({
     <div className="bg-card rounded-xl border border-border p-4 sm:p-6">
       {/* Header row */}
       <div className="flex items-center justify-between gap-3 mb-4">
-        <h2 className="text-lg font-semibold text-foreground">
+        <h2 className="min-w-0 truncate whitespace-nowrap text-lg font-semibold text-foreground">
           Player Queue
           {queuePlayers.length > 0 && (
             <span
@@ -112,7 +112,7 @@ export function PlayerQueue({
             </span>
           )}
         </h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <Button
             onClick={onAddPlayer}
             size="sm"

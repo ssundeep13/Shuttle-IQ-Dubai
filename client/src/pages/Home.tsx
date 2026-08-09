@@ -909,7 +909,9 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-clip">
+      {/* overflow-x-clip above: guard rail — no descendant may pan the page
+          sideways (clip, not hidden: no new scroll container). */}
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         <Header
           stats={stats || defaultStats}

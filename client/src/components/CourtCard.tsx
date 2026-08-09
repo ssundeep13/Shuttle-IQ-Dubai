@@ -327,7 +327,10 @@ export function CourtCard({
                     </Button>
                   ))}
                 </div>
-                <div className="flex items-center justify-between gap-2">
+                {/* flex-wrap: at <412px the two stepper groups don't fit one
+                    line; the winner group wraps whole instead of clipping the
+                    deuce "+" off-canvas. */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
                     <Button
                       variant="outline" className="h-11 w-11 text-sm font-bold"
