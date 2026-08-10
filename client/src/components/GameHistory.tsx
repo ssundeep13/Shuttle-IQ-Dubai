@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { getSkillTierColor } from "@shared/utils/skillUtils";
+import { getSkillTierColor, getTierDisplayName } from "@shared/utils/skillUtils";
 
 interface GameParticipant {
   gameId: string;
@@ -71,18 +71,20 @@ function PlayerScoreRow({ p }: { p: GameParticipant }) {
   const before = (p.skillScoreBefore / 10).toFixed(1);
   const after = (p.skillScoreAfter / 10).toFixed(1);
   return (
-    <div className="flex items-center justify-between py-1">
-      <div>
-        <p className="text-sm font-medium text-foreground leading-tight">{p.playerName}</p>
-        <Badge className={cn("text-xs mt-0.5", getSkillTierColor(p.playerLevel))}>
-          {p.playerLevel}
+    <div className="flex items-center justify-between gap-2 py-1">
+      {/* name column shrinks and truncates (audit B3); tier text goes through
+          the ruling mapper — display names only, never DB slugs */}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-foreground leading-tight truncate">{p.playerName}</p>
+        <Badge className={cn("text-xs mt-0.5 max-w-full truncate", getSkillTierColor(p.playerLevel))}>
+          {getTierDisplayName(p.playerLevel)}
         </Badge>
       </div>
-      <div className="text-right">
-        <p className="text-xs text-muted-foreground">
+      <div className="text-right shrink-0">
+        <p className="text-xs text-muted-foreground tabular-nums">
           {before} → {after}
         </p>
-        <p className={cn("text-xs font-semibold", deltaColor(skillChange))}>
+        <p className={cn("text-xs font-semibold tabular-nums", deltaColor(skillChange))}>
           {skillChange > 0 ? "+" : ""}
           {skillChange.toFixed(1)}
         </p>
@@ -121,6 +123,9 @@ function GameCard({
         className="px-3 py-3 hover:no-underline hover-elevate group [&>svg]:hidden"
         data-testid={`accordion-trigger-${game.id}`}
       >
+        {/* Two stacked lines (audit F16): the meta row, then WHO played.
+            The names line truncates independently and never widens the row. */}
+        <div className="flex flex-col gap-1 w-full min-w-0">
         {/* gap-2 + px-3: at 380px the fixed children (badge/score/chip/
             chevron/edit) alone must fit even with the date fully truncated. */}
         <div className="flex items-center gap-2 w-full min-w-0">
@@ -170,6 +175,15 @@ function GameCard({
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
+        </div>
+
+        {/* Names line — one truncating line, full names, no wrap */}
+        <p
+          className="min-w-0 max-w-full truncate text-left text-xs text-muted-foreground"
+          data-testid={`text-game-players-${game.id}`}
+        >
+          {team1.map((p) => p.playerName).join(" + ")} vs {team2.map((p) => p.playerName).join(" + ")}
+        </p>
         </div>
       </AccordionTrigger>
 
@@ -291,8 +305,8 @@ export function GameHistory({ games, onResetGames, sessionId }: GameHistoryProps
       const row = [
         games.length - index,
         format(new Date(game.createdAt), "yyyy-MM-dd HH:mm"),
-        game.participants.filter((p) => p.team === 1).map((p) => `${p.playerName} (${p.playerLevel})`).join("; "),
-        game.participants.filter((p) => p.team === 2).map((p) => `${p.playerName} (${p.playerLevel})`).join("; "),
+        game.participants.filter((p) => p.team === 1).map((p) => `${p.playerName} (${getTierDisplayName(p.playerLevel)})`).join("; "),
+        game.participants.filter((p) => p.team === 2).map((p) => `${p.playerName} (${getTierDisplayName(p.playerLevel)})`).join("; "),
         `${game.team1Score}-${game.team2Score}`,
         `Team ${game.winningTeam}`,
       ].map(escapeCSVField).join(",");
