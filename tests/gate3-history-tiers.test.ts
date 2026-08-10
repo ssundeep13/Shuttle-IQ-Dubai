@@ -40,6 +40,10 @@ describe('Gate 3 — tier display + History readability', () => {
   it('F16: collapsed row carries a truncating names line', () => {
     const s = src();
     expect(s.includes('text-game-players-')).toBe(true);
+    // the trigger is a flex item: without min-w-0 the names line's nowrap
+    // intrinsic width propagates up and un-shrinks the whole row (live-caught
+    // at 360: edit landed at 362)
+    expect(s.includes('className="min-w-0 px-3 py-3')).toBe(true);
     const line = s.slice(s.indexOf('text-game-players-') - 400, s.indexOf('text-game-players-') + 400);
     expect(line.includes('truncate')).toBe(true);
     expect(line.includes('min-w-0')).toBe(true);

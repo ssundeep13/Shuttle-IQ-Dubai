@@ -120,7 +120,7 @@ function GameCard({
     >
       {/* Collapsed summary row */}
       <AccordionTrigger
-        className="px-3 py-3 hover:no-underline hover-elevate group [&>svg]:hidden"
+        className="min-w-0 px-3 py-3 hover:no-underline hover-elevate group [&>svg]:hidden"
         data-testid={`accordion-trigger-${game.id}`}
       >
         {/* Two stacked lines (audit F16): the meta row, then WHO played.
