@@ -63,7 +63,9 @@ const AlertDialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      // cancel-first on mobile (audit F12): DOM order is visual order —
+      // every usage puts Cancel before Action, so the safe action is on top
+      "flex flex-col gap-2 sm:flex-row sm:justify-end",
       className
     )}
     {...props}
@@ -102,7 +104,7 @@ const AlertDialogAction = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Action
     ref={ref}
-    className={cn(buttonVariants(), className)}
+    className={cn(buttonVariants(), "min-h-11", className)}
     {...props}
   />
 ))
@@ -116,7 +118,7 @@ const AlertDialogCancel = React.forwardRef<
     ref={ref}
     className={cn(
       buttonVariants({ variant: "outline" }),
-      "mt-2 sm:mt-0",
+      "min-h-11",
       className
     )}
     {...props}

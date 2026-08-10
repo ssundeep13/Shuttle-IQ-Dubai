@@ -4,6 +4,16 @@ import { Clock, X, Trophy } from "lucide-react";
 import { CourtWithPlayers, Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { bandLabel, BAND_LABELS, COURT_SKILL_BANDS, type CourtSkillBand } from "@/lib/bands";
@@ -63,6 +73,8 @@ export function CourtCard({
   const [scoringTeam, setScoringTeam] = useState<1 | 2 | null>(null);
   const [winnerScore, setWinnerScore] = useState(21);
   const [loserScore, setLoserScore] = useState(15);
+  // Gate 2 (audit F5): cancelling a game must never be a single tap.
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const { toast } = useToast();
 
   // Court freed (game recorded/cancelled elsewhere) → drop the score panel.
@@ -234,7 +246,7 @@ export function CourtCard({
                 className={cn(
                   "rounded-xl border-2 p-3 transition-colors",
                   scoringTeam === 1
-                    ? "bg-emerald-50 border-emerald-400"
+                    ? "bg-secondary/10 border-secondary"
                     : "bg-primary/5 border-primary/20",
                 )}
               >
@@ -261,7 +273,7 @@ export function CourtCard({
                 className={cn(
                   "rounded-xl border-2 p-3 transition-colors",
                   scoringTeam === 2
-                    ? "bg-emerald-50 border-emerald-400"
+                    ? "bg-secondary/10 border-secondary"
                     : "bg-secondary/5 border-secondary/20",
                 )}
               >
@@ -288,8 +300,9 @@ export function CourtCard({
                   variant={scoringTeam === team ? "default" : "outline"}
                   className={cn(
                     "h-12 text-sm font-semibold",
+                    // one selected accent across the flow (audit F11): teal token
                     scoringTeam === team &&
-                      "bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white",
+                      "bg-secondary hover:bg-secondary/90 border-secondary text-secondary-foreground",
                   )}
                   data-testid={`button-select-team-${team}-${court.id}`}
                 >
@@ -380,15 +393,42 @@ export function CourtCard({
               </div>
             )}
 
-            {/* Demoted: no-record cancel is a quiet text link */}
-            <button
+            {/* Quiet but safe (audit F5): 44px target, mt-2 separation from
+                the chips above, and a confirm gate — the actual cancel fires
+                only from the dialog action, never from this tap. */}
+            <Button
               type="button"
-              onClick={() => onCancelGame(court.id)}
-              className="self-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+              variant="ghost"
+              onClick={() => setConfirmCancel(true)}
+              className="w-full min-h-11 mt-2 text-xs text-muted-foreground"
               data-testid={`button-cancel-game-${court.id}`}
             >
               Cancel game (no record)
-            </button>
+            </Button>
+
+            <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Cancel this game?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    It ends with no score recorded and the players return to the
+                    queue. This can't be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid={`button-keep-game-${court.id}`}>
+                    Keep playing
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => onCancelGame(court.id)}
+                    className="bg-destructive hover:bg-destructive/90"
+                    data-testid={`button-cancel-game-confirm-${court.id}`}
+                  >
+                    Cancel game
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         )}
 
