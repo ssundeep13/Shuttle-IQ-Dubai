@@ -46,10 +46,12 @@ const formatTime = (minutes: number) => {
   return `${minutes} min${minutes !== 1 ? "s" : ""} remaining`;
 };
 
+// Urgency only where it's real (audit timer-tone): destructive token at ≤5
+// remaining / time's up, warning token approaching — never stock palette.
 const timerColor = (minutes: number) => {
-  if (minutes === 0) return "text-red-600";
-  if (minutes <= 5) return "text-red-600";
-  if (minutes <= 10) return "text-amber-500";
+  if (minutes === 0) return "text-destructive";
+  if (minutes <= 5) return "text-destructive";
+  if (minutes <= 10) return "text-warning";
   return "text-muted-foreground";
 };
 

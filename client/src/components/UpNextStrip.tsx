@@ -237,6 +237,15 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   const confirmRow = suggestions.find(
     (s) => (s.status === "pending" || s.status === "approved") && s.courtId === court.id,
   );
+  // Gate 4 (audit F9): a REPLACED locked row must not inherit the previous
+  // row's open editor. Reactive reset during render (house pattern — see the
+  // aiAdopted latch below): keyed on the row id, never an index.
+  const [prevQueuedId, setPrevQueuedId] = useState<string | undefined>(queued?.id);
+  if (queued?.id !== prevQueuedId) {
+    setPrevQueuedId(queued?.id);
+    setExpanded(false);
+    setSwapOutId(null);
+  }
   const isOccupied = court.status === "occupied";
   // Fix c: a FREE court with no row gets a plan-ahead suggestion too — an
   // empty court is the one the captain can fill right now.
@@ -336,6 +345,23 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   }
   const sug = aiModeEnabled && sugAi && aiAdopted ? sugAi : sugPrimary;
   const aiLandedButHeld = aiModeEnabled && !!sugAi && !aiAdopted && !queued && !confirmRow;
+
+  // Gate 4 (audit F9): the ephemeral swap picker must not survive a lineup
+  // replacement (regenerate cycles the option, adoption swaps the dataset).
+  // Identity is the displayed base option's player signature — options carry
+  // no id, and the index alone can point at a different lineup. Same
+  // render-time reset pattern; composed edits are deliberately untouched
+  // (their reset rules are the Gate 6 adoption guard's).
+  const sigOptions = sug?.options ?? [];
+  const sigBase = sigOptions.length > 0 ? sigOptions[optionIdx % sigOptions.length] : undefined;
+  const lineupSig = sigBase
+    ? [...sigBase.team1, ...sigBase.team2].map((p) => p.id).join(",")
+    : undefined;
+  const [prevLineupSig, setPrevLineupSig] = useState<string | undefined>(lineupSig);
+  if (lineupSig !== prevLineupSig) {
+    setPrevLineupSig(lineupSig);
+    setEphemeralSwapSlot(null);
+  }
 
   // New PRIMARY data ⇒ drop local edits and show the top option again
   // (the pool changed under the edits). Deliberately NOT keyed on sugAi:
@@ -1037,7 +1063,10 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             Best available — teams uneven
           </span>
         )}
-        {sugLoading && (
+        {/* Single pulse per panel (audit F7): when the AI follow-up is in
+            flight its message is the later, more specific stage — the base
+            pulse yields instead of double-pulsing the meta row. */}
+        {sugLoading && !aiFetching && (
           <span className="text-xs text-muted-foreground shrink-0 animate-pulse">
             Finding best matches…
           </span>

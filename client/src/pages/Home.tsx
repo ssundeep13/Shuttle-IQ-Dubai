@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { apiUrl } from '@/lib/queryClient';
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, WifiOff } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useOfflineStatus } from "@/hooks/useOfflineStatus";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { CourtWithPlayers, Player, Notification, AppStats, Session } from "@shared/schema";
@@ -838,6 +840,8 @@ export default function Home() {
   };
 
   const isLoading = courtsLoading || playersLoading || queueLoading;
+  // Gate 4 (audit F6): visibility only — the strip below the header.
+  const isOffline = useOfflineStatus();
 
   // Handle session loading
   if (sessionLoading) {
@@ -896,13 +900,23 @@ export default function Home() {
     }
   }
 
-  // Show loading if data is being fetched
+  // Content-shaped skeletons (audit F10): header strip, deck panels, list
+  // rows — the loaded layout lands where the shapes were, no jump.
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading dashboard...</p>
+      <div className="min-h-screen bg-background overflow-x-clip">
+        <div className="max-w-7xl mx-auto p-6 space-y-6" data-testid="loading-skeleton">
+          <Skeleton className="h-20 w-full rounded-lg" />
+          <Skeleton className="h-10 w-full rounded-md" />
+          <div className="flex gap-3 md:grid md:grid-cols-2 md:gap-4">
+            <Skeleton className="h-56 w-[calc(100vw-4rem)] max-w-[380px] shrink-0 rounded-xl md:w-auto md:max-w-none" />
+            <Skeleton className="hidden md:block h-56 rounded-xl" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-14 w-full rounded-xl" />
+            <Skeleton className="h-14 w-full rounded-xl" />
+            <Skeleton className="h-14 w-full rounded-xl" />
+          </div>
         </div>
       </div>
     );
@@ -926,6 +940,17 @@ export default function Home() {
             navigate('/admin/login');
           }}
         />
+
+        {/* Offline strip (audit F6): same visual family as the sandbox
+            banner; mounts/unmounts purely from the connectivity signal. */}
+        {isOffline && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800" data-testid="banner-offline">
+            <WifiOff className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Offline — showing last known state
+            </p>
+          </div>
+        )}
 
         {session?.isSandbox && (
           <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-900/20 dark:border-amber-800" data-testid="banner-sandbox">
