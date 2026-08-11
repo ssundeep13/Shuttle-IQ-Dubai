@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { apiUrl } from '@/lib/queryClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { primarySlotActive } from '@shared/utils/slotUtils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocation } from 'wouter';
 import { format } from 'date-fns';
@@ -1177,10 +1178,11 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
     const fullyConfirmedBookings = activeBookings; // status confirmed/attended
 
-    // Count total active slots (primary + non-cancelled non-primary guests across active bookings)
+    // Count total active slots — the primary counts only while their own slot
+    // row is active (Gate 3, Option A); no-row legacy bookings count as before.
     const confirmedSlots = fullyConfirmedBookings.reduce((sum, b) => {
       const activeGuestCount = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'confirmed').length;
-      return sum + 1 + activeGuestCount;
+      return sum + (primarySlotActive(b.guests) ? 1 : 0) + activeGuestCount;
     }, 0);
 
     lines.push(`*${linkedBookable.title} — ${dateStr}*`);
@@ -1188,25 +1190,33 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
 
     let lineNum = 1;
     fullyConfirmedBookings.forEach((b) => {
-      const name = b.user?.name || 'Unknown';
-      const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
-      const siqPart = siq ? ` (${siq})` : '';
-      const status = b.status === 'attended' ? '✓ Attended' : '✓ Confirmed';
-      lines.push(`${lineNum}. ${name}${siqPart} ${status}`);
-      lineNum++;
-
-      // Sub-lines for non-primary, non-cancelled guests — do NOT increment lineNum
       const activeGuests = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'confirmed');
-      activeGuests.forEach((g: BookingGuestWithLinked) => {
-        lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest)`);
-      });
+      if (primarySlotActive(b.guests)) {
+        const name = b.user?.name || 'Unknown';
+        const siq = b.user?.linkedPlayerId ? playerSiqMap[b.user.linkedPlayerId] : null;
+        const siqPart = siq ? ` (${siq})` : '';
+        const status = b.status === 'attended' ? '✓ Attended' : '✓ Confirmed';
+        lines.push(`${lineNum}. ${name}${siqPart} ${status}`);
+        lineNum++;
+
+        // Sub-lines for non-primary, non-cancelled guests — do NOT increment lineNum
+        activeGuests.forEach((g: BookingGuestWithLinked) => {
+          lines.push(`   └ ${g.name}${guestSiqPart(g)} (guest)`);
+        });
+      } else {
+        // Booker's own spot cancelled: the guests ARE the players — number them.
+        activeGuests.forEach((g: BookingGuestWithLinked) => {
+          lines.push(`${lineNum}. ${g.name}${guestSiqPart(g)} (guest) ✓ Confirmed`);
+          lineNum++;
+        });
+      }
     });
 
     // ⏳ Waitlisted section
     if (waitlistedBookings.length > 0) {
       const waitlistedSlots = waitlistedBookings.reduce((sum, b) => {
         const activeGuestCount = (b.guests || []).filter((g: BookingGuestWithLinked) => !g.isPrimary && g.status === 'confirmed').length;
-        return sum + 1 + activeGuestCount;
+        return sum + (primarySlotActive(b.guests) ? 1 : 0) + activeGuestCount;
       }, 0);
 
       lines.push('');
@@ -1241,6 +1251,12 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
           <div>
             <div className="flex items-center gap-2">
               <div className="font-medium text-sm">{booking.user?.name || 'Unknown'}</div>
+              {/* Gate 3: the booker freed their own spot but the booking lives */}
+              {!primarySlotActive(booking.guests) && (
+                <Badge variant="destructive" className="text-xs h-4 px-1" data-testid={`badge-primary-cancelled-${booking.id}`}>
+                  own spot cancelled
+                </Badge>
+              )}
               {isInBirthdayWindow({ birthDay: booking.user?.birthDay, birthMonth: booking.user?.birthMonth }, new Date()) && (
                 <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
                   style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}
@@ -1256,9 +1272,12 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             )}
           </div>
         </div>
-        {booking.guests && booking.guests.filter((g: BookingGuest) => !g.isPrimary && g.status === 'confirmed').length > 0 && (
+        {/* Gate 3: cancelled guests now render (with the chip below) instead
+            of being pre-filtered away — the chip and line-through were dead
+            code while the filter required status==='confirmed'. */}
+        {booking.guests && booking.guests.filter((g: BookingGuest) => !g.isPrimary).length > 0 && (
           <div className="text-xs space-y-0.5 pl-1">
-            {booking.guests.filter((g: BookingGuest) => !g.isPrimary && g.status === 'confirmed').map((guest: BookingGuest) => (
+            {booking.guests.filter((g: BookingGuest) => !g.isPrimary).map((guest: BookingGuest) => (
               <div
                 key={guest.id}
                 className={`flex items-center gap-1.5 ${guest.status === 'cancelled' ? 'opacity-50 line-through' : 'text-muted-foreground'}`}

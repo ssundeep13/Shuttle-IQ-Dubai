@@ -45,6 +45,7 @@ import { PROFILE_UPLOADS_DIR } from "./uploadsRoot";
 import { getBadgeForUser, getActiveBadgesForPlayers } from "./badges";
 import { maybeCreateRefundNotification } from "./refundNotifications";
 import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, promoteWaitlistForFreedSpots, isWithinLateCancelWindow } from "./guestSlotRefund";
+import { primarySlotActive } from "@shared/utils/slotUtils";
 import { syncFoundingMemberForUser, getFoundingMemberForUser, getFoundingMemberPlayerIds, markFoundingMemberSeen } from "./venueAwards";
 import { applyDubailandPromo, reverseDubailandPromo, sweepDubailandPromoReversals } from "./dubailandPromo";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
@@ -4011,6 +4012,14 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === "cancelled") return res.status(400).json({ error: "Booking is cancelled" });
 
+      // Gate 3 (Option A): /attend checks in and queues THE PRIMARY
+      // specifically — refuse when their slot row is cancelled. No-row
+      // legacy bookings pass (primarySlotActive treats absence as active).
+      const slotRows = await storage.getBookingGuests(req.params.id);
+      if (!primarySlotActive(slotRows)) {
+        return res.status(400).json({ error: "This spot was cancelled." });
+      }
+
       const updated = await storage.updateBooking(req.params.id, {
         status: "attended",
         attendedAt: new Date(),
@@ -4069,6 +4078,14 @@ export function registerMarketplaceRoutes(app: Express) {
           });
         }
 
+        // Gate 3 (Option A): the caller IS the primary here. Their own slot
+        // must be active — a cancelled primary can't self check in even while
+        // the booking lives on for its guests (who check in via the captain).
+        const slotRows = await storage.getBookingGuests(booking.id);
+        if (!primarySlotActive(slotRows)) {
+          return res.status(400).json({ error: "This spot was cancelled." });
+        }
+
         if (!bookableSession.linkedSessionId) {
           return res.status(400).json({
             error:
@@ -4091,6 +4108,9 @@ export function registerMarketplaceRoutes(app: Express) {
             return res.status(404).json({
               error: "We couldn't find a confirmed booking of yours for this session.",
             });
+          }
+          if (err?.message === 'PRIMARY_SLOT_CANCELLED') {
+            return res.status(400).json({ error: "This spot was cancelled." });
           }
           throw err;
         }
@@ -4966,14 +4986,18 @@ export function registerMarketplaceRoutes(app: Express) {
           }
         }
 
-        // Main booker
-        playerEntries.push({
-          name: booking.user?.name ?? 'Player',
-          level,
-          skillScore,
-          linkedPlayerId: booking.user?.linkedPlayerId ?? null,
-          photoUrl: booking.user?.photoUrl ?? null,
-        });
+        // Main booker — only while their own slot is active (Gate 3, Option A).
+        // Legacy no-row bookings pass; the headcount is simply the entries
+        // pushed, so it lands on active slots automatically.
+        if (primarySlotActive(booking.guests)) {
+          playerEntries.push({
+            name: booking.user?.name ?? 'Player',
+            level,
+            skillScore,
+            linkedPlayerId: booking.user?.linkedPlayerId ?? null,
+            photoUrl: booking.user?.photoUrl ?? null,
+          });
+        }
 
         // Additional guests only (exclude primary slot — already represented above by booking.user)
         const guestList = booking.guests ?? [];

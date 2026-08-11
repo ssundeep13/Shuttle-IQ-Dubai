@@ -464,7 +464,9 @@ export default function MyBookings() {
             </div>
 
             {/* Guests section */}
-            {!booking.isGuestBooking && booking.guests && booking.guests.filter(g => g.status === 'confirmed').length > 0 && (
+            {/* Gate 3: !isPrimary added — the section's visibility must never
+                toggle on the viewer's own (primary) slot row. */}
+            {!booking.isGuestBooking && booking.guests && booking.guests.filter(g => g.status === 'confirmed' && !g.isPrimary).length > 0 && (
               <GuestList
                 booking={booking}
                 canManage={canCancel}

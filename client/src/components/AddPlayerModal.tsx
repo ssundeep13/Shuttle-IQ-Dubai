@@ -56,6 +56,10 @@ interface BookedEntry {
   attendedAt: string | null;
   paymentMethod: string;
   cashPaid: boolean;
+  // Gate 3 (Option A): false when the booker's own slot is cancelled — the
+  // feed nulls user/player and this flag hides the primary row (guests stay).
+  // Absent on older payloads → treated as active.
+  primaryActive?: boolean;
   user: {
     id: string;
     name: string;
@@ -664,6 +668,11 @@ export function AddPlayerModal({
                       hasPlayer && selectedBookedPlayerIds.includes(entry.player!.id);
                     return (
                       <div key={entry.bookingId} className="space-y-1">
+                      {/* Gate 3 (Option A): a cancelled primary vanishes from
+                          the sheet — the feed nulls user/player and flags
+                          primaryActive:false; guest rows below still render.
+                          Legacy entries without the flag render as before. */}
+                      {entry.primaryActive !== false && (
                       <div
                         className={cn(
                           "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors min-h-[52px]",
@@ -749,6 +758,7 @@ export function AddPlayerModal({
                           )}
                         </div>
                       </div>
+                      )}
 
                       {/* Guest spots under this booker — extra paid players */}
                       {entry.guests.map((guest) => {

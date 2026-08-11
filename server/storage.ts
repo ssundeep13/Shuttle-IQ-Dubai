@@ -1124,6 +1124,18 @@ export class DatabaseStorage implements IStorage {
         throw new Error('BOOKING_NOT_ELIGIBLE');
       }
 
+      // Gate 3 (Option A) — lock-then-recheck for the primary's own slot: the
+      // route guards this too, but the slot can be cancelled between the two
+      // reads. No-row legacy bookings pass (absence ≠ cancelled).
+      const slotRows = await tx
+        .select({ isPrimary: bookingGuests.isPrimary, status: bookingGuests.status })
+        .from(bookingGuests)
+        .where(eq(bookingGuests.bookingId, args.bookingId));
+      const primaryRow = slotRows.find((r) => r.isPrimary);
+      if (primaryRow && primaryRow.status === 'cancelled') {
+        throw new Error('PRIMARY_SLOT_CANCELLED');
+      }
+
       const alreadyAttended = current.status === 'attended';
       let booking: Booking;
 

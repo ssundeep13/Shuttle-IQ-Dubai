@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import BadgeTag from '@/components/BadgeTag';
 import FoundingMemberSeal from '@/components/FoundingMemberSeal';
 import type { BookingWithDetails } from '@shared/schema';
+import { primarySlotActive } from '@shared/utils/slotUtils';
 
 interface ActiveSessionResponse {
   activeSessionId: string | null;
@@ -90,7 +91,12 @@ export default function Play() {
         (b) =>
           !b.isGuestBooking &&
           b.session?.linkedSessionId === activeId &&
-          (b.status === 'confirmed' || b.status === 'attended'),
+          (b.status === 'confirmed' || b.status === 'attended') &&
+          // Gate 3 (Option A): the viewer's own slot must be active — a
+          // cancelled primary sees the normal "book a session" state even
+          // while guests keep the booking alive. guests ride the /mine
+          // payload already; no-row legacy bookings count as active.
+          primarySlotActive(b.guests),
       ) ?? null
     );
   }, [bookingsQuery.data, activeSessionQuery.data]);

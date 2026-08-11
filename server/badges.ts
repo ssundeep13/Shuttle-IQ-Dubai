@@ -7,6 +7,11 @@
 //
 // Verified check-in = attended_at IS NOT NULL AND status != 'cancelled'
 // (waitlisted/pending bookings with attended_at count — Gate 2b ruling).
+// Option A Gate 3: additionally, the booker's OWN slot must not be cancelled
+// (NOT EXISTS on the isPrimary row) — a primary who freed their spot earns no
+// attendance credit even if guests kept the booking alive. No-row legacy
+// bookings still credit (absence ≠ cancelled). Guest badges are untouched:
+// guests earn from their own bookings, never from this booker-keyed join.
 // Windows are rolling from now: m1 (0-30d], m2 (30-60d], m3 (60-90d] —
 // same methodology as the Gate 1 calibration.
 import { sql } from "drizzle-orm";
@@ -136,6 +141,7 @@ export async function getActiveBadgesForPlayers(playerIds: string[]): Promise<Ma
       bool_or(fca.user_id IS NOT NULL) AS has_award
     FROM marketplace_users mu
     LEFT JOIN bookings b ON b.user_id = mu.id AND b.attended_at IS NOT NULL AND b.status != 'cancelled'
+      AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.booking_id = b.id AND bg.is_primary AND bg.status = 'cancelled')
     LEFT JOIN founding_court_awards fca ON fca.user_id = mu.id
     WHERE mu.linked_player_id = ANY($1)
     GROUP BY mu.linked_player_id`,
@@ -169,6 +175,7 @@ export async function getBadgeForUser(userId: string): Promise<Omit<BadgeInfo, "
       count(*) FILTER (WHERE attended_at <= now() - interval '60 days' AND attended_at > now() - interval '90 days')::int AS m3
     FROM bookings
     WHERE user_id = ${userId} AND attended_at IS NOT NULL AND status != 'cancelled'
+      AND NOT EXISTS (SELECT 1 FROM booking_guests bg WHERE bg.booking_id = bookings.id AND bg.is_primary AND bg.status = 'cancelled')
   `);
   const row = agg.rows[0] as { m1: number; m2: number; m3: number } | undefined;
   const m1 = row?.m1 ?? 0, m2 = row?.m2 ?? 0, m3 = row?.m3 ?? 0;

@@ -16,6 +16,7 @@ import { useInstallPrompt } from '@/hooks/use-install-prompt';
 import { useToast } from '@/hooks/use-toast';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
+import { primarySlotActive } from '@shared/utils/slotUtils';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 import CommunityFeed from './CommunityFeed';
 
@@ -523,7 +524,9 @@ export default function Dashboard() {
     .filter(b => {
       const sessionDate = new Date(b.session.date);
       const isToday = sessionDate >= todayStart && sessionDate <= todayEnd;
-      const isEligible = b.status === 'confirmed' || b.attendedAt !== null;
+      // Gate 3 (Option A): booking status alone no longer proves the viewer
+      // plays — their own slot must be active too (no-row legacy = active).
+      const isEligible = (b.status === 'confirmed' || b.attendedAt !== null) && primarySlotActive(b.guests);
       return isToday && isEligible;
     })
     .sort((a, b) => new Date(a.session.date).getTime() - new Date(b.session.date).getTime())[0];

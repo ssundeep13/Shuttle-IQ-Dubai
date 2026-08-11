@@ -11,6 +11,7 @@ import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
 import { mergePlayers, undoPlayerMerge, MergeError } from "./playerMerge";
 import { BLOG_UPLOADS_DIR } from "./uploadsRoot";
 import { getSkillTier, getTierDisplayName } from "@shared/utils/skillUtils";
+import { primarySlotActive } from "@shared/utils/slotUtils";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
 import { sendReferralCreditEmail, sendReferralMilestoneEmail } from "./emailClient";
 import { z } from "zod";
@@ -545,8 +546,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const nonCancelled = sessionBookings.filter(b => b.status !== 'cancelled');
 
       const result = await Promise.all(nonCancelled.map(async (b) => {
+        // Gate 3 (Option A): the primary plays iff their slot row is active.
+        // No-row legacy bookings stay active by the shared rule. The booking
+        // entry itself is KEPT either way — its guest slots must remain
+        // check-in-able even when the booker's own spot is gone.
+        const primaryActive = primarySlotActive(b.guests);
         let player = null;
-        if (b.user?.linkedPlayerId) {
+        if (primaryActive && b.user?.linkedPlayerId) {
           player = await storage.getPlayer(b.user.linkedPlayerId);
         }
         return {
@@ -555,7 +561,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           attendedAt: b.attendedAt,
           paymentMethod: b.paymentMethod,
           cashPaid: b.cashPaid,
-          user: b.user ? {
+          primaryActive,
+          user: primaryActive && b.user ? {
             id: b.user.id,
             name: b.user.name,
             email: b.user.email,
@@ -677,6 +684,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const booking = await storage.getBooking(bookingId);
       if (!booking || booking.sessionId !== bookableSession.id) {
         return res.status(404).json({ error: "Booking not found for this session" });
+      }
+
+      // Gate 3 (Option A): this stamp is booking-level and the guest check-in
+      // flow fires it too, so a cancelled PRIMARY alone must not block it —
+      // the wife still checks in. Refuse only when NO slot is active at all
+      // (nobody left on the booking to check in). Legacy no-row bookings have
+      // zero rows and stay stampable via the empty-rows escape.
+      const slotRows = await storage.getBookingGuests(bookingId);
+      const anyActiveSlot = slotRows.length === 0 || slotRows.some((s) => s.status !== 'cancelled');
+      if (!anyActiveSlot) {
+        return res.status(400).json({ error: "This spot was cancelled." });
       }
 
       const updated = await storage.updateBooking(bookingId, {
