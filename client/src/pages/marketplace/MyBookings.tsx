@@ -19,6 +19,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { sessionStartEpochMs } from '@shared/sessionTime';
+import { primaryCancelInfo } from '@/lib/primaryCancel';
 import { formatDubaiTime, paymentDeadline } from '@shared/dubaiTime';
 import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
@@ -407,6 +408,39 @@ export default function MyBookings() {
     const cashRefundAed = cashRefundFils / 100;
     const [refundChoice, setRefundChoice] = useState<'wallet' | 'ziina' | null>(null);
 
+    // ── Option A Gate 4: "Cancel my spot" (primary keeps booking + guests alive).
+    // Visibility + AED math live in the shared helper (mirrors the server settle).
+    const mySpot = primaryCancelInfo(booking, new Date(), sessionEndTime(booking) < new Date());
+    const [mySpotOpen, setMySpotOpen] = useState(false);
+    const [mySpotChoice, setMySpotChoice] = useState<'wallet' | 'bank' | null>(null);
+    const [mySpotError, setMySpotError] = useState<string | null>(null);
+    const mySpotNeedsChoice = mySpot.visible && !mySpot.freeSlot && !mySpot.within5h
+      && booking.paymentMethod === 'ziina' && !!booking.ziinaPaymentIntentId && mySpot.refundAed > 0;
+    // Same endpoint + same body mechanism as the guest-slot cancel above —
+    // the server derives allowWallet from the caller being the primary booker.
+    const cancelMySpotMutation = useMutation({
+      mutationFn: async ({ refundPreference }: { refundPreference?: 'wallet' | 'bank' }) => {
+        return apiRequest('DELETE', `/api/marketplace/bookings/${booking.id}/guests/${mySpot.primarySlotId}`,
+          refundPreference ? { refundPreference } : undefined);
+      },
+      onSuccess: (data: { bookingCancelled?: boolean } | undefined) => {
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+        setMySpotOpen(false);
+        setMySpotError(null);
+        toast({
+          title: data?.bookingCancelled ? 'Booking cancelled' : 'Your spot was cancelled',
+          description: data?.bookingCancelled
+            ? 'No spots remained, so the whole booking was cancelled.'
+            : 'Your guests keep their spots.',
+        });
+      },
+      onError: (error: unknown) => {
+        // Verbatim server copy INSIDE the dialog (e.g. the checked-in 400) —
+        // never a generic toast the captain has to decode later.
+        setMySpotError(serverErrorMessage(error));
+      },
+    });
+
     return (
       <div style={{ ...cardStyle, overflow: 'hidden', opacity: isPast ? 0.75 : 1 }} data-testid={`card-booking-${booking.id}`}>
         <div className="flex">
@@ -589,6 +623,75 @@ export default function MyBookings() {
                         onClick={() => cancelGuestMutation.mutate({ bookingId: booking.id, guestId: booking.myGuestId! })}
                       >
                         Cancel Spot
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              {/* Option A Gate 4: spot-level cancel — booking + guests live on.
+                  Cancel-first footer, single destructive confirm guarded by the
+                  refund choice (score-entry safety pattern). */}
+              {mySpot.visible && (
+                <AlertDialog
+                  open={mySpotOpen}
+                  onOpenChange={(o) => { setMySpotOpen(o); if (!o) { setMySpotError(null); setMySpotChoice(null); } }}
+                >
+                  <AlertDialogTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={cancelMySpotMutation.isPending}
+                      data-testid={`button-cancel-my-spot-${booking.id}`}
+                      style={{ ...ghostBtn('sm'), opacity: cancelMySpotMutation.isPending ? 0.6 : 1 }}
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Cancel my spot
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancel your spot?</AlertDialogTitle>
+                      <AlertDialogDescription asChild>
+                        <div className="space-y-3">
+                          <p data-testid={`text-my-spot-copy-${booking.id}`}>
+                            {mySpot.freeSlot
+                              ? 'Your guests keep theirs. Your spot was free — AED 0 refund.'
+                              : mySpot.within5h
+                              ? 'Your guests keep theirs. Your spot is within 5 hours of start — no refund.'
+                              : `Your guests keep theirs. AED ${mySpot.refundAed.toLocaleString('en-US', { maximumFractionDigits: 2 })} will be refunded.`}
+                          </p>
+                          {mySpotNeedsChoice && (
+                            <div className="space-y-2 p-3 rounded-md" style={{ background: 'rgba(0,30,70,0.04)', border: '1px solid rgba(0,30,70,0.10)' }}>
+                              <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 14 }}>
+                                <input type="radio" name={`refund-myspot-${booking.id}`} checked={mySpotChoice === 'wallet'} onChange={() => setMySpotChoice('wallet')} data-testid={`radio-my-spot-wallet-${booking.id}`} />
+                                <span>Add to my ShuttleIQ wallet — instant</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 14 }}>
+                                <input type="radio" name={`refund-myspot-${booking.id}`} checked={mySpotChoice === 'bank'} onChange={() => setMySpotChoice('bank')} data-testid={`radio-my-spot-bank-${booking.id}`} />
+                                <span>Refund to my bank account — takes 2-3 business days</span>
+                              </label>
+                            </div>
+                          )}
+                          {mySpotError && (
+                            <div className="flex gap-2 p-3 rounded-md" style={{ background: '#F1D7D2', border: `1px solid ${LOSS_RED}33` }} data-testid={`text-my-spot-error-${booking.id}`}>
+                              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: LOSS_RED }} />
+                              <p style={{ fontSize: 14, color: '#8E2C22', fontWeight: 600 }}>{mySpotError}</p>
+                            </div>
+                          )}
+                        </div>
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel data-testid={`button-keep-my-spot-${booking.id}`}>Keep My Spot</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={(e) => {
+                          e.preventDefault();
+                          cancelMySpotMutation.mutate({ refundPreference: mySpotNeedsChoice ? mySpotChoice ?? undefined : undefined });
+                        }}
+                        disabled={(mySpotNeedsChoice && !mySpotChoice) || cancelMySpotMutation.isPending}
+                        className="bg-destructive text-destructive-foreground"
+                        data-testid={`button-cancel-my-spot-confirm-${booking.id}`}
+                      >
+                        {cancelMySpotMutation.isPending ? 'Cancelling…' : 'Cancel My Spot'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>

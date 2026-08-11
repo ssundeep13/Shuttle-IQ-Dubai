@@ -97,7 +97,9 @@ describe('MyBookings toasts (tripwire)', () => {
   it('every error toast reads the thrown { error } shape via serverErrorMessage — no empty-description .message reads remain', () => {
     const src = read('client/src/pages/marketplace/MyBookings.tsx');
     expect(src.includes("(error as { error?: string })?.error")).toBe(true);
-    expect((src.match(/serverErrorMessage\(error\)/g) ?? []).length).toBe(5);
+    // 6th site added by Option A Gate 4: cancelMySpotMutation surfaces the
+    // server copy inside its dialog via the same serverErrorMessage path.
+    expect((src.match(/serverErrorMessage\(error\)/g) ?? []).length).toBe(6);
     expect(src.includes('description: error.message')).toBe(false);
   });
 });
