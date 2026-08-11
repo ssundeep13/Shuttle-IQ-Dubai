@@ -86,8 +86,25 @@ export async function settleCancelledGuestSlot(
     /** Ziina only: the primary booker may divert the CARD refund to wallet instead
      *  of bank. Wallet-FUNDED money always returns to the payer's wallet regardless. */
     allowWallet: boolean;
+    /** Option A Gate 2: the cancelled slot was never charged (the primary's
+     *  spot on a birthdayDiscountApplied booking). Frees the spot but moves
+     *  zero fils — the charged-slot proration below assumes a charged slot
+     *  and would otherwise invent a full guest-share for a free seat. */
+    cancelledSlotWasFree?: boolean;
+    /** Copy only: "your spot" wording for the primary's own slot; guest
+     *  wording (unchanged) otherwise. */
+    isPrimarySlot?: boolean;
   },
 ): Promise<GuestSlotSettleResult> {
+  // ── Free slot (birthday primary): release the spot, touch no money, raise
+  //    no notifications — nothing was charged, so nothing is owed or forfeited.
+  //    The caller still runs waitlist promotion off the freed spot.
+  if (opts.cancelledSlotWasFree) {
+    // spots ONLY — never re-write the money columns here: a concurrent charged-
+    // slot settle may be decrementing them, and a stale re-write would undo it.
+    await storage.updateBooking(booking.id, { spotsBooked: opts.newSpotsBooked });
+    return { proratedAed: 0, settledToWallet: false, pendingFlagged: false, forfeited: false, manualReview: false };
+  }
   // ── Prorate this spot's value into its wallet- and card-funded shares.
   //    Uncapped on purpose (unlike computeGuestSlotRefundFils, whose card cap is
   //    only for the bank figure): the decrements below must reflect the FULL spot
@@ -111,13 +128,16 @@ export async function settleCancelledGuestSlot(
   // ── Forfeit decision via the shared 5h helper. Fail-safe on a missing session:
   //    we cannot positively confirm we're OUTSIDE the window, so we neither
   //    silently forfeit nor silently refund — flag for manual admin review.
+  // Copy switches on whose slot this is; money routing is identical (payer).
+  const primary = opts.isPrimarySlot === true;
+
   const session = await storage.getBookableSession(booking.sessionId);
   if (!session) {
     await storage.createMarketplaceNotification({
       userId: booking.userId,
       type: "refund_required",
-      title: "Manual review — guest spot cancelled",
-      message: `A guest spot was cancelled but the session timing could not be determined automatically. Review whether a refund of up to AED ${(spotValueFils / 100).toFixed(2)} is owed.`,
+      title: primary ? "Manual review — your spot cancelled" : "Manual review — guest spot cancelled",
+      message: `${primary ? "Your spot was cancelled" : "A guest spot was cancelled"} but the session timing could not be determined automatically. Review whether a refund of up to AED ${(spotValueFils / 100).toFixed(2)} is owed.`,
       relatedBookingId: booking.id,
       refundAmountFils: spotValueFils,
       refundPreference: "bank",
@@ -157,7 +177,7 @@ export async function settleCancelledGuestSlot(
       userId: booking.userId,
       type: "wallet_refund_credited",
       title: "Wallet credit added",
-      message: `AED ${(fils / 100).toFixed(2)} for the cancelled guest spot has been added to your ShuttleIQ wallet.`,
+      message: `AED ${(fils / 100).toFixed(2)} for ${primary ? "your cancelled spot" : "the cancelled guest spot"} has been added to your ShuttleIQ wallet.`,
       relatedBookingId: booking.id,
     });
     settledToWallet = true;
@@ -169,7 +189,7 @@ export async function settleCancelledGuestSlot(
   //     whole-booking path always does. Fully-ziina bookings have 0 here → no-op.
   if (spotWalletFils > 0) {
     if (payer?.linkedPlayerId) {
-      await creditWallet(spotWalletFils, "Cancelled guest spot — wallet-funded share returned to wallet");
+      await creditWallet(spotWalletFils, primary ? "Cancelled own spot — wallet-funded share returned to wallet" : "Cancelled guest spot — wallet-funded share returned to wallet");
     } else {
       bankShareFils += spotWalletFils; // no wallet to credit — never drop it
     }
@@ -179,7 +199,7 @@ export async function settleCancelledGuestSlot(
   //     booker may divert to wallet (allowWallet); otherwise it goes to bank Pending.
   if (booking.paymentMethod === "ziina" && booking.ziinaPaymentIntentId && spotCardFils > 0) {
     if (opts.refundPreference === "wallet" && opts.allowWallet && payer?.linkedPlayerId) {
-      await creditWallet(spotCardFils, "Cancelled guest spot refunded to wallet (payer choice)");
+      await creditWallet(spotCardFils, primary ? "Cancelled own spot refunded to wallet (payer choice)" : "Cancelled guest spot refunded to wallet (payer choice)");
     } else {
       bankShareFils += spotCardFils;
     }
@@ -197,14 +217,16 @@ export async function settleCancelledGuestSlot(
       await storage.updateNotificationRefundAmount(
         existing.id,
         newTotalFils,
-        `Guest slot(s) cancelled. Total refund of AED ${(newTotalFils / 100).toFixed(2)} owed to the player's bank via the Ziina dashboard${intentNote}.`,
+        // Neutral when the primary's slot joins an accumulated entry — earlier
+        // guest cancels may already be inside the same total.
+        `${primary ? "Slot(s)" : "Guest slot(s)"} cancelled. Total refund of AED ${(newTotalFils / 100).toFixed(2)} owed to the player's bank via the Ziina dashboard${intentNote}.`,
       );
     } else {
       await storage.createMarketplaceNotification({
         userId: booking.userId,
         type: "refund_required",
         title: "Partial refund required",
-        message: `Guest slot cancelled. Refund AED ${(bankShareFils / 100).toFixed(2)} to the player's bank via the Ziina dashboard${intentNote}.`,
+        message: `${primary ? "Your spot was cancelled" : "Guest slot cancelled"}. Refund AED ${(bankShareFils / 100).toFixed(2)} to the player's bank via the Ziina dashboard${intentNote}.`,
         relatedBookingId: booking.id,
         refundAmountFils: bankShareFils,
         refundPreference: "bank",

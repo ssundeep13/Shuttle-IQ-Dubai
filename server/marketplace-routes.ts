@@ -3329,18 +3329,50 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === 'cancelled') return res.status(400).json({ error: "Parent booking is already cancelled" });
 
+      // Option A Gate 2 guard: once anyone on the booking is checked in, day-of
+      // changes belong to the Court Captain. Gate on the BOOKING-level markers —
+      // attendedAt is stamped by roster check-in AND conflated guest check-ins,
+      // and the admin /attend path sets status='attended' without attendedAt;
+      // the slot-level linkedPlayerId is only written for checked-in pure
+      // guests, so it cannot serve as a reliable per-person marker.
+      if (booking.attendedAt || booking.status === 'attended') {
+        return res.status(400).json({ error: "You're already checked in — speak to the Court Captain to make changes." });
+      }
+
       // Atomic claim: only the call that flips the slot active→cancelled settles
       // the money (per-slot idempotency — a double-submit no-ops here).
       const claimed = await storage.markGuestSlotCancelled(guest.id);
       if (!claimed) return res.json({ alreadyCancelled: true });
+
+      // Ghost-booking escalation (Option A Gate 2): if this was the LAST live
+      // slot, the booking must die with it — mirroring the authenticated
+      // delete's sequence. Counted from the rows post-claim, not spotsBooked,
+      // so a primary slot cancelled earlier is correctly excluded.
+      const slotsNow = await storage.getBookingGuests(booking.id);
+      const activeSlots = slotsNow.filter((s) => s.status !== 'cancelled').length;
+      if (activeSlots === 0) {
+        await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 });
+        syncFoundingMember(booking.userId, 'last-guest-slot-cancel');
+        fireDubailandPromoReversal(booking.userId, 'last-guest-slot-cancel');
+        await maybeCreateRefundNotification(booking.id);
+        await promoteFirstFittingWaitlisted(booking.sessionId);
+        return res.json({ cancelled: true, guestName: guest.name, bookingCancelled: true });
+      }
 
       // Money + spots in one settle: forfeit within 5h, else prorated refund
       // (wallet-funded share to the payer's wallet, card share to bank); both
       // amount columns decremented for the released spot. allowWallet:false — a
       // token canceller can't divert a CARD refund to wallet, but a wallet
       // booking still refunds to the payer's wallet (decided inside settle).
-      const newSpots = Math.max(1, (booking.spotsBooked ?? 1) - 1);
-      await settleCancelledGuestSlot(booking, { newSpotsBooked: newSpots, allowWallet: false });
+      const newSpots = (booking.spotsBooked ?? 1) - 1;
+      await settleCancelledGuestSlot(booking, {
+        newSpotsBooked: Math.max(1, newSpots),
+        allowWallet: false,
+        // Token rows are never the primary (their token is null), but derive
+        // from the row anyway so the invariant lives in one place.
+        cancelledSlotWasFree: booking.birthdayDiscountApplied && guest.isPrimary,
+        isPrimarySlot: guest.isPrimary,
+      });
 
       // The freed spot goes back to capacity — pull in the waitlist if anyone fits.
       await promoteFirstFittingWaitlisted(booking.sessionId);
@@ -3415,6 +3447,13 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.status === 'cancelled') return res.status(400).json({ error: "Booking is already cancelled" });
 
+      // Option A Gate 2 guard: same booking-level checked-in gate as the token
+      // path (attendedAt from roster/guest check-ins, status from admin
+      // /attend) — after check-in, changes go through the Court Captain.
+      if (booking.attendedAt || booking.status === 'attended') {
+        return res.status(400).json({ error: "You're already checked in — speak to the Court Captain to make changes." });
+      }
+
       const guests = await storage.getBookingGuests(req.params.bookingId);
       const guest = guests.find(g => g.id === req.params.guestId);
       if (!guest) return res.status(404).json({ error: "Guest not found" });
@@ -3469,6 +3508,10 @@ export function registerMarketplaceRoutes(app: Express) {
         newSpotsBooked: newSpots,
         refundPreference: requestedPreference,
         allowWallet: isPrimaryBooker,
+        // Option A Gate 2: the primary's slot on a birthday booking was the
+        // free one — release the spot, move zero fils.
+        cancelledSlotWasFree: booking.birthdayDiscountApplied && guest.isPrimary,
+        isPrimarySlot: guest.isPrimary,
       });
       await promoteFirstFittingWaitlisted(booking.sessionId);
       res.json({
