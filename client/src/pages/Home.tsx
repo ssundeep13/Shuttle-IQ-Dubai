@@ -905,15 +905,23 @@ export default function Home() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background overflow-x-clip">
+        {/* Shapes calibrated to the live 380px stack (header 298, banner 94,
+            tabs 54, controls+heading ~88) so the loaded layout lands where
+            the shapes were. The banner shape only renders when the loaded
+            session is a sandbox — the session itself is known by now. */}
         <div className="max-w-7xl mx-auto p-6 space-y-6" data-testid="loading-skeleton">
-          <Skeleton className="h-20 w-full rounded-lg" />
-          <Skeleton className="h-10 w-full rounded-md" />
-          <div className="flex gap-3 md:grid md:grid-cols-2 md:gap-4">
-            <Skeleton className="h-56 w-[calc(100vw-4rem)] max-w-[380px] shrink-0 rounded-xl md:w-auto md:max-w-none" />
-            <Skeleton className="hidden md:block h-56 rounded-xl" />
+          <Skeleton className="h-72 w-full rounded-lg" />
+          {session?.isSandbox && <Skeleton className="h-24 w-full rounded-lg" />}
+          <Skeleton className="h-14 w-full rounded-md" />
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full rounded-md" />
+            <Skeleton className="h-6 w-32 rounded-md" />
+            <div className="flex gap-3 md:grid md:grid-cols-2 md:gap-4">
+              <Skeleton className="h-56 w-[calc(100vw-4rem)] max-w-[380px] shrink-0 rounded-xl md:w-auto md:max-w-none" />
+              <Skeleton className="hidden md:block h-56 rounded-xl" />
+            </div>
           </div>
           <div className="space-y-2">
-            <Skeleton className="h-14 w-full rounded-xl" />
             <Skeleton className="h-14 w-full rounded-xl" />
             <Skeleton className="h-14 w-full rounded-xl" />
           </div>
