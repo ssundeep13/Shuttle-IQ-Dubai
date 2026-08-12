@@ -37,6 +37,16 @@ export function chooseSuggestionPool(input: {
   const strict = build(input.strictClaimed, true);
   const strictInBand = [...strict.waiterIds, ...strict.currentIds].filter(input.passesBand);
   if (strictInBand.length >= 4) return { ...strict, sharedPool: false, strictEligibleCount: strictInBand.length };
+  // Gate B (D2 spread ruling): before dropping the excludes wholesale, try the
+  // legacy claims WITH excludes intact — when that still fills a lineup, the
+  // earlier panels' displayed anchors stay out, so the same pair never fronts
+  // two panels unless mathematically unavoidable. The strict tier above is
+  // untouched; this only refines which players the FALLBACK re-admits.
+  const spread = build(input.legacyClaimed, true);
+  const spreadInBand = [...spread.waiterIds, ...spread.currentIds].filter(input.passesBand);
+  if (spreadInBand.length >= 4) {
+    return { ...spread, sharedPool: spreadInBand.length > strictInBand.length, strictEligibleCount: strictInBand.length };
+  }
   const legacy = build(input.legacyClaimed, false);
   const legacyInBand = [...legacy.waiterIds, ...legacy.currentIds].filter(input.passesBand);
   return { ...legacy, sharedPool: legacyInBand.length > strictInBand.length, strictEligibleCount: strictInBand.length };

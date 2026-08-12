@@ -1470,6 +1470,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get old queue and clone it to prevent mutation issues
       const oldQueue = [...await storage.getQueue(session.id)];
 
+      // Gate B (D2 root path): reordering existing entries is always legal,
+      // but NEWLY-ADDED ids get the same live-game guard as the POST verb —
+      // this verb replaces the whole list, so it could smuggle a playing
+      // player into the queue otherwise.
+      const addedIds = playerIds.filter((id: string) => !oldQueue.includes(id));
+      if (addedIds.length > 0) {
+        const liveCourts = await storage.getCourtsWithPlayers(session.id);
+        const playingNow = new Set(
+          liveCourts.filter(c => c.status === 'occupied').flatMap(c => (c.players ?? []).map(p => p.id)));
+        if (addedIds.some((id: string) => playingNow.has(id))) {
+          return res.status(409).json({ error: "This player is in a live game — they rejoin the queue when it ends." });
+        }
+      }
+
       await storage.setQueue(session.id, playerIds);
 
       // Clear rest states and sit-out flags for players removed from queue —
@@ -1496,6 +1510,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : await storage.getActiveSession();
       if (!session) {
         return res.status(400).json({ error: "No active session" });
+      }
+
+      // Gate B (D2 root path): a player mid-game must not re-enter the queue —
+      // that is how a live player ends up anchoring every sibling panel's
+      // suggestions (live-reproduced: this endpoint returned 200 for a player
+      // on an occupied court). Game completion re-queues via storage directly
+      // and is unaffected.
+      const liveCourts = await storage.getCourtsWithPlayers(session.id);
+      const playingNow = new Set(
+        liveCourts.filter(c => c.status === 'occupied').flatMap(c => (c.players ?? []).map(p => p.id)));
+      if (playingNow.has(req.params.playerId)) {
+        return res.status(409).json({ error: "This player is in a live game — they rejoin the queue when it ends." });
       }
 
       await storage.addToQueue(session.id, req.params.playerId);
