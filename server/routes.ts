@@ -2722,6 +2722,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           skipped.push({ courtId, reason: 'court no longer available' });
           continue;
         }
+        if ('liveConflicts' in assignResult) {
+          // Double-courting guard fired — nothing was written for this court.
+          skipped.push({ courtId, reason: 'players in a live game' });
+          continue;
+        }
         results.push(assignResult.updatedCourt);
       }
 
@@ -2758,8 +2763,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     courtId: string;
     teamAssignments: { playerId: string; team: number }[];
     sessionId: string;
-  }): Promise<{ updatedCourt: Awaited<ReturnType<typeof storage.getCourt>> } | null> {
+  }): Promise<
+    | { updatedCourt: Awaited<ReturnType<typeof storage.getCourt>> }
+    | { liveConflicts: Array<{ playerId: string; name: string; reason: 'in-live-game' }> }
+    | null
+  > {
     const { courtId, teamAssignments, sessionId } = params;
+
+    // Double-courting guard (2026-08-12 repro: a player live on Court 3 was
+    // started on Court 2 — this function wrote everything unchecked, corrupting
+    // rosters, ratings input, and the session-wide playingNow truth). Any
+    // player already on an OCCUPIED court elsewhere in the session rejects the
+    // WHOLE assignment before a single write — atomic by position: this sits
+    // above the court claim. Roster-derived truth (same as Gate A), never
+    // players.status. Lives here, not in the endpoints, so both entry paths
+    // (single assign + bracket-assign) are covered; no internal caller
+    // legitimately moves a playing player (game completion has its own path).
+    const liveCourts = await storage.getCourtsWithPlayers(sessionId);
+    const playingElsewhere = new Map<string, string>();
+    for (const c of liveCourts) {
+      if (c.status === 'occupied' && c.id !== courtId) {
+        for (const p of c.players ?? []) playingElsewhere.set(p.id, p.name);
+      }
+    }
+    const liveConflicts = teamAssignments
+      .filter(a => playingElsewhere.has(a.playerId))
+      .map(a => ({ playerId: a.playerId, name: playingElsewhere.get(a.playerId)!, reason: 'in-live-game' as const }));
+    if (liveConflicts.length > 0) return { liveConflicts };
 
     // Claim the court first: occupied only if currently 'available'.
     const claimed = await storage.occupyCourtIfAvailable(courtId);
@@ -2889,6 +2919,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       if (!assignResult) {
         return res.status(409).json({ error: "Court was just taken by another action — refresh and retry" });
+      }
+      if ('liveConflicts' in assignResult) {
+        // Same 409 shape as the pin-conflict path: names ride the payload so
+        // the client never renders ids; the sentence itself carries them too.
+        const names = assignResult.liveConflicts.map(c => c.name);
+        const list = names.length <= 2 ? names.join(' and ') : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`;
+        return res.status(409).json({
+          error: `${list} ${names.length === 1 ? 'is' : 'are'} in a live game — they can be assigned when it ends.`,
+          conflicts: assignResult.liveConflicts,
+        });
       }
       const { updatedCourt } = assignResult;
 
