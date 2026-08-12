@@ -93,7 +93,9 @@ describe('Gate 3 — wiring pins', () => {
   it('the suggestions GET runs BOTH claim tiers and feeds them to chooseSuggestionPool', () => {
     const get = routes.slice(
       routes.indexOf('app.get("/api/courts/:courtId/suggestions"'),
-      routes.indexOf('app.get("/api/courts/:courtId/suggestions"') + 4000,
+      // window widened (Gate A inserted the session-wide playingNow block
+      // above the claim tiers — same assertions, larger slice)
+      routes.indexOf('app.get("/api/courts/:courtId/suggestions"') + 8000,
     );
     // strict tier: no options object; legacy tier keeps the auto exemption
     expect(get.includes('getPlayersOnOpenSuggestionsForOtherCourts(sessionId, court.id, claimCheckIds, {})')).toBe(true);

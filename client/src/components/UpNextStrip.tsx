@@ -663,7 +663,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
               right-aligned. Line 2 only renders when it has content. */}
           {team.map((p) => {
             const conflict = conflictFor(p.playerId);
-            const inGame = ownCourtIds.has(p.playerId);
+            // Gate A (D1): session-wide truth — the same playing set the deck
+            // computes from all court rosters, matching the server's inGame.
+            const inGame = playing.has(p.playerId);
             const receipt = receiptText(p, inGame);
             return (
               <div key={p.playerId} className="min-w-0" data-testid={`upnext-player-${court.id}-${p.playerId}`}>
@@ -966,7 +968,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       level: incoming.level,
       skillScore: incoming.skillScore ?? 90,
       outsideBand: !playerPassesBand(band, incoming.level),
-      inGame: ownCourtIds.has(incoming.id),
+      inGame: playing.has(incoming.id),
     };
     const next = { team1: [...current.team1], team2: [...current.team2] };
     if (ephemeralSwapSlot.team === 1) next.team1[ephemeralSwapSlot.index] = asSugPlayer;

@@ -1810,6 +1810,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // (its running game's 'playing' row, the queued row being replaced)
       // never block its own next lineup — same-court repeats are legal.
       const ownCourtPlayerIds = await storage.getCourtPlayers(court.id);
+      // Gate A (D1): the session-wide "playing right now" set — every player
+      // on an OCCUPIED court of this session. Sourced from the court rosters
+      // (the same truth the court grid renders), NOT players.status: that
+      // column is global and side-effect-maintained, so it can go stale
+      // across sessions/crashes while the roster cannot. inGame and the
+      // receipts below both read this one set.
+      const sessionCourts = await storage.getCourtsWithPlayers(sessionId);
+      const playingNow = new Set(
+        sessionCourts.filter(c => c.status === 'occupied').flatMap(c => (c.players ?? []).map(p => p.id)));
       const claimCheckIds = Array.from(new Set([...queue, ...ownCourtPlayerIds]));
       // Gate 3 (cross-court dedup): the client seeds `exclude` with players
       // already SHOWN on earlier courts' ephemeral suggestions — those never
@@ -1885,7 +1894,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const id of basePool) {
         const rs = getPlayerRestState(sessionId, id);
         receipts[id] = {
-          gamesWaited: rs.gamesWaited || 0,
+          // Gate A (D1): a player in a live game is not waiting — their rest
+          // state still holds the pre-game figure, which rendered as a stale
+          // "waited N games" line. Zero it; with inGame:true the client shows
+          // their honest game count instead.
+          gamesWaited: playingNow.has(id) ? 0 : (rs.gamesWaited || 0),
           gamesThisSession: playedBy.get(id)?.gamesThisSession ?? rs.gamesThisSession ?? 0,
         };
       }
@@ -1925,7 +1938,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         level: p.level,
         skillScore: p.skillScore ?? 90,
         outsideBand: outsideBand.has(p.id),
-        inGame: currentSet.has(p.id),
+        // Gate A (D1): "in any live game this session" — own-court currents
+        // are a subset of playingNow, so this strictly widens the old flag.
+        inGame: playingNow.has(p.id),
       });
       const toOption = (team1: any[], team2: any[]): Option => {
         const avg = (t: any[]) => t.reduce((s, p) => s + (p.skillScore ?? 90), 0) / (t.length || 1);
