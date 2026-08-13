@@ -339,9 +339,13 @@ export default function Home() {
       // Names ride the 409 payload; keep the sheet open so the captain fixes
       // the offending slot in place (never a disappearing toast).
       const names = conflictNames(error, (id: string) => players.find((p) => p.id === id)?.name);
+      // Same list voice as the assign guard: "A", "A and B", "A, B and 2 more".
+      const list = names.length <= 2
+        ? names.join(' and ')
+        : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`;
       setComposeError(
         names.length > 0
-          ? `${names.join(' and ')} ${names.length === 1 ? 'was' : 'were'} just placed elsewhere — pick someone else for that spot. Nothing was saved.`
+          ? `${list} ${names.length === 1 ? 'was' : 'were'} just placed elsewhere — pick someone else for that spot. Nothing was saved.`
           : friendlyMessage(error, 'That lineup could not be locked in'),
       );
     },
