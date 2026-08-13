@@ -1,4 +1,7 @@
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiUrl } from "@/lib/queryClient";
+import { composeCandidates } from "@/lib/composeEligibility";
 import { CourtWithPlayers, Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +40,12 @@ interface NextGamesDeckProps {
   // card and the deck link are two entry points into ONE sheet.
   assignCourtId: string | null;
   onOpenAssign: (courtId: string | null) => void;
+  // Gate 1 (D4): compose mode for OCCUPIED courts — submits the composed
+  // lineup to the hardened queued-suggestion endpoint (state lives in Home
+  // alongside the free-court assign flow).
+  onComposeLineup?: (courtId: string) => void;
+  composeError?: string | null;
+  composePending?: boolean;
 }
 
 // Compact gender·level string (same helper CourtCard uses for its rosters)
@@ -56,6 +65,10 @@ function AssignSheet({
   team2Players,
   onTogglePlayerSelection,
   onAssignPlayers,
+  mode,
+  eligible,
+  composeError,
+  composePending,
 }: {
   open: boolean;
   onClose: () => void;
@@ -65,18 +78,30 @@ function AssignSheet({
   team2Players: string[];
   onTogglePlayerSelection: (playerId: string, team: number) => void;
   onAssignPlayers: (courtId: string) => void;
+  // Gate 1 (D4): 'assign' = free court, starts a game now via /assign.
+  // 'compose' = OCCUPIED court, locks the next lineup via queued-suggestion.
+  mode: 'assign' | 'compose';
+  /** compose mode: the eligibility-filtered candidate list */
+  eligible?: Player[];
+  /** compose mode: server 409 copy, rendered IN-SHEET (never a bare toast) */
+  composeError?: string | null;
+  composePending?: boolean;
 }) {
+  const isCompose = mode === 'compose';
   const assigned = team1Players.length + team2Players.length;
   const ready = team1Players.length === 2 && team2Players.length === 2;
 
-  // Display-only: alphabetical by name. Does not mutate the queuePlayers prop.
-  const sortedQueuePlayers = [...queuePlayers].sort((a, b) =>
+  // Display-only: alphabetical by name. Does not mutate the source prop.
+  const sourcePlayers = isCompose ? (eligible ?? []) : queuePlayers;
+  const sortedQueuePlayers = [...sourcePlayers].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
 
   const handleStart = () => {
     onAssignPlayers(court.id);
-    onClose();
+    // compose keeps the sheet open until the server confirms, so a 409 can
+    // render in place; the free-court flow closes immediately as before.
+    if (!isCompose) onClose();
   };
 
   return (
@@ -90,9 +115,13 @@ function AssignSheet({
         <SheetHeader className="px-6 pt-2 pb-4 border-b border-border shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <SheetTitle className="text-base">{court.name} — Assign Players</SheetTitle>
+              <SheetTitle className="text-base">
+                {isCompose ? `${court.name} — Compose Up Next` : `${court.name} — Assign Players`}
+              </SheetTitle>
               <SheetDescription className="text-xs mt-0.5">
-                Tap a team button to assign. Select 2 per team.
+                {isCompose
+                  ? "Tap a team button to build the next lineup. Select 2 per team."
+                  : "Tap a team button to assign. Select 2 per team."}
               </SheetDescription>
             </div>
             <span
@@ -107,11 +136,21 @@ function AssignSheet({
           </div>
         </SheetHeader>
 
+        {/* Server 409 — in-sheet, with names, never a bare toast (Gate 1) */}
+        {isCompose && composeError && (
+          <div
+            className="mx-4 mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 shrink-0"
+            data-testid={`text-compose-error-${court.id}`}
+          >
+            {composeError}
+          </div>
+        )}
+
         {/* Player list */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
-          {queuePlayers.length === 0 ? (
+          {sortedQueuePlayers.length === 0 ? (
             <p className="text-center text-muted-foreground py-8 text-sm">
-              No players in the queue.
+              {isCompose ? "No eligible players right now." : "No players in the queue."}
             </p>
           ) : (
             sortedQueuePlayers.map((player) => {
@@ -182,14 +221,25 @@ function AssignSheet({
 
         {/* Footer */}
         <SheetFooter className="px-4 py-4 border-t border-border shrink-0 bg-card">
-          <Button
-            onClick={handleStart}
-            disabled={!ready}
-            className="w-full"
-            data-testid={`button-assign-players-${court.id}`}
-          >
-            Start Game
-          </Button>
+          <div className="w-full space-y-2">
+            {isCompose && (
+              <p className="text-xs text-muted-foreground" data-testid={`text-compose-caveat-${court.id}`}>
+                Holds until the game ends. If any of these four gets placed elsewhere or
+                leaves the queue before then, this lineup is released and the planner
+                proposes a fresh one — it is never promoted stale.
+              </p>
+            )}
+            <Button
+              onClick={handleStart}
+              disabled={!ready || !!composePending}
+              className="w-full"
+              data-testid={`button-assign-players-${court.id}`}
+            >
+              {isCompose
+                ? (composePending ? "Locking in…" : "Lock in for next game")
+                : "Start Game"}
+            </Button>
+          </div>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -208,9 +258,31 @@ export function NextGamesDeck({
   onAssignPlayers,
   assignCourtId,
   onOpenAssign,
+  onComposeLineup,
+  composeError,
+  composePending,
 }: NextGamesDeckProps) {
   const courts = sortCourts(courtsProp);
   const playingPlayerIds = courts.flatMap((c) => c.players.map((p) => p.id));
+  const sessionId = courtsProp[0]?.sessionId;
+
+  // Same query keys the strip uses, so these ride its cache (no extra fetch).
+  const { data: suggestions = [] } = useQuery<Array<{ courtId: string; players: Array<{ playerId: string }> }>>({
+    queryKey: ["/api/sessions", sessionId, "pending-suggestions"],
+    enabled: !!sessionId,
+  });
+  const { data: sittingOutData } = useQuery<{ sittingOut: string[] }>({
+    queryKey: ["/api/sessions", sessionId, "queue", "sitting-out"],
+    queryFn: async () => {
+      const res = await fetch(apiUrl(`/api/sessions/${sessionId}/queue/sitting-out`), {
+        headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
+      });
+      if (!res.ok) return { sittingOut: [] };
+      return res.json();
+    },
+    enabled: !!sessionId,
+    staleTime: 5000,
+  });
   const [activeIdx, setActiveIdx] = useState(0);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const panelRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -281,6 +353,7 @@ export function NextGamesDeck({
                 isSandboxSession={isSandboxSession}
                 aiModeEnabled={aiModeEnabled}
                 earlierCourtIds={courts.slice(0, courtIdx).map((c) => c.id)}
+                onComposeLineup={onComposeLineup}
               />
 
               {/* Manual assignment lives in the deck now (free courts — the
@@ -326,22 +399,46 @@ export function NextGamesDeck({
         </div>
       )}
 
-      {/* Bottom sheet (free courts only) — ONE sheet, two entry points:
-          the deck link above and the grid's free card (Gate 4). */}
-      {assignCourt && assignCourt.status === "available" && (
-        <AssignSheet
-          open={true}
-          onClose={() => onOpenAssign(null)}
-          court={assignCourt}
-          queuePlayers={queuePlayers}
-          team1Players={teamAssignments[assignCourt.id]?.team1 ?? []}
-          team2Players={teamAssignments[assignCourt.id]?.team2 ?? []}
-          onTogglePlayerSelection={(playerId, team) =>
-            onTogglePlayerSelection(assignCourt.id, playerId, team)
-          }
-          onAssignPlayers={onAssignPlayers}
-        />
-      )}
+      {/* Bottom sheet — ONE sheet, now THREE entry points: the deck link and
+          the grid's free card (free courts → start a game), plus the strip's
+          compose link (occupied courts → lock the next lineup). Gate 1. */}
+      {assignCourt && (() => {
+        const isCompose = assignCourt.status !== "available";
+        const picked = teamAssignments[assignCourt.id] ?? { team1: [], team2: [] };
+        const eligible = isCompose
+          ? composeCandidates({
+              queuePlayers,
+              ownCourtPlayers: assignCourt.players ?? [],
+              sittingOut: new Set(sittingOutData?.sittingOut ?? []),
+              playing: new Set(playingPlayerIds),
+              claimedElsewhere: new Set(
+                suggestions
+                  .filter((s) => s.courtId !== assignCourt.id)
+                  .flatMap((s) => s.players.map((p) => p.playerId)),
+              ),
+              alreadyPicked: new Set<string>(),
+              ownCourtIds: new Set((assignCourt.players ?? []).map((p) => p.id)),
+            })
+          : undefined;
+        return (
+          <AssignSheet
+            open={true}
+            onClose={() => onOpenAssign(null)}
+            court={assignCourt}
+            queuePlayers={queuePlayers}
+            team1Players={picked.team1}
+            team2Players={picked.team2}
+            onTogglePlayerSelection={(playerId, team) =>
+              onTogglePlayerSelection(assignCourt.id, playerId, team)
+            }
+            onAssignPlayers={isCompose ? (onComposeLineup ?? onAssignPlayers) : onAssignPlayers}
+            mode={isCompose ? 'compose' : 'assign'}
+            eligible={eligible}
+            composeError={composeError}
+            composePending={composePending}
+          />
+        );
+      })()}
     </section>
   );
 }

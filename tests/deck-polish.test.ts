@@ -78,7 +78,10 @@ describe('Gate 4.3 — one AssignSheet, two entry points', () => {
     expect(card.includes('onClick={() => onOpenAssign(court.id)}')).toBe(true);   // free card
     // Home hands the same setter to both surfaces
     expect(home.includes('assignCourtId={assignSheetCourtId}')).toBe(true);
-    expect((home.match(/onOpenAssign=\{setAssignSheetCourtId\}/g) ?? []).length).toBe(2);
+    // Gate 1 (compose) renamed the shared setter to openAssignSheet — one
+    // lifted callback still serves BOTH surfaces (it now also clears any
+    // stale compose error on open). The invariant is unchanged.
+    expect((home.match(/onOpenAssign=\{openAssignSheet\}/g) ?? []).length).toBe(2);
   });
 
   it('the free card is a real button (44px+ target) and CourtCard gained no sheet of its own', () => {

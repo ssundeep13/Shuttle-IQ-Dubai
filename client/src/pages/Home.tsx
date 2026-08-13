@@ -24,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import { useActiveSession } from "@/hooks/use-active-session";
 import { useAuth } from "@/contexts/AuthContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { friendlyMessage } from "@/lib/errors";
+import { friendlyMessage, conflictNames } from "@/lib/errors";
 import { SamePersonSheet } from "@/components/SamePersonSheet";
 import type { PlayerCandidate } from "@shared/utils/playerMatching";
 import {
@@ -311,6 +311,61 @@ export default function Home() {
       addNotification(message, 'danger');
     },
   });
+
+  // Gate 1 (D4): compose the NEXT lineup for an OCCUPIED court. Same sheet,
+  // different endpoint — the hardened queued-suggestion path that already
+  // validates claims and 409s with names. Errors render IN the sheet.
+  const [composeError, setComposeError] = useState<string | null>(null);
+  const composeLineupMutation = useMutation({
+    mutationFn: async ({ courtId, teamAssignments }: { courtId: string; teamAssignments: { playerId: string; team: number }[] }) => {
+      return await apiRequest('POST', `/api/courts/${courtId}/queued-suggestion`, {
+        sessionId: session?.id,
+        teamAssignments,
+      });
+    },
+    onSuccess: (_data: any, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/courts'], exact: false });
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions', session?.id, 'pending-suggestions'] });
+      setTeamAssignments((prev) => {
+        const next = { ...prev };
+        delete next[variables.courtId];
+        return next;
+      });
+      setComposeError(null);
+      setAssignSheetCourtId(null);
+      addNotification('Lineup locked in for next game', 'success');
+    },
+    onError: (error: any) => {
+      // Names ride the 409 payload; keep the sheet open so the captain fixes
+      // the offending slot in place (never a disappearing toast).
+      const names = conflictNames(error, (id: string) => players.find((p) => p.id === id)?.name);
+      setComposeError(
+        names.length > 0
+          ? `${names.join(' and ')} ${names.length === 1 ? 'was' : 'were'} just placed elsewhere — pick someone else for that spot. Nothing was saved.`
+          : friendlyMessage(error, 'That lineup could not be locked in'),
+      );
+    },
+  });
+
+  // ONE lifted opener for both sheet entry points (deck link + grid free
+  // card), extended by Gate 1 to clear any stale compose error on open.
+  const openAssignSheet = (courtId: string | null) => {
+    setComposeError(null);
+    setAssignSheetCourtId(courtId);
+  };
+
+  const handleComposeLineup = (courtId: string) => {
+    const picked = teamAssignments[courtId];
+    if (!picked) return;
+    setComposeError(null);
+    composeLineupMutation.mutate({
+      courtId,
+      teamAssignments: [
+        ...picked.team1.map((playerId) => ({ playerId, team: 1 })),
+        ...picked.team2.map((playerId) => ({ playerId, team: 2 })),
+      ],
+    });
+  };
 
   // Court bands Gate 3: band-aware bulk fill — the Skill Brackets
   // replacement. For each free court: take its band-filtered suggestion
@@ -1021,7 +1076,10 @@ export default function Home() {
                 onTogglePlayerSelection={handleTogglePlayerSelection}
                 onAssignPlayers={handleAssignPlayers}
                 assignCourtId={assignSheetCourtId}
-                onOpenAssign={setAssignSheetCourtId}
+                onOpenAssign={openAssignSheet}
+                onComposeLineup={handleComposeLineup}
+                composeError={composeError}
+                composePending={composeLineupMutation.isPending}
               />
 
               <CourtManagement
@@ -1030,7 +1088,7 @@ export default function Home() {
                 onRemoveCourt={handleRemoveCourt}
                 onRecordGame={handleRecordGame}
                 onCancelGame={handleCancelGame}
-                onOpenAssign={setAssignSheetCourtId}
+                onOpenAssign={openAssignSheet}
               />
             </>
           )}

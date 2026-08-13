@@ -45,9 +45,11 @@ describe('Gate 2: NEXT GAMES deck-lite relocation', () => {
     );
     const props = iface.match(/^\s{2}\w+[?]?:/gm) ?? [];
     // court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled
-    // + earlierCourtIds (Gate 3 cross-court dedup seed — optional).
-    expect(props.length).toBe(6);
+    // + earlierCourtIds (Gate 3 cross-court dedup seed — optional)
+    // + onComposeLineup (Gate 1/D4 compose entry point — optional).
+    expect(props.length).toBe(7);
     expect(iface.includes('earlierCourtIds?:')).toBe(true);
+    expect(iface.includes('onComposeLineup?:')).toBe(true);
   });
 
   it('CourtCard no longer mounts the strip or any assign flow', () => {

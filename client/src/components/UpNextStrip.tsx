@@ -88,6 +88,10 @@ interface UpNextStripProps {
   // order — their displayed ephemeral picks seed this court's exclude list
   // so sibling panels stop proposing the same four players.
   earlierCourtIds?: string[];
+  // Gate 1 (D4): open the compose sheet for THIS occupied court. Rendered per
+  // panel state — ephemeral / shared-pool / dead show it inline; the LOCKED
+  // panel shows it only inside Edit (never on a collapsed lock).
+  onComposeLineup?: (courtId: string) => void;
 }
 
 function formatCountdown(ms: number): string {
@@ -112,7 +116,7 @@ const gapOf = (team1: SuggestionPlayer[], team2: SuggestionPlayer[]) => {
 //     (cycles ranked alternates), Confirm (pins via the existing queued
 //     endpoint), Dismiss; amber insufficient-eligible state with the
 //     nearest-tier relax action.
-export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled, earlierCourtIds = [] }: UpNextStripProps) {
+export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSession, aiModeEnabled, earlierCourtIds = [], onComposeLineup }: UpNextStripProps) {
   const sessionId = court.sessionId;
   const band = (court as any).skillBand ?? "all_levels";
   // Gate 4: THIS court's on-court four — the only players allowed to repeat
@@ -185,6 +189,22 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
     }
     run();
   };
+
+  // Gate 1 (D4): the compose entry point. Occupied courts only — a free court
+  // already has "Assign manually" in the deck, which starts a game instead.
+  // Rendered by each panel branch: ephemeral / shared-pool / dead inline, and
+  // the LOCKED panel only inside its Edit expansion.
+  const ComposeLink = () =>
+    onComposeLineup && court.status === "occupied" ? (
+      <button
+        type="button"
+        onClick={() => onComposeLineup(court.id)}
+        className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+        data-testid={`button-compose-lineup-${court.id}`}
+      >
+        Assign manually
+      </button>
+    ) : null;
 
   // Fairness receipts: one microcopy line per player from counters the
   // planner already computes — waiters show their wait, currents their load.
@@ -775,6 +795,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
 
           {expanded && (
             <>
+            {/* Gate 1: compose lives INSIDE Edit on a locked panel — never on
+                a collapsed lock, where it would compete with Confirm. */}
+            <ComposeLink />
             {swapOutId && (
               <div className="space-y-2" data-testid={`upnext-swap-picker-${court.id}`}>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Swap in from queue</p>
@@ -892,6 +915,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             Suggest nearest-tier players instead
           </Button>
         )}
+        <ComposeLink />
       </div>
     );
   }
@@ -935,6 +959,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <RefreshCw className="h-3.5 w-3.5 mr-1" />
           Regenerate
         </Button>
+        <ComposeLink />
       </div>
     );
   }
@@ -1201,6 +1226,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
             Dismiss
           </Button>
         </div>
+        <ComposeLink />
       </div>
     </div>
   );
