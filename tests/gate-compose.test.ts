@@ -105,4 +105,12 @@ describe('wiring pins', () => {
     const deck = read('client/src/components/NextGamesDeck.tsx');
     expect(deck.includes('composeCandidates')).toBe(true);
   });
+
+  it('the strip link OPENS the sheet; the sheet button SUBMITS (live-caught)', () => {
+    const deck = read('client/src/components/NextGamesDeck.tsx');
+    // strip receives the opener, never the submit handler
+    expect(deck.includes('onComposeLineup={onComposeLineup ? onOpenAssign : undefined}')).toBe(true);
+    // the sheet's primary action in compose mode is the submit handler
+    expect(deck.includes("onAssignPlayers={isCompose ? (onComposeLineup ?? onAssignPlayers) : onAssignPlayers}")).toBe(true);
+  });
 });

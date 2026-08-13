@@ -353,7 +353,9 @@ export function NextGamesDeck({
                 isSandboxSession={isSandboxSession}
                 aiModeEnabled={aiModeEnabled}
                 earlierCourtIds={courts.slice(0, courtIdx).map((c) => c.id)}
-                onComposeLineup={onComposeLineup}
+                // The strip's link OPENS the compose sheet for this court;
+                // the sheet's primary button is what submits (onComposeLineup).
+                onComposeLineup={onComposeLineup ? onOpenAssign : undefined}
               />
 
               {/* Manual assignment lives in the deck now (free courts — the
