@@ -20,7 +20,8 @@ import { bandLabel, playerPassesBand } from "@/lib/bands";
 import { friendlyMessage, isConflictError, conflictNames, conflictCopy } from "@/lib/errors";
 import { formatSkillLevel } from "@shared/utils/skillUtils";
 import { shouldAdoptAiResult } from "@/lib/aiAdoption";
-import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Repeat2, X } from "lucide-react";
+import { shouldShowReshuffle, type ReshufflePanel } from "@/lib/reshuffleVisibility";
+import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Repeat2, Sparkles, X } from "lucide-react";
 
 // Same shape the pending-suggestions endpoint returns (shared query key —
 // TanStack dedupes, so this strip costs no extra network for lineup rows).
@@ -205,6 +206,41 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         Assign manually
       </button>
     ) : null;
+
+  // Gate 2 (audit G6): "Reshuffle with AI" — promotes the ladder-exhaust AI
+  // call into a visible action. Fires the SAME aiOnly follow-up the strip
+  // already owns (same excludes, same shouldAdoptAiResult adoption guard —
+  // both untouched). Self-hiding via the shared visibility predicate.
+  const ReshuffleButton = ({ panel }: { panel: ReshufflePanel }) => {
+    if (!shouldShowReshuffle({
+      panel,
+      aiModeEnabled,
+      expanded,
+      aiLandedButHeld,
+      composed: composed !== null,
+    })) return null;
+    return (
+      <Button
+        variant="outline"
+        className="w-full h-11 text-sm text-secondary border-secondary/40 hover:bg-secondary/10"
+        disabled={aiFetching || sugLoading}
+        onClick={() => refetchAi()}
+        data-testid={`button-up-next-reshuffle-${court.id}`}
+      >
+        {aiFetching ? (
+          <>
+            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+            Reshuffling…
+          </>
+        ) : (
+          <>
+            <Sparkles className="h-4 w-4 mr-2" />
+            Reshuffle with AI
+          </>
+        )}
+      </Button>
+    );
+  };
 
   // Fairness receipts: one microcopy line per player from counters the
   // planner already computes — waiters show their wait, currents their load.
@@ -795,8 +831,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
 
           {expanded && (
             <>
-            {/* Gate 1: compose lives INSIDE Edit on a locked panel — never on
-                a collapsed lock, where it would compete with Confirm. */}
+            {/* Gate 1 + Gate 2: compose and reshuffle both live INSIDE Edit on
+                a locked panel — never on a collapsed lock. */}
+            <ReshuffleButton panel="locked" />
             <ComposeLink />
             {swapOutId && (
               <div className="space-y-2" data-testid={`upnext-swap-picker-${court.id}`}>
@@ -959,6 +996,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <RefreshCw className="h-3.5 w-3.5 mr-1" />
           Regenerate
         </Button>
+        <ReshuffleButton panel="full-recycle" />
         <ComposeLink />
       </div>
     );
@@ -1196,6 +1234,8 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         >
           {isOccupied ? "Confirm — starts when game ends" : "Confirm — start now"}
         </Button>
+        {/* Gate 2: directly under Confirm, above the compact text actions. */}
+        <ReshuffleButton panel="ephemeral" />
         <div className="flex items-center justify-center gap-6">
           <Button
             size="sm"
