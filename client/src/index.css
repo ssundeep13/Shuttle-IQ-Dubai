@@ -78,8 +78,9 @@
   /* Muted background: warm cream lighter */
   --muted: 43 30% 90%;
 
-  /* Muted text: approximation of rgba(0,20,60,0.50) on cream — cool grey-navy */
-  --muted-foreground: 219 8% 52%;
+  /* Muted text: cool grey-navy. Darkened 52% → 42% (audit G5) so body-muted
+     copy clears WCAG AA on the cream background — 3.39:1 → 4.85:1. */
+  --muted-foreground: 219 8% 42%;
 
   /* Accent same as secondary (Teal) */
   --accent: 173 100% 21%;
@@ -246,6 +247,11 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    /* Audit G5: viewport-fit=cover lets content sit under the notch/home
+       indicator — pad the safe areas back so nothing hides beneath them. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   /* Premium sports-app heading typography — tight tracking & line-height */

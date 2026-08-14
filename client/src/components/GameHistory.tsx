@@ -115,7 +115,7 @@ function GameCard({
   return (
     <AccordionItem
       value={game.id}
-      className="border border-border rounded-xl overflow-hidden data-[state=open]:shadow-none"
+      className="border border-border rounded-lg overflow-hidden data-[state=open]:shadow-none"
       data-testid={`game-history-${game.id}`}
     >
       {/* Collapsed summary row */}
@@ -193,7 +193,7 @@ function GameCard({
           {/* Team 1 */}
           <div
             className={cn(
-              "rounded-xl border-2 p-3",
+              "rounded-lg border-2 p-3",
               isTeam1Winner
                 ? "bg-emerald-50 border-emerald-300"
                 : "bg-primary/5 border-primary/20",
@@ -215,7 +215,7 @@ function GameCard({
           {/* Team 2 */}
           <div
             className={cn(
-              "rounded-xl border-2 p-3",
+              "rounded-lg border-2 p-3",
               !isTeam1Winner
                 ? "bg-emerald-50 border-emerald-300"
                 : "bg-secondary/5 border-secondary/20",
@@ -324,7 +324,7 @@ export function GameHistory({ games, onResetGames, sessionId }: GameHistoryProps
   };
 
   const emptyState = (
-    <div className="flex items-center justify-center py-14 rounded-xl bg-muted/40 border border-dashed border-border">
+    <div className="flex items-center justify-center py-14 rounded-lg bg-muted/40 border border-dashed border-border">
       <p className="text-sm text-muted-foreground">
         No games yet. Start a game to see history here.
       </p>
@@ -332,7 +332,7 @@ export function GameHistory({ games, onResetGames, sessionId }: GameHistoryProps
   );
 
   return (
-    <div className="bg-card rounded-xl border border-border p-4 sm:p-6">
+    <div className="bg-card rounded-lg border border-border p-4 sm:p-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="min-w-0 truncate whitespace-nowrap text-lg font-semibold text-foreground">

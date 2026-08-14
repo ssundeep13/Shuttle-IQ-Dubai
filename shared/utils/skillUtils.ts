@@ -243,15 +243,25 @@ export function estimateScoreFromLegacyLevel(legacyLevel: string): number {
   return DEFAULT_NEW_PLAYER_SCORE;
 }
 
+// Tier-band palette (audit G5): Novice grey · Beginner blue · Intermediate
+// green · Competitive amber · Professional NAVY (was red — red is reserved
+// for destructive states, and a top tier should read as prestige).
+//
+// The band colour lives in the TINT + BORDER, not the text. Measured on the
+// cream background, text-success/warning/info sit at 1.8-2.0:1 — far under
+// AA — so pill text uses a passing token (foreground ink, or navy for the
+// Professional band at 8.9:1) while the tint still carries the identity.
 export function getSkillTierColor(tier: string): string {
-  if (tier === 'Novice' || tier === 'Beginner') {
-    return 'border-success/20 bg-success/10 text-success';
+  if (tier === 'Novice') {
+    return 'border-muted-foreground/25 bg-muted text-foreground';
+  } else if (tier === 'Beginner') {
+    return 'border-info/30 bg-info/10 text-foreground';
   } else if (tier === 'lower_intermediate') {
-    return 'border-warning/20 bg-warning/10 text-warning';
+    return 'border-success/30 bg-success/10 text-foreground';
   } else if (tier === 'upper_intermediate') {
-    return 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    return 'border-warning/30 bg-warning/10 text-foreground';
   } else if (tier === 'Advanced' || tier === 'Professional') {
-    return 'border-destructive/20 bg-destructive/10 text-destructive';
+    return 'border-primary/30 bg-primary/10 text-primary';
   }
   return 'border-muted bg-muted text-muted-foreground';
 }

@@ -106,7 +106,7 @@ export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-14 rounded-xl bg-muted/40 border border-dashed border-border">
+      <div className="flex items-center justify-center py-14 rounded-lg bg-muted/40 border border-dashed border-border">
         <p className="text-sm text-muted-foreground">Loading session leaderboard…</p>
       </div>
     );
@@ -116,7 +116,7 @@ export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
 
   if (sortedPlayers.length === 0) {
     return (
-      <div className="flex items-center justify-center py-14 rounded-xl bg-muted/40 border border-dashed border-border">
+      <div className="flex items-center justify-center py-14 rounded-lg bg-muted/40 border border-dashed border-border">
         <p className="text-sm text-muted-foreground">
           No players in this session yet.
         </p>
@@ -180,7 +180,7 @@ export function SessionLeaderboard({ sessionId }: SessionLeaderboardProps) {
             <div
               key={player.id}
               className={cn(
-                "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors hover-elevate min-h-[64px]",
+                "flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors hover-elevate min-h-[64px]",
                 rank === 1
                   ? "bg-amber-50 border-amber-200"
                   : rank === 2

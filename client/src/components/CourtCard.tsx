@@ -116,7 +116,7 @@ export function CourtCard({
   return (
     <>
       <div
-        className="bg-card rounded-xl border border-border p-4 sm:p-5 flex flex-col gap-4 hover-elevate transition-colors relative"
+        className="bg-card rounded-lg border border-border p-4 sm:p-5 flex flex-col gap-4 hover-elevate transition-colors relative"
         data-testid={`card-court-${court.id}`}
       >
         {/* ── Card header ── */}
@@ -246,7 +246,7 @@ export function CourtCard({
               {/* Team 1 */}
               <div
                 className={cn(
-                  "rounded-xl border-2 p-3 transition-colors",
+                  "rounded-lg border-2 p-3 transition-colors",
                   scoringTeam === 1
                     ? "bg-secondary/10 border-secondary"
                     : "bg-primary/5 border-primary/20",
@@ -273,7 +273,7 @@ export function CourtCard({
               {/* Team 2 */}
               <div
                 className={cn(
-                  "rounded-xl border-2 p-3 transition-colors",
+                  "rounded-lg border-2 p-3 transition-colors",
                   scoringTeam === 2
                     ? "bg-secondary/10 border-secondary"
                     : "bg-secondary/5 border-secondary/20",

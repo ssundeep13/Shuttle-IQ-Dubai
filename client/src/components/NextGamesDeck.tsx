@@ -163,7 +163,7 @@ function AssignSheet({
                 <div
                   key={player.id}
                   className={cn(
-                    "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
+                    "flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors",
                     inT1
                       ? "bg-primary/8 border-primary/30"
                       : inT2
@@ -320,7 +320,7 @@ export function NextGamesDeck({
             <div
               key={court.id}
               ref={(el) => { panelRefs.current[court.id] = el; }}
-              className="snap-center shrink-0 w-[calc(100vw-4rem)] max-w-[380px] md:w-auto md:max-w-none bg-card rounded-xl border border-border p-4 flex flex-col gap-3"
+              className="snap-center shrink-0 w-[calc(100vw-4rem)] max-w-[380px] md:w-auto md:max-w-none bg-card rounded-lg border border-border p-4 flex flex-col gap-3"
               data-testid={`deck-panel-${court.id}`}
             >
               {/* Panel header: court name + status */}

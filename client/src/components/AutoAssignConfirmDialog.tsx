@@ -128,8 +128,8 @@ export function AutoAssignConfirmDialog({
               skillDifference < 1.0 ? "bg-warning/10 text-warning" :
               "bg-destructive/10 text-destructive"
             )}>
-              {skillDifference < 0.5 && "⚖️ Excellent Balance"}
-              {skillDifference >= 0.5 && skillDifference < 1.0 && "✓ Good Balance"}
+              {skillDifference < 0.5 && "Excellent balance"}
+              {skillDifference >= 0.5 && skillDifference < 1.0 && "Good balance"}
               {skillDifference >= 1.0 && `Difference: ${skillDifference.toFixed(1)}`}
             </div>
           </div>
@@ -146,7 +146,7 @@ export function AutoAssignConfirmDialog({
           {/* Rest warnings */}
           {restWarnings.length > 0 && (
             <div className="bg-info/10 border border-info/20 rounded-md p-3">
-              <p className="text-xs font-semibold text-info mb-2">⚠️ Player Rest Alerts</p>
+              <p className="text-xs font-semibold text-info mb-2">Player rest alerts</p>
               <ul className="space-y-1">
                 {restWarnings.map((warning, index) => (
                   <li key={index} className="text-xs text-muted-foreground">
@@ -175,7 +175,7 @@ export function AutoAssignConfirmDialog({
             className="sm:flex-1 min-h-12 sm:min-h-10"
             data-testid="button-reassign-teams"
           >
-            🔄 Shuffle Teams
+            Shuffle teams
           </Button>
           <Button
             type="button"

@@ -96,7 +96,7 @@ export function PlayerQueue({
   );
 
   return (
-    <div className="bg-card rounded-xl border border-border p-4 sm:p-6">
+    <div className="bg-card rounded-lg border border-border p-4 sm:p-6">
       {/* Header row */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <h2 className="min-w-0 truncate whitespace-nowrap text-lg font-semibold text-foreground">
@@ -172,7 +172,7 @@ export function PlayerQueue({
               <div
                 key={player.id}
                 className={cn(
-                  "flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors min-h-[60px]",
+                  "flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors min-h-[60px]",
                   isSittingOut
                     ? "bg-muted/40 border-border opacity-60"
                     : "bg-card border-border hover-elevate",
@@ -279,7 +279,7 @@ export function PlayerQueue({
           })}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center py-14 rounded-xl bg-muted/40 border border-dashed border-border">
+        <div className="flex flex-col items-center justify-center py-14 rounded-lg bg-muted/40 border border-dashed border-border">
           <p className="text-sm text-muted-foreground mb-4">Queue is empty</p>
           <Button
             onClick={onAddPlayer}
