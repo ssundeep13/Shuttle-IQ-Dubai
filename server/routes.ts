@@ -19,6 +19,8 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import { sql, eq, inArray, and, desc, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireCaptain, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
+import { generateSeriesWeeks, listSeries, previewSeriesStop, stopSeries } from "./sessionSeries";
+import { SERIES_WEEKS_MIN, SERIES_WEEKS_MAX, SERIES_WEEKS_DEFAULT } from "@shared/utils/seriesDates";
 import { verifyAccessToken } from "./auth/utils";
 import { 
   generateAccessToken, 
@@ -304,7 +306,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sessions/unified", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
     try {
-      const { marketplace: rawMarketplace, ...sessionData } = req.body;
+      const { marketplace: rawMarketplace, recurrence: rawRecurrence, ...sessionData } = req.body;
       
       const requestData = {
         ...sessionData,
@@ -332,6 +334,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         courtCostOverridden: z.boolean().optional(),
       }).strip();
       const marketplace = rawMarketplace ? marketplaceSchema.parse(rawMarketplace) : undefined;
+
+      // Weekly recurrence (v1): a toggle plus how many weeks ahead. The range
+      // is also a DB CHECK, so a bad value can never reach the generator.
+      const recurrenceSchema = z.object({
+        enabled: z.boolean(),
+        weeksAhead: z.number().int().min(SERIES_WEEKS_MIN).max(SERIES_WEEKS_MAX).default(SERIES_WEEKS_DEFAULT),
+      }).strip();
 
       // Reject sandbox + marketplace combination before any DB write
       if (validated.isSandbox && marketplace && marketplace.enabled) {
@@ -374,12 +383,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // the venue rate; shuttle/water/captain come from the validated marketplace
       // passthrough. A failure here MUST NOT break session creation (log + continue;
       // backfillable). session_costs.session_id is UNIQUE → insert-if-absent.
+      let capturedCosts: { courtCostFils: number; shuttleCostFils: number; waterCostFils: number; courtCostOverridden: boolean; captainId: string | null } | null = null;
       if (bookableSession) {
         try {
           const { courtCostFils, reason } = await autoFillCourtCostFils(bookableSession.venueName, bookableSession.courtCount, bookableSession.startTime, bookableSession.endTime);
           console.log(`[SessionCost] create ${bookableSession.id}: court cost ${courtCostFils} fils (${reason})`);
           const shuttleCostFils = marketplace?.shuttleCostAed != null ? Math.round(marketplace.shuttleCostAed * 100) : 0;
           const waterCostFils = marketplace?.waterCostAed != null ? Math.round(marketplace.waterCostAed * 100) : 0;
+          capturedCosts = { courtCostFils, shuttleCostFils, waterCostFils, courtCostOverridden: false, captainId: marketplace?.captainId ?? null };
           await storage.createSessionCostsIfAbsent({
             sessionId: bookableSession.id,
             courtCostFils,
@@ -394,13 +405,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.status(201).json({ session, bookableSession });
+      // ── Weekly recurrence ────────────────────────────────────────────────
+      // The originating session above was created exactly as it always has
+      // been. Only weeks 1..N are generated here, and they are all-or-nothing:
+      // if this throws, the admin still has the session they just made, and
+      // the response says the series failed so the UI can say so too.
+      let series: { seriesId: string; weeks: { dateIso: string }[] } | null = null;
+      let seriesError: string | null = null;
+      const recurrence = rawRecurrence ? recurrenceSchema.parse(rawRecurrence) : undefined;
+      if (recurrence?.enabled) {
+        if (validated.isSandbox) {
+          return res.status(400).json({ error: "Sandbox sessions cannot repeat weekly" });
+        }
+        if (!bookableSession) {
+          return res.status(400).json({ error: "A repeating session must be published to the marketplace" });
+        }
+        // The anchor is the raw 'YYYY-MM-DD' the client sent — never a Date.
+        const anchorDateIso = String(sessionData.date ?? '').slice(0, 10);
+        try {
+          const generated = await generateSeriesWeeks({
+            originSessionId: session.id,
+            anchorDateIso,
+            weeksAhead: recurrence.weeksAhead,
+            createdBy: req.user?.userId ?? null,
+            venueName: session.venueName,
+            venueLocation: session.venueLocation ?? null,
+            venueMapUrl: session.venueMapUrl ?? null,
+            courtCount: session.courtCount,
+            title: bookableSession.title,
+            description: bookableSession.description ?? null,
+            startTime: bookableSession.startTime,
+            endTime: bookableSession.endTime,
+            capacity: bookableSession.capacity,
+            priceAed: bookableSession.priceAed,
+            costs: capturedCosts,
+          });
+          series = { seriesId: generated.seriesId, weeks: generated.weeks.map(w => ({ dateIso: w.dateIso })) };
+          console.log(`[SessionSeries] ${generated.seriesId}: generated ${generated.weeks.length} week(s) from ${anchorDateIso}`);
+        } catch (seriesErr) {
+          seriesError = seriesErr instanceof Error ? seriesErr.message : String(seriesErr);
+          console.error(`[SessionSeries] generation failed for origin ${session.id} (session itself was created):`, seriesError);
+        }
+      }
+
+      res.status(201).json({ session, bookableSession, series, seriesError });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid session data", details: error.errors });
       }
       console.error('Unified session creation error:', error);
       res.status(500).json({ error: "Failed to create session" });
+    }
+  });
+
+  // ── Recurring series management ──────────────────────────────────────────
+
+  app.get("/api/sessions/series", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
+    try {
+      res.json(await listSeries(req.query.includeStopped === 'true'));
+    } catch (error) {
+      console.error('Series list error:', error);
+      res.status(500).json({ error: "Failed to load series" });
+    }
+  });
+
+  // What stopping WOULD do — drives the confirm dialog. Writes nothing.
+  app.get("/api/sessions/series/:id/stop-preview", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
+    try {
+      res.json(await previewSeriesStop(req.params.id));
+    } catch (error) {
+      console.error('Series stop-preview error:', error);
+      res.status(500).json({ error: "Failed to preview stop" });
+    }
+  });
+
+  app.post("/api/sessions/series/:id/stop", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
+    try {
+      const plan = await stopSeries(req.params.id, req.user?.userId ?? null);
+      console.log(`[SessionSeries] ${req.params.id} stopped: removed ${plan.remove.length}, kept ${plan.keep.length}`);
+      res.json(plan);
+    } catch (error) {
+      console.error('Series stop error:', error);
+      res.status(500).json({ error: "Failed to stop series" });
     }
   });
 

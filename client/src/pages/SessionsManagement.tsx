@@ -35,6 +35,7 @@ import {
 import VenueTab from '@/components/VenueTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
+import { SessionSeriesList } from '@/components/SessionSeriesList';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
 import { Leaderboard } from '@/components/Leaderboard';
@@ -392,6 +393,16 @@ export default function SessionsManagement() {
               totalRevenue={totalRevenue}
               onCreateSession={() => setShowCreateSession(true)}
             />
+
+            <div className="space-y-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Repeating sessions</h2>
+                <p className="text-sm text-muted-foreground">
+                  Sessions set to repeat weekly. Stopping a series keeps any session players have already booked.
+                </p>
+              </div>
+              <SessionSeriesList />
+            </div>
           </TabsContent>
 
           <TabsContent value="players" className="mt-6 space-y-6">

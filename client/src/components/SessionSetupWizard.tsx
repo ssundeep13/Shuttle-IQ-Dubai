@@ -12,11 +12,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { CalendarIcon, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X, ShoppingBag, DollarSign, Clock } from "lucide-react";
+import { CalendarIcon, CalendarDays, MapPin, Building2, Users, Upload, Loader2, CheckCircle2, AlertCircle, ClipboardPaste, X, ShoppingBag, DollarSign, Clock } from "lucide-react";
 import { insertSessionSchema, type Venue, type SessionRunner } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
 import { sessionDurationHours } from "@shared/sessionTime";
+import {
+  seriesDates, formatPreviewDate, repeatLabel, weekdayName,
+  SERIES_WEEKS_MIN, SERIES_WEEKS_MAX, SERIES_WEEKS_DEFAULT,
+} from "@shared/utils/seriesDates";
 
 interface SessionSetupWizardProps {
   onSessionCreated: () => void;
@@ -97,6 +101,21 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
 
   // Court-cost preview (client mirror of the server auto-fill). venue/courtCount are
   // watched so the preview updates live; times come from marketplace state.
+  // Weekly recurrence. The weekday and every preview date derive from the
+  // 'YYYY-MM-DD' string the date input produced — never from a JS Date, which
+  // on a UTC+4 browser reads a naive session date as the previous day.
+  const [recurrence, setRecurrence] = useState({ enabled: false, weeksAhead: SERIES_WEEKS_DEFAULT });
+  const [seriesWarning, setSeriesWarning] = useState<string | null>(null);
+  const anchorDate = sessionData?.date ?? form.watch('date') ?? '';
+  const isValidAnchorDate = /^\d{4}-\d{2}-\d{2}$/.test(anchorDate);
+  const weekOptions = Array.from(
+    { length: SERIES_WEEKS_MAX - SERIES_WEEKS_MIN + 1 },
+    (_, i) => SERIES_WEEKS_MIN + i,
+  );
+  const previewDates = isValidAnchorDate && recurrence.enabled
+    ? seriesDates(anchorDate, recurrence.weeksAhead).map(formatPreviewDate)
+    : [];
+
   const watchedVenueName = form.watch('venueName');
   const watchedCourtCount = form.watch('courtCount');
   const selectedVenue = activeVenues.find(v => v.name === watchedVenueName);
@@ -193,10 +212,14 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
           waterCostAed: marketplaceData.waterCostAed,
           ...(marketplaceData.courtCostAedManual != null ? { courtCostAed: marketplaceData.courtCostAedManual } : {}),
         } : undefined,
+        recurrence: (!isSandbox && marketplaceData.enabled && recurrence.enabled)
+          ? { enabled: true, weeksAhead: recurrence.weeksAhead }
+          : undefined,
       };
 
       const result = await apiRequest('POST', '/api/sessions/unified', payload);
-      
+      setSeriesWarning(result.seriesError ?? null);
+
       setCreatedSessionId(result.session.id);
       setStep('players');
     } catch (err: any) {
@@ -764,6 +787,58 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
                 </div>
               )}
 
+              {/* Weekly recurrence. Only offered on a marketplace listing — a
+                  repeating session has to be bookable to be worth repeating.
+                  Every label is built from the chosen date's weekday, so the
+                  admin never picks a weekday separately, and the preview shows
+                  real dates rather than a concept. */}
+              {marketplaceData.enabled && isValidAnchorDate && (
+                <div className="rounded-lg border bg-card">
+                  <div className="flex items-center justify-between gap-4 p-4">
+                    <div className="flex items-center gap-3">
+                      <CalendarDays className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium text-sm">{repeatLabel(anchorDate)}</p>
+                        <p className="text-xs text-muted-foreground">Create the same session on the following weeks</p>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={recurrence.enabled}
+                      onCheckedChange={(checked) => setRecurrence(prev => ({ ...prev, enabled: checked }))}
+                      data-testid="switch-recurrence-enabled"
+                    />
+                  </div>
+
+                  {recurrence.enabled && (
+                    <div className="border-t p-4 space-y-3">
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <Label htmlFor="recurrence-weeks" className="text-sm text-muted-foreground">for the next</Label>
+                        <Select
+                          value={String(recurrence.weeksAhead)}
+                          onValueChange={(v) => setRecurrence(prev => ({ ...prev, weeksAhead: Number(v) }))}
+                        >
+                          <SelectTrigger id="recurrence-weeks" className="w-20 min-h-12 sm:min-h-10" data-testid="select-recurrence-weeks">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {weekOptions.map(n => (
+                              <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="text-sm text-muted-foreground">{weekdayName(anchorDate)}s</span>
+                      </div>
+                      <p className="text-sm">
+                        <span className="text-muted-foreground">Creates: </span>
+                        <span className="font-medium text-primary" data-testid="text-recurrence-preview">
+                          {previewDates.join(', ')}
+                        </span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {importError && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -773,7 +848,7 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
             </CardContent>
 
             <CardFooter className="flex gap-3">
-              <Button 
+              <Button
                 type="button"
                 variant="outline"
                 onClick={() => { setStep('session'); setImportError(null); }}
@@ -804,6 +879,17 @@ export function SessionSetupWizard({ onSessionCreated, onClose }: SessionSetupWi
         ) : (
           <>
             <CardContent className="space-y-6 overflow-y-auto flex-1 min-h-0">
+              {/* The session itself was created; only the repeat failed. Say so
+                  plainly rather than letting the admin assume the weeks exist. */}
+              {seriesWarning && (
+                <Alert variant="destructive" data-testid="alert-series-failed">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    This session was created, but the repeating weeks were not. Nothing was half-made — you can add
+                    the later dates manually, or delete this session and try again. ({seriesWarning})
+                  </AlertDescription>
+                </Alert>
+              )}
               <Tabs defaultValue="paste" className="w-full">
                 <TabsList className="grid w-full grid-cols-3 min-h-12 sm:min-h-10">
                   <TabsTrigger value="paste" className="min-h-12 sm:min-h-10" data-testid="tab-paste-import">

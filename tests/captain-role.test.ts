@@ -53,9 +53,15 @@ describe('captain role - allow-list tripwires', () => {
     expect(codeOnly.includes("'captain'"), 'requireAdmin must not accept captain').toBe(false);
   });
 
-  it('the captain allow-list is exactly the audited 34 endpoints — additions must be deliberate', () => {
+  it('the captain allow-list is exactly the audited 37 endpoints — additions must be deliberate', () => {
     const counts: Record<string, number> = {
-      'server/routes.ts': 30,
+      // 30 audited + 3 for weekly recurring series (list / stop-preview / stop).
+      // Deliberate: a captain already creates sessions via POST /api/sessions/
+      // unified, which is the endpoint that STARTS a series, so managing and
+      // stopping one is the same authority over the same rows — not an
+      // escalation. Stop is guarded further in application code: it can only
+      // remove future sessions that hold zero bookings.
+      'server/routes.ts': 33,
       'server/marketplace-routes.ts': 1,
       'server/sessionCostRoutes.ts': 2,
       'server/venueRoutes.ts': 1,

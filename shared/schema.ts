@@ -17,9 +17,32 @@ export const sessions = pgTable("sessions", {
   // every session unless someone deliberately flags it. Set it and confirmed
   // bookings on this session credit automatically; see server/goodwillCredit.ts.
   goodwillCreditFils: integer("goodwill_credit_fils"),
+  // Weekly recurrence: set on the originating session AND every session it
+  // generated. NULL = a normal one-off session. See server/sessionSeries.ts.
+  seriesId: varchar("series_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   endedAt: timestamp("ended_at"),
 });
+
+// Weekly recurring series (v1: weekly cadence only, 4-8 weeks ahead).
+// originDate is TEXT 'YYYY-MM-DD' on purpose: it is the anchor the weekday
+// label and every generated date derive from, and keeping it a string means it
+// can never be round-tripped through a local-timezone Date the way the naive
+// `date` timestamps can be.
+export const sessionSeries = pgTable("session_series", {
+  id: varchar("id").primaryKey(),
+  originSessionId: varchar("origin_session_id").notNull().references(() => sessions.id),
+  venueName: text("venue_name").notNull(),
+  originDate: text("origin_date").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  weeksAhead: integer("weeks_ahead").notNull(),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  stoppedAt: timestamp("stopped_at"),
+  stoppedBy: text("stopped_by"),
+});
+export type SessionSeries = typeof sessionSeries.$inferSelect;
 
 export const insertSessionSchema = createInsertSchema(sessions).omit({ id: true, createdAt: true, endedAt: true });
 export type InsertSession = z.infer<typeof insertSessionSchema>;
