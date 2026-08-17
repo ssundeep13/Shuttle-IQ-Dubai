@@ -13,6 +13,10 @@ export const sessions = pgTable("sessions", {
   courtCount: integer("court_count").notNull(),
   status: text("status").notNull().default('active'), // 'draft', 'active', 'upcoming', 'ended'
   isSandbox: boolean("is_sandbox").notNull().default(false),
+  // Per-session goodwill promo, in fils. NULL (or <= 0) = no promo, which is
+  // every session unless someone deliberately flags it. Set it and confirmed
+  // bookings on this session credit automatically; see server/goodwillCredit.ts.
+  goodwillCreditFils: integer("goodwill_credit_fils"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   endedAt: timestamp("ended_at"),
 });

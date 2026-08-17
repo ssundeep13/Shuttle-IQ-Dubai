@@ -36,14 +36,22 @@
 // A player already holding that exact marker for this session is skipped, so
 // re-running as bookings trickle in never double-pays.
 //
+// COEXISTS WITH THE AUTOMATIC HOOK: since 2026-08-14 confirmation credits
+// automatically (server/goodwillCredit.ts) on any session carrying the
+// goodwill_credit_fils flag. The marker prefix below is IMPORTED from that
+// module rather than restated, so the two can never drift and this script can
+// only ever act as a sweep — over a hook-credited session it credits nobody.
+//
 // CAP: AED 45 per player across the promo — a player already holding 3
 // "Dubailand goodwill" markers is skipped and reported, even on a new session.
 import { pool, db } from '../server/db';
 import { applyWalletDelta } from '../server/walletLedger';
+import {
+  GOODWILL_MARKER_PREFIX as MARKER_PREFIX,
+  MAX_GOODWILL_CREDITS_PER_PLAYER as MAX_CREDITS_PER_PLAYER,
+} from '../server/goodwillCredit';
 
 const CREDIT_FILS = 1500;          // AED 15
-const MAX_CREDITS_PER_PLAYER = 3;  // AED 45 ceiling across the promo
-const MARKER_PREFIX = 'Dubailand goodwill · session ';
 
 const args = process.argv.slice(2);
 const EXECUTE = args.includes('--execute');

@@ -16,6 +16,7 @@ import { expenseCategories, bookings, bookableSessions, marketplaceUsers, EXPENS
 import { sql, eq, and, inArray } from "drizzle-orm";
 import { fireReferralOnPayment } from "../referrals";
 import { applyDubailandPromo } from "../dubailandPromo";
+import { fireGoodwillCredit } from "../goodwillCredit";
 
 const DEFAULT_CATEGORIES = [
   { name: "Court Booking",  icon: "map-pin",        color: "#3B82F6" },
@@ -260,6 +261,11 @@ export function registerPortalExpenseRoutes(
         applyDubailandPromo(booking.userId)
           .then(r => { if (r === 'credited') console.log(`[DubailandPromo] credited ${booking.userId} (cash-paid-toggle)`); })
           .catch(err => console.error('[DubailandPromo] credit failed at cash-paid-toggle:', err instanceof Error ? err.message : err));
+        // Goodwill credit (confirm site 7/7) — a BACKSTOP, not a trigger. The
+        // goodwill rule qualifies a cash booking at confirmation, so the credit
+        // has normally already landed; this re-fire costs nothing (idempotent)
+        // and rescues any cash booking whose confirm-time hook did not run.
+        fireGoodwillCredit(booking.id, 'cash-paid-toggle');
       }
       res.json(updated);
     } catch (err: unknown) {

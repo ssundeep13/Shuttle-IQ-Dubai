@@ -48,6 +48,7 @@ import { settleCancelledGuestSlot, promoteFirstFittingWaitlisted, promoteWaitlis
 import { primarySlotActive } from "@shared/utils/slotUtils";
 import { syncFoundingMemberForUser, getFoundingMemberForUser, getFoundingMemberPlayerIds, markFoundingMemberSeen } from "./venueAwards";
 import { applyDubailandPromo, reverseDubailandPromo, sweepDubailandPromoReversals } from "./dubailandPromo";
+import { fireGoodwillCredit } from "./goodwillCredit";
 import { fireReferralOnPayment, fireReferralClawback, REFERRAL_WINDOW_MS } from "./referrals";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "./db";
@@ -3046,6 +3047,9 @@ export function registerMarketplaceRoutes(app: Express) {
         fireReferralOnPayment(req.user.userId, booking.id);
         syncFoundingMember(req.user.userId, 'wallet-confirm');
         fireDubailandPromo(req.user.userId, 'wallet-confirm');
+        // Goodwill credit (confirm site 3/7): wallet- or discount-covered
+        // bookings confirm here without ever touching Ziina.
+        fireGoodwillCredit(booking.id, 'wallet-confirm');
 
         try {
           if (primaryUser) {
@@ -3754,6 +3758,10 @@ export function registerMarketplaceRoutes(app: Express) {
       });
 
       syncFoundingMember(userId, 'admin-cash-booking');
+      // Goodwill credit (confirm site 4/7): an admin cash booking is BORN
+      // 'confirmed', so this creation IS its confirm transition. The goodwill
+      // rule is spot-based, not payment-based — it qualifies before cash_paid.
+      fireGoodwillCredit(booking.id, 'admin-cash-booking');
 
       const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
       res.json(bookingWithDetails);
@@ -4900,6 +4908,11 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       } catch (emailErr) { console.error('[Email] admin-confirm email failed:', emailErr); }
 
+      // Goodwill credit (confirm site 5/7): admin force-confirm. Deliberately
+      // AFTER the block above, which is what flips this booking's pending guest
+      // slots to 'confirmed' — a guest still pending does not yet qualify.
+      fireGoodwillCredit(booking.id, 'admin-confirm');
+
       const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
       res.json({ confirmed: true, ziinaStatus, booking: bookingWithDetails });
     } catch (error: any) {
@@ -4943,6 +4956,11 @@ export function registerMarketplaceRoutes(app: Express) {
           await storage.updateBookingGuest(slot.id, { status: 'confirmed' });
         }
       }
+
+      // Goodwill credit (confirm site 6/7): waitlist promotion is a confirm.
+      // Deliberately after the slot loop above — a guest whose slot is still
+      // pending does not yet hold an active spot.
+      fireGoodwillCredit(booking.id, 'admin-promote');
 
       // Re-number remaining waitlisted bookings for this session
       const stillWaitlisted = await storage.getWaitlistedBookingsForSession(booking.sessionId);

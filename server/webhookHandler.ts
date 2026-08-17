@@ -6,6 +6,7 @@ import { isZiinaPaymentSuccessful, isZiinaRefundSuccessful } from "./ziinaClient
 import { fireReferralOnPayment } from "./referrals";
 import { syncFoundingMemberForUser } from "./venueAwards";
 import { applyDubailandPromo } from "./dubailandPromo";
+import { fireGoodwillCredit } from "./goodwillCredit";
 import {
   sendBookingConfirmationEmail,
   sendGuestBookingEmail,
@@ -119,6 +120,12 @@ export async function confirmGuestByIntentId(
       completedAt: new Date(),
     });
   }
+
+  // Goodwill credit (confirm site 2/7): a guest slot going confirmed qualifies
+  // that guest in their own right — this is the path the manual sweep had to
+  // catch by hand. The hook is booking-scoped, so it credits the newly
+  // confirmed guest and skips everyone already holding the marker.
+  fireGoodwillCredit(parentBooking.id, 'ziina-guest-confirm');
 
   // Send guest booking email (fire-and-forget)
   try {
@@ -262,6 +269,12 @@ export async function confirmZiinaBookingByIntentId(
   } catch (err) {
     console.error("[Ziina Webhook] Email/guest confirm failed:", err);
   }
+
+  // Goodwill credit (confirm site 1/7): flagged sessions only, holder + linked
+  // guests, idempotent per player per session. Fire-and-forget by construction.
+  // Deliberately LAST: the loop above is what flips this booking's guest slots
+  // to 'confirmed', and a guest with a pending slot does not yet qualify.
+  fireGoodwillCredit(booking.id, 'ziina-confirm');
 
   return { confirmed: true };
 }
