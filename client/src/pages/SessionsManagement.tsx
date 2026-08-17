@@ -36,6 +36,7 @@ import VenueTab from '@/components/VenueTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { SessionSeriesList } from '@/components/SessionSeriesList';
+import { sortSessionsSoonestFirst, sortSessionsLatestFirst } from '@/lib/sessionOrdering';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
 import { Leaderboard } from '@/components/Leaderboard';
@@ -215,9 +216,16 @@ export default function SessionsManagement() {
     toast({ title: "Players cleared", description: "All players have been removed" });
   };
 
+  // The API's order is created_at DESC (insertion order). Admin lists sort by
+  // SESSION date instead: upcoming soonest-first, ended most-recent-first.
+  // Same-day tiebreak reads the linked bookable's start_time. Active is left
+  // alone — the single-active rule keeps it at one row.
+  const bookableBySessionId = new Map(bookableSessions.filter(bs => bs.linkedSessionId).map(bs => [bs.linkedSessionId as string, bs]));
+  const linkedLookup = (sessionId: string) => bookableBySessionId.get(sessionId);
   const activeSessions = sessions.filter(s => s.status === 'active');
-  const upcomingSessions = sessions.filter(s => s.status === 'upcoming' || s.status === 'draft');
-  const endedSessions = sessions.filter(s => s.status === 'ended');
+  const upcomingSessions = sortSessionsSoonestFirst(sessions.filter(s => s.status === 'upcoming' || s.status === 'draft'), linkedLookup);
+  const endedSessions = sortSessionsLatestFirst(sessions.filter(s => s.status === 'ended'), linkedLookup);
+  const orderedSandboxSessions = sortSessionsSoonestFirst(sandboxSessions, linkedLookup);
 
   const totalBookings = bookableSessions.reduce((sum, s) => sum + s.totalBookings, 0);
   const totalRevenue = bookableSessions.reduce((sum, s) => sum + (s.totalBookings * s.priceAed), 0);
@@ -380,7 +388,7 @@ export default function SessionsManagement() {
               activeSessions={activeSessions}
               upcomingSessions={upcomingSessions}
               endedSessions={endedSessions}
-              sandboxSessions={sandboxSessions}
+              sandboxSessions={orderedSandboxSessions}
               bookableSessions={bookableSessions}
               isLoading={isLoading}
               onView={(session) => navigate(`/session/${session.id}`)}
