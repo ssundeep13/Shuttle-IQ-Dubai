@@ -111,7 +111,7 @@ function GuestForm({ guests, onChange, maxGuests }: {
         {guests.length < maxGuests && (
           <button
             type="button"
-            className="gap-1"
+            className="siq-press gap-1"
             onClick={addGuest}
             data-testid="button-add-guest"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: `1px solid ${MKT.navy}1F`, background: '#fff', color: MKT.navy, fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
@@ -147,6 +147,7 @@ function GuestForm({ guests, onChange, maxGuests }: {
           </div>
           <button
             type="button"
+            className="siq-press"
             onClick={() => removeGuest(idx)}
             data-testid={`button-remove-guest-${idx}`}
             style={{ flex: 'none', width: 38, height: 38, borderRadius: 10, border: 'none', background: 'transparent', color: MKT.inkSub, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
@@ -339,17 +340,21 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
       {walletBalanceFils > 0 && (
         <div style={cardShell} data-testid="card-wallet-credit">
           <div className="space-y-3" style={{ padding: 16 }}>
-            <div className="flex items-center justify-between gap-2">
+            {/* The whole 44px row toggles, not just the 24px switch — this is
+                the control that decides whether money comes out of the wallet
+                or the card. Switch primitive itself untouched. */}
+            <label htmlFor="switch-use-wallet" className="flex items-center justify-between gap-3 min-h-11 -my-1 cursor-pointer select-none">
               <div className="flex items-center gap-2">
                 <Wallet className="h-4 w-4" style={{ color: MKT.teal }} />
                 <span className="text-sm font-medium" style={{ color: MKT.ink }}>Use wallet credit</span>
               </div>
               <Switch
+                id="switch-use-wallet"
                 checked={useWallet}
                 onCheckedChange={setUseWalletOverride}
                 data-testid="switch-use-wallet"
               />
-            </div>
+            </label>
             {useWallet ? (
               <p className="text-xs font-medium" style={{ color: MKT.tealD }} data-testid="text-wallet-callout">
                 AED {walletApplicableAed.toFixed(2)} wallet credit applied — you pay AED {Math.max(0, remainingAfterWallet).toFixed(2)}
@@ -390,6 +395,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
       <button
         type="button"
+        className="siq-press"
         disabled={processing}
         onClick={handlePay}
         data-testid="button-confirm-payment"
@@ -569,9 +575,11 @@ export default function Checkout() {
   interface WalletInfo {
     walletBalance: number;
   }
+  // Same endpoint My Bookings and Profile read. The old key gated on
+  // linkedPlayerId, so an unlinked player was silently shown 0 here while
+  // My Bookings showed them a real balance — never offered their credit.
   const { data: walletData } = useQuery<WalletInfo>({
-    queryKey: ['/api/referrals/player', user?.linkedPlayerId],
-    enabled: !!user?.linkedPlayerId,
+    queryKey: ['/api/marketplace/me/wallet'],
     staleTime: 30_000,
   });
   const walletBalanceFils = walletData?.walletBalance ?? 0;
@@ -692,7 +700,10 @@ export default function Checkout() {
     );
   }
 
-  if (error && !paymentMethod) {
+  // "The session failed to load" is `!sessionInfo`, not `!paymentMethod` —
+  // paymentMethod is initialised to 'ziina' and never nulled, so the old gate
+  // was dead code and a failed load rendered an empty checkout body.
+  if (error && !sessionInfo) {
     return pageWrap(
       <div className="max-w-lg mx-auto px-4 py-12">
         <div style={cardShell}>
@@ -703,7 +714,7 @@ export default function Checkout() {
           <div className="text-center space-y-4" style={{ padding: '8px 24px 28px' }}>
             <p style={{ color: MKT.inkSub }} data-testid="text-checkout-error">{error}</p>
             <Link href={`/marketplace/sessions/${sessionId}`}>
-              <button type="button" style={navyBtnStyle()} data-testid="button-back-to-session">Back to Session</button>
+              <button type="button" className="siq-press" style={navyBtnStyle()} data-testid="button-back-to-session">Back to Session</button>
             </Link>
           </div>
         </div>

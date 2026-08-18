@@ -49,6 +49,47 @@ export const FF_BODY = `'Inter', system-ui, sans-serif`;
 export const FF_MONO = `'JetBrains Mono', ui-monospace, Menlo, monospace`;
 
 // Map a community-tag category to a brand accent colour.
+// ─────────────────────────────────────────────────────────────────────────
+// BUTTON FACTORIES — the customer surfaces' inline-styled buttons.
+// One definition (Dashboard and MyBookings each used to carry a private copy
+// that had drifted: ghost border alpha 55 vs 33; both were 35px tall).
+//
+// Design Gate 1: every variant clears the 44px mobile floor (minHeight:44 +
+// padding), and returns a `className` carrying `.siq-press` — inline styles
+// cannot express :active, so press-down feedback comes from that class.
+// Spread BOTH onto the element: `<Link {...navyBtn('sm')} />`.
+// ─────────────────────────────────────────────────────────────────────────
+export type BtnSize = 'sm' | 'md';
+export interface BtnProps { style: CSSProperties; className: string }
+
+const BTN_BASE: CSSProperties = {
+  fontFamily: FF_BODY, fontWeight: 600, letterSpacing: '-0.005em', borderRadius: 10,
+  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  gap: 6, whiteSpace: 'nowrap', minHeight: 44, textDecoration: 'none',
+};
+const BTN_SIZE: Record<BtnSize, CSSProperties> = {
+  sm: { fontSize: 13, padding: '10px 16px' },
+  md: { fontSize: 14, padding: '12px 20px' },
+};
+
+export function navyBtn(size: BtnSize = 'md'): BtnProps {
+  return {
+    className: 'siq-press',
+    style: { ...BTN_BASE, ...BTN_SIZE[size], border: `1.5px solid ${MKT.navy}`, background: MKT.navy, color: '#fff' },
+  };
+}
+export function ghostBtn(size: BtnSize = 'md'): BtnProps {
+  return {
+    className: 'siq-press',
+    style: { ...BTN_BASE, ...BTN_SIZE[size], border: `1.5px solid ${MKT.navy}55`, background: '#fff', color: MKT.navy },
+  };
+}
+/** Merge per-site style overrides into a factory result without losing the
+ *  press class: `<Link {...withStyle(navyBtn('sm'), { width: '100%' })} />`. */
+export function withStyle(btn: BtnProps, extra: CSSProperties): BtnProps {
+  return { className: btn.className, style: { ...btn.style, ...extra } };
+}
+
 export function accentForCategory(category: string): string {
   switch (category) {
     case 'playing_style':
@@ -68,14 +109,19 @@ export function accentForCategory(category: string): string {
 const MARKETING_CSS = `
   @keyframes siq-pulse { 0%,100% { transform: scale(1); opacity: .9 } 50% { transform: scale(1.04); opacity: 1 } }
   @keyframes siq-shimmer { 0% { background-position: -200% 0 } 100% { background-position: 200% 0 } }
-  .siq-hover-lift { transition: transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .35s ease; }
-  .siq-hover-lift:hover { transform: translateY(-4px); }
-  .siq-link { position: relative; }
+  .siq-hover-lift { -webkit-tap-highlight-color: transparent; transition: transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .35s ease; }
+  /* Design Gate 1: hover-lift only where hover exists — on touch it stuck the
+     card 4px up after every tap. Press-down gets its own, faster state. */
+  @media (hover: hover) { .siq-hover-lift:hover { transform: translateY(-4px); } }
+  .siq-hover-lift:active { transform: translateY(0) scale(.98); transition-duration: 90ms; }
+  .siq-link { position: relative; -webkit-tap-highlight-color: transparent; }
   .siq-link::after { content:''; position:absolute; left:0; right:0; bottom:-3px; height:1.5px; background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform .35s cubic-bezier(.2,.7,.2,1); }
-  .siq-link:hover::after { transform: scaleX(1); }
+  @media (hover: hover) { .siq-link:hover::after { transform: scaleX(1); } }
+  .siq-link:active { opacity: .7; }
+  .siq-link:active::after { transform: scaleX(1); transition-duration: 90ms; }
   @media (prefers-reduced-motion: reduce) {
     .siq-hover-lift { transition: none; }
-    .siq-hover-lift:hover { transform: none; }
+    .siq-hover-lift:hover, .siq-hover-lift:active { transform: none; }
     [style*="siq-pulse"] { animation: none !important; }
   }
 `;

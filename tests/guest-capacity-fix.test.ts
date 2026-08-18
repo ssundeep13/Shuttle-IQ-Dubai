@@ -96,7 +96,11 @@ describe('confirm-time gates in confirmGuestByIntentId (tripwires)', () => {
 describe('MyBookings toasts (tripwire)', () => {
   it('every error toast reads the thrown { error } shape via serverErrorMessage — no empty-description .message reads remain', () => {
     const src = read('client/src/pages/marketplace/MyBookings.tsx');
-    expect(src.includes("(error as { error?: string })?.error")).toBe(true);
+    // Design Gate 1 (2026-08-18): the helper was hoisted to lib/serverError.ts
+    // so Login could stop rendering empty toast descriptions too. MyBookings
+    // now IMPORTS it — the `{ error }`-first read lives in the shared module.
+    expect(src).toMatch(/import \{[^}]*serverErrorMessage[^}]*\} from ['"]@\/lib\/serverError['"]/);
+    expect(read('client/src/lib/serverError.ts').includes("e.error")).toBe(true);
     // 6th site added by Option A Gate 4: cancelMySpotMutation surfaces the
     // server copy inside its dialog via the same serverErrorMessage path.
     expect((src.match(/serverErrorMessage\(error\)/g) ?? []).length).toBe(6);

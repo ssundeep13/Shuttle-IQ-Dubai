@@ -17,7 +17,8 @@ import { useToast } from '@/hooks/use-toast';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { primarySlotActive } from '@shared/utils/slotUtils';
-import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
+import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal, navyBtn, ghostBtn, withStyle } from './LandingComponents';
+import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 import CommunityFeed from './CommunityFeed';
 
 // ── Shared styled primitives (look only) ─────────────────────────────────────
@@ -39,22 +40,6 @@ function DashHeader({ icon, title, action }: { icon: ReactNode; title: string; a
   );
 }
 
-function navyBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
-  return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
-    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: '1.5px solid transparent',
-    background: MKT.navy, color: '#fff', borderColor: MKT.navy, cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
-  };
-}
-function ghostBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
-  return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
-    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: `1.5px solid ${MKT.navy}55`,
-    background: '#fff', color: MKT.navy, cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
-  };
-}
 const seeAllLink: CSSProperties = { fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, color: MKT.tealD, display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none', cursor: 'pointer' };
 
 type Tone = { band: string; soft: string; fg: string; label: string; hasLevel: boolean };
@@ -153,7 +138,8 @@ function GettingStartedCard({
             onClick={handleDismiss}
             data-testid="button-dismiss-onboarding"
             aria-label="Dismiss getting started"
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, padding: 4, display: 'inline-flex' }}
+            className="siq-press"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, padding: 12, margin: -12, minHeight: 44, minWidth: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10 }}
           >
             <X className="h-4 w-4" />
           </button>
@@ -192,7 +178,7 @@ function GettingStartedCard({
               {!step.done && (
                 <>
                   <p style={{ fontSize: 12, color: MKT.inkSub, marginTop: 2 }}>{step.desc}</p>
-                  <Link href={step.href} onClick={step.onClick} style={{ ...ghostBtn('sm'), marginTop: 8, padding: '6px 12px', fontSize: 12, textDecoration: 'none' }} data-testid={`button-onboarding-step-${i + 1}`}>
+                  <Link href={step.href} onClick={step.onClick} {...withStyle(ghostBtn('sm'), { marginTop: 8 })} data-testid={`button-onboarding-step-${i + 1}`}>
                     {step.btnLabel}
                     <ArrowRight className="h-3 w-3" />
                   </Link>
@@ -217,12 +203,17 @@ function UnifiedSessionCard({
   nextBooking,
   nextAvailableSession,
   bookingsLoading,
+  loadError,
+  onRetry,
 }: {
   todayBooking: BookingWithDetails | undefined;
   todayCheckedIn: boolean;
   nextBooking: BookingWithDetails | undefined;
   nextAvailableSession: BookableSessionWithAvailability | null;
   bookingsLoading: boolean;
+  /** bookings OR sessions failed to load — never render the empty copy over an outage */
+  loadError: boolean;
+  onRetry: () => void;
 }) {
   const sessionOver = !!todayBooking && isSessionOver(
     todayBooking.session.date as unknown as string,
@@ -242,7 +233,7 @@ function UnifiedSessionCard({
               {todayBooking.session.startTime}{todayBooking.session.endTime ? ` – ${todayBooking.session.endTime}` : ''}
             </p>
           </div>
-          <Link href="/marketplace/feed" style={{ ...ghostBtn('sm'), textDecoration: 'none' }} data-testid="button-session-highlights">
+          <Link href="/marketplace/feed" {...ghostBtn('sm')} data-testid="button-session-highlights">
             See tonight's highlights <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
@@ -287,7 +278,7 @@ function UnifiedSessionCard({
           <div style={{ marginTop: 4, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
             {/* Manual check-in: play link only once the Court Captain checks the player in */}
             {todayCheckedIn ? (
-              <Link href="/marketplace/play" style={{ ...navyBtn('md'), background: '#fff', color: MKT.navy, borderColor: '#fff', textDecoration: 'none' }} data-testid="button-go-to-play">
+              <Link href="/marketplace/play" {...withStyle(navyBtn('md'), { background: '#fff', color: MKT.navy, borderColor: '#fff' })} data-testid="button-go-to-play">
                 Go to play screen <ArrowRight className="h-4 w-4" />
               </Link>
             ) : (
@@ -307,6 +298,8 @@ function UnifiedSessionCard({
       <DashHeader icon={<Calendar className="h-4 w-4" />} title="Your Next Session" />
       {bookingsLoading ? (
         <Skeleton className="h-20 w-full" />
+      ) : loadError ? (
+        <QueryErrorCard message="Couldn't load your sessions right now." onRetry={onRetry} testId="error-next-session" compact />
       ) : nextBooking ? (
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="space-y-1.5">
@@ -369,7 +362,7 @@ function UnifiedSessionCard({
           ) : (
             <p style={{ fontSize: 13, color: MKT.inkSub, marginTop: 6 }}>New sessions open every week across Dubai venues.</p>
           )}
-          <Link href="/marketplace/book" style={{ ...navyBtn('sm'), textDecoration: 'none', marginTop: 12 }} data-testid="button-book-session-cta">
+          <Link href="/marketplace/book" {...withStyle(navyBtn('sm'), { marginTop: 12 })} data-testid="button-book-session-cta">
             Browse sessions <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
@@ -386,17 +379,19 @@ export default function Dashboard() {
   const { toast } = useToast();
   const reduce = useReducedMotion();
 
-  const { data: bookings, isLoading: bookingsLoading } = useQuery<BookingWithDetails[]>({
+  const { data: bookings, isLoading: bookingsLoading, isError: bookingsError, refetch: refetchBookings } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
     staleTime: 0,
   });
 
-  const { data: stats } = useQuery<PlayerStats>({
+  // isError matters here: an errored stats fetch used to fall through to the
+  // "Link your player profile" card — telling an already-linked player to link.
+  const { data: stats, isError: statsError, refetch: refetchStats } = useQuery<PlayerStats>({
     queryKey: ['/api/players', linkedPlayerId, 'stats'],
     enabled: !!linkedPlayerId,
   });
 
-  const { data: availableSessions = [] } = useQuery<BookableSessionWithAvailability[]>({
+  const { data: availableSessions = [], isError: sessionsError, refetch: refetchSessions } = useQuery<BookableSessionWithAvailability[]>({
     queryKey: ['/api/marketplace/sessions'],
     staleTime: 60_000,
   });
@@ -605,7 +600,8 @@ export default function Dashboard() {
                 View in Rankings
               </Link>
               <button
-                style={{ fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                className="siq-press"
+                style={{ fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer', minHeight: 44, padding: '0 8px', borderRadius: 8 }}
                 onClick={() => {
                   localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
                   setApprovedSuggestionDismissed(true);
@@ -654,7 +650,7 @@ export default function Dashboard() {
                 type="submit"
                 disabled={!referralNudgeCode.trim() || applyReferralMutation.isPending}
                 data-testid="button-apply-referral-nudge"
-                style={{ ...navyBtn('sm'), background: MKT.teal, borderColor: MKT.teal, opacity: (!referralNudgeCode.trim() || applyReferralMutation.isPending) ? 0.6 : 1 }}
+                {...withStyle(navyBtn('sm'), { background: MKT.teal, borderColor: MKT.teal, opacity: (!referralNudgeCode.trim() || applyReferralMutation.isPending) ? 0.6 : 1 })}
               >
                 {applyReferralMutation.isPending ? 'Adding…' : 'Apply'}
               </button>
@@ -665,7 +661,8 @@ export default function Dashboard() {
             onClick={() => dismissNudgeMutation.mutate()}
             aria-label="Dismiss referral nudge"
             data-testid="button-dismiss-referral-nudge"
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, padding: 4, display: 'inline-flex', flex: 'none' }}
+            className="siq-press"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: MKT.inkSub, padding: 12, margin: -12, minHeight: 44, minWidth: 44, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none', borderRadius: 10 }}
           >
             <X className="h-4 w-4" />
           </button>
@@ -737,6 +734,8 @@ export default function Dashboard() {
                 nextBooking={nextBooking}
                 nextAvailableSession={nextAvailableSession}
                 bookingsLoading={bookingsLoading}
+                loadError={bookingsError || sessionsError}
+                onRetry={() => { void refetchBookings(); void refetchSessions(); }}
               />
             </Reveal>
 
@@ -796,6 +795,12 @@ export default function Dashboard() {
                   </div>
                 </DashCard>
               </Reveal>
+            ) : statsError ? (
+              <Reveal className="lg:col-span-2">
+                <DashCard>
+                  <QueryErrorCard message="Couldn't load your stats right now." onRetry={() => { void refetchStats(); }} testId="error-stats" compact />
+                </DashCard>
+              </Reveal>
             ) : (
               <Reveal className="lg:col-span-2">
                 <DashCard>
@@ -803,7 +808,7 @@ export default function Dashboard() {
                     <Target className="h-8 w-8 mx-auto mb-2" style={{ color: MKT.inkSub }} />
                     <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 4 }}>Link your player profile</p>
                     <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 12 }}>Connect your account to see your stats, rankings, and match history.</p>
-                    <Link href="/marketplace/profile" style={{ ...ghostBtn('sm'), textDecoration: 'none' }} data-testid="button-link-profile">Go to Profile</Link>
+                    <Link href="/marketplace/profile" {...ghostBtn('sm')} data-testid="button-link-profile">Go to Profile</Link>
                   </div>
                 </DashCard>
               </Reveal>
@@ -837,7 +842,7 @@ export default function Dashboard() {
                     <Download className="h-8 w-8 mx-auto mb-2" style={{ color: MKT.teal }} />
                     <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 4 }}>Get the App</p>
                     <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 16 }}>Install ShuttleIQ on your home screen for quick access</p>
-                    <button type="button" onClick={install} style={{ ...navyBtn('sm'), width: '100%' }} data-testid="button-install-app-dashboard">
+                    <button type="button" onClick={install} {...withStyle(navyBtn('sm'), { width: '100%' })} data-testid="button-install-app-dashboard">
                       Install Now <Download className="h-3.5 w-3.5" />
                     </button>
                   </div>

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { motion, useReducedMotion } from 'framer-motion';
 import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
+import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import type { CommunitySpotlightEntry, BookableSessionWithAvailability } from '@shared/schema';
@@ -69,7 +70,7 @@ export default function MarketplaceHome() {
   const { isAuthenticated } = useMarketplaceAuth();
   const reduce = useReducedMotion();
 
-  const { data: spotlight = [], isLoading: spotlightLoading } = useQuery<CommunitySpotlightEntry[]>({
+  const { data: spotlight = [], isLoading: spotlightLoading, isError: spotlightError, refetch: refetchSpotlight } = useQuery<CommunitySpotlightEntry[]>({
     queryKey: ['/api/tags/community-spotlight'],
     staleTime: 5 * 60 * 1000,
   });
@@ -211,6 +212,13 @@ export default function MarketplaceHome() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" style={{ gap: 14 }}>
             {[0, 1, 2].map((i) => <Skeleton key={i} className="h-44 rounded-[22px]" style={{ background: 'rgba(245,239,224,0.08)' }} />)}
           </div>
+        ) : spotlightError ? (
+          // An outage is not "no tags yet" — say so, offer a way back.
+          <Reveal>
+            <div style={{ padding: '8px 0' }}>
+              <QueryErrorCard message="Couldn't load this week's community tags." onRetry={() => { void refetchSpotlight(); }} testId="error-spotlight" compact />
+            </div>
+          </Reveal>
         ) : spotlight.length === 0 ? (
           <Reveal>
             <div style={{ padding: '28px 0', color: MKT.cream }}>
@@ -410,7 +418,7 @@ export default function MarketplaceHome() {
 
 // ── Hero live-sessions panel (real data) ────────────────────────────────────
 function HeroLivePanel() {
-  const { data: sessions, isLoading } = useQuery<BookableSessionWithAvailability[]>({
+  const { data: sessions, isLoading, isError: sessionsError, refetch: refetchSessions } = useQuery<BookableSessionWithAvailability[]>({
     queryKey: ['/api/marketplace/sessions'],
   });
 
@@ -456,6 +464,12 @@ function HeroLivePanel() {
               <Skeleton className="h-10 w-full rounded-md" />
             </div>
           ))
+        ) : sessionsError ? (
+          // Never render "No sessions scheduled" for a fetch that failed — that
+          // is a confident, wrong statement on the homepage hero.
+          <div style={{ padding: '16px 2px' }}>
+            <QueryErrorCard message="Couldn't load upcoming sessions." onRetry={() => { void refetchSessions(); }} testId="error-hero-sessions" compact />
+          </div>
         ) : rows.length === 0 ? (
           <div style={{ padding: '28px 2px', textAlign: 'center' }}>
             <p style={{ margin: 0, fontSize: 14, color: MKT.inkSub }}>No sessions scheduled right now — check back soon.</p>

@@ -12,7 +12,9 @@ import { MKT, FF_DISPLAY, FF_BODY } from './LandingComponents';
 
 const MAX_ATTEMPTS = 10;
 const RETRY_DELAY_MS = 3000;
-const REDIRECT_DELAY_S = 3;
+// 3s gave the player no time to read the wallet/card split before being moved
+// on, and no way to stop it. 8s, and cancellable ("Stay here").
+const REDIRECT_DELAY_S = 8;
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -50,6 +52,7 @@ export default function CheckoutSuccess() {
   const [booking, setBooking] = useState<BookingWithDetails | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [countdown, setCountdown] = useState(REDIRECT_DELAY_S);
+  const [redirectCancelled, setRedirectCancelled] = useState(false);
   const [sessionLost, setSessionLost] = useState(false);
   const [, setLocation] = useLocation();
   const { loginWithTokens, isAuthenticated } = useMarketplaceAuth();
@@ -199,6 +202,7 @@ export default function CheckoutSuccess() {
   useEffect(() => {
     if (status !== 'success') return;
     if (showSignInNotice) return;
+    if (redirectCancelled) return; // "Stay here" — the player owns the screen now
     let count = REDIRECT_DELAY_S;
     setCountdown(count);
     const interval = setInterval(() => {
@@ -210,7 +214,7 @@ export default function CheckoutSuccess() {
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [status, setLocation, showSignInNotice]);
+  }, [status, setLocation, showSignInNotice, redirectCancelled]);
 
   const verifyingLabel = attempt > 0
     ? `Checking with payment provider… (attempt ${attempt + 1} of ${MAX_ATTEMPTS})`
@@ -314,9 +318,18 @@ export default function CheckoutSuccess() {
             {status === 'error' && (
               <p style={{ color: MKT.inkSub, lineHeight: 1.55 }} data-testid="text-error-message">{errorMessage}</p>
             )}
-            {status === 'success' && !showSignInNotice && (
-              <p className="text-sm" style={{ color: MKT.inkMute }}>
-                Redirecting to your bookings in {countdown}s…
+            {status === 'success' && !showSignInNotice && !redirectCancelled && (
+              <p className="text-sm flex items-center justify-center gap-3 flex-wrap" style={{ color: MKT.inkMute }}>
+                <span>Taking you to your bookings in {countdown}s…</span>
+                <button
+                  type="button"
+                  className="siq-press underline underline-offset-2 min-h-11 px-2"
+                  style={{ background: 'transparent', border: 'none', color: MKT.navy, cursor: 'pointer', fontWeight: 600 }}
+                  onClick={() => setRedirectCancelled(true)}
+                  data-testid="button-stay-here"
+                >
+                  Stay here
+                </button>
               </p>
             )}
             {showSignInNotice && (
@@ -328,19 +341,31 @@ export default function CheckoutSuccess() {
                 Your booking is confirmed. Please sign in again to view your bookings.
               </div>
             )}
+            {/* While verifying (up to ~30s of polling) the player is not trapped:
+                the poll keeps running in the background and My Bookings will
+                reflect the outcome, so offer the way out immediately. */}
+            {status === 'verifying' && (
+              <div className="flex gap-3 justify-center flex-wrap pt-2">
+                <Link href="/marketplace/my-bookings">
+                  <button type="button" className="siq-press" style={ghostBtnStyle()} data-testid="button-view-bookings-while-verifying">
+                    Go to My Bookings
+                  </button>
+                </Link>
+              </div>
+            )}
             {status !== 'verifying' && (
               <div className="flex gap-3 justify-center flex-wrap pt-2">
                 {showSignInNotice ? (
                   <Link href={`/marketplace/login?from=${encodeURIComponent('/marketplace/my-bookings')}`}>
-                    <button type="button" style={navyBtnStyle()} data-testid="button-signin-required">Sign In</button>
+                    <button type="button" className="siq-press" style={navyBtnStyle()} data-testid="button-signin-required">Sign In</button>
                   </Link>
                 ) : (
                   <Link href="/marketplace/my-bookings">
-                    <button type="button" style={navyBtnStyle()} data-testid="button-view-bookings">View My Bookings</button>
+                    <button type="button" className="siq-press" style={navyBtnStyle()} data-testid="button-view-bookings">View My Bookings</button>
                   </Link>
                 )}
                 <Link href="/marketplace/book">
-                  <button type="button" style={ghostBtnStyle()} data-testid="button-browse-sessions">Browse Sessions</button>
+                  <button type="button" className="siq-press" style={ghostBtnStyle()} data-testid="button-browse-sessions">Browse Sessions</button>
                 </Link>
               </div>
             )}

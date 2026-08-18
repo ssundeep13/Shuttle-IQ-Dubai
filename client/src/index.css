@@ -404,6 +404,26 @@
     inset: -1px;
   }
 
+  /* ─── Press feedback for raw tappables (Design Gate 1) ─────────
+   * shadcn <Button> already darkens on :active via active-elevate-2. Raw
+   * <button>/<a>/<Link> and inline-styled controls had nothing — and no
+   * -webkit-tap-highlight-color, so on iOS the browser's grey flash was the
+   * only signal (invisible on the navy nav). OPT-IN: nothing anywhere changes
+   * unless an element carries this class. Fast ease-out on press-down; the
+   * release rides the same transition. */
+  .siq-press {
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 90ms ease-out, opacity 90ms ease-out;
+  }
+  .siq-press:active {
+    transform: scale(0.97);
+    opacity: 0.85;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .siq-press { transition: none; }
+    .siq-press:active { transform: none; opacity: 0.8; }
+  }
+
   /* ─── Tiptap Blog Editor ───────────────────────────────────── */
   .blog-editor-content {
     font-size: 0.9375rem;

@@ -106,7 +106,7 @@ describe('CheckoutSuccess — waitlisted / error / extra-guest branches', () => 
     expect(screen.queryByTestId('text-error-title')).toBeNull();
 
     // The auto-redirect countdown text must NOT render for waitlisted.
-    expect(screen.queryByText(/Redirecting to your bookings in/i)).toBeNull();
+    expect(screen.queryByText(/Taking you to your bookings in/i)).toBeNull();
 
     // CTA falls back to "View My Bookings" + "Browse Sessions" for the
     // non-success / non-sign-in-notice path.
@@ -257,7 +257,7 @@ describe('CheckoutSuccess — waitlisted / error / extra-guest branches', () => 
     );
 
     // The redirect countdown still renders for the extra-guest success branch.
-    expect(screen.getByText(/Redirecting to your bookings in/i)).toBeInTheDocument();
+    expect(screen.getByText(/Taking you to your bookings in/i)).toBeInTheDocument();
 
     // The "View My Bookings" CTA is present (no sign-in notice in this branch).
     expect(screen.getByTestId('button-view-bookings')).toBeInTheDocument();

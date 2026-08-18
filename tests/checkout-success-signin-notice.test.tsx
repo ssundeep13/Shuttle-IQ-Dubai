@@ -111,7 +111,7 @@ describe('CheckoutSuccess — post-payment sign-in notice flow', () => {
     expect(screen.queryByTestId('button-view-bookings')).toBeNull();
 
     // Auto-redirect countdown text must NOT render in this branch.
-    expect(screen.queryByText(/Redirecting to your bookings in/i)).toBeNull();
+    expect(screen.queryByText(/Taking you to your bookings in/i)).toBeNull();
 
     // Strong assertion: advance well past the 3s redirect window and verify
     // that wouter never received a navigation push to /marketplace/my-bookings.
@@ -160,21 +160,49 @@ describe('CheckoutSuccess — post-payment sign-in notice flow', () => {
     expect(screen.getByTestId('button-view-bookings')).toBeInTheDocument();
     expect(screen.queryByTestId('notice-signin-required')).toBeNull();
 
-    // Countdown text is present and starts at 3.
-    expect(screen.getByText(/Redirecting to your bookings in 3s/)).toBeInTheDocument();
+    // Design Gate 1 (2026-08-18): countdown is now 8s (was 3s — no time to read
+    // the wallet/card split) and cancellable via "Stay here". Copy changed with it.
+    expect(screen.getByText(/Taking you to your bookings in 8s/)).toBeInTheDocument();
+    expect(screen.getByTestId('button-stay-here')).toBeInTheDocument();
 
     // Advance 4 seconds of fake interval ticks. The interval inside the page
     // decrements once per second and calls setLocation('/marketplace/my-bookings')
     // when the count reaches 0. Wrap the advancement in act() so React can
     // flush the resulting state updates without warnings.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000);
+      await vi.advanceTimersByTimeAsync(9000);
     });
 
     await waitFor(() => {
       const last = memHook.history[memHook.history.length - 1];
       expect(last).toBe('/marketplace/my-bookings');
     });
+
+    vi.useRealTimers();
+  });
+
+  it('"Stay here" cancels the auto-redirect — the player owns the screen', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    (useMarketplaceAuth as unknown as Mock).mockReturnValue({
+      isAuthenticated: false,
+      loginWithTokens: vi.fn(),
+    });
+    global.fetch = makeFetchMock({}) as unknown as typeof fetch;
+
+    const { memHook } = renderPage(`/marketplace/checkout/success?booking_id=${BOOKING_ID}`);
+    await screen.findByTestId('text-booking-confirmed');
+
+    // Tap Stay here before the countdown elapses.
+    fireEvent.click(screen.getByTestId('button-stay-here'));
+    // The countdown line disappears...
+    expect(screen.queryByText(/Taking you to your bookings in/i)).toBeNull();
+    // ...and even well past the window, no navigation happened.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12000);
+    });
+    expect(memHook.history.some((p) => p.startsWith('/marketplace/my-bookings'))).toBe(false);
+    // The manual CTA is still there.
+    expect(screen.getByTestId('button-view-bookings')).toBeInTheDocument();
 
     vi.useRealTimers();
   });

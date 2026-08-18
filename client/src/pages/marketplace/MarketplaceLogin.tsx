@@ -13,6 +13,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { Mail, Eye, EyeOff } from 'lucide-react';
 import { SiGoogle } from 'react-icons/si';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { serverErrorMessage } from '@/lib/serverError';
 
 const REMEMBER_KEY = 'mp_remember';
 const REMEMBERED_EMAIL_KEY = 'mp_rememberedEmail';
@@ -29,8 +30,8 @@ function ForgotPasswordForm() {
     try {
       await apiRequest('POST', '/api/marketplace/auth/forgot-password', { email });
       setSubmitted(true);
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message || 'Something went wrong', variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: serverErrorMessage(err), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -50,7 +51,7 @@ function ForgotPasswordForm() {
         </div>
         <button
           type="button"
-          className="text-xs text-muted-foreground hover:underline"
+          className="siq-press inline-flex items-center min-h-11 px-2 -mx-2 rounded-md text-xs text-muted-foreground hover:underline active:underline"
           onClick={() => { setSubmitted(false); setEmail(''); }}
           data-testid="button-try-another-email"
         >
@@ -83,7 +84,7 @@ function ForgotPasswordForm() {
           />
         </div>
       </div>
-      <Button type="submit" className="w-full" disabled={loading} data-testid="button-send-reset">
+      <Button type="submit" className="w-full min-h-11" disabled={loading} data-testid="button-send-reset">
         {loading ? 'Sending...' : 'Send Reset Link'}
       </Button>
     </form>
@@ -132,8 +133,10 @@ export default function MarketplaceLogin() {
       }
       toast({ title: 'Welcome back!' });
       setLocation('/marketplace');
-    } catch (err: any) {
-      toast({ title: 'Login failed', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      // apiRequest throws a plain { error, status } object — err.message was
+      // undefined and the toast rendered with NO description.
+      toast({ title: 'Login failed', description: serverErrorMessage(err), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -188,7 +191,7 @@ export default function MarketplaceLogin() {
                     <button
                       type="button"
                       onClick={() => setShowPassword(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="siq-press absolute right-1 top-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors"
                       data-testid="button-toggle-password"
                       tabIndex={-1}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
@@ -197,7 +200,7 @@ export default function MarketplaceLogin() {
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3 min-h-11">
                   <Checkbox
                     id="remember-me"
                     checked={remember}
@@ -212,13 +215,13 @@ export default function MarketplaceLogin() {
                     Keep me signed in on this device
                   </Label>
                 </div>
-                <Button type="submit" className="w-full" disabled={loading} data-testid="button-submit-login">
+                <Button type="submit" className="w-full min-h-11" disabled={loading} data-testid="button-submit-login">
                   {loading ? 'Logging in...' : 'Log In'}
                 </Button>
               </form>
               <p className="text-center text-sm text-muted-foreground mt-4">
                 Don't have an account?{' '}
-                <Link href="/marketplace/signup" className="text-secondary hover:underline" data-testid="link-signup">
+                <Link href="/marketplace/signup" className="siq-press inline-flex items-center min-h-11 px-1 text-secondary hover:underline active:underline" data-testid="link-signup">
                   Sign up
                 </Link>
               </p>
@@ -233,7 +236,7 @@ export default function MarketplaceLogin() {
               <Button
                 type="button"
                 variant="outline"
-                className="w-full gap-2"
+                className="w-full min-h-11 gap-2"
                 onClick={() => {
                   const from = new URLSearchParams(window.location.search).get('from') || '';
                   startGoogleOAuth(from || undefined);
@@ -251,7 +254,7 @@ export default function MarketplaceLogin() {
           </Tabs>
 
           <p className="text-center text-xs text-muted-foreground mt-6">
-            <Link href="/admin/login" className="hover:underline" data-testid="link-admin-login">
+            <Link href="/admin/login" className="siq-press inline-flex items-center min-h-11 px-1 hover:underline active:underline" data-testid="link-admin-login">
               Staff login
             </Link>
           </p>

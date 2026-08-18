@@ -37,7 +37,12 @@ export function MobileBottomNav() {
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-40"
+      // pb-[env(safe-area-inset-bottom)]: the body's safe-area padding does not
+      // reach a fixed child. Without this, on home-indicator iPhones the bottom
+      // ~34px of the 64px bar sits under the gesture zone (index.html sets
+      // viewport-fit=cover). The bar extends INTO the inset; the 64px of tabs
+      // stay above it.
+      className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[env(safe-area-inset-bottom)]"
       style={{ backgroundColor: '#003E8C' }}
       data-testid="mobile-bottom-nav"
     >
@@ -48,7 +53,7 @@ export function MobileBottomNav() {
             <Link
               key={tab.href}
               href={tab.href}
-              className="flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors"
+              className="siq-press flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors"
               style={{
                 borderTop: active ? '2px solid #006B5F' : '2px solid transparent',
               }}
@@ -59,7 +64,7 @@ export function MobileBottomNav() {
                 style={{ color: active ? '#ffffff' : 'rgba(255,255,255,0.45)' }}
               />
               <span
-                className="text-[10px] font-semibold leading-none transition-colors tracking-[0.04em] uppercase"
+                className="text-[11px] font-semibold leading-none transition-colors tracking-[0.04em] uppercase"
                 style={{ color: active ? '#ffffff' : 'rgba(255,255,255,0.45)' }}
               >
                 {tab.label}

@@ -36,23 +36,15 @@ import { format } from 'date-fns';
 import { useReducedMotion } from 'framer-motion';
 import type { BookingWithDetails, BookingGuest } from '@shared/schema';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
+import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal, navyBtn, ghostBtn, withStyle } from './LandingComponents';
 import { GuestRow, type Guest } from '@/components/marketplace/GuestRow';
+import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
+import { serverErrorMessage } from '@/lib/serverError';
 
 const WIN_GREEN = '#1F8A5B';
 const LOSS_RED = '#B23A2E';
 const EMPTY_GUEST: Guest = { name: '', email: '', linkedFromSearch: false };
 
-// The request layer throws a plain { error, status, code } object, not an
-// Error — reading .message rendered an EMPTY toast description, so users only
-// ever saw the bare title (Gate G1 incident). Always surface the real server copy.
-function serverErrorMessage(error: unknown): string {
-  return (
-    (error as { error?: string })?.error ??
-    (error as { message?: string })?.message ??
-    'Something went wrong — please try again.'
-  );
-}
 const AMBER = '#C97B17';
 
 const statusConfig: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
@@ -112,22 +104,6 @@ function isWithin5Hours(sessionDate: Date | string, startTime: string): boolean 
 
 // ── Shared styled primitives (look only) ─────────────────────────────────────
 const cardStyle: CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${MKT.navy}12` };
-function navyBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
-  return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
-    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: '1.5px solid transparent',
-    background: MKT.navy, color: '#fff', borderColor: MKT.navy, cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
-  };
-}
-function ghostBtn(size: 'sm' | 'md' = 'md'): CSSProperties {
-  return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: size === 'sm' ? 13 : 14, letterSpacing: '-0.005em',
-    padding: size === 'sm' ? '8px 14px' : '11px 18px', borderRadius: 10, border: `1.5px solid ${MKT.navy}33`,
-    background: '#fff', color: MKT.navy, cursor: 'pointer',
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, whiteSpace: 'nowrap',
-  };
-}
 function pill(bg: string, fg: string): CSSProperties {
   return { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: bg, color: fg, whiteSpace: 'nowrap' };
 }
@@ -167,26 +143,26 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
       {confirmedGuests.map((guest: BookingGuest) => (
         <div key={guest.id} data-testid={`text-guest-name-${guest.id}`}>
           {editingId === guest.id ? (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <Input
                 value={editName}
                 onChange={e => setEditName(e.target.value)}
                 placeholder="Guest name"
-                className="h-7 text-xs px-2 flex-1"
+                className="h-11 text-sm px-3 flex-1"
                 data-testid={`input-edit-guest-name-${guest.id}`}
               />
               <Input
                 value={editEmail}
                 onChange={e => setEditEmail(e.target.value)}
                 placeholder="Email (optional)"
-                className="h-7 text-xs px-2 flex-1"
+                className="h-11 text-sm px-3 flex-1"
                 data-testid={`input-edit-guest-email-${guest.id}`}
               />
-              <Button size="icon" variant="ghost" disabled={isEditPending} onClick={() => saveEdit(guest.id)} data-testid={`button-save-guest-${guest.id}`}>
-                <Check className="h-3.5 w-3.5" style={{ color: MKT.teal }} />
+              <Button size="icon" variant="ghost" className="h-11 w-11" aria-label="Save guest" disabled={isEditPending} onClick={() => saveEdit(guest.id)} data-testid={`button-save-guest-${guest.id}`}>
+                <Check className="h-4 w-4" style={{ color: MKT.teal }} />
               </Button>
-              <Button size="icon" variant="ghost" onClick={() => setEditingId(null)} data-testid={`button-cancel-edit-guest-${guest.id}`}>
-                <X className="h-3.5 w-3.5" />
+              <Button size="icon" variant="ghost" className="h-11 w-11" aria-label="Cancel editing" onClick={() => setEditingId(null)} data-testid={`button-cancel-edit-guest-${guest.id}`}>
+                <X className="h-4 w-4" />
               </Button>
             </div>
           ) : (
@@ -201,14 +177,18 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
                 )}
               </div>
               {canManage && (
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <Button size="icon" variant="ghost" className="h-5 w-5" onClick={() => startEdit(guest)} data-testid={`button-edit-guest-${guest.id}`}>
-                    <Pencil className="h-3 w-3" style={{ color: MKT.inkSub }} />
+                // 44px targets, 8px apart, and the destructive one is coloured
+                // as such — these were 20×20 twins 2px apart, one of which
+                // permanently cancels a paid guest spot. -my-3 keeps the row
+                // height unchanged while the hit area grows.
+                <div className="flex items-center gap-2 shrink-0 -my-3">
+                  <Button size="icon" variant="ghost" className="h-11 w-11" aria-label={`Edit ${guest.name}`} onClick={() => startEdit(guest)} data-testid={`button-edit-guest-${guest.id}`}>
+                    <Pencil className="h-4 w-4" style={{ color: MKT.inkSub }} />
                   </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
-                      <Button size="icon" variant="ghost" className="h-5 w-5" data-testid={`button-cancel-guest-${guest.id}`}>
-                        <XCircle className="h-3.5 w-3.5" style={{ color: MKT.inkSub }} />
+                      <Button size="icon" variant="ghost" className="h-11 w-11 text-destructive hover:text-destructive" aria-label={`Cancel ${guest.name}'s spot`} data-testid={`button-cancel-guest-${guest.id}`}>
+                        <XCircle className="h-4 w-4" />
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
@@ -262,7 +242,10 @@ export default function MyBookings() {
   const queryClient = useQueryClient();
   const reduce = useReducedMotion();
 
-  const { data: bookings, isLoading } = useQuery<BookingWithDetails[]>({
+  // Default to [] so a failed fetch never leaves `bookings` undefined — that
+  // made `bookings?.length === 0` false on error and the page rendered blank.
+  // isError now renders its own card (below), before the empty state.
+  const { data: bookings = [], isLoading, isError: bookingsError, refetch: refetchBookings } = useQuery<BookingWithDetails[]>({
     queryKey: ['/api/marketplace/bookings/mine'],
     staleTime: 0,
     refetchOnMount: true,
@@ -342,6 +325,14 @@ export default function MyBookings() {
     onSuccess: (data) => {
       if (data?.redirectUrl) {
         void openCheckoutRedirect(data.redirectUrl);
+      } else {
+        // A 200 with no payment link is still a failure from the player's
+        // seat: the button stopped saying "Loading…" and nothing happened.
+        toast({
+          title: 'Could not start payment',
+          description: 'No payment link was returned. Please try again.',
+          variant: 'destructive',
+        });
       }
     },
     onError: (error: unknown) => {
@@ -384,11 +375,11 @@ export default function MyBookings() {
   });
 
   const sessionEndTime = (b: BookingWithDetails) => new Date(`${String(b.session.date).slice(0, 10)}T${b.session.endTime || '23:59'}`);
-  const upcoming = bookings?.filter(b => b.status !== 'cancelled' && sessionEndTime(b) >= new Date()) || [];
+  const upcoming = bookings.filter(b => b.status !== 'cancelled' && sessionEndTime(b) >= new Date());
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
   const pendingPayment = upcoming.filter(b => b.status === 'pending_payment');
   const active = upcoming.filter(b => b.status !== 'waitlisted' && b.status !== 'pending_payment');
-  const past = bookings?.filter(b => b.status === 'cancelled' || sessionEndTime(b) < new Date()) || [];
+  const past = bookings.filter(b => b.status === 'cancelled' || sessionEndTime(b) < new Date());
 
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
     const status = statusConfig[booking.status] || { variant: 'outline' as const, label: booking.status };
@@ -512,14 +503,13 @@ export default function MyBookings() {
             {!booking.isGuestBooking && booking.status === 'confirmed' && !isPast && (
               <button
                 type="button"
-                className="mt-2"
                 onClick={() => {
                   setAddGuestBooking(booking);
                   setAddGuest(EMPTY_GUEST);
                   setAddGuestPaymentMethod('ziina');
                 }}
                 data-testid={`button-add-guest-${booking.id}`}
-                style={ghostBtn('sm')}
+                {...withStyle(ghostBtn('sm'), { marginTop: 8 })}
               >
                 <UserPlus className="h-3.5 w-3.5" />
                 Add Guest
@@ -560,7 +550,7 @@ export default function MyBookings() {
                     onClick={() => initiatePaymentMutation.mutate(booking.id)}
                     disabled={initiatePaymentMutation.isPending}
                     data-testid={`button-complete-payment-${booking.id}`}
-                    style={{ ...navyBtn('sm'), flex: 'none' }}
+                    {...withStyle(navyBtn('sm'), { flex: 'none' })}
                   >
                     {initiatePaymentMutation.isPending ? 'Loading...' : 'Pay Now'}
                   </button>
@@ -604,7 +594,7 @@ export default function MyBookings() {
                       type="button"
                       disabled={cancelGuestMutation.isPending}
                       data-testid={`button-cancel-guest-spot-${booking.id}`}
-                      style={{ ...ghostBtn('sm'), opacity: cancelGuestMutation.isPending ? 0.6 : 1 }}
+                      {...withStyle(ghostBtn('sm'), { opacity: cancelGuestMutation.isPending ? 0.6 : 1 })}
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       Cancel My Spot
@@ -641,7 +631,7 @@ export default function MyBookings() {
                       type="button"
                       disabled={cancelMySpotMutation.isPending}
                       data-testid={`button-cancel-my-spot-${booking.id}`}
-                      style={{ ...ghostBtn('sm'), opacity: cancelMySpotMutation.isPending ? 0.6 : 1 }}
+                      {...withStyle(ghostBtn('sm'), { opacity: cancelMySpotMutation.isPending ? 0.6 : 1 })}
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       Cancel my spot
@@ -704,7 +694,7 @@ export default function MyBookings() {
                       type="button"
                       disabled={cancelMutation.isPending}
                       data-testid={`button-cancel-${booking.id}`}
-                      style={{ ...ghostBtn('sm'), opacity: cancelMutation.isPending ? 0.6 : 1 }}
+                      {...withStyle(ghostBtn('sm'), { opacity: cancelMutation.isPending ? 0.6 : 1 })}
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel'}
@@ -819,13 +809,21 @@ export default function MyBookings() {
           <div className="space-y-4">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-40 w-full rounded-[14px]" />)}
           </div>
-        ) : bookings?.length === 0 ? (
+        ) : bookingsError ? (
+          <Reveal>
+            <QueryErrorCard
+              message="Couldn't load your bookings right now."
+              onRetry={() => { void refetchBookings(); }}
+              testId="error-bookings"
+            />
+          </Reveal>
+        ) : bookings.length === 0 ? (
           <Reveal>
             <div style={{ ...cardStyle, padding: 32, textAlign: 'center' }}>
               <Calendar className="h-12 w-12 mx-auto mb-3" style={{ color: MKT.inkMute }} />
               <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 20, color: MKT.navy, marginBottom: 6 }}>No bookings yet</h3>
               <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 20 }}>Browse sessions and book your first game.</p>
-              <Link href="/marketplace/book" style={{ ...navyBtn('md'), textDecoration: 'none' }} data-testid="button-browse-sessions">
+              <Link href="/marketplace/book" {...navyBtn('md')} data-testid="button-browse-sessions">
                 Browse Sessions <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
@@ -917,7 +915,7 @@ export default function MyBookings() {
             type="button"
             onClick={() => setAddGuestBooking(null)}
             data-testid="button-add-guest-cancel"
-            style={ghostBtn('md')}
+            {...ghostBtn('md')}
           >
             Cancel
           </button>
@@ -936,7 +934,7 @@ export default function MyBookings() {
               });
             }}
             data-testid="button-add-guest-submit"
-            style={{ ...navyBtn('md'), opacity: (!addGuest.name.trim() || addGuestMutation.isPending) ? 0.6 : 1 }}
+            {...withStyle(navyBtn('md'), { opacity: (!addGuest.name.trim() || addGuestMutation.isPending) ? 0.6 : 1 })}
           >
             {addGuestMutation.isPending
               ? 'Please wait...'
