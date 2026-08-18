@@ -24,13 +24,16 @@ import { Player, GameParticipant } from '@shared/schema';
 
 export interface RotationCandidate {
   player: Player;
-  kind: 'waiter' | 'current';
+  kind: 'waiter' | 'current' | 'finishing';
   // Waiter ordering inputs (ignored for kind='current')
   gamesWaited: number; // queue-fairness counter (sit-out-frozen)
   queueIndex: number; // position in the session queue
   // Current-player ordering inputs (ignored for kind='waiter')
   gamesThisSession: number; // from the game_participants ⋈ game_results join
   lastGameEndedAt: Date | null; // max(game_results.createdAt) for the player
+  // Finishing-tier only (D3+D5): minutes left on the OTHER court this player
+  // is mid-game on. Undefined for waiters/currents.
+  finishingInMin?: number;
 }
 
 // Per-player session play facts from the participants join (the rows
@@ -66,6 +69,52 @@ export function orderRotationCandidates(
       (a.lastGameEndedAt?.getTime() ?? 0) - (b.lastGameEndedAt?.getTime() ?? 0),
   );
   return [...w, ...c];
+}
+
+// ── Finishing tier (D3+D5) ───────────────────────────────────────────────
+// Owner ruling R1: with >=4 players in the session, every panel ALWAYS
+// proposes. When the strict pool + this court's own players yield fewer than
+// four, the planner widens with players mid-game on OTHER courts of the
+// session — the games END, so "everyone is playing" is a reason to plan, not
+// to go dark. This tier sits BESIDE orderRotationCandidates (which is pinned
+// byte-identical), never inside it, and is APPENDED after every waiter and
+// current so it only ever fills what the free pool could not.
+//
+// D5 ordering: soonest-ending first, but timeRemaining is a stored countdown
+// decremented on a 60s tick, so it is bucketed into 3-minute bands — a
+// 40-second edge must not outrank three rotations of rest. Inside a band the
+// existing currents comparator (fewest games, oldest last game end) decides.
+//
+// Ephemeral by construction: nothing here writes. A finishing proposal is
+// display only; pin/assign validation (the 409 action layer) remains the
+// arbiter if the captain acts while those players are still on court.
+
+export const FINISHING_BAND_MINUTES = 3;
+
+/** Bucket index for a minutes-remaining countdown; a missing value sorts last. */
+export function finishingBand(finishingInMin: number | undefined): number {
+  return Math.floor((finishingInMin ?? 999) / FINISHING_BAND_MINUTES);
+}
+
+/** Soonest band first, then the same comparator currents use. */
+export function orderFinishingCandidates(finishing: RotationCandidate[]): RotationCandidate[] {
+  return [...finishing].sort(
+    (a, b) =>
+      finishingBand(a.finishingInMin) - finishingBand(b.finishingInMin) ||
+      a.gamesThisSession - b.gamesThisSession ||
+      (a.lastGameEndedAt?.getTime() ?? 0) - (b.lastGameEndedAt?.getTime() ?? 0),
+  );
+}
+
+/** Appends the (already ordered) finishing tier after the rotation order.
+ *  buildRotationSeatings' fill window is unchanged, so with a full window the
+ *  LOWEST-priority (latest-ending) finishing candidates simply fall off — the
+ *  window never grows, combinatorics never grow. */
+export function withFinishingTier(
+  ordered: RotationCandidate[],
+  finishingOrdered: RotationCandidate[],
+): RotationCandidate[] {
+  return [...ordered, ...finishingOrdered];
 }
 
 // Recent partners/opponents per player from the participants join rows

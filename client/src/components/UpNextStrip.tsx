@@ -21,6 +21,7 @@ import { friendlyMessage, isConflictError, conflictNames, conflictCopy } from "@
 import { formatSkillLevel } from "@shared/utils/skillUtils";
 import { shouldAdoptAiResult } from "@/lib/aiAdoption";
 import { shouldShowReshuffle, type ReshufflePanel } from "@/lib/reshuffleVisibility";
+import { finishingReceipt, finishingConfirmCopy, FinishingChip } from "@/lib/finishingCopy";
 import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Repeat2, Sparkles, X } from "lucide-react";
 
 // Same shape the pending-suggestions endpoint returns (shared query key —
@@ -46,7 +47,9 @@ type QueuedSuggestion = {
 
 // Shape of GET /api/courts/:courtId/suggestions (court bands Gate 2;
 // rotation planner Gate 4 adds inGame + waiter/current counts)
-type SuggestionPlayer = { id: string; name: string; level: string; skillScore: number; outsideBand: boolean; inGame?: boolean };
+// finishingInMin (D3+D5): set only for players mid-game on ANOTHER court whom
+// the server admitted to widen a starved pool — minutes left on that court.
+type SuggestionPlayer = { id: string; name: string; level: string; skillScore: number; outsideBand: boolean; inGame?: boolean; finishingInMin?: number };
 type SuggestionOption = {
   team1: SuggestionPlayer[]; team2: SuggestionPlayer[]; skillGap: number; team1Avg: number; team2Avg: number;
   uneven?: boolean; fromAI?: boolean; reason?: string;
@@ -69,6 +72,11 @@ type CourtSuggestionsResponse = {
   aiPending?: boolean;
   waiterCount?: number;
   currentCount?: number;
+  // Finishing tier (D3+D5): the pool was widened with players mid-game on
+  // OTHER courts because strict + own-court yielded fewer than four. The
+  // lineup is provisional — it starts as those players free up.
+  finishingTier?: boolean;
+  finishingCount?: number;
   uneven?: boolean; // best available option exceeds the fair-game gap
   // Fairness receipts per eligible player (counters the planner computes)
   receipts?: Record<string, { gamesWaited: number; gamesThisSession: number }>;
@@ -1054,9 +1062,11 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
               <RatingText id={p.id} fallbackScore={p.skillScore} />
             </div>
             <div className="flex items-center gap-2">
-              {receiptText(sug?.receipts?.[p.id], !!p.inGame) && (
+              {/* Finishing player: "ends in ~N min" replaces the wait count —
+                  they are not waiting, they are still on another court. */}
+              {(finishingReceipt(p.finishingInMin) ?? receiptText(sug?.receipts?.[p.id], !!p.inGame)) && (
                 <span className="text-xs text-muted-foreground shrink-0" data-testid={`text-receipt-${court.id}-${p.id}`}>
-                  {receiptText(sug?.receipts?.[p.id], !!p.inGame)}
+                  {finishingReceipt(p.finishingInMin) ?? receiptText(sug?.receipts?.[p.id], !!p.inGame)}
                 </span>
               )}
               {p.inGame && (
@@ -1119,6 +1129,10 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           >
             Shared pool
           </Badge>
+        )}
+        {/* Finishing tier: this lineup includes players still on other courts. */}
+        {sug.finishingTier && (
+          <FinishingChip courtId={court.id} />
         )}
         {!composed && (baseOption.uneven ?? sug.uneven) && (
           <span
@@ -1232,7 +1246,9 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           }
           data-testid={`button-up-next-lock-${court.id}`}
         >
-          {isOccupied ? "Confirm — starts when game ends" : "Confirm — start now"}
+          {sug.finishingTier
+            ? finishingConfirmCopy()
+            : isOccupied ? "Confirm — starts when game ends" : "Confirm — start now"}
         </Button>
         {/* Gate 2: directly under Confirm, above the compact text actions. */}
         <ReshuffleButton panel="ephemeral" />

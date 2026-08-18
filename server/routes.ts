@@ -69,6 +69,8 @@ import {
 import {
   deriveSessionPlayFromHistory,
   orderRotationCandidates,
+  orderFinishingCandidates,
+  withFinishingTier,
   buildRotationSeatings,
   pairingKey,
   pickArrangement,
@@ -1967,9 +1969,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const basePool = [...waiterIds, ...currentIds];
       const inBand = basePool.filter(id => playerPassesBand(band, byId.get(id)?.level ?? ''));
 
+      // Finishing tier (D3+D5, ruling R1: with >=4 players in the session,
+      // every panel ALWAYS proposes). Admitted ONLY when strict + own-court
+      // yields fewer than four — a healthy pool never sees it. Candidates are
+      // players mid-game on OTHER occupied courts of this session; the panel
+      // shows them as "starts as players free up". Ephemeral: nothing is
+      // written, and acting on them still runs the pin/assign 409 checks.
+      let finishingIds: string[] = [];
+      const finishingMinutes = new Map<string, number>();
       if (inBand.length < 4 && !relax) {
-        return res.json({ band, insufficientEligible: true, eligibleCount: inBand.length, ...(sharedPool ? { sharedPool: true } : {}) });
+        const already = new Set<string>(basePool);
+        for (const c of sessionCourts) {
+          if (c.status !== 'occupied' || c.id === court.id) continue;
+          for (const p of (c.players ?? [])) {
+            if (already.has(p.id) || sittingOut.has(p.id) || excludeIds.has(p.id)) continue;
+            if (!playerPassesBand(band, byId.get(p.id)?.level ?? '')) continue;
+            already.add(p.id);
+            finishingIds.push(p.id);
+            finishingMinutes.set(p.id, c.timeRemaining ?? 15);
+          }
+        }
+        // The dead state now means what it says: the SESSION is short of
+        // players, not merely the free pool.
+        if (inBand.length + finishingIds.length < 4) {
+          return res.json({ band, insufficientEligible: true, eligibleCount: inBand.length, ...(sharedPool ? { sharedPool: true } : {}) });
+        }
       }
+      const finishingSet = new Set(finishingIds);
 
       // relax_band: nearest-tier expansion — closest out-of-band players
       // (by confirmed-tier distance from the band boundary) top up the pool
@@ -2017,6 +2043,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const toRotationCandidate = (id: string): RotationCandidate | null => {
         const player = byId.get(id);
         if (!player) return null;
+        if (finishingSet.has(id)) {
+          return {
+            player, kind: 'finishing',
+            gamesWaited: 0, queueIndex: Number.MAX_SAFE_INTEGER,
+            gamesThisSession: playedBy.get(id)?.gamesThisSession ?? 0,
+            lastGameEndedAt: playedBy.get(id)?.lastGameEndedAt ?? null,
+            finishingInMin: finishingMinutes.get(id),
+          };
+        }
         return currentSet.has(id)
           ? {
               player, kind: 'current',
@@ -2031,12 +2066,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
               gamesThisSession: 0, lastGameEndedAt: null,
             };
       };
-      const rotationCandidates = candidateIds
+      const rotationCandidates = [...candidateIds, ...finishingIds]
         .map(toRotationCandidate)
         .filter((c): c is RotationCandidate => c !== null);
-      const ordered = orderRotationCandidates(
-        rotationCandidates.filter(c => c.kind === 'waiter'),
-        rotationCandidates.filter(c => c.kind === 'current'),
+      // Waiters, then currents (pinned comparators), THEN the finishing tier
+      // appended last — it only ever fills what the free pool could not.
+      const ordered = withFinishingTier(
+        orderRotationCandidates(
+          rotationCandidates.filter(c => c.kind === 'waiter'),
+          rotationCandidates.filter(c => c.kind === 'current'),
+        ),
+        orderFinishingCandidates(rotationCandidates.filter(c => c.kind === 'finishing')),
       );
       const seatings = buildRotationSeatings(ordered);
 
@@ -2053,6 +2093,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Gate A (D1): "in any live game this session" — own-court currents
         // are a subset of playingNow, so this strictly widens the old flag.
         inGame: playingNow.has(p.id),
+        // Finishing tier: minutes left on the OTHER court they're playing on,
+        // so the panel can say "ends in ~N min" honestly. Absent otherwise.
+        ...(finishingSet.has(p.id) ? { finishingInMin: finishingMinutes.get(p.id) } : {}),
       });
       const toOption = (team1: any[], team2: any[]): Option => {
         const avg = (t: any[]) => t.reduce((s, p) => s + (p.skillScore ?? 90), 0) / (t.length || 1);
@@ -2210,6 +2253,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Gate 4: pool composition for the strip's copy and the smokes.
         waiterCount: rotationCandidates.filter(c => c.kind === 'waiter').length,
         currentCount: rotationCandidates.filter(c => c.kind === 'current').length,
+        // Finishing tier (D3+D5): the pool was widened with players mid-game
+        // on OTHER courts. The strip renders the provisional state and voice.
+        ...(finishingIds.length > 0 ? { finishingTier: true, finishingCount: finishingIds.length } : {}),
         // Fair-game mark: the best available option is still uneven — the
         // UI shows "best available — teams uneven" instead of presenting
         // it as a good match.
