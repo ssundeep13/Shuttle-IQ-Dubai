@@ -21,7 +21,7 @@ const TAG_CATEGORY_COLOR: Record<string, string> = {
 
 // Brand restyle tokens (look only — ranking logic + real data untouched)
 const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
-const displayTitle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em', color: '#003E8C' };
+const displayTitle: CSSProperties = { fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: '#002C84' };
 
 type TimeFilter = 'all-time' | 'this-month' | 'this-week';
 type SortMode = 'rank' | 'win-pct' | 'most-improved';
@@ -71,12 +71,12 @@ const levelColor = (level: string) => {
   switch (level) {
     case 'Professional':
     case 'Advanced': // displays as Professional (F2.1) — same navy chip
-      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[#003E8C] text-white border-[#003E8C]';
+      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[#002C84] text-white border-[#002C84]';
     case 'upper_intermediate':
-      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(0,62,140,0.10)] text-[#003E8C] border-[rgba(0,62,140,0.20)] dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800';
+      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(0,62,140,0.10)] text-[#002C84] border-[rgba(0,62,140,0.20)] dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800';
     case 'lower_intermediate':
     case 'Intermediate':
-      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(0,107,95,0.10)] text-[#006B5F] border-[rgba(0,107,95,0.20)] dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800';
+      return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(0,107,95,0.10)] text-secondary-text border-[rgba(0,107,95,0.20)] dark:bg-teal-950 dark:text-teal-300 dark:border-teal-800';
     case 'Beginner':
       return 'text-[10px] font-bold tracking-[0.07em] uppercase rounded-[4px] bg-[rgba(180,140,0,0.10)] text-[#7a5c00] border-[rgba(180,140,0,0.20)] dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800';
     default:
@@ -86,9 +86,9 @@ const levelColor = (level: string) => {
 
 const podiumColors = [
   {
-    borderClass: 'border-2 border-[#006B5F]',
-    text: 'text-[#006B5F]',
-    medal: 'text-[#006B5F]',
+    borderClass: 'border-2 border-[#00766C]',
+    text: 'text-secondary-text',
+    medal: 'text-secondary-text',
     medalBg: 'bg-[rgba(0,107,95,0.10)]',
   },
   {
@@ -374,14 +374,14 @@ export default function Rankings() {
                                 <div className={`text-[10px] font-bold tracking-[0.07em] uppercase ${colors.text} mb-1`}>#{rank}</div>
                                 <p
                                   className="text-[14px] font-bold truncate"
-                                  style={{ color: '#003E8C' }}
+                                  style={{ color: '#002C84' }}
                                   data-testid={`text-player-name-${entry.player.id}`}
                                 >
                                   {entry.player.name}
                                 </p>
                                 <p
                                   className="font-extrabold leading-none mt-1"
-                                  style={{ fontSize: '32px', letterSpacing: '-0.04em', color: '#003E8C' }}
+                                  style={{ fontSize: '32px', letterSpacing: '-0.04em', color: '#002C84' }}
                                   data-testid={`text-player-score-${entry.player.id}`}
                                 >
                                   {statDisplay}
@@ -499,12 +499,12 @@ export default function Rankings() {
                         <div className="font-medium truncate">{recruiter.playerName}</div>
                         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           {recruiter.ambassadorStatus && (
-                            <Badge className="bg-[#003E8C] text-white border-0 text-[10px] px-1.5 py-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-ambassador-${recruiter.playerId}`}>
+                            <Badge className="bg-[#002C84] text-white border-0 text-[10px] px-1.5 py-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-ambassador-${recruiter.playerId}`}>
                               Ambassador
                             </Badge>
                           )}
                           {recruiter.completedCount >= 5 && !recruiter.ambassadorStatus && (
-                            <Badge className="bg-[#006B5F] text-white border-0 text-[10px] px-1.5 py-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-leaderboard-${recruiter.playerId}`}>
+                            <Badge className="bg-[#00766C] text-white border-0 text-[10px] px-1.5 py-0 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-leaderboard-${recruiter.playerId}`}>
                               Leaderboard Member
                             </Badge>
                           )}

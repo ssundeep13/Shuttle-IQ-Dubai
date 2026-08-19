@@ -161,8 +161,8 @@ export default function MarketplaceSignup() {
 
   // Brand restyle tokens (look only — referral + signup logic untouched)
   const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
-  const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", fontWeight: 700, fontSize: 26, color: '#003E8C', letterSpacing: '-0.02em' };
-  const pageBg: CSSProperties = { background: '#F5EFE0', color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif" };
+  const titleStyle: CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 26, color: '#002C84', letterSpacing: '-0.02em' };
+  const pageBg: CSSProperties = { background: '#F2ECE1', color: '#1A1F2B', fontFamily: 'var(--font-sans)' };
 
   // ----- Skill assessment phase (gender + 3 questions) -----
   if (phase === 'assessment') {
@@ -217,7 +217,7 @@ export default function MarketplaceSignup() {
               <span className="w-9" />
             </div>
             <div className="mx-auto mb-2 w-12 h-12 rounded-full bg-[rgba(0,107,95,0.1)] flex items-center justify-center">
-              <Gift className="h-6 w-6 text-[#006B5F]" />
+              <Gift className="h-6 w-6 text-secondary-text" />
             </div>
             <CardTitle data-testid="text-referral-title" style={titleStyle}>Were you referred?</CardTitle>
             <CardDescription>
@@ -245,7 +245,7 @@ export default function MarketplaceSignup() {
                 </div>
               )}
               {referrerName && (
-                <div className="flex items-center gap-1.5 text-xs text-[#006B5F] font-medium" data-testid="text-referrer-name">
+                <div className="flex items-center gap-1.5 text-xs text-secondary-text font-medium" data-testid="text-referrer-name">
                   <CheckCircle className="h-3.5 w-3.5" /> Referred by {referrerName}
                 </div>
               )}

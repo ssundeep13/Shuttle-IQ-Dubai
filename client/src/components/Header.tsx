@@ -1,4 +1,5 @@
 import { UserPlus, Calendar, MapPin, Building2, LogOut, Shield, LayoutGrid, ChevronDown } from "lucide-react";
+import { Wordmark } from '@/components/Wordmark';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AppStats, Session } from "@shared/schema";
@@ -41,10 +42,7 @@ export function Header({
           and the auth cluster wraps right-aligned when the line is tight. */}
       <div className="flex flex-wrap items-center justify-between gap-y-2 py-3 px-4 bg-card rounded-lg border border-border">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-          <h1 className="text-2xl font-bold">
-            <span className="text-primary">Shuttle</span>
-            <span className="text-chart-2">IQ</span>
-          </h1>
+          <Wordmark as="h1" size={24} />
           {session && (
             <Badge variant="outline" className="bg-success/10 text-success border-success/20 whitespace-nowrap shrink-0">
               Active Session

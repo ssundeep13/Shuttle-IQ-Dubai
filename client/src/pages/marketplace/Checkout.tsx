@@ -45,7 +45,7 @@ const cardShell: CSSProperties = {
 
 function navyBtnStyle(disabled = false): CSSProperties {
   return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: 15, letterSpacing: '-0.005em',
+    fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 15, letterSpacing: '-0.005em',
     padding: '15px 22px', borderRadius: 10, border: '1.5px solid transparent',
     background: disabled ? 'rgba(0,30,70,0.12)' : MKT.navy, color: disabled ? MKT.inkMute : '#fff',
     borderColor: disabled ? 'transparent' : MKT.navy, cursor: disabled ? 'not-allowed' : 'pointer',
@@ -54,7 +54,7 @@ function navyBtnStyle(disabled = false): CSSProperties {
 }
 function ghostBtnStyle(): CSSProperties {
   return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
+    fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
     padding: '12px 18px', borderRadius: 10, border: `1.5px solid ${MKT.navy}55`,
     background: '#fff', color: MKT.navy, cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',

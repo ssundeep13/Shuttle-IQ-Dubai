@@ -11,7 +11,7 @@ import type { BlogPost } from '@shared/schema';
 
 // Brand restyle tokens (look only — real posts + links untouched)
 const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
-const displayTitle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em', color: '#003E8C' };
+const displayTitle: CSSProperties = { fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: '#002C84' };
 
 function estimateReadTime(content: string): number {
   const plainText = content.replace(/<[^>]*>/g, ' ');

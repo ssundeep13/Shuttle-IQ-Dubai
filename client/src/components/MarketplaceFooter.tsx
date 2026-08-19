@@ -1,9 +1,10 @@
 import { Link } from 'wouter';
+import { Wordmark } from '@/components/Wordmark';
 import { SiWhatsapp } from 'react-icons/si';
 import { Phone } from 'lucide-react';
 
 const FF_MONO = `'JetBrains Mono', ui-monospace, Menlo, monospace`;
-const CREAM = '#F5EFE0';
+const CREAM = '#F2ECE1';
 
 // Mono uppercase column header (amber), matching the Home footer.
 function ColHeader({ children }: { children: React.ReactNode }) {
@@ -17,7 +18,7 @@ function ColHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-const footerLinkClass = 'text-[#F5EFE0]/75 hover:text-[#F5EFE0] transition-colors';
+const footerLinkClass = 'text-[#F2ECE1]/75 hover:text-[#F2ECE1] transition-colors';
 
 export function MarketplaceFooter() {
   return (
@@ -27,9 +28,7 @@ export function MarketplaceFooter() {
           {/* Brand */}
           <div className="sm:col-span-2 md:col-span-1">
             <Link href="/" className="inline-block mb-3">
-              <span className="text-xl font-bold text-white" style={{ letterSpacing: '-0.03em' }}>
-                Shuttle<span style={{ color: '#006B5F' }}>IQ</span>
-              </span>
+              <Wordmark size={20} onDark />
             </Link>
             <p className="text-sm leading-relaxed" style={{ color: 'rgba(245,239,224,0.72)' }}>
               Smart queue management for badminton communities across Dubai.

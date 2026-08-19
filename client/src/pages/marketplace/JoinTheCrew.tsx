@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { MKT } from './LandingComponents';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Users, DollarSign, Zap, Heart, MapPin, CheckCircle2,
@@ -11,9 +12,9 @@ import type { CSSProperties } from 'react';
 const APPLY_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSccGm5-cpPDJ_495b_k8Wg9bc98SEHu0JrGktKAYkfUO_2Ezg/viewform?usp=header';
 
 // Brand restyle tokens (look only — real offer, apply URL, content untouched)
-const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+const FF_DISPLAY = 'var(--font-display)';
 const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
-const headingNavy: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em', color: '#003E8C' };
+const headingNavy: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em', color: '#002C84' };
 const headingOnDark: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em' };
 
 const fadeInUp = {
@@ -149,7 +150,7 @@ export default function JoinTheCrew() {
           <motion.p variants={fadeInUp} className="text-muted-foreground mb-3 leading-relaxed max-w-2xl">
             You are the heartbeat of the session. You don't just manage games — you create the experience.
           </motion.p>
-          <motion.p variants={fadeInUp} className="text-sm font-semibold mb-8" style={{ color: '#006B5F' }}>
+          <motion.p variants={fadeInUp} className="text-sm font-semibold mb-8" style={{ color: MKT.tealText }}>
             No prior experience needed — full training provided.
           </motion.p>
           <motion.div variants={fadeInUp}>

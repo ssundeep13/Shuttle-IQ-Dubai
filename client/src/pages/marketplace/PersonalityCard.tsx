@@ -54,7 +54,7 @@ export default function PersonalityCard() {
     return (
       <div
         className="min-h-screen flex items-center justify-center p-6"
-        style={{ background: 'linear-gradient(160deg, #001638 0%, #003E8C 45%, #00564E 75%, #006B5F 100%)' }}
+        style={{ background: 'linear-gradient(160deg, #001638 0%, #002C84 45%, #00564E 75%, #00766C 100%)' }}
       >
         <div className="w-full max-w-sm space-y-4">
           <Skeleton className="h-8 w-32 bg-white/10" />
@@ -68,7 +68,7 @@ export default function PersonalityCard() {
     return (
       <div
         className="min-h-screen flex flex-col items-center justify-center p-6 text-white"
-        style={{ background: 'linear-gradient(160deg, #001638 0%, #003E8C 45%, #00564E 75%, #006B5F 100%)' }}
+        style={{ background: 'linear-gradient(160deg, #001638 0%, #002C84 45%, #00564E 75%, #00766C 100%)' }}
       >
         <p className="text-lg mb-4">Player not found</p>
         <Link href="/marketplace/rankings">
@@ -85,7 +85,7 @@ export default function PersonalityCard() {
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden"
-      style={{ background: 'linear-gradient(160deg, #001638 0%, #003E8C 45%, #00564E 75%, #006B5F 100%)' }}
+      style={{ background: 'linear-gradient(160deg, #001638 0%, #002C84 45%, #00564E 75%, #00766C 100%)' }}
       data-testid="personality-card-page"
     >
       <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '28px 28px' }} />
@@ -117,7 +117,7 @@ export default function PersonalityCard() {
             <div className="w-20 h-20 rounded-full bg-white/10 border-2 border-white/20 flex items-center justify-center text-white text-3xl font-bold mx-auto mb-4">
               {stats.player.name.charAt(0).toUpperCase()}
             </div>
-            <h1 className="text-2xl font-bold text-white mb-1" data-testid="text-card-name" style={{ fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em' }}>
+            <h1 className="text-2xl font-bold text-white mb-1" data-testid="text-card-name" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
               {stats.player.name}
             </h1>
             <div className="flex items-center justify-center gap-2 flex-wrap">

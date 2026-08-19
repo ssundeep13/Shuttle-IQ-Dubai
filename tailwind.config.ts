@@ -35,6 +35,10 @@ export default {
           DEFAULT: "hsl(var(--secondary) / <alpha-value>)",
           foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
           border: "var(--secondary-border)",
+          // Design Gate 2: teal split. `secondary` (#00766C) is the FILL teal;
+          // `secondary-text` (#006B5F) is for teal-as-text on beige/white, where
+          // the fill value only just clears AA. Use text-secondary-text.
+          text: "hsl(var(--secondary-text) / <alpha-value>)",
         },
         muted: {
           DEFAULT: "hsl(var(--muted) / <alpha-value>)",
@@ -96,6 +100,7 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
+        display: ["var(--font-display)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
       },

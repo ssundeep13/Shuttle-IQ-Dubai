@@ -1,4 +1,20 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+/* Fonts load via preloaded <link>s in client/index.html (Inter 400-700 body,
+   Montserrat 600/700 display), display=swap. The render-blocking @import that
+   used to sit here is gone.
+
+   Metric-matched fallback for the display face, so the swap from the system
+   font to Montserrat does not reflow headings/CTAs (CLS). Values MEASURED in
+   headless Chrome, not quoted: Montserrat 600 renders 104.5% the width of Arial
+   at the same size (700: 106.4%) and its line box is 1.089x — one fallback face
+   can carry one size-adjust, so 105% splits the two weights. */
+@font-face {
+  font-family: 'Montserrat Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Helvetica');
+  size-adjust: 105%;
+  ascent-override: 96%;
+  descent-override: 25%;
+  line-gap-override: 0%;
+}
 
 @tailwind base;
 @tailwind components;
@@ -16,10 +32,10 @@
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
 
-  /* Brand: Warm Cream background #F5EFE0 */
-  --background: 43 51% 92%;
+  /* Brand: Warm Cream background #F2ECE1 (true brand, Design Gate 2) */
+  --background: 38.8 39.5% 91.6%; /* #F2ECE1 exact */
 
-  /* Brand: Deep Navy foreground #003E8C (very dark) */
+  /* Foreground: near-black navy #002047 — text ink, NOT the brand navy */
   --foreground: 213 100% 14%;
 
   /* Slightly cool-toned border on cream */
@@ -33,21 +49,21 @@
   /* Card border: rgba(0,20,60,0.10) approximation */
   --card-border: 220 13% 91%;
 
-  --sidebar: 39 44% 92%;
+  --sidebar: 38 43% 91%;
 
   --sidebar-foreground: 213 100% 14%;
 
   --sidebar-border: 213 15% 87%;
 
-  --sidebar-primary: 213 100% 27%;
+  --sidebar-primary: 220 100% 25.9%;
 
   --sidebar-primary-foreground: 0 0% 100%;
 
-  --sidebar-accent: 173 100% 21%;
+  --sidebar-accent: 174.9 100% 23.1%;
 
   --sidebar-accent-foreground: 0 0% 100%;
 
-  --sidebar-ring: 213 100% 27%;
+  --sidebar-ring: 220 100% 26%;
 
   /* Popover: pure white */
   --popover: 0 0% 100%;
@@ -56,8 +72,8 @@
 
   --popover-border: 220 13% 91%;
 
-  /* Brand: Deep Navy #003E8C */
-  --primary: 213 100% 27%;
+  /* Brand: Deep Navy #002C84 (true brand, Design Gate 2) */
+  --primary: 220 100% 25.9%; /* #002C84 exact */
 
   --primary-foreground: 0 0% 100%;
 
@@ -70,20 +86,23 @@
   --info: 199 95% 62%;
   --info-foreground: 199 10% 10%;
 
-  /* Brand: Teal #006B5F */
-  --secondary: 173 100% 21%;
+  /* Brand: Teal #00766C — the FILL teal (buttons, backgrounds, active bars).
+     Design Gate 2 ruling: TEXT uses --secondary-text (#006B5F): #00766C on
+     beige is 4.69:1 — passes AA with no headroom; #006B5F is 5.51 / 6.43. */
+  --secondary: 174.9 100% 23.1%; /* #00766C exact — FILL teal */
+  --secondary-text: 173.3 100% 21%; /* #006B5F exact — TEXT teal */
 
   --secondary-foreground: 0 0% 100%;
 
-  /* Muted background: warm cream lighter */
-  --muted: 43 30% 90%;
+  /* Muted background: one step under the beige */
+  --muted: 38 30% 89%;
 
   /* Muted text: cool grey-navy. Darkened 52% → 42% (audit G5) so body-muted
      copy clears WCAG AA on the cream background — 3.39:1 → 4.85:1. */
-  --muted-foreground: 219 8% 42%;
+  --muted-foreground: 219 8% 40%; /* Gate 2: 42→40 for headroom on the darker true beige (4.70 → 5.0:1) */
 
-  /* Accent same as secondary (Teal) */
-  --accent: 173 100% 21%;
+  /* Accent same as secondary (fill Teal) */
+  --accent: 174.9 100% 23.1%;
 
   --accent-foreground: 0 0% 100%;
 
@@ -94,14 +113,18 @@
   /* Input border at rest: rgba(0,20,60,0.25) approximation on cream */
   --input: 220 13% 78%;
   /* Ring / focus: Deep Navy */
-  --ring: 213 100% 27%;
-  --chart-1: 213 100% 27%;
-  --chart-2: 173 100% 21%;
+  --ring: 220 100% 25.9%;
+  --chart-1: 220 100% 25.9%;
+  --chart-2: 174.9 100% 23.1%;
   --chart-3: 43 44% 50%;
   --chart-4: 142 71% 45%;
   --chart-5: 38 92% 50%;
 
-  --font-sans: Inter, sans-serif;
+  /* Typography (Design Gate 2, hybrid): Montserrat for headings, CTAs, wordmark
+     and hero/stat numbers; Inter for everything else. 'Montserrat Fallback' is
+     a metric-matched Arial face (@font-face below) so the swap does not reflow. */
+  --font-display: 'Montserrat', 'Montserrat Fallback', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
   --radius: 0.75rem; /* 12px for cards */
@@ -206,6 +229,7 @@
   --info-foreground: 199 10% 10%;
 
   --secondary: 174 100% 25%;
+  --secondary-text: 174 100% 45%; /* readable teal on the navy dark surface */
 
   --secondary-foreground: 39 44% 98%;
 
@@ -254,9 +278,11 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Premium sports-app heading typography — tight tracking & line-height */
+  /* Headings are the display face (Design Gate 2). Montserrat is wide and
+     already sits tight; -0.02em (Inter needed -0.03em). Admin inherits this. */
   h1, h2, h3, h4, h5, h6 {
-    letter-spacing: -0.03em;
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
     line-height: 1.1;
   }
 
@@ -277,7 +303,7 @@
 
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="submit"]):not([type="button"]):focus,
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="submit"]):not([type="button"]):focus-visible {
-    border-color: #003E8C;
+    border-color: hsl(var(--primary));
     border-width: 1.5px;
     outline: none;
     box-shadow: none !important;
@@ -312,7 +338,7 @@
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #006B5F;
+    color: hsl(var(--secondary-text));
   }
 
   /* Hide ugly search cancel button in Chrome until we can style it properly */

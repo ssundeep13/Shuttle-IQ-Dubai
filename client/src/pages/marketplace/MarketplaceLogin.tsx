@@ -143,10 +143,10 @@ export default function MarketplaceLogin() {
   };
 
   const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
-  const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", fontWeight: 700, fontSize: 26, color: '#003E8C', letterSpacing: '-0.02em' };
+  const titleStyle: CSSProperties = { fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 26, color: '#002C84', letterSpacing: '-0.02em' };
 
   return (
-    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8" style={{ background: '#F5EFE0', color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif" }}>
+    <div className="flex items-center justify-center min-h-[calc(100vh-3.5rem)] px-4 py-8" style={{ background: '#F2ECE1', color: '#1A1F2B', fontFamily: 'var(--font-sans)' }}>
       <Card className="w-full max-w-md" style={cardChrome}>
         <CardHeader className="text-center">
           <CardTitle data-testid="text-login-title" style={titleStyle}>Welcome back</CardTitle>

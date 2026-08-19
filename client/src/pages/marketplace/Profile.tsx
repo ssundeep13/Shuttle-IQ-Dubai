@@ -1,4 +1,5 @@
 import { useRef, useState, type CSSProperties } from 'react';
+import { MKT } from './LandingComponents';
 import { useLocation } from 'wouter';
 import { apiUrl } from '@/lib/queryClient';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
@@ -459,17 +460,17 @@ export default function Profile() {
   const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '?';
 
   // Brand restyle tokens (look only — no logic/testids touched)
-  const PAGE_CREAM = '#F5EFE0';
-  const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+  const PAGE_CREAM = '#F2ECE1';
+  const FF_DISPLAY = 'var(--font-display)';
   const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
-  const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, fontWeight: 700, color: '#003E8C', letterSpacing: '-0.01em' };
+  const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, fontWeight: 700, color: '#002C84', letterSpacing: '-0.01em' };
 
   return (
     <div style={{ background: PAGE_CREAM, color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif", minHeight: '100%' }}>
     <div className="max-w-3xl mx-auto px-4 py-8">
       <motion.div initial="hidden" animate="visible" variants={stagger}>
         <motion.div variants={fadeInUp} className="mb-8">
-          <h1 className="font-bold" data-testid="text-page-title" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 4vw, 40px)', color: '#003E8C', letterSpacing: '-0.03em' }}>Profile</h1>
+          <h1 className="font-bold" data-testid="text-page-title" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 4vw, 40px)', color: '#002C84', letterSpacing: '-0.03em' }}>Profile</h1>
         </motion.div>
 
         <motion.div variants={fadeInUp} className="flex items-center gap-4 mb-8">
@@ -509,7 +510,7 @@ export default function Profile() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="font-semibold" data-testid="text-profile-name" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: '#003E8C', letterSpacing: '-0.02em' }}>{user?.name}</h2>
+              <h2 className="font-semibold" data-testid="text-profile-name" style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: '#002C84', letterSpacing: '-0.02em' }}>{user?.name}</h2>
               {/* Founding Member seal — immediately after the name, before the
                   consistency tag, so both coexist on the same row. */}
               <FoundingMemberSeal show={!!user?.foundingMember} size={20} testid="seal-profile-founding-member" />
@@ -572,7 +573,7 @@ export default function Profile() {
                     <div style={{ minWidth: 0 }}>
                       <div
                         data-testid="text-founding-member-card-title"
-                        style={{ fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 700, fontSize: 15, color: '#003E8C' }}
+                        style={{ fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 700, fontSize: 15, color: '#002C84' }}
                       >
                         {user.foundingMember.badge}
                       </div>
@@ -603,14 +604,14 @@ export default function Profile() {
                     <div
                       data-testid="bar-badge-progress"
                       style={{
-                        height: '100%', borderRadius: 3, background: '#006B5F',
+                        height: '100%', borderRadius: 3, background: '#00766C',
                         width: `${Math.min(100, Math.round((user.badgeProgress.currentCheckins / user.badgeProgress.threshold) * 100))}%`,
                         transition: 'width 0.4s ease',
                       }}
                     />
                   </div>
                   {user.badge === 'Founding Court' && user.foundingCourtEarnedDate ? (
-                    <div style={{ marginTop: 8, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 12, fontWeight: 500, color: '#006B5F' }} data-testid="text-badge-progress-subline">
+                    <div style={{ marginTop: 8, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 12, fontWeight: 500, color: MKT.tealText }} data-testid="text-badge-progress-subline">
                       Founding Court since {formatEarnedDate(user.foundingCourtEarnedDate)}
                     </div>
                   ) : (
@@ -878,7 +879,7 @@ export default function Profile() {
                         <div className="text-xl font-bold">{user.linkedPlayer.skillScore}</div>
                         <Badge variant="secondary" className="text-xs">{getTierDisplayName(user.linkedPlayer.level)}</Badge>
                         {playerStats?.currentStreak?.type === 'win' && playerStats.currentStreak.count > 0 && (
-                          <div data-testid="text-profile-streak" style={{ marginTop: 4, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 12, fontWeight: 600, color: '#006B5F' }}>
+                          <div data-testid="text-profile-streak" style={{ marginTop: 4, fontFamily: "'Inter', system-ui, sans-serif", fontSize: 12, fontWeight: 600, color: MKT.tealText }}>
                             {playerStats.currentStreak.count}-win streak
                           </div>
                         )}

@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { MKT } from './LandingComponents';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { Card, CardContent } from '@/components/ui/card';
@@ -6,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
-const NAVY = '#003E8C';
-const TEAL = '#006B5F';
+const NAVY = '#002C84';
+const TEAL = MKT.tealText; // routed through the brand token (Design Gate 2)
 const MUTED_RED = '#B23A3A';
 
 interface SessionSummaryResponse {

@@ -561,7 +561,7 @@ export default function MyBookings() {
             <div className="flex items-center justify-between gap-2 pt-3 flex-wrap" style={{ borderTop: `1px solid ${MKT.line}` }}>
               <div className="flex items-center gap-3 flex-wrap">
                 {!isWaitlisted && !isPendingPayment && (
-                  <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em' }} data-testid={`text-booking-amount-${booking.id}`}>
+                  <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }} data-testid={`text-booking-amount-${booking.id}`}>
                     AED {booking.totalPaidAed ?? booking.amountAed}
                   </span>
                 )}
@@ -796,7 +796,7 @@ export default function MyBookings() {
                 <Wallet className="h-4 w-4 shrink-0" />
                 <div>
                   <p style={{ fontSize: 11, lineHeight: 1, marginBottom: 3, opacity: 0.7 }}>Wallet credit</p>
-                  <p style={{ fontSize: 14, fontWeight: 700, lineHeight: 1 }} data-testid="text-wallet-balance">
+                  <p style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }} data-testid="text-wallet-balance">
                     AED {(walletData.walletBalance / 100).toFixed(2)}
                   </p>
                 </div>

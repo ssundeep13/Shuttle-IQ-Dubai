@@ -81,11 +81,11 @@ export default function PlayerPublicProfile() {
   const [progressionFilter, setProgressionFilter] = useState<'last10' | 'monthly' | 'all'>('last10');
 
   // Brand restyle tokens (look only — public read-only view, no owner actions)
-  const PAGE_CREAM = '#F5EFE0';
-  const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+  const PAGE_CREAM = '#F2ECE1';
+  const FF_DISPLAY = 'var(--font-display)';
   const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
   const cardTealChrome: CSSProperties = { background: '#D9EAE7', border: '1px solid rgba(0,107,95,0.2)', borderRadius: 14, boxShadow: 'none' };
-  const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, fontWeight: 700, color: '#003E8C', letterSpacing: '-0.015em' };
+  const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, fontWeight: 700, color: '#002C84', letterSpacing: '-0.015em' };
   const pageWrapStyle: CSSProperties = { background: PAGE_CREAM, color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif", minHeight: '100%' };
 
   if (isLoading) {
@@ -181,7 +181,7 @@ export default function PlayerPublicProfile() {
         <div>
           <div
             className="rounded-xl p-5 md:p-6 mb-6 flex items-center gap-4 md:gap-6 relative overflow-hidden"
-            style={{ background: '#003E8C' }}
+            style={{ background: '#002C84' }}
             data-testid="hero-banner"
           >
             {stats.playerPhotoUrl ? (
@@ -418,8 +418,8 @@ export default function PlayerPublicProfile() {
                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <defs>
                         <linearGradient id="skillGradientPublic" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#006B5F" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#006B5F" stopOpacity={0.02} />
+                          <stop offset="5%" stopColor="#00766C" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#00766C" stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
@@ -443,7 +443,7 @@ export default function PlayerPublicProfile() {
                       <Area
                         type="monotone"
                         dataKey="score"
-                        stroke="#006B5F"
+                        stroke="#00766C"
                         strokeWidth={2}
                         fill="url(#skillGradientPublic)"
                         dot={(props: Record<string, unknown>) => <CustomDot {...props} />}

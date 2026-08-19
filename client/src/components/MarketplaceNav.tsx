@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Wordmark } from '@/components/Wordmark';
 import { Link, useLocation } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -170,14 +171,12 @@ export function MarketplaceNav() {
   return (
     <header
       className="sticky top-0 z-50"
-      style={{ backgroundColor: '#003E8C', borderBottom: '1px solid rgba(255,255,255,0.10)' }}
+      style={{ backgroundColor: '#002C84', borderBottom: '1px solid rgba(255,255,255,0.10)' }}
       data-testid="marketplace-nav"
     >
       <div className="max-w-6xl mx-auto flex h-14 items-center gap-2 px-4 md:px-6">
         <Link href="/" className="flex items-center gap-2 mr-8 shrink-0" data-testid="link-marketplace-home">
-          <span className="text-xl font-bold text-white" style={{ letterSpacing: '-0.03em' }}>
-            Shuttle<span style={{ color: '#006B5F' }}>IQ</span>
-          </span>
+          <Wordmark size={20} onDark />
         </Link>
 
         <nav className="hidden md:flex items-center flex-1 gap-1">
@@ -193,7 +192,7 @@ export function MarketplaceNav() {
                   fontSize: '14px',
                   fontWeight: active ? 600 : 500,
                   letterSpacing: '-0.005em',
-                  borderBottom: active ? '2px solid #006B5F' : '2px solid transparent',
+                  borderBottom: active ? '2px solid #00766C' : '2px solid transparent',
                   textDecoration: 'none',
                 }}
                 data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}
@@ -220,7 +219,7 @@ export function MarketplaceNav() {
                       {user?.photoUrl ? (
                         <AvatarImage src={user.photoUrl} alt={user.name} data-testid="img-nav-avatar" />
                       ) : null}
-                      <AvatarFallback className="text-xs font-semibold" style={{ backgroundColor: '#006B5F', color: '#ffffff' }}>
+                      <AvatarFallback className="text-xs font-semibold" style={{ backgroundColor: '#00766C', color: '#ffffff' }}>
                         {getInitials(user?.name)}
                       </AvatarFallback>
                     </Avatar>
@@ -260,7 +259,7 @@ export function MarketplaceNav() {
                 <Button
                   size="sm"
                   className="font-semibold rounded-full px-5"
-                  style={{ backgroundColor: '#006B5F', color: '#ffffff', borderColor: '#006B5F' }}
+                  style={{ backgroundColor: '#00766C', color: '#ffffff', borderColor: '#00766C' }}
                   data-testid="button-signup"
                 >
                   Sign Up

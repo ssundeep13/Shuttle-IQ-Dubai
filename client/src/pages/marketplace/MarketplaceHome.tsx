@@ -53,10 +53,12 @@ function btnStyle(kind: BtnKind, size: 'md' | 'lg' | 'xl' = 'lg'): CSSProperties
     navy: { background: MKT.navy, color: '#fff', borderColor: MKT.navy },
     ghost: { background: 'transparent', color: MKT.navy, borderColor: `${MKT.navy}33`, fontWeight: 500 },
     cream: { background: MKT.cream, color: MKT.navy, borderColor: MKT.cream },
-    tealLink: { background: 'transparent', color: MKT.navy, borderColor: 'transparent', padding: 0 },
+    // tealLink is a text link, not a pill — it stays in the body face.
+    tealLink: { background: 'transparent', color: MKT.navy, borderColor: 'transparent', padding: 0, fontFamily: FF_BODY },
   };
   return {
-    fontFamily: FF_BODY, fontWeight: 600, letterSpacing: '-0.005em',
+    // Design Gate 2 (hybrid type): CTAs are Montserrat, matching the shared BTN_BASE factory.
+    fontFamily: FF_DISPLAY, fontWeight: 600, letterSpacing: '-0.005em',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
     whiteSpace: 'nowrap', userSelect: 'none', lineHeight: 1, cursor: 'pointer',
     border: '1.5px solid transparent', borderRadius: 999, textDecoration: 'none',

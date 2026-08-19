@@ -3,6 +3,7 @@
 // (walletDisplayLabel) — this screen renders them verbatim and never sees a
 // raw ledger enum. Brand: Inter, navy/teal/cream, flat 1px card chrome.
 import { useState, type CSSProperties } from 'react';
+import { MKT } from './LandingComponents';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { ArrowLeft, Wallet } from 'lucide-react';
@@ -11,8 +12,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
 const FF = "'Inter', system-ui, sans-serif";
-const NAVY = '#003E8C';
-const TEAL = '#006B5F';
+const NAVY = '#002C84';
+const TEAL = MKT.tealText; // routed through the brand token (Design Gate 2)
 const INK = '#1A1F2B';
 const INK_SUB = '#5B6472';
 const PAGE_CREAM = '#FBF9F4';

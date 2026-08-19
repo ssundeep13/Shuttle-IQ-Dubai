@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Wordmark } from '@/components/Wordmark';
 import { apiUrl } from '@/lib/queryClient';
 import { FlaskConical, WifiOff } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -935,7 +936,7 @@ export default function Home() {
         <div className="min-h-screen bg-background flex items-center justify-center p-4">
           <div className="max-w-md w-full text-center space-y-6">
             <div>
-              <h1 className="text-4xl font-bold text-primary mb-2">ShuttleIQ</h1>
+              <Wordmark as="h1" size={36} className="mb-2" />
               <p className="text-lg text-muted-foreground">Badminton Queue Management</p>
             </div>
             <div className="p-6 bg-card rounded-lg border shadow-sm space-y-4">

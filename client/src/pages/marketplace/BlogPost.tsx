@@ -14,7 +14,7 @@ import type { CSSProperties } from 'react';
 import type { BlogPost as BlogPostType } from '@shared/schema';
 
 // Brand restyle tokens (look only — content + SEO + links untouched)
-const displayTitle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em', color: '#003E8C' };
+const displayTitle: CSSProperties = { fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: '#002C84' };
 
 function estimateReadTime(content: string): number {
   const plainText = content.replace(/<[^>]*>/g, ' ');

@@ -11,7 +11,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { MKT, FF_BODY } from './LandingComponents';
 
 // Spec: brightened teal is approved ONLY as accent on navy fills; brand teal
-// #006B5F everywhere on white/cream.
+// MKT.tealText everywhere on white/cream.
 const TEAL_ON_NAVY = '#2BB3A3';
 const CARD_BORDER = 'rgba(0,20,60,0.08)';
 const TROPHY_BG = 'hsl(174, 60%, 94%)';

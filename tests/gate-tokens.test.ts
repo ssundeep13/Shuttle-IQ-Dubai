@@ -61,16 +61,20 @@ describe('Gate 3 — contrast', () => {
 describe('Gate 3 — fonts, viewport, emoji', () => {
   const html = read('client/index.html');
 
-  it('exactly one font family is loaded (Inter, via the stylesheet import)', () => {
-    // the 25-family <link> is gone; preconnect hints stay (they speed the one
-    // Inter @import and so REDUCE fallback flash)
-    expect(html).not.toMatch(/<link[^>]+css2\?family=/);
-    const css = read('client/src/index.css');
-    const imports = css.match(/@import[^;]+;/g) ?? [];
-    expect(imports.length).toBe(1);
-    expect(imports[0]).toContain('Inter');
-    // one family requested, not a list
-    expect((imports[0].match(/family=/g) ?? []).length).toBe(1);
+  it('exactly the two brand families are loaded (Inter body + Montserrat display) via ONE preloaded stylesheet link, no @import', () => {
+    // Design Gate 2: the CSS @import (render-blocking, discovered late) became a
+    // preloaded <link>; the 25-family list stays gone — exactly one css2 URL,
+    // naming exactly Inter and Montserrat.
+    const css = read('client/src/index.css').replace(/\/\*[\s\S]*?\*\//g, ''); // comments may mention "@import"
+    expect(css.match(/@import[^;]+;/g) ?? []).toEqual([]);
+    const links = html.match(/<link[^>]+css2\?family=[^>]+>/g) ?? [];
+    const urls = new Set(links.map(l => l.match(/href="([^"]+)"/)?.[1]));
+    expect(urls.size).toBe(1);
+    const url = [...urls][0]!;
+    expect((url.match(/family=/g) ?? []).length).toBe(2);
+    expect(url).toMatch(/family=Inter:/);
+    expect(url).toMatch(/family=Montserrat:/);
+    expect(url).toContain('display=swap');
   });
 
   it('pinch-zoom is unblocked and the safe area is honoured', () => {

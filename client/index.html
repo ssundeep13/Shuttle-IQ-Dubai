@@ -71,7 +71,12 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <!-- Fonts: Inter only, imported in index.css (audit G5 - dropped a 25-family Google link that shipped ~24 unused typefaces). -->
+    <!-- Fonts (Design Gate 2, hybrid): Inter 400-700 = body, Montserrat 600/700 =
+         display (headings, CTAs, wordmark, hero numbers). Only the weights in use;
+         display=swap; preloaded so the stylesheet is not render-blocking. Measured
+         payload: Montserrat 600+700 latin ~74 KB, Inter latin ~47 KB (variable). -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700&display=swap">
 
     <!-- Service Worker registration -->
     <script>

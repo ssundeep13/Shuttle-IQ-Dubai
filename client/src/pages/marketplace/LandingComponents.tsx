@@ -16,19 +16,20 @@ import { motion, useReducedMotion, type Variants } from 'framer-motion';
 // ─────────────────────────────────────────────────────────────────────────
 export const MKT = {
   // surfaces
-  cream: '#F5EFE0',
-  creamD: '#EBE3D0',
-  creamL: '#FBF7EC',
-  paper: '#FFFBF1',
+  cream: '#F2ECE1',    // true brand beige (Design Gate 2); ramps below re-derived from it
+  creamD: '#E6DFD3',
+  creamL: '#F9F5EC',
+  paper: '#FEF9F0',
   // brand
-  navy: '#003E8C',
-  navyD: '#002A60',
-  navyL: '#3A6BB0',
-  navyInk: '#001638',
-  teal: '#006B5F',
-  tealD: '#004F46',
-  tealL: '#2A8D81',
-  tealMist: '#D9EAE7',
+  navy: '#002C84',     // true brand navy (Design Gate 2)
+  navyD: '#001D58',
+  navyL: '#385BAA',
+  navyInk: '#000E30',
+  teal: '#00766C',     // true brand teal — FILLS (buttons, bars, backgrounds)
+  tealText: '#006B5F', // teal AS TEXT on beige/white: #00766C is only 4.69:1 there; this is 5.51 / 6.43
+  tealD: '#005A52',
+  tealL: '#2D958C',
+  tealMist: '#E0EEEC',
   // accents
   amber: '#C97B17',
   amberL: '#F6D89A',
@@ -38,14 +39,16 @@ export const MKT = {
   // ink
   ink: '#1A1F2B',
   inkSub: '#5C6577',
-  inkMute: '#8B92A3',
+  inkMute: '#626A7C',  // was #8B92A3 = 2.65:1 on beige (failed AA). Plan quoted #6B7385 as 4.5 — MEASURED 4.04; #626A7C measures 4.61 on beige, 5.42 on white
   // structural
   line: 'rgba(0, 30, 70, 0.10)',
   lineSt: 'rgba(0, 30, 70, 0.18)',
 } as const;
 
-export const FF_DISPLAY = `'Bricolage Grotesque', 'Inter', system-ui, sans-serif`;
-export const FF_BODY = `'Inter', system-ui, sans-serif`;
+// Design Gate 2: display = Montserrat via the token (Bricolage was referenced
+// at ~100 sites but never loaded — every one silently rendered Inter).
+export const FF_DISPLAY = 'var(--font-display)';
+export const FF_BODY = 'var(--font-sans)';
 export const FF_MONO = `'JetBrains Mono', ui-monospace, Menlo, monospace`;
 
 // Map a community-tag category to a brand accent colour.
@@ -63,7 +66,7 @@ export type BtnSize = 'sm' | 'md';
 export interface BtnProps { style: CSSProperties; className: string }
 
 const BTN_BASE: CSSProperties = {
-  fontFamily: FF_BODY, fontWeight: 600, letterSpacing: '-0.005em', borderRadius: 10,
+  fontFamily: FF_DISPLAY, fontWeight: 600, letterSpacing: '-0.005em', borderRadius: 10,
   cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   gap: 6, whiteSpace: 'nowrap', minHeight: 44, textDecoration: 'none',
 };

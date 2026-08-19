@@ -38,7 +38,7 @@ describe('BrandAvatar component (tripwires)', () => {
     expect(src.includes('onError={() => setFailed(true)}')).toBe(true);
     expect(src.includes('photoUrl && !failed')).toBe(true);
     expect(src.includes("background: NAVY")).toBe(true);
-    expect(src.includes("const NAVY = '#003E8C'")).toBe(true);
+    expect(src.includes("const NAVY = '#002C84'")).toBe(true); // Design Gate 2: true brand navy (was drifted #003E8C)
     expect(src.includes('fontWeight: 600')).toBe(true);
     expect(src.includes("'Inter'")).toBe(true);
     expect(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(src)).toBe(false);

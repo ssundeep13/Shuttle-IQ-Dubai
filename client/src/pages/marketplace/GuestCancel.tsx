@@ -10,7 +10,7 @@ import { usePageTitle } from '@/hooks/usePageTitle';
 
 // Brand restyle tokens (look only — token + cancel logic untouched)
 const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
-const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", color: '#003E8C', letterSpacing: '-0.02em' };
+const titleStyle: CSSProperties = { fontFamily: 'var(--font-display)', color: '#002C84', letterSpacing: '-0.02em' };
 
 interface GuestInfo {
   id: string;

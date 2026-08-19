@@ -9,10 +9,10 @@ import { usePageTitle } from '@/hooks/usePageTitle';
 import type { CSSProperties } from 'react';
 
 // Brand restyle tokens (look only — all scoring content untouched)
-const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+const FF_DISPLAY = 'var(--font-display)';
 const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 14, boxShadow: 'none' };
 const flatShadow: CSSProperties = { boxShadow: 'none' };
-const headingNavy: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em', color: '#003E8C' };
+const headingNavy: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em', color: '#002C84' };
 const headingOnDark: CSSProperties = { fontFamily: FF_DISPLAY, letterSpacing: '-0.02em' };
 
 const fadeInUp = {

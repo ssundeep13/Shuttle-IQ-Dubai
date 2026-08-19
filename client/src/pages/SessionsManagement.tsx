@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Wordmark } from '@/components/Wordmark';
 import { apiUrl } from '@/lib/queryClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -258,10 +259,7 @@ export default function SessionsManagement() {
         {/* ── Main bar ──────────────────────────────────────────────────────── */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-foreground">
-              <span className="text-primary">Shuttle</span>
-              <span className="text-chart-2">IQ</span>
-            </h1>
+            <Wordmark as="h1" size={20} />
             <Badge variant="secondary" className="text-xs hidden sm:inline-flex">
               {user?.email}
             </Badge>
@@ -2543,7 +2541,7 @@ function RefundsTabContent({ refunds }: { refunds: RefundNotificationWithDetails
             )}
             {/* PRIMARY — the single prominent action. Records the refund in the
                 payment ledger (refund_status, refunded_at, refunded_amount) AND
-                marks the row resolved. Navy (theme primary = #003E8C). */}
+                marks the row resolved. Navy (theme primary = #002C84). */}
             {isZiina && !refunded && !refundPending && (
               <Button
                 size="sm"

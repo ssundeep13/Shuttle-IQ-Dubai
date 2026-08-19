@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Wordmark } from '@/components/Wordmark';
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -154,10 +155,7 @@ export default function PlayerRegistry() {
               </Link>
             )}
             <div className="flex items-center gap-3 mb-1">
-              <span className="text-2xl md:text-3xl font-bold tracking-tight">
-                <span style={{ color: '#002C84' }}>Shuttle</span>
-                <span style={{ color: '#00766C' }}>IQ</span>
-              </span>
+              <Wordmark size={30} />
             </div>
             <h1 className="text-xl md:text-2xl font-semibold flex items-center gap-2 text-muted-foreground">
               <Users className="h-6 w-6" />

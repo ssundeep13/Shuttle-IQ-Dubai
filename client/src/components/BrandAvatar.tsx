@@ -5,7 +5,7 @@
 import { useState, type CSSProperties } from 'react';
 
 const FF_INTER = "'Inter', system-ui, sans-serif";
-const NAVY = '#003E8C';
+const NAVY = '#002C84';
 
 export function initialsOf(name: string | null | undefined): string {
   if (!name) return '?';

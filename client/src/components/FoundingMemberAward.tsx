@@ -6,14 +6,14 @@
 // screen cannot reappear — not on the next app open, and not if the award is
 // revoked before the seal and later re-earned.
 //
-// Brand: flat #003E8C, Inter only, no emoji, no gradients beyond the medal
+// Brand: flat #002C84, Inter only, no emoji, no gradients beyond the medal
 // artwork itself.
 import { useState } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 
 const FF = "'Inter', system-ui, sans-serif";
-const NAVY = '#003E8C';
+const NAVY = '#002C84';
 const TEAL = '#2BB3A3';
 
 export default function FoundingMemberAward() {

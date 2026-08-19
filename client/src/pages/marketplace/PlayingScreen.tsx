@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { MKT } from './LandingComponents';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
@@ -31,8 +32,8 @@ interface CurrentSuggestionResponse {
   suggestion: CurrentSuggestion | null;
 }
 
-const NAVY = '#003E8C';
-const TEAL = '#006B5F';
+const NAVY = '#002C84';
+const TEAL = MKT.tealText; // routed through the brand token (Design Gate 2)
 
 export default function PlayingScreen() {
   usePageTitle('Playing');

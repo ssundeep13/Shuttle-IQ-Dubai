@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { MKT } from './LandingComponents';
 import { useLocation } from 'wouter';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -59,8 +60,8 @@ interface CurrentSuggestionResponse {
   suggestion: CurrentSuggestion | null;
 }
 
-const NAVY = '#003E8C';
-const TEAL = '#006B5F';
+const NAVY = '#002C84';
+const TEAL = MKT.tealText; // routed through the brand token (Design Gate 2)
 
 export default function Play() {
   usePageTitle('Play');

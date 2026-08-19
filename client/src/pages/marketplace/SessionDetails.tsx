@@ -76,7 +76,7 @@ function navyBtnStyle(size: 'sm' | 'md' | 'lg' = 'md', disabled = false): CSSPro
   const pad = size === 'lg' ? '14px 22px' : size === 'sm' ? '9px 14px' : '12px 18px';
   const fs = size === 'lg' ? 16 : size === 'sm' ? 13 : 14;
   return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: fs, letterSpacing: '-0.005em',
+    fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: fs, letterSpacing: '-0.005em',
     padding: pad, borderRadius: 10, border: '1.5px solid transparent',
     background: disabled ? 'rgba(0,30,70,0.05)' : MKT.navy, color: disabled ? MKT.inkMute : '#fff',
     borderColor: disabled ? 'transparent' : MKT.navy, cursor: disabled ? 'not-allowed' : 'pointer',
@@ -87,7 +87,7 @@ function ghostBtnStyle(size: 'sm' | 'md' | 'lg' = 'md'): CSSProperties {
   const pad = size === 'lg' ? '14px 22px' : size === 'sm' ? '9px 14px' : '12px 18px';
   const fs = size === 'lg' ? 16 : size === 'sm' ? 13 : 14;
   return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: fs, letterSpacing: '-0.005em',
+    fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: fs, letterSpacing: '-0.005em',
     padding: pad, borderRadius: 10, border: `1.5px solid ${MKT.navy}55`,
     background: '#fff', color: MKT.navy, cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',

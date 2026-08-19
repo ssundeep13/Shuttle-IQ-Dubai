@@ -55,12 +55,13 @@ describe('progressSubline', () => {
 describe('BadgeTag component (tripwires)', () => {
   const src = read('client/src/components/BadgeTag.tsx');
 
-  it('brand spec: 3px radius, Inter 500, navy #003E8C bg with cream #F5EFE0 text, Founding Court teal #006B5F', () => {
+  // Design Gate 2: BadgeTag now carries the TRUE brand (navy #002C84, cream #F2ECE1) and the FILL teal #00766C.
+  it('brand spec: 3px radius, Inter 500, navy #002C84 bg with cream #F2ECE1 text, Founding Court fill teal #00766C', () => {
     expect(src.includes('borderRadius: 3')).toBe(true);
     expect(src.includes('fontWeight: 500')).toBe(true);
-    expect(src.includes("const NAVY = '#003E8C'")).toBe(true);
-    expect(src.includes("const CREAM = '#F5EFE0'")).toBe(true);
-    expect(src.includes("const TEAL = '#006B5F'")).toBe(true);
+    expect(src.includes("const NAVY = '#002C84'")).toBe(true);
+    expect(src.includes("const CREAM = '#F2ECE1'")).toBe(true);
+    expect(src.includes("const TEAL = '#00766C'")).toBe(true);
     expect(src.includes("founding ? TEAL : NAVY")).toBe(true);
     expect(src.includes("founding ? '#fff' : CREAM")).toBe(true);
   });
@@ -91,9 +92,10 @@ describe('Profile wiring (tripwires)', () => {
     expect(src.includes("background: '#E5E7EB', color: '#4B5563'")).toBe(true);
   });
 
-  it('progress card: title via progressTitle (Gate 4 copy fix), teal #006B5F bar, subline via progressSubline, founding earned date via formatEarnedDate', () => {
+  // Design Gate 2: the progress bar is a FILL → #00766C (text teal #006B5F is reserved for type).
+  it('progress card: title via progressTitle (Gate 4 copy fix), fill-teal #00766C bar, subline via progressSubline, founding earned date via formatEarnedDate', () => {
     expect(src.includes('progressTitle(user.badgeProgress.currentCheckins, user.badgeProgress.threshold)')).toBe(true);
-    expect(src.includes("background: '#006B5F'")).toBe(true);
+    expect(src.includes("background: '#00766C'")).toBe(true);
     expect(src.includes('progressSubline({')).toBe(true);
     expect(src.includes('Founding Court since {formatEarnedDate(user.foundingCourtEarnedDate)}')).toBe(true);
   });

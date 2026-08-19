@@ -43,7 +43,7 @@ export function MobileBottomNav() {
       // viewport-fit=cover). The bar extends INTO the inset; the 64px of tabs
       // stay above it.
       className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[env(safe-area-inset-bottom)]"
-      style={{ backgroundColor: '#003E8C' }}
+      style={{ backgroundColor: '#002C84' }}
       data-testid="mobile-bottom-nav"
     >
       <div className="flex h-16 items-stretch">
@@ -55,7 +55,7 @@ export function MobileBottomNav() {
               href={tab.href}
               className="siq-press flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors"
               style={{
-                borderTop: active ? '2px solid #006B5F' : '2px solid transparent',
+                borderTop: active ? '2px solid #00766C' : '2px solid transparent',
               }}
               data-testid={`tab-${tab.label.toLowerCase().replace(/\s/g, '-')}`}
             >

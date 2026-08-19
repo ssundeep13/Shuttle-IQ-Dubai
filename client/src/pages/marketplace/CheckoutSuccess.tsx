@@ -22,7 +22,7 @@ function sleep(ms: number) {
 
 function navyBtnStyle(): CSSProperties {
   return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
+    fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
     padding: '12px 20px', borderRadius: 10, border: '1.5px solid transparent',
     background: MKT.navy, color: '#fff', borderColor: MKT.navy, cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',
@@ -30,7 +30,7 @@ function navyBtnStyle(): CSSProperties {
 }
 function ghostBtnStyle(): CSSProperties {
   return {
-    fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
+    fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 14, letterSpacing: '-0.005em',
     padding: '12px 20px', borderRadius: 10, border: `1.5px solid ${MKT.navy}55`,
     background: '#fff', color: MKT.navy, cursor: 'pointer',
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, whiteSpace: 'nowrap',

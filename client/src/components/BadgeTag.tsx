@@ -4,13 +4,13 @@
 // is an own-profile-only concern rendered locally in Profile.tsx — keeping
 // it unrepresentable here is the structural guarantee that dormant badges
 // can never leak onto another player's view.
-// Brand: 3px radius, Inter 500, navy #003E8C on cream #F5EFE0 text;
-// Founding Court is teal #006B5F with white text. No emoji, no icons.
+// Brand: 3px radius, Inter 500, navy #002C84 on cream #F2ECE1 text;
+// Founding Court is FILL teal #00766C with white text (4.69:1). No emoji, no icons.
 
 const FF_INTER = "'Inter', system-ui, sans-serif";
-const NAVY = '#003E8C';
-const CREAM = '#F5EFE0';
-const TEAL = '#006B5F';
+const NAVY = '#002C84';
+const CREAM = '#F2ECE1';
+const TEAL = '#00766C';
 
 export default function BadgeTag({ badge, testid, small }: { badge: string | null | undefined; testid?: string; small?: boolean }) {
   if (!badge) return null;

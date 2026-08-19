@@ -49,7 +49,7 @@ export default function Welcome() {
   return (
     <div className="min-h-screen bg-background pb-32">
       {/* Hero */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-[#001638] via-[#003E8C] to-[#006B5F] px-5 pt-12 pb-14 text-white">
+      <section className="relative overflow-hidden bg-gradient-to-b from-[#001638] via-[#002C84] to-[#00766C] px-5 pt-12 pb-14 text-white">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(0,107,95,0.35),transparent_60%)]" />
         <div className="relative mx-auto max-w-2xl text-center">
           <Badge
@@ -61,7 +61,7 @@ export default function Welcome() {
           </Badge>
           <h1
             className="text-3xl font-extrabold tracking-tight sm:text-4xl md:text-5xl"
-            style={{ fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em' }}
+            style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}
             data-testid="text-hero-title"
           >
             Upgraded my game.
@@ -96,11 +96,11 @@ export default function Welcome() {
       {/* Offer callout */}
       <section className="px-5 -mt-8">
         <div className="mx-auto max-w-2xl">
-          <Card className="border-[#003E8C]/10 bg-card">
+          <Card className="border-[#002C84]/10 bg-card">
             <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#006B5F]/10">
-                  <Gift className="h-5 w-5 text-[#006B5F]" />
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00766C]/10">
+                  <Gift className="h-5 w-5 text-secondary-text" />
                 </div>
                 <div>
                   <p
@@ -131,7 +131,7 @@ export default function Welcome() {
         <div className="mx-auto max-w-2xl">
           <h2
             className="mb-1 text-center text-2xl font-bold sm:text-3xl"
-            style={{ fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em' }}
+            style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}
             data-testid="text-advantages-title"
           >
             Why players switch
@@ -150,8 +150,8 @@ export default function Welcome() {
                 data-testid={`card-advantage-${idx}`}
               >
                 <CardContent className="flex gap-3 p-4">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#006B5F]/10">
-                    <Icon className="h-4 w-4 text-[#006B5F]" />
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#00766C]/10">
+                    <Icon className="h-4 w-4 text-secondary-text" />
                   </div>
                   <div>
                     <h3
@@ -179,7 +179,7 @@ export default function Welcome() {
         <div className="mx-auto max-w-2xl">
           <h2
             className="mb-1 text-center text-2xl font-bold sm:text-3xl"
-            style={{ fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", letterSpacing: '-0.02em' }}
+            style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}
             data-testid="text-social-proof-title"
           >
             Real players. Real rankings.
@@ -208,7 +208,7 @@ export default function Welcome() {
                     <div
                       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                         row.rank === 1
-                          ? 'bg-[#006B5F] text-white'
+                          ? 'bg-[#00766C] text-white'
                           : 'bg-muted text-muted-foreground'
                       }`}
                       data-testid={`text-leaderboard-rank-${row.rank}`}

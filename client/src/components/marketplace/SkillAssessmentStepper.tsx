@@ -52,11 +52,11 @@ export type InternalStep = 'gender' | 'q1' | 'q2' | 'q3';
 const STEP_ORDER: InternalStep[] = ['gender', 'q1', 'q2', 'q3'];
 
 // Brand restyle tokens (look only — assessment logic untouched)
-const FF_DISPLAY = "'Bricolage Grotesque','Inter',system-ui,sans-serif";
+const FF_DISPLAY = 'var(--font-display)';
 const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
-const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, color: '#003E8C', letterSpacing: '-0.02em' };
-const primaryBtnStyle: CSSProperties = { background: '#003E8C', borderColor: '#003E8C', color: '#fff' };
-const selectedAnswerStyle: CSSProperties = { background: '#006B5F', borderColor: '#006B5F', color: '#fff' };
+const titleStyle: CSSProperties = { fontFamily: FF_DISPLAY, color: '#002C84', letterSpacing: '-0.02em' };
+const primaryBtnStyle: CSSProperties = { background: '#002C84', borderColor: '#002C84', color: '#fff' };
+const selectedAnswerStyle: CSSProperties = { background: '#00766C', borderColor: '#00766C', color: '#fff' };
 
 export interface SkillAssessmentStepperProps {
   /** Header title shown at the top of the gender card. */
@@ -184,7 +184,7 @@ export function SkillAssessmentStepper({
             <span className="w-9" />
           </div>
           <div className="mt-3 h-1 w-full overflow-hidden rounded-full" style={{ background: 'rgba(0,62,140,0.10)' }}>
-            <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${(displayCurrent / displayTotal) * 100}%`, background: 'linear-gradient(90deg, #003E8C, #006B5F)' }} />
+            <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${(displayCurrent / displayTotal) * 100}%`, background: 'linear-gradient(90deg, #002C84, #00766C)' }} />
           </div>
           <CardTitle className="mt-2 text-lg" data-testid="text-assessment-title" style={titleStyle}>{title}</CardTitle>
           {description && <CardDescription>{description}</CardDescription>}
@@ -247,7 +247,7 @@ export function SkillAssessmentStepper({
           <span className="w-9" />
         </div>
         <div className="mt-3 h-1 w-full overflow-hidden rounded-full" style={{ background: 'rgba(0,62,140,0.10)' }}>
-          <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${(displayCurrent / displayTotal) * 100}%`, background: 'linear-gradient(90deg, #003E8C, #006B5F)' }} />
+          <div className="h-full rounded-full transition-all duration-500 ease-out" style={{ width: `${(displayCurrent / displayTotal) * 100}%`, background: 'linear-gradient(90deg, #002C84, #00766C)' }} />
         </div>
         <CardTitle className="mt-2 text-lg" data-testid={`text-question-title-${q.key}`} style={titleStyle}>
           {q.title}
@@ -261,7 +261,7 @@ export function SkillAssessmentStepper({
             <Button
               key={opt.value}
               variant={isSelected ? 'default' : 'outline'}
-              className="w-full justify-start text-left whitespace-normal h-auto py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#006B5F]/40 active:translate-y-0"
+              className="w-full justify-start text-left whitespace-normal h-auto py-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#00766C]/40 active:translate-y-0"
               style={isSelected ? selectedAnswerStyle : undefined}
               onClick={() => handleAnswerSelect(q.key, opt.value)}
               disabled={isSubmitting}

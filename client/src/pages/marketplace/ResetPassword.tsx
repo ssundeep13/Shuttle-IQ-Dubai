@@ -10,9 +10,9 @@ import { CheckCircle2, Eye, EyeOff, KeyRound, XCircle } from 'lucide-react';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
 // Brand restyle tokens (look only — token + redirect logic untouched)
-const pageBg: CSSProperties = { background: '#F5EFE0', color: '#1A1F2B', fontFamily: "'Inter',system-ui,sans-serif" };
+const pageBg: CSSProperties = { background: '#F2ECE1', color: '#1A1F2B', fontFamily: 'var(--font-sans)' };
 const cardChrome: CSSProperties = { background: '#fff', border: '1px solid rgba(0,62,140,0.10)', borderRadius: 16, boxShadow: 'none' };
-const titleStyle: CSSProperties = { fontFamily: "'Bricolage Grotesque','Inter',system-ui,sans-serif", color: '#003E8C', letterSpacing: '-0.02em' };
+const titleStyle: CSSProperties = { fontFamily: 'var(--font-display)', color: '#002C84', letterSpacing: '-0.02em' };
 
 export default function ResetPassword() {
   usePageTitle('Reset Password');
