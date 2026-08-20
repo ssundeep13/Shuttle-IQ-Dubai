@@ -41,7 +41,7 @@ export function PlayerQueue({
 }: PlayerQueueProps) {
   const [sortBy, setSortBy] = useState<"skill" | "games">("skill");
 
-  const { data: todayPlayers = [] } = useQuery<TodayPlayer[]>({
+  const { data: todayPlayers = [], isLoading: todayLoading } = useQuery<TodayPlayer[]>({
     queryKey: ["/api/stats/today"],
   });
 
@@ -175,7 +175,7 @@ export function PlayerQueue({
                   "flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors min-h-[60px]",
                   isSittingOut
                     ? "bg-muted/40 border-border opacity-60"
-                    : "bg-card border-border hover-elevate",
+                    : "bg-card border-border",
                 )}
                 data-testid={`queue-player-${player.id}`}
               >
@@ -231,13 +231,15 @@ export function PlayerQueue({
                       </span>
                     )}
                     <span className="text-xs text-muted-foreground">
-                      {player.gamesPlayedToday || 0}g · {player.winsToday || 0}W
+                      {todayLoading ? '—' : `${player.gamesPlayedToday || 0}g · ${player.winsToday || 0}W`}
                     </span>
                   </div>
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-1 shrink-0">
+                {/* Gate 3 (2.10): benign vs destructive were 40px twins 4px
+                    apart — now 44px, gap-3, a divider between, Remove tinted. */}
+                <div className="flex items-center gap-3 shrink-0">
                   {sessionId && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -246,8 +248,9 @@ export function PlayerQueue({
                           variant="ghost"
                           size="icon"
                           disabled={toggleSitOutMutation.isPending}
+                          aria-label={isSittingOut ? `Resume ${player.name}` : `Sit out ${player.name}`}
                           className={cn(
-                            "h-10 w-10",
+                            "h-11 w-11",
                             isSittingOut
                               ? "text-amber-500 hover:text-amber-600"
                               : "text-muted-foreground hover:text-amber-500",
@@ -264,11 +267,13 @@ export function PlayerQueue({
                       </TooltipContent>
                     </Tooltip>
                   )}
+                  {sessionId && <div className="w-px h-6 bg-border shrink-0" aria-hidden="true" />}
                   <Button
                     onClick={() => onRemoveFromQueue(player.id)}
                     variant="ghost"
                     size="icon"
-                    className="h-10 w-10 text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove ${player.name} from queue`}
+                    className="h-11 w-11 text-destructive hover:text-destructive hover:bg-destructive/10"
                     data-testid={`button-remove-queue-${player.id}`}
                   >
                     <Trash2 className="w-4 h-4" />

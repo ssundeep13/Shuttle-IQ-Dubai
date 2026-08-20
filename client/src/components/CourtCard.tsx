@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Clock, X, Trophy } from "lucide-react";
+import { Clock, X, Trophy, Loader2 } from "lucide-react";
 import { CourtWithPlayers, Player } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,9 @@ interface CourtCardProps {
   onRemoveCourt: (courtId: string) => void;
   onRecordGame: (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => void;
   onCancelGame: (courtId: string) => void;
+  // Gate 3 (3.5): pending flags from Home's mutations — presentation only.
+  recordPending: boolean;
+  cancelPending: boolean;
   // Gate 4: the free card is the grid-side entry point into the SAME
   // AssignSheet the deck link opens (state lives in Home).
   onOpenAssign: (courtId: string) => void;
@@ -68,6 +71,8 @@ export function CourtCard({
   onRecordGame,
   onCancelGame,
   onOpenAssign,
+  recordPending,
+  cancelPending,
 }: CourtCardProps) {
   const [bandPickerOpen, setBandPickerOpen] = useState(false);
   // Hot-path score entry: winner tap opens the inline panel; all state is
@@ -116,7 +121,7 @@ export function CourtCard({
   return (
     <>
       <div
-        className="bg-card rounded-lg border border-border p-4 sm:p-5 flex flex-col gap-4 hover-elevate transition-colors relative"
+        className="bg-card rounded-lg border border-border p-4 sm:p-5 flex flex-col gap-4 relative"
         data-testid={`card-court-${court.id}`}
       >
         {/* ── Card header ── */}
@@ -135,6 +140,7 @@ export function CourtCard({
               <button
                 type="button"
                 onClick={() => setBandPickerOpen(!bandPickerOpen)}
+                className="siq-press min-h-11 inline-flex items-center rounded-md px-1 -mx-1"
                 data-testid={`button-court-band-${court.id}`}
               >
                 <Badge
@@ -187,7 +193,7 @@ export function CourtCard({
             {canRemoveCourt && isAvailable && (
               <button
                 onClick={() => onRemoveCourt(court.id)}
-                className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors min-h-10 min-w-10 flex items-center justify-center"
+                className="siq-press p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 active:bg-destructive/10 transition-colors min-h-11 min-w-11 flex items-center justify-center"
                 data-testid={`button-remove-court-${court.id}`}
               >
                 <X className="w-4 h-4" />
@@ -199,7 +205,7 @@ export function CourtCard({
         {/* ── Band picker (collapsed behind the tag) ── */}
         {bandPickerOpen && (
           <div
-            className="grid grid-cols-2 sm:grid-cols-4 gap-1.5"
+            className="grid grid-cols-2 sm:grid-cols-4 gap-2"
             data-testid={`band-picker-${court.id}`}
           >
             {COURT_SKILL_BANDS.map((b) => {
@@ -209,7 +215,7 @@ export function CourtCard({
                   key={b}
                   size="sm"
                   variant={active ? "default" : "outline"}
-                  className={cn("h-9 text-xs", active && "bg-secondary text-secondary-foreground hover:bg-secondary/90")}
+                  className={cn("h-11 text-sm", active && "bg-secondary text-secondary-foreground hover:bg-secondary/90")}
                   disabled={bandMutation.isPending}
                   onClick={() => bandMutation.mutate(b)}
                   data-testid={`button-band-${b}-${court.id}`}
@@ -228,7 +234,7 @@ export function CourtCard({
           <button
             type="button"
             onClick={() => onOpenAssign(court.id)}
-            className="flex-1 flex flex-col items-center justify-center gap-1 py-6 rounded-lg bg-muted/40 border border-dashed border-border hover:bg-muted/60 active:scale-[0.99] transition-colors min-h-11"
+            className="flex-1 flex flex-col items-center justify-center gap-1 py-6 rounded-lg bg-muted/40 border border-dashed border-border hover:bg-muted/60 active:scale-[0.99] transition-[transform,background-color] duration-100 min-h-11"
             data-testid={`free-placeholder-${court.id}`}
           >
             <p className="text-sm text-muted-foreground">Free</p>
@@ -329,7 +335,7 @@ export function CourtCard({
                 </div>
 
                 {/* Quick-tap chips for common results + stepper for the rest */}
-                <div className="grid grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-5 gap-2">
                   {[10, 12, 15, 17, 19].map((v) => (
                     <Button
                       key={v}
@@ -346,7 +352,7 @@ export function CourtCard({
                     line; the winner group wraps whole instead of clipping the
                     deuce "+" off-canvas. */}
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-3">
                     <Button
                       variant="outline" className="h-11 w-11 text-sm font-bold"
                       onClick={() => setLoserScore(Math.max(0, loserScore - 1))}
@@ -360,7 +366,7 @@ export function CourtCard({
                     >+</Button>
                   </div>
                   {/* Deuce games: winner score adjustable 21–30 */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-3">
                     <span className="text-xs text-muted-foreground uppercase tracking-wide">Winner</span>
                     <Button
                       variant="outline" className="h-11 w-11 text-sm font-bold"
@@ -376,9 +382,12 @@ export function CourtCard({
                   </div>
                 </div>
 
+                {/* Gate 3 (3.5): a second tap used to press fully and be
+                    silently dropped by Home's guard — pending is now visible
+                    and the button disabled, geometry unchanged. */}
                 <Button
                   className="w-full h-12 text-sm font-semibold bg-secondary text-secondary-foreground hover:bg-secondary/90"
-                  disabled={loserScore >= winnerScore}
+                  disabled={loserScore >= winnerScore || recordPending}
                   onClick={() =>
                     onRecordGame(
                       court.id,
@@ -389,8 +398,10 @@ export function CourtCard({
                   }
                   data-testid={`button-record-game-${court.id}`}
                 >
-                  <Trophy className="w-4 h-4 mr-2" />
-                  Record {scoringTeam === 1 ? `${winnerScore}–${loserScore}` : `${loserScore}–${winnerScore}`} — Team {scoringTeam} wins
+                  {recordPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trophy className="w-4 h-4 mr-2" />}
+                  {recordPending
+                    ? "Recording…"
+                    : `Record ${scoringTeam === 1 ? `${winnerScore}–${loserScore}` : `${loserScore}–${winnerScore}`} — Team ${scoringTeam} wins`}
                 </Button>
               </div>
             )}
@@ -402,7 +413,7 @@ export function CourtCard({
               type="button"
               variant="ghost"
               onClick={() => setConfirmCancel(true)}
-              className="w-full min-h-11 mt-2 text-xs text-muted-foreground"
+              className="w-full min-h-11 mt-2 text-sm text-muted-foreground"
               data-testid={`button-cancel-game-${court.id}`}
             >
               Cancel game (no record)
@@ -423,10 +434,11 @@ export function CourtCard({
                   </AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => onCancelGame(court.id)}
+                    disabled={cancelPending}
                     className="bg-destructive hover:bg-destructive/90"
                     data-testid={`button-cancel-game-confirm-${court.id}`}
                   >
-                    Cancel game
+                    {cancelPending ? "Cancelling…" : "Cancel game"}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

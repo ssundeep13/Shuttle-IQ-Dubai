@@ -15,12 +15,17 @@ interface CourtManagementProps {
   onRecordGame: (courtId: string, winningTeam: number, team1Score: number, team2Score: number) => void;
   onCancelGame: (courtId: string) => void;
   onOpenAssign: (courtId: string) => void;
+  // Gate 3 (3.5): which court's record/cancel mutation is in flight (null = none).
+  recordPendingCourtId: string | null;
+  cancelPendingCourtId: string | null;
 }
 
 export function CourtManagement({
   courts: courtsProp,
   onAddCourt,
   onRemoveCourt,
+  recordPendingCourtId,
+  cancelPendingCourtId,
   onRecordGame,
   onCancelGame,
   onOpenAssign,
@@ -69,6 +74,8 @@ export function CourtManagement({
             onRecordGame={onRecordGame}
             onCancelGame={onCancelGame}
             onOpenAssign={onOpenAssign}
+            recordPending={recordPendingCourtId === court.id}
+            cancelPending={cancelPendingCourtId === court.id}
           />
         ))}
       </div>

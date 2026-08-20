@@ -13,6 +13,8 @@ import { useState } from "react";
 
 interface HeaderProps {
   stats: AppStats;
+  // Gate 3 (5.10): stats used to render as confident zeros while loading.
+  statsReady: boolean;
   session: Session | null;
   onAddPlayer: () => void;
   onEndSession: () => void;
@@ -24,6 +26,7 @@ interface HeaderProps {
 
 export function Header({
   stats,
+  statsReady,
   session,
   onAddPlayer,
   onEndSession,
@@ -57,6 +60,7 @@ export function Header({
               onClick={onLogin}
               variant="outline"
               size="sm"
+              className="min-h-11"
               data-testid="button-login-nav"
             >
               <Shield className="w-4 h-4 mr-2" />
@@ -68,6 +72,7 @@ export function Header({
                 onClick={onAdmin}
                 variant="ghost"
                 size="sm"
+              className="min-h-11"
                 data-testid="button-admin-nav"
               >
                 <Shield className="w-4 h-4 sm:mr-2" />
@@ -77,6 +82,8 @@ export function Header({
                 onClick={onLogout}
                 variant="ghost"
                 size="sm"
+              className="min-h-11"
+                aria-label="Log out"
                 data-testid="button-logout-nav"
               >
                 <LogOut className="w-4 h-4" />
@@ -104,7 +111,8 @@ export function Header({
                 </div>
               </div>
               <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm"
+              className="min-h-11">
                   Details
                   <ChevronDown
                     className={`h-4 w-4 ml-2 transition-transform ${
@@ -144,6 +152,7 @@ export function Header({
         <Button
           onClick={onAddPlayer}
           size="sm"
+              className="min-h-11"
           data-testid="button-add-player"
         >
           <UserPlus className="w-4 h-4 mr-2" />
@@ -154,6 +163,7 @@ export function Header({
           <Button
             variant="destructive"
             size="sm"
+              className="min-h-11"
             onClick={onEndSession}
             data-testid="button-end-session"
           >
@@ -170,23 +180,23 @@ export function Header({
         data-testid="stats-line"
       >
         <span data-testid="text-active-players">
-          <span className="font-semibold text-foreground">{stats.activePlayers}</span> playing
+          <span className="font-semibold text-foreground">{statsReady ? stats.activePlayers : "—"}</span> playing
         </span>
         <span aria-hidden="true">·</span>
         <span data-testid="text-queue-count">
-          <span className="font-semibold text-foreground">{stats.inQueue}</span> in queue
+          <span className="font-semibold text-foreground">{statsReady ? stats.inQueue : "—"}</span> in queue
         </span>
         <span aria-hidden="true">·</span>
         <span data-testid="text-available-courts">
-          <span className="font-semibold text-foreground">{stats.availableCourts}/{stats.totalCourts}</span> courts free
+          <span className="font-semibold text-foreground">{statsReady ? `${stats.availableCourts}/${stats.totalCourts}` : "—"}</span> courts free
         </span>
         <span aria-hidden="true">·</span>
         <span data-testid="text-occupied-courts">
-          <span className="font-semibold text-foreground">{stats.occupiedCourts}</span> in progress
+          <span className="font-semibold text-foreground">{statsReady ? stats.occupiedCourts : "—"}</span> in progress
         </span>
         <span aria-hidden="true">·</span>
         <span data-testid="text-total-players">
-          <span className="font-semibold text-foreground">{stats.totalPlayers}</span> players
+          <span className="font-semibold text-foreground">{statsReady ? stats.totalPlayers : "—"}</span> players
         </span>
       </div>
     </div>

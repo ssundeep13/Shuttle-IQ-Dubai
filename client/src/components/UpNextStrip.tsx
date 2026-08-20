@@ -208,7 +208,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
       <button
         type="button"
         onClick={() => onComposeLineup(court.id)}
-        className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+        className="siq-press self-start min-h-11 inline-flex items-center text-sm text-muted-foreground underline-offset-2 hover:underline active:underline"
         data-testid={`button-compose-lineup-${court.id}`}
       >
         Assign manually
@@ -347,7 +347,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
   // Gate 6: this base request is now ALWAYS instant — the server returns the
   // local ladder immediately with aiPending, so the separate free-court
   // "instant" query is gone (it existed only because this one blocked 10s).
-  const { data: sugPrimary, isFetching: sugLoading, refetch: refetchSuggestion } = useQuery<CourtSuggestionsResponse>({
+  const { data: sugPrimary, isFetching: sugLoading, isError: sugError, refetch: refetchSuggestion } = useQuery<CourtSuggestionsResponse>({
     queryKey: ["/api/courts", court.id, "suggestions", { aiMode: aiModeEnabled, relax }],
     queryFn: async () => {
       const res = await fetch(
@@ -764,7 +764,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-6 px-2 text-xs text-muted-foreground ml-auto"
+                        className="siq-press min-h-11 px-3 text-sm text-muted-foreground ml-auto"
                         onClick={() => setSwapOutId(swapOutId === p.playerId ? null : p.playerId)}
                         data-testid={`button-upnext-swap-${court.id}-${p.playerId}`}
                       >
@@ -787,7 +787,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           key={p.id}
           size="sm"
           variant="outline"
-          className="h-7 text-xs"
+          className="min-h-11 text-sm"
           disabled={swapMutation.isPending}
           onClick={() => swapMutation.mutate({ suggestionId: queued.id, outPlayerId: swapOutId!, inPlayerId: p.id })}
           data-testid={`button-upnext-swap-in-${court.id}-${p.id}`}
@@ -908,11 +908,31 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         <Button
           size="sm"
           variant="outline"
-          className="h-7 text-xs shrink-0"
+          className="min-h-11 text-sm shrink-0"
           onClick={() => { setSuggestionDismissed(false); setRelax(false); }}
           data-testid={`button-up-next-resuggest-${court.id}`}
         >
           Suggest a lineup
+        </Button>
+      </div>
+    );
+  }
+
+  // Gate 3 (5.8): the suggestions query throws and the global retry predicate
+  // never retries it — the preparing spinner below used to show PERMANENTLY.
+  if (sugError && !sug) {
+    return (
+      <div className="mt-1 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2" role="alert" data-testid={`up-next-error-${court.id}`}>
+        <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground shrink-0">Up next</span>
+        <span className="text-sm text-foreground flex-1">Couldn't get a lineup.</span>
+        <Button
+          size="sm"
+          variant="outline"
+          className="min-h-11 siq-press shrink-0"
+          onClick={() => { void refetchSuggestion(); }}
+          data-testid={`button-up-next-retry-${court.id}`}
+        >
+          Retry
         </Button>
       </div>
     );
@@ -953,7 +973,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <Button
             size="sm"
             variant="outline"
-            className="h-7 text-xs w-full border-amber-300 text-amber-700"
+            className="min-h-11 text-sm w-full border-amber-300 text-amber-700"
             onClick={() => setRelax(true)}
             data-testid={`button-up-next-relax-${court.id}`}
           >
@@ -996,7 +1016,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
         <Button
           size="sm"
           variant="ghost"
-          className="h-8 text-xs text-muted-foreground w-full"
+          className="min-h-11 text-sm text-muted-foreground w-full"
           disabled={sugLoading || aiFetching}
           onClick={() => refetchSuggestion()}
           data-testid={`button-up-next-regenerate-${court.id}`}
@@ -1086,7 +1106,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-xs text-muted-foreground ml-auto"
+                className="siq-press min-h-11 px-3 text-sm text-muted-foreground ml-auto"
                 onClick={() =>
                   setEphemeralSwapSlot(
                     ephemeralSwapSlot?.team === teamNo && ephemeralSwapSlot?.index === i ? null : { team: teamNo, index: i },
@@ -1164,7 +1184,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <Button
             size="sm"
             variant="outline"
-            className="h-7 text-xs text-secondary border-secondary/40 shrink-0"
+            className="min-h-11 text-sm text-secondary border-secondary/40 shrink-0"
             onClick={() => { setComposed(null); setEphemeralSwapSlot(null); setOptionIdx(0); }}
             data-testid={`button-up-next-use-ai-${court.id}`}
           >
@@ -1199,7 +1219,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
               {inBandEph.length > 0 && (
                 <div className="flex flex-wrap gap-2">
                   {inBandEph.map((p) => (
-                    <Button key={p.id} size="sm" variant="outline" className="h-8 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-${court.id}-${p.id}`}>
+                    <Button key={p.id} size="sm" variant="outline" className="min-h-11 text-sm" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-${court.id}-${p.id}`}>
                       {p.name}
                       <span className="text-muted-foreground ml-1">({p.skillScore ?? 90})</span>
                       {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id)) && (
@@ -1215,7 +1235,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
                   <p className="text-xs text-muted-foreground uppercase tracking-wide pt-1">Outside band</p>
                   <div className="flex flex-wrap gap-2">
                     {outBandEph.map((p) => (
-                      <Button key={p.id} size="sm" variant="outline" className="h-8 text-xs" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-out-${court.id}-${p.id}`}>
+                      <Button key={p.id} size="sm" variant="outline" className="min-h-11 text-sm" onClick={() => doEphemeralSwap(p)} data-testid={`button-upnext-sug-swap-in-out-${court.id}-${p.id}`}>
                         {p.name}
                         <span className="text-muted-foreground ml-1">({p.skillScore ?? 90})</span>
                         {receiptText(sug?.receipts?.[p.id], ownCourtIds.has(p.id)) && (
@@ -1256,7 +1276,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <Button
             size="sm"
             variant="ghost"
-            className="h-8 text-xs text-muted-foreground"
+            className="min-h-11 text-sm text-muted-foreground"
             disabled={sugLoading || aiFetching}
             onClick={() => {
               if (composed) { setComposed(null); return; }
@@ -1275,7 +1295,7 @@ export function UpNextStrip({ court, queuePlayers, playingPlayerIds, isSandboxSe
           <Button
             size="sm"
             variant="ghost"
-            className="h-8 text-xs text-muted-foreground"
+            className="min-h-11 text-sm text-muted-foreground"
             onClick={() => setSuggestionDismissed(true)}
             data-testid={`button-up-next-dismiss-${court.id}`}
           >

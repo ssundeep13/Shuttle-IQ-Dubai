@@ -129,7 +129,7 @@ export default function Home() {
   });
 
   // Fetch stats (only when session exists)
-  const { data: stats } = useQuery<AppStats>({
+  const { data: stats, isLoading: statsLoading, isError: statsError } = useQuery<AppStats>({
     queryKey: session?.id ? ['/api/stats', session.id] : ['/api/stats'],
     queryFn: async () => {
       const url = session?.id ? `/api/stats?sessionId=${session.id}` : '/api/stats';
@@ -997,6 +997,7 @@ export default function Home() {
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         <Header
           stats={stats || defaultStats}
+          statsReady={!statsLoading && !statsError && !!stats}
           session={session}
           onAddPlayer={() => setShowAddPlayer(true)}
           onEndSession={handleEndSession}
@@ -1094,6 +1095,8 @@ export default function Home() {
                 onRecordGame={handleRecordGame}
                 onCancelGame={handleCancelGame}
                 onOpenAssign={openAssignSheet}
+                recordPendingCourtId={endGameMutation.isPending ? endGameMutation.variables?.courtId ?? null : null}
+                cancelPendingCourtId={cancelGameMutation.isPending ? cancelGameMutation.variables?.courtId ?? null : null}
               />
             </>
           )}

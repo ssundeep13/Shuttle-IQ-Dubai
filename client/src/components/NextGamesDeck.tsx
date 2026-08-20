@@ -186,7 +186,7 @@ function AssignSheet({
                       onClick={() => onTogglePlayerSelection(player.id, 1)}
                       disabled={t1Full}
                       className={cn(
-                        "h-10 min-w-[64px] rounded-lg border text-xs font-semibold transition-colors",
+                        "h-11 min-w-[64px] rounded-lg border text-sm font-semibold active:scale-[.98] transition-[transform,background-color] duration-100",
                         inT1
                           ? "bg-primary text-primary-foreground border-primary"
                           : t1Full
@@ -201,7 +201,7 @@ function AssignSheet({
                       onClick={() => onTogglePlayerSelection(player.id, 2)}
                       disabled={t2Full}
                       className={cn(
-                        "h-10 min-w-[64px] rounded-lg border text-xs font-semibold transition-colors",
+                        "h-11 min-w-[64px] rounded-lg border text-sm font-semibold active:scale-[.98] transition-[transform,background-color] duration-100",
                         inT2
                           ? "bg-secondary text-secondary-foreground border-secondary"
                           : t2Full
@@ -232,7 +232,7 @@ function AssignSheet({
             <Button
               onClick={handleStart}
               disabled={!ready || !!composePending}
-              className="w-full"
+              className="w-full h-12"
               data-testid={`button-assign-players-${court.id}`}
             >
               {isCompose
@@ -364,7 +364,7 @@ export function NextGamesDeck({
                 <button
                   type="button"
                   onClick={() => onOpenAssign(court.id)}
-                  className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  className="siq-press self-start min-h-11 inline-flex items-center text-sm text-muted-foreground underline-offset-2 hover:underline active:underline"
                   data-testid={`button-assign-manually-${court.id}`}
                 >
                   Assign manually
@@ -388,7 +388,7 @@ export function NextGamesDeck({
                 })
               }
               className={cn(
-                "px-2 py-1 rounded-full text-xs font-semibold transition-colors",
+                "siq-press min-h-11 px-3 rounded-full text-sm font-semibold transition-colors",
                 i === activeIdx
                   ? "bg-secondary text-secondary-foreground"
                   : "bg-muted text-muted-foreground",
