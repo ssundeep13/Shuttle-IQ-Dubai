@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Wordmark } from '@/components/Wordmark';
 import { apiUrl } from '@/lib/queryClient';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { primarySlotActive } from '@shared/utils/slotUtils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -2161,7 +2161,15 @@ function MarketplaceUsersSubTab() {
   );
 }
 
-function DisputesTabContent({ disputes }: { disputes: ScoreDisputeWithDetails[] }) {
+// The game-history shape this screen needs (existing /api/game-history/:sessionId
+// response — participants carry names; no new server surface).
+interface AdminGameParticipant { playerId: string; team: number; playerName: string }
+interface AdminGameWithParticipants {
+  id: string; team1Score: number; team2Score: number; winningTeam: number;
+  participants: AdminGameParticipant[];
+}
+
+export function DisputesTabContent({ disputes }: { disputes: ScoreDisputeWithDetails[] }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [resolvingDispute, setResolvingDispute] = useState<ScoreDisputeWithDetails | null>(null);
@@ -2203,6 +2211,55 @@ function DisputesTabContent({ disputes }: { disputes: ScoreDisputeWithDetails[] 
   });
 
   const openDisputes = disputes.filter(d => d.status === 'open');
+
+  // Team context (display-only): join each dispute to its game via the
+  // EXISTING game-history endpoint, one fetch per distinct session.
+  const disputeSessionIds = Array.from(new Set(openDisputes.map(d => d.sessionId).filter(Boolean)));
+  const historyQueries = useQueries({
+    queries: disputeSessionIds.map(sid => ({
+      queryKey: ['/api/game-history', sid] as const,
+      staleTime: 60_000,
+    })),
+  });
+  const gameById = new Map<string, AdminGameWithParticipants>();
+  for (const q of historyQueries) {
+    for (const g of (q.data as AdminGameWithParticipants[] | undefined) ?? []) gameById.set(g.id, g);
+  }
+  const openCountByGame = new Map<string, number>();
+  for (const d of openDisputes) openCountByGame.set(d.gameResultId, (openCountByGame.get(d.gameResultId) ?? 0) + 1);
+
+  // One row per team: names + score, winner marked, and — when the filer's
+  // name matches exactly one participant — which side the DISPUTER was on
+  // (that's what the admin is judging). Name match is a heuristic: on zero or
+  // ambiguous matches no side is claimed.
+  const teamRow = (d: ScoreDisputeWithDetails, game: AdminGameWithParticipants, teamNo: 1 | 2) => {
+    const players = game.participants.filter(p => p.team === teamNo);
+    const score = teamNo === 1 ? game.team1Score : game.team2Score;
+    const won = game.winningTeam === teamNo;
+    const norm = (x: string) => x.trim().toLowerCase();
+    const matches = game.participants.filter(p => norm(p.playerName) === norm(d.filedByName));
+    const disputerHere = matches.length === 1 && matches[0].team === teamNo;
+    return (
+      <div key={teamNo} className="flex items-center justify-between gap-3 min-w-0" data-testid={`dispute-team-${teamNo}-${d.id}`}>
+        <span className={`text-sm truncate ${won ? 'font-bold text-secondary-text' : 'text-foreground'}`}>
+          {players.map(p => p.playerName).join(' + ') || `Team ${teamNo}`}
+        </span>
+        <span className="flex items-center gap-1.5 shrink-0">
+          {disputerHere && (
+            <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 no-default-hover-elevate no-default-active-elevate">
+              disputer's side
+            </Badge>
+          )}
+          {won && (
+            <Badge className="text-xs bg-secondary text-secondary-foreground border-0 no-default-hover-elevate no-default-active-elevate">
+              won
+            </Badge>
+          )}
+          <span className={`text-sm tabular-nums ${won ? 'font-bold text-secondary-text' : 'font-semibold text-foreground'}`}>{score}</span>
+        </span>
+      </div>
+    );
+  };
   const closedDisputes = disputes.filter(d => d.status !== 'open');
 
   return (
@@ -2236,10 +2293,35 @@ function DisputesTabContent({ disputes }: { disputes: ScoreDisputeWithDetails[] 
                         <span className="font-semibold text-sm" data-testid={`text-dispute-player-${d.id}`}>{d.filedByName}</span>
                         <Badge variant="outline" className="text-xs no-default-hover-elevate no-default-active-elevate">{d.filedByEmail}</Badge>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-                        <span>Score: <strong className="text-foreground">{d.gameScore}</strong></span>
-                        <span>&middot;</span>
+                      {(() => {
+                        const game = gameById.get(d.gameResultId);
+                        if (!game) {
+                          // history not loaded (or game missing) — plain score
+                          return (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+                              <span>Score: <strong className="text-foreground">{d.gameScore}</strong></span>
+                              <span>&middot;</span>
+                              <span>{format(new Date(d.gameDate), 'MMM d, yyyy')}</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div className="mt-1 space-y-1 rounded-md border border-border bg-muted/30 px-3 py-2 max-w-sm" data-testid={`dispute-teams-${d.id}`}>
+                            {teamRow(d, game, 1)}
+                            {teamRow(d, game, 2)}
+                          </div>
+                        );
+                      })()}
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                         <span>{format(new Date(d.gameDate), 'MMM d, yyyy')}</span>
+                        {(openCountByGame.get(d.gameResultId) ?? 0) > 1 && (
+                          <>
+                            <span>&middot;</span>
+                            <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-multi-dispute-${d.id}`}>
+                              {openCountByGame.get(d.gameResultId)} disputes on this game
+                            </Badge>
+                          </>
+                        )}
                       </div>
                       {d.note && (
                         <p className="text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2 mt-2" data-testid={`text-dispute-note-${d.id}`}>
