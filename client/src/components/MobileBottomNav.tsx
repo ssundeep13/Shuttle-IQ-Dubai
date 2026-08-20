@@ -8,7 +8,10 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 const authTabs = [
   { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
-  { href: '/marketplace/my-bookings', label: 'My Bookings', icon: Bookmark },
+  // "Bookings" not "My Bookings": the two-word label wrapped at 390px (5 tabs
+  // share the width) and made this tab taller than its siblings. Label only —
+  // the route is unchanged.
+  { href: '/marketplace/my-bookings', label: 'Bookings', icon: Bookmark },
   { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
   { href: '/marketplace/my-scores', label: 'Stats', icon: BarChart2 },
 ];
@@ -72,7 +75,9 @@ export function MobileBottomNav() {
                 style={{ color: active ? '#ffffff' : 'rgba(255,255,255,0.45)' }}
               />
               <span
-                className="text-[11px] font-semibold leading-none transition-colors tracking-[0.04em] uppercase"
+                // whitespace-nowrap: a label that outgrows its tab must
+                // overflow visibly in dev, not wrap into a second line.
+                className="whitespace-nowrap text-[11px] font-semibold leading-none transition-colors tracking-[0.04em] uppercase"
                 style={{ color: active ? '#ffffff' : 'rgba(255,255,255,0.45)' }}
               >
                 {tab.label}
