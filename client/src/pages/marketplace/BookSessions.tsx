@@ -510,7 +510,10 @@ export default function BookSessions() {
               Find your <span style={{ color: MKT.teal, fontStyle: 'italic' }}>next</span> game.
             </h1>
             <p style={{ margin: 0, maxWidth: 360, fontSize: 15, lineHeight: 1.5, color: MKT.inkSub, letterSpacing: '-0.005em' }}>
-              {filteredSessions.length} session{filteredSessions.length === 1 ? '' : 's'} across the next 7 days. Filter by date, search by venue, and book in two taps.
+              {/* The count is ALL upcoming sessions — the filter has no
+                  weekly window, so the old one-week claim read "33" while
+                  only 6 fell inside that week. Say what the list shows. */}
+              {filteredSessions.length} upcoming session{filteredSessions.length === 1 ? '' : 's'}. Filter by date, search by venue, and book in two taps.
             </p>
           </div>
         </Reveal>
