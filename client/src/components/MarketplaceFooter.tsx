@@ -2,6 +2,7 @@ import { Link } from 'wouter';
 import { Wordmark } from '@/components/Wordmark';
 import { SiWhatsapp } from 'react-icons/si';
 import { Phone } from 'lucide-react';
+import { WHATSAPP_DUBAILAND_URL, WHATSAPP_DIP_URL, WHATSAPP_GROUPS_ANCHOR_ID, WHATSAPP_GROUPS_PATH } from '@/lib/whatsappGroups';
 
 const FF_MONO = `'JetBrains Mono', ui-monospace, Menlo, monospace`;
 const CREAM = '#F2ECE1';
@@ -35,17 +36,20 @@ export function MarketplaceFooter() {
               Play more, wait less.
             </p>
             <div className="flex gap-2 mt-4">
-              <a
-                href="https://chat.whatsapp.com/EPeC5K3IaM2Fa4910p8XpE"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Join our WhatsApp community"
+              {/* Deep-links to the landing banner where the player picks their
+                  area group — works from any marketplace page (the landing's
+                  hash-scroll effect handles the anchor; the onClick covers the
+                  already-on-the-landing case, where the path doesn't change). */}
+              <Link
+                href={WHATSAPP_GROUPS_PATH}
+                aria-label="WhatsApp community groups"
                 data-testid="link-footer-social-whatsapp"
                 className="siq-press inline-flex items-center justify-center rounded-full transition-colors"
-                style={{ width: 34, height: 34, background: 'rgba(245,239,224,0.08)', color: CREAM }}
+                style={{ width: 44, height: 44, background: 'rgba(245,239,224,0.08)', color: CREAM }}
+                onClick={() => requestAnimationFrame(() => document.getElementById(WHATSAPP_GROUPS_ANCHOR_ID)?.scrollIntoView({ block: 'center' }))}
               >
                 <SiWhatsapp className="h-4 w-4" />
-              </a>
+              </Link>
             </div>
           </div>
 
@@ -86,14 +90,26 @@ export function MarketplaceFooter() {
             <ul className="space-y-3 text-sm">
               <li>
                 <a
-                  href="https://chat.whatsapp.com/EPeC5K3IaM2Fa4910p8XpE"
+                  href={WHATSAPP_DUBAILAND_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex items-start gap-2 ${footerLinkClass}`}
-                  data-testid="link-footer-whatsapp-group"
+                  className={`flex items-center gap-2 min-h-11 ${footerLinkClass}`}
+                  data-testid="link-footer-whatsapp-dubailand"
                 >
-                  <SiWhatsapp className="h-4 w-4 shrink-0 mt-0.5" style={{ color: '#25D366' }} />
-                  <span>Join our WhatsApp community for updates</span>
+                  <SiWhatsapp className="h-4 w-4 shrink-0" style={{ color: '#25D366' }} />
+                  <span>WhatsApp — Dubailand / DSO</span>
+                </a>
+              </li>
+              <li>
+                <a
+                  href={WHATSAPP_DIP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center gap-2 min-h-11 ${footerLinkClass}`}
+                  data-testid="link-footer-whatsapp-dip"
+                >
+                  <SiWhatsapp className="h-4 w-4 shrink-0" style={{ color: '#25D366' }} />
+                  <span>WhatsApp — DIP</span>
                 </a>
               </li>
               <li>

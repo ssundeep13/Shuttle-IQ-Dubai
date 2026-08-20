@@ -1,5 +1,5 @@
 import { Link } from 'wouter';
-import type { CSSProperties } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion, useReducedMotion } from 'framer-motion';
 import { format } from 'date-fns';
@@ -13,10 +13,12 @@ import { getTierDisplayName } from '@shared/utils/skillUtils';
 import {
   MKT, FF_DISPLAY, FF_BODY, FF_MONO,
   MarketingStyles, Reveal, useCountUp, Eyebrow, MIcon, MarkWord,
-  StepIllustration, accentForCategory,
+  StepIllustration, accentForCategory, ghostBtn, withStyle,
 } from './LandingComponents';
 
-const WHATSAPP_URL = 'https://chat.whatsapp.com/EPeC5K3IaM2Fa4910p8XpE';
+// Two location-based groups — the banner lets a player pick their area.
+// Shared with the footer via the constants module (single source).
+import { WHATSAPP_DUBAILAND_URL, WHATSAPP_DIP_URL, WHATSAPP_GROUPS_ANCHOR_ID } from '@/lib/whatsappGroups';
 
 // ── Marketing copy / data ──────────────────────────────────────────────────
 const STATS = [
@@ -74,6 +76,23 @@ export default function MarketplaceHome() {
   usePageTitle('ShuttleIQ — Book Badminton Sessions in UAE', true);
   const { isAuthenticated } = useMarketplaceAuth();
   const reduce = useReducedMotion();
+
+  // The footer's community icon deep-links to the WhatsApp groups block from
+  // any marketplace page (#whatsapp-groups). Handled here because the SPA
+  // renders async (native anchor scroll misses) and the router's ScrollReset
+  // pins new pages to the top pre-paint — this effect runs after it.
+  useEffect(() => {
+    const scrollToGroups = () => {
+      if (window.location.hash === `#${WHATSAPP_GROUPS_ANCHOR_ID}`) {
+        requestAnimationFrame(() =>
+          document.getElementById(WHATSAPP_GROUPS_ANCHOR_ID)?.scrollIntoView({ block: 'center' }),
+        );
+      }
+    };
+    scrollToGroups();
+    window.addEventListener('hashchange', scrollToGroups);
+    return () => window.removeEventListener('hashchange', scrollToGroups);
+  }, []);
 
   const { data: spotlight = [], isLoading: spotlightLoading, isError: spotlightError, refetch: refetchSpotlight } = useQuery<CommunitySpotlightEntry[]>({
     queryKey: ['/api/tags/community-spotlight'],
@@ -343,6 +362,7 @@ export default function MarketplaceHome() {
       <section style={{ padding: 'clamp(20px, 3vw, 24px) clamp(20px, 5vw, 64px)' }}>
         <Reveal>
           <div
+            id={WHATSAPP_GROUPS_ANCHOR_ID}
             style={{
               borderRadius: 22, overflow: 'hidden', background: MKT.tealMist, color: MKT.tealD,
               padding: 'clamp(20px, 3vw, 28px) clamp(20px, 3vw, 32px)',
@@ -354,22 +374,35 @@ export default function MarketplaceHome() {
             </span>
             <div style={{ flex: 1, minWidth: 220 }}>
               <div data-testid="text-whatsapp-banner-title" style={{ fontFamily: FF_DISPLAY, fontSize: 'clamp(19px, 2vw, 24px)', fontWeight: 600, color: MKT.tealD, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-                ShuttleIQ Dubai · WhatsApp group
+                ShuttleIQ Dubai · WhatsApp groups
               </div>
               <div style={{ marginTop: 4, fontSize: 14, color: MKT.tealD, opacity: 0.75 }}>
-                Last-minute games, partner hunts, and courtside banter.
+                Last-minute games, partner hunts, and courtside banter — pick the group for your area.
               </div>
             </div>
-            <a
-              href={WHATSAPP_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="button-join-whatsapp"
-              className="siq-link"
-              style={{ fontSize: 14, fontWeight: 600, color: MKT.tealD, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', textDecoration: 'none' }}
-            >
-              Join the group <MIcon name="arrowSm" size={14} color={MKT.tealD} sw={2.2} />
-            </a>
+            {/* Two location-based groups; each option is a factory pill
+                (Montserrat, 44px, .siq-press), teal-toned to sit on the
+                banner. Compact — this stays a secondary CTA. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 'none' }} data-testid="whatsapp-group-options">
+              <a
+                href={WHATSAPP_DUBAILAND_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="button-join-whatsapp-dubailand"
+                {...withStyle(ghostBtn('sm'), { border: `1.5px solid ${MKT.teal}55`, color: MKT.tealD, justifyContent: 'space-between' })}
+              >
+                Dubailand / DSO <MIcon name="arrowSm" size={14} color={MKT.tealD} sw={2.2} />
+              </a>
+              <a
+                href={WHATSAPP_DIP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="button-join-whatsapp-dip"
+                {...withStyle(ghostBtn('sm'), { border: `1.5px solid ${MKT.teal}55`, color: MKT.tealD, justifyContent: 'space-between' })}
+              >
+                <span>DIP</span> <MIcon name="arrowSm" size={14} color={MKT.tealD} sw={2.2} />
+              </a>
+            </div>
           </div>
         </Reveal>
       </section>
