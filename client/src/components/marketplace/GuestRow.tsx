@@ -125,7 +125,7 @@ export function GuestRow({
             <button
               type="button"
               onClick={clearSelection}
-              className="shrink-0 text-muted-foreground hover:text-foreground"
+              className="siq-press shrink-0 p-3 -m-3 text-muted-foreground hover:text-foreground"
               data-testid={`button-clear-guest-${idx}`}
             >
               <X className="h-3.5 w-3.5" />
@@ -162,7 +162,7 @@ export function GuestRow({
                     <p className="text-xs text-muted-foreground text-center py-1">No matches found.</p>
                     <button
                       type="button"
-                      className="w-full text-left text-xs text-primary hover:underline py-1 px-1"
+                      className="siq-press w-full text-left text-xs text-primary hover:underline active:underline min-h-11 px-1"
                       onClick={() => { setForceManual(true); onChange({ ...guest, name: searchInput }); setDropdownOpen(false); }}
                       data-testid={`button-add-manually-${idx}`}
                     >
@@ -178,7 +178,7 @@ export function GuestRow({
                         <button
                           key={ri}
                           type="button"
-                          className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent text-left transition-colors"
+                          className="siq-press w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent active:bg-accent text-left transition-colors"
                           onClick={() => selectResult(r)}
                           data-testid={`option-guest-${idx}-${ri}`}
                         >

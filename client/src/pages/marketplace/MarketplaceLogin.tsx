@@ -99,6 +99,7 @@ export default function MarketplaceLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState<boolean>(() => {
     try {
@@ -120,6 +121,7 @@ export default function MarketplaceLogin() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setLoginError(null);
     try {
       await login(email, password, remember);
       try {
@@ -132,11 +134,19 @@ export default function MarketplaceLogin() {
         // ignore
       }
       toast({ title: 'Welcome back!' });
-      setLocation('/marketplace');
+      // Honour the ?from= the auth gate wrote (Google login already does) —
+      // otherwise a "My Bookings" tap that bounced through login used to land
+      // on the marketing page. Only same-app paths; dashboard as the fallback.
+      const from = new URLSearchParams(window.location.search).get('from');
+      setLocation(from && from.startsWith('/marketplace/') ? from : '/marketplace/dashboard');
     } catch (err: unknown) {
-      // apiRequest throws a plain { error, status } object — err.message was
-      // undefined and the toast rendered with NO description.
-      toast({ title: 'Login failed', description: serverErrorMessage(err), variant: 'destructive' });
+      // Inline with the form, not a corner toast that auto-dismisses (§16:
+      // validate inline). Password cleared + refocused for the retry.
+      // (apiRequest throws a plain { error, status } object — err.message was
+      // undefined and the old toast rendered with NO description.)
+      setLoginError(serverErrorMessage(err));
+      setPassword('');
+      document.getElementById('password')?.focus();
     } finally {
       setLoading(false);
     }
@@ -215,6 +225,9 @@ export default function MarketplaceLogin() {
                     Keep me signed in on this device
                   </Label>
                 </div>
+                {loginError && (
+                  <p className="text-sm text-destructive" role="alert" data-testid="error-login">{loginError}</p>
+                )}
                 <Button type="submit" className="w-full min-h-11" disabled={loading} data-testid="button-submit-login">
                   {loading ? 'Logging in...' : 'Log In'}
                 </Button>

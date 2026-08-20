@@ -62,7 +62,10 @@ function btnStyle(kind: BtnKind, size: 'md' | 'lg' | 'xl' = 'lg'): CSSProperties
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
     whiteSpace: 'nowrap', userSelect: 'none', lineHeight: 1, cursor: 'pointer',
     border: '1.5px solid transparent', borderRadius: 999, textDecoration: 'none',
-    transition: 'transform .2s ease, box-shadow .25s ease, background .2s ease',
+    // M1 #1: this inline shorthand used to own `transform` too — beating
+    // .siq-hover-lift's 90ms press AND its reduced-motion override, so every
+    // hero CTA pressed over 200ms slow-in `ease`. The class owns transform now.
+    transition: 'background-color 150ms ease-out',
     ...sizes[size], ...kinds[kind],
   };
 }
@@ -612,8 +615,10 @@ function StatCell({ stat, idx }: { stat: (typeof STATS)[number]; idx: number }) 
 // ── Step card ────────────────────────────────────────────────────────────────
 function StepCard({ step, idx }: { step: (typeof STEPS)[number]; idx: number }) {
   const circleBg = idx === 1 ? MKT.tealMist : idx === 2 ? MKT.amberL : MKT.cream;
+  // M1 #13: no hover-lift here — StepCard is not a link or a button, and a
+  // press affordance on a dead surface promises a tap that does nothing.
   return (
-    <div className="siq-hover-lift" style={{ padding: '32px 32px 36px', borderRadius: 24, background: MKT.paper, border: `1.5px solid ${MKT.navy}10`, display: 'flex', flexDirection: 'column', gap: 18, position: 'relative', height: '100%' }}>
+    <div style={{ padding: '32px 32px 36px', borderRadius: 24, background: MKT.paper, border: `1.5px solid ${MKT.navy}10`, display: 'flex', flexDirection: 'column', gap: 18, position: 'relative', height: '100%' }}>
       <div style={{ width: 56, height: 56, borderRadius: '50%', background: circleBg, border: `2px solid ${MKT.navy}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 22, color: MKT.navy, letterSpacing: '-0.02em', flex: 'none' }}>
         0{step.n}
       </div>

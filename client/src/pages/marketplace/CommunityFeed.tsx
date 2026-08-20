@@ -9,6 +9,7 @@ import { Link } from 'wouter';
 import { Users, Heart, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { MKT, FF_BODY } from './LandingComponents';
+import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 
 // Spec: brightened teal is approved ONLY as accent on navy fills; brand teal
 // MKT.tealText everywhere on white/cream.
@@ -179,7 +180,7 @@ function LikeBar({ ev, onNavy = false }: { ev: Likeable; onNavy?: boolean }) {
           aria-label={ev.likedByMe ? 'Unlike' : 'Like'}
           aria-pressed={ev.likedByMe}
           data-testid="feed-like-button"
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 4, margin: -4, display: 'inline-flex', color: heartColor }}
+          className="siq-press" style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 13, margin: -13, display: 'inline-flex', color: heartColor }}
         >
           <Heart className="h-[18px] w-[18px]" fill={ev.likedByMe ? 'currentColor' : 'none'} strokeWidth={2} />
         </button>
@@ -206,6 +207,7 @@ function LikeBar({ ev, onNavy = false }: { ev: Likeable; onNavy?: boolean }) {
           <button
             onClick={() => setExpanded(x => !x)}
             data-testid="feed-likers-expand"
+            className="siq-press"
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: FF_BODY, fontSize: 12, color: textColor, textAlign: 'left' }}
           >
             {preview}
@@ -331,6 +333,7 @@ function OverflowCard({ o }: { o: TagOverflowDto }) {
       <button
         onClick={() => setExpanded(x => !x)}
         data-testid="feed-overflow-expand"
+        className="siq-press"
         aria-expanded={expanded}
         style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, width: '100%', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left' }}
       >
@@ -438,7 +441,7 @@ const DASHBOARD_FEED_CAP = 6;
 export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: ReactNode; variant?: 'dashboard' | 'full' }) {
   const [filter, setFilter] = useState<FeedFilterValue>('all');
 
-  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<FeedPage>({
+  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<FeedPage>({
     queryKey: ['/api/marketplace/feed', filter],
     queryFn: ({ pageParam }) => apiRequest<FeedPage>(
       'GET',
@@ -466,8 +469,9 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
                 aria-selected={active}
                 onClick={() => setFilter(f.value)}
                 data-testid={`feed-filter-${f.value}`}
+                className="siq-press"
                 style={{
-                  fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, padding: '6px 14px', borderRadius: 999,
+                  fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, padding: '11px 16px', borderRadius: 999,
                   border: `1px solid ${active ? MKT.navy : CARD_BORDER}`, cursor: 'pointer',
                   background: active ? MKT.navy : '#fff', color: active ? '#fff' : MKT.navy,
                 }}
@@ -487,9 +491,9 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
         ))}
 
         {isError && !isLoading && (
-          <div style={{ ...whiteCard, textAlign: 'center', padding: '18px 16px' }}>
-            <p style={{ margin: 0, fontFamily: FF_BODY, fontSize: 14, color: MKT.inkSub }}>Couldn't load the community feed — pull to refresh or try again shortly.</p>
-          </div>
+          /* The old copy instructed a pull-gesture this app does not
+             implement. A real retry instead (§16: never trap). */
+          <QueryErrorCard message="Couldn't load the community feed." onRetry={() => { void refetch(); }} testId="error-feed" compact />
         )}
 
         {!isLoading && !isError && events.length === 0 && (
@@ -507,7 +511,7 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
                 <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink }}>No community activity yet</p>
                 <p style={{ margin: 0, marginTop: 4, fontFamily: FF_BODY, fontSize: 13, color: MKT.inkSub }}>
                   Play your first session and the feed comes alive.{' '}
-                  <Link href="/marketplace/sessions" style={{ color: MKT.tealD, fontWeight: 600, textDecoration: 'none' }} data-testid="feed-empty-book-link">Book a session</Link>
+                  <Link href="/marketplace/book" style={{ color: MKT.tealD, fontWeight: 600, textDecoration: 'none' }} data-testid="feed-empty-book-link">Book a session</Link>
                 </p>
               </>
             )}
@@ -521,6 +525,7 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
             data-testid="feed-show-more"
+            className="siq-press"
             style={{
               fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, padding: '11px 18px', borderRadius: 10,
               border: `1.5px solid ${MKT.navy}55`, background: '#fff', color: MKT.navy, cursor: 'pointer',
@@ -535,6 +540,7 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
           <Link
             href="/marketplace/feed"
             data-testid="feed-view-all"
+            className="siq-press"
             style={{
               fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, padding: '11px 18px', borderRadius: 10,
               border: `1.5px solid ${MKT.navy}55`, background: '#fff', color: MKT.navy, cursor: 'pointer',

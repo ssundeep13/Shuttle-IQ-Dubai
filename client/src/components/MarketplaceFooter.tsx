@@ -18,7 +18,7 @@ function ColHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-const footerLinkClass = 'text-[#F2ECE1]/75 hover:text-[#F2ECE1] transition-colors';
+const footerLinkClass = 'siq-press text-[#F2ECE1]/75 hover:text-[#F2ECE1] transition-colors';
 
 export function MarketplaceFooter() {
   return (
@@ -41,7 +41,7 @@ export function MarketplaceFooter() {
                 rel="noopener noreferrer"
                 aria-label="Join our WhatsApp community"
                 data-testid="link-footer-social-whatsapp"
-                className="inline-flex items-center justify-center rounded-full transition-colors"
+                className="siq-press inline-flex items-center justify-center rounded-full transition-colors"
                 style={{ width: 34, height: 34, background: 'rgba(245,239,224,0.08)', color: CREAM }}
               >
                 <SiWhatsapp className="h-4 w-4" />

@@ -62,7 +62,12 @@ describe('dashboard restructure (tripwires)', () => {
 
   it('the five target sections survive: getting started (conditional), session card, feed (dashboard variant), stat row, referral teaser', () => {
     expect(dash.includes('card-getting-started')).toBe(true);
-    expect(dash.includes('if (bookingsLoading || allDone || dismissed) return null;')).toBe(true); // gone once complete/dismissed
+    // Gate M2 #38: the loading case now reserves the card's space with a
+    // skeleton instead of returning null (it used to insert ~250px above
+    // everything a beat after first paint); done/dismissed still render nothing,
+    // with a localStorage done-stamp so settled users skip the skeleton too.
+    expect(dash.includes('if (dismissed || doneStamped || allDone) return null;')).toBe(true);
+    expect(dash.includes('skeleton-onboarding')).toBe(true);
     expect(dash.includes('card-next-session')).toBe(true);
     expect(dash.includes('<CommunityFeed variant="dashboard" pinned={communityPinned} />')).toBe(true);
     expect(dash.includes('card-stats')).toBe(true);

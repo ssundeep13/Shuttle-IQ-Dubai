@@ -23,6 +23,7 @@ export default function CompleteProfile() {
   // users whose account name already has first + last.
   const needsFullName = !isFullName(user?.name ?? '');
   const [fullName, setFullName] = useState(user?.name ?? '');
+  const [nameError, setNameError] = useState<string | null>(null);
 
   const handleSubmit = async ({
     gender,
@@ -32,10 +33,13 @@ export default function CompleteProfile() {
     assessmentAnswers: AssessmentAnswers;
   }) => {
     if (needsFullName && !isFullName(fullName)) {
-      toast({
-        title: 'Please enter your full name (first and last)',
-        variant: 'destructive',
-      });
+      // Inline at the field, not a toast fired four assessment steps after the
+      // name was typed (§16: validate inline). Scroll back up to it — the
+      // stepper has moved the page well past the input by submit time.
+      setNameError('Please enter your full name (first and last)');
+      const el = document.getElementById('complete-profile-full-name');
+      el?.scrollIntoView({ block: 'center' });
+      el?.focus();
       return;
     }
     setSubmitting(true);
@@ -75,11 +79,17 @@ export default function CompleteProfile() {
             <Input
               id="complete-profile-full-name"
               value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
+              onChange={(e) => { setFullName(e.target.value); if (nameError) setNameError(null); }}
+              onBlur={() => { if (fullName.trim() && !isFullName(fullName)) setNameError('Please enter your full name (first and last)'); }}
               placeholder="First and last name"
               autoComplete="name"
+              aria-invalid={!!nameError}
+              aria-describedby={nameError ? 'complete-profile-name-error' : undefined}
               data-testid="input-complete-profile-full-name"
             />
+            {nameError && (
+              <p id="complete-profile-name-error" className="text-xs text-destructive" role="alert" data-testid="error-name">{nameError}</p>
+            )}
           </div>
         )}
         <SkillAssessmentStepper

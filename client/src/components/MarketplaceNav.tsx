@@ -61,7 +61,7 @@ function NotificationBell() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
 
-  const { data } = useQuery<NotificationsResponse>({
+  const { data, isError, refetch } = useQuery<NotificationsResponse>({
     queryKey: ['/api/marketplace/notifications'],
     refetchInterval: 30000,
   });
@@ -89,7 +89,7 @@ function NotificationBell() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative text-white/80 hover:text-white hover:bg-white/10"
+          className="relative h-11 w-11 text-white/80 hover:text-white hover:bg-white/10"
           data-testid="button-notifications"
           aria-label="Notifications"
         >
@@ -120,7 +120,17 @@ function NotificationBell() {
           )}
         </div>
         <div className="max-h-80 overflow-y-auto">
-          {notifications.length === 0 ? (
+          {/* #65: a failed fetch used to render the confident "No notifications
+              yet" — and silently zero the badge. Honest error + retry instead. */}
+          {isError ? (
+            <div className="flex flex-col items-center gap-2 py-8 text-center px-4" role="alert" data-testid="error-notifications">
+              <Bell className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-sm font-medium text-muted-foreground">Couldn't load notifications.</p>
+              <Button variant="outline" size="sm" className="min-h-9" onClick={() => { void refetch(); }} data-testid="button-notifications-retry">
+                Try again
+              </Button>
+            </div>
+          ) : notifications.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-8 text-center px-4">
               <Bell className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-sm font-medium text-muted-foreground">No notifications yet</p>
@@ -175,7 +185,7 @@ export function MarketplaceNav() {
       data-testid="marketplace-nav"
     >
       <div className="max-w-6xl mx-auto flex h-14 items-center gap-2 px-4 md:px-6">
-        <Link href="/" className="flex items-center gap-2 mr-8 shrink-0" data-testid="link-marketplace-home">
+        <Link href="/" className="siq-press flex items-center gap-2 mr-8 shrink-0" data-testid="link-marketplace-home">
           <Wordmark size={20} onDark />
         </Link>
 
@@ -186,7 +196,7 @@ export function MarketplaceNav() {
               <Link
                 key={link.href}
                 href={link.href}
-                className={`inline-flex items-center px-3 transition-colors ${active ? 'text-white' : 'text-white/55 hover:text-white'}`}
+                className={`siq-press inline-flex items-center px-3 transition-colors ${active ? 'text-white' : 'text-white/55 hover:text-white'}`}
                 style={{
                   height: '56px',
                   fontSize: '14px',

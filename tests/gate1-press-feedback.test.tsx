@@ -32,8 +32,12 @@ describe('.siq-press — the opt-in press class', () => {
   });
   it('the press is transitioned (fast ease-out in) — not an instant snap', () => {
     const base = block.match(/\.siq-press\s*\{([^}]*)\}/)?.[1] ?? '';
-    expect(base).toMatch(/transition:[^;]*transform[^;]*\d+ms/);
-    expect(base).toMatch(/ease-out/);
+    // Gate M1 #4: the shorthand became longhands — it was resetting
+    // transition-property and killing sibling colour utilities (proven dead in
+    // the built stylesheet). Same 90ms transform press, now additive.
+    expect(base).toMatch(/transition-property:[^;]*transform/);
+    expect(base).toMatch(/transition-duration:\s*90ms/);
+    expect(base).toMatch(/cubic-bezier\(0, 0, 0\.2, 1\)/); // = ease-out
   });
   it('respects prefers-reduced-motion', () => {
     expect(block).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.siq-press/);

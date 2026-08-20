@@ -1,4 +1,4 @@
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { apiUrl } from '@/lib/queryClient';
 import { MotionConfig } from "framer-motion";
 import { queryClient } from "./lib/queryClient";
@@ -12,7 +12,7 @@ import { MarketplaceProtectedRoute } from "@/components/MarketplaceProtectedRout
 import { NativeBridge } from "@/components/NativeBridge";
 import { RootRedirect } from "@/components/RootRedirect";
 import { MarketplaceLayout } from "@/pages/marketplace/MarketplaceLayout";
-import { Component, useEffect, useState } from "react";
+import { Component, useEffect, useLayoutEffect, useState } from "react";
 import type { ReactNode, ErrorInfo } from "react";
 import { WifiOff, RefreshCw } from "lucide-react";
 
@@ -163,9 +163,20 @@ function MarketplaceAuthRoute({ component: Component }: { component: React.Compo
   );
 }
 
+// Wouter doesn't reset scroll on navigation: tapping a player at the bottom of
+// Rankings used to open their profile mid-page. Layout effect = before paint.
+function ScrollReset() {
+  const [location] = useLocation();
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location]);
+  return null;
+}
+
 function Router() {
   return (
     <RouteErrorBoundary>
+      <ScrollReset />
       <Switch>
         <Route path="/" component={RootRedirect}/>
         <Route path="/admin/login" component={Login} />

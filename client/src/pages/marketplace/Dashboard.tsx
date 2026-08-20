@@ -40,7 +40,9 @@ function DashHeader({ icon, title, action }: { icon: ReactNode; title: string; a
   );
 }
 
-const seeAllLink: CSSProperties = { fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, color: MKT.tealD, display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none', cursor: 'pointer' };
+// M1 #8: hit area grown to 44px without moving the layout (padding absorbed by
+// negative margins, Gate-1 style); press feedback via .siq-link at the sites.
+const seeAllLink: CSSProperties = { fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, color: MKT.tealD, display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none', cursor: 'pointer', padding: '12px 4px', margin: '-12px -4px' };
 
 type Tone = { band: string; soft: string; fg: string; label: string; hasLevel: boolean };
 function levelTone(title: string): Tone {
@@ -76,6 +78,10 @@ function GettingStartedCard({
   const [dismissed, setDismissed] = useState(() =>
     localStorage.getItem(dismissedKey) === 'true'
   );
+  // Once all steps are done we stamp it, so later loads know SYNCHRONOUSLY the
+  // card will not render — no reserved skeleton, no ~250px insert/collapse.
+  const doneKey = `siq_onboarding_done_${userId}`;
+  const [doneStamped] = useState(() => localStorage.getItem(doneKey) === 'true');
 
   const step1Done = browsed;
   const step2Done = (bookings || []).some(b => b.status === 'confirmed');
@@ -83,7 +89,16 @@ function GettingStartedCard({
   const completedCount = [step1Done, step2Done, step3Done].filter(Boolean).length;
   const allDone = completedCount === 3;
 
-  if (bookingsLoading || allDone || dismissed) return null;
+  if (allDone && !doneStamped) {
+    try { localStorage.setItem(doneKey, 'true'); } catch { /* ignore */ }
+  }
+  if (dismissed || doneStamped || allDone) return null;
+  // #38: while bookings load for a user who WILL likely see this card, hold
+  // its space — the card used to mount ~250px above everything a beat after
+  // first paint (measured 0.57 CLS on prod cold loads).
+  if (bookingsLoading) {
+    return <Skeleton className="h-[248px] w-full rounded-[14px]" data-testid="skeleton-onboarding" />;
+  }
 
   const handleBrowseClick = () => {
     localStorage.setItem(browsedKey, 'true');
@@ -386,7 +401,9 @@ export default function Dashboard() {
 
   // isError matters here: an errored stats fetch used to fall through to the
   // "Link your player profile" card — telling an already-linked player to link.
-  const { data: stats, isError: statsError, refetch: refetchStats } = useQuery<PlayerStats>({
+  // isLoading is the other half of the same bug (v5: false while disabled, so
+  // genuinely-unlinked users still get the link-profile card, not a skeleton).
+  const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useQuery<PlayerStats>({
     queryKey: ['/api/players', linkedPlayerId, 'stats'],
     enabled: !!linkedPlayerId,
   });
@@ -590,7 +607,8 @@ export default function Dashboard() {
             <div className="flex items-center gap-3 flex-wrap" style={{ marginTop: 10 }}>
               <Link
                 to="/marketplace/rankings"
-                style={{ fontSize: 13, color: MKT.tealD, fontWeight: 600, textDecoration: 'none' }}
+                className="siq-link"
+                style={{ fontSize: 13, color: MKT.tealD, fontWeight: 600, textDecoration: 'none', padding: '12px 4px', margin: '-12px -4px' }}
                 data-testid="link-view-active-tag"
                 onClick={() => {
                   localStorage.setItem(approvedSuggestionBanner.lastCheckKey, String(Date.now()));
@@ -671,7 +689,8 @@ export default function Dashboard() {
 
       {linkedPlayerId && untaggedCount > 0 && (
         <Link href="/marketplace/my-scores">
-          <div style={{ ...feedCardChrome, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} data-testid="card-tag-nudge">
+          {/* M1 #5: whole-card nav target — press like every other control */}
+          <div className="siq-press" style={{ ...feedCardChrome, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} data-testid="card-tag-nudge">
             {feedAvatar(<TagIcon className="h-5 w-5" style={{ color: MKT.tealD }} />)}
             <div className="flex-1 min-w-0">
               <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>
@@ -693,7 +712,7 @@ export default function Dashboard() {
         {/* Greeting hero */}
         <Reveal>
           <div className="flex items-center gap-4 sm:gap-5" style={{ marginBottom: 28 }}>
-            <Link href="/marketplace/profile" data-testid="link-profile-avatar" className="shrink-0 cursor-pointer md:pointer-events-none md:cursor-default">
+            <Link href="/marketplace/profile" data-testid="link-profile-avatar" className="siq-press shrink-0 cursor-pointer md:pointer-events-none md:cursor-default">
               <Avatar className="h-14 w-14 sm:h-16 sm:w-16">
                 {user?.photoUrl ? (
                   <AvatarImage src={user.photoUrl} alt={user.name} data-testid="img-dashboard-avatar" />
@@ -751,7 +770,7 @@ export default function Dashboard() {
                   <DashHeader
                     icon={<BarChart3 className="h-4 w-4" />}
                     title="Your Stats"
-                    action={<Link href="/marketplace/my-scores" style={seeAllLink} data-testid="link-view-all-stats">View All <ChevronRight className="h-3 w-3" /></Link>}
+                    action={<Link href="/marketplace/my-scores" className="siq-link" style={seeAllLink} data-testid="link-view-all-stats">View All <ChevronRight className="h-3 w-3" /></Link>}
                   />
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     {/* Skill score + tier chip + last-10 delta */}
@@ -788,17 +807,28 @@ export default function Dashboard() {
                       <div style={{ fontFamily: FF_MONO, fontSize: 10, fontWeight: 700, color: MKT.inkSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Skill rank</div>
                       <div style={{ marginTop: 8, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 3vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', lineHeight: 1 }}>#{stats.rankBySkillScore}</div>
                       <div style={{ marginTop: 6, fontSize: 11, color: MKT.inkSub }}>of {stats.totalPlayersRanked} players</div>
-                      <Link href="/marketplace/rankings" style={{ marginTop: 10, fontFamily: FF_BODY, fontWeight: 600, fontSize: 12, color: MKT.tealD, display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' }} data-testid="link-stats-leaderboard">
+                      <Link href="/marketplace/rankings" className="siq-link" style={{ ...seeAllLink, marginTop: 10, fontSize: 12 }} data-testid="link-stats-leaderboard">
                         View Leaderboard <ChevronRight className="h-3 w-3" />
                       </Link>
                     </div>
                   </div>
                 </DashCard>
               </Reveal>
+            ) : statsLoading ? (
+              /* Loading is its own state: this used to fall through to the
+                 "Link your player profile" card for already-linked players.
+                 Same tile geometry as the loaded grid, so the swap doesn't shift. */
+              <Reveal className="lg:col-span-2">
+                <DashCard testid="skeleton-stats">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}
+                  </div>
+                </DashCard>
+              </Reveal>
             ) : statsError ? (
               <Reveal className="lg:col-span-2">
                 <DashCard>
-                  <QueryErrorCard message="Couldn't load your stats right now." onRetry={() => { void refetchStats(); }} testId="error-stats" compact />
+                  <QueryErrorCard message="Couldn't load your stats right now." onRetry={() => { void refetchStats(); }} testId="error-stats" compact/>
                 </DashCard>
               </Reveal>
             ) : (
@@ -816,7 +846,7 @@ export default function Dashboard() {
 
             {referralData && linkedPlayerId && (
               <Reveal className="lg:col-span-2">
-                <Link href="/marketplace/referrals" data-testid="card-referral-teaser" style={{ textDecoration: 'none' }}>
+                <Link href="/marketplace/referrals" data-testid="card-referral-teaser" className="siq-press block" style={{ textDecoration: 'none' }}>
                   <DashCard style={{ cursor: 'pointer' }}>
                     <div className="flex items-center gap-3">
                       <div style={{ flex: 'none', width: 44, height: 44, borderRadius: '50%', background: MKT.tealMist, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -2,10 +2,14 @@ import { Link, useLocation } from 'wouter';
 import { Home, Calendar, Bookmark, LayoutDashboard, Trophy, LogIn, BarChart2, FileText } from 'lucide-react';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 
+// #68: Rankings was reachable from three Dashboard links but lived on no auth
+// tab — landing there lit nothing and offered no way back ("never trap").
+// Five tabs still clear 44px each down to a 320px viewport (64px per tab).
 const authTabs = [
   { href: '/marketplace/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/marketplace/book', label: 'Sessions', icon: Calendar },
   { href: '/marketplace/my-bookings', label: 'My Bookings', icon: Bookmark },
+  { href: '/marketplace/rankings', label: 'Rankings', icon: Trophy },
   { href: '/marketplace/my-scores', label: 'Stats', icon: BarChart2 },
 ];
 
@@ -25,7 +29,11 @@ export function MobileBottomNav() {
 
   const isActive = (href: string) => {
     if (href === '/') return location === '/' || location === '/marketplace';
-    if (href === '/marketplace/dashboard') return location === '/marketplace/dashboard';
+    if (href === '/marketplace/dashboard') {
+      // Profile has no tab of its own; the Dashboard tab carries it so the
+      // "where am I" question always has an answer (#68).
+      return location === '/marketplace/dashboard' || location.startsWith('/marketplace/profile');
+    }
     if (href === '/marketplace/book') {
       return location === '/marketplace/book' || location.startsWith('/marketplace/sessions/') || location.startsWith('/marketplace/checkout/');
     }

@@ -92,6 +92,17 @@ export default function Profile() {
   usePageTitle('Profile');
   const [, navigate] = useLocation();
   const { user, logout } = useMarketplaceAuth();
+  // logout awaits a POST + cache clear — without a pending state the screen
+  // sits identical for the whole round trip after the tap (#43).
+  const [signingOut, setSigningOut] = useState(false);
+  const handleLogout = async () => {
+    setSigningOut(true);
+    try {
+      await logout();
+    } finally {
+      setSigningOut(false);
+    }
+  };
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
@@ -132,7 +143,7 @@ export default function Profile() {
     queryKey: ['/api/marketplace/me/referral-status'],
     staleTime: 60_000,
   });
-  const { data: walletData } = useQuery<{ walletBalance: number }>({
+  const { data: walletData, isError: walletError, refetch: refetchWallet } = useQuery<{ walletBalance: number }>({
     queryKey: ['/api/marketplace/me/wallet'],
     staleTime: 30_000,
     enabled: !!user?.linkedPlayerId,
@@ -629,7 +640,31 @@ export default function Profile() {
               </Card>
             </motion.div>
           )}
-          {walletData !== undefined && (
+          {/* #65: a failed /me/wallet used to unmount this card entirely —
+              the user's money silently vanished from their own profile. */}
+          {walletError && (
+            <motion.div variants={fadeInUp}>
+              <Card style={cardChrome} data-testid="card-wallet-balance-error">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-md flex items-center justify-center shrink-0 bg-muted">
+                    <Wallet className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Wallet credit</p>
+                    <button
+                      type="button"
+                      className="siq-press text-sm font-semibold underline text-muted-foreground"
+                      onClick={() => { void refetchWallet(); }}
+                      data-testid="button-wallet-retry"
+                    >
+                      Couldn't load — retry
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+          {!walletError && walletData !== undefined && (
             <motion.div variants={fadeInUp}>
               {/* Whole card navigates to the wallet history view. Same press
                   affordance as the app's other tap targets (active scale). */}
@@ -1341,11 +1376,12 @@ export default function Profile() {
                 <Button
                   variant="outline"
                   className="gap-2"
-                  onClick={logout}
+                  onClick={handleLogout}
+                  disabled={signingOut}
                   data-testid="button-logout"
                 >
                   <LogOut className="h-4 w-4" />
-                  Log Out
+                  {signingOut ? 'Signing out…' : 'Log Out'}
                 </Button>
               </CardContent>
             </Card>

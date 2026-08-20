@@ -135,7 +135,7 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
   const [accessToken, setAccessToken] = useState<string | null>(() => readToken(ACCESS_KEY));
   const [refreshToken, setRefreshToken] = useState<string | null>(() => readToken(REFRESH_KEY));
   const [error, setError] = useState<string | null>(null);
-  const isRefreshing = useRef(false);
+  const refreshInFlight = useRef<Promise<boolean> | null>(null);
   const lastRefreshAttempt = useRef(0);
 
   const { data: user, isLoading } = useQuery<MarketplaceUser>({
@@ -143,15 +143,23 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
     enabled: !!accessToken,
     retry: false,
     queryFn: async () => {
-      const response = await fetch(apiUrl('/api/marketplace/auth/me'), {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-      });
-      if (!response.ok) {
-        if (response.status === 401 && refreshToken) {
-          await refreshAccessToken();
-        }
-        throw new Error('Failed to fetch user');
+      const fetchMe = (token: string | null) =>
+        fetch(apiUrl('/api/marketplace/auth/me'), {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+      let response = await fetchMe(accessToken);
+      if (response.status === 401 && refreshToken) {
+        // Retry with the refreshed token INSIDE this queryFn. The old code
+        // threw unconditionally after `await refreshAccessToken()` — a
+        // SUCCESSFUL refresh still settled the query as an error with
+        // isLoading false, which is the exact condition the protected route
+        // redirects on, and the invalidate it relied on was swallowed by
+        // react-query's in-flight dedupe: the user stayed bounced to login
+        // with a valid session. Read the token fresh — the closure's is stale.
+        const refreshed = await refreshAccessToken();
+        if (refreshed) response = await fetchMe(readToken(ACCESS_KEY));
       }
+      if (!response.ok) throw new Error('Failed to fetch user');
       return response.json();
     },
   });
@@ -164,29 +172,36 @@ export function MarketplaceAuthProvider({ children }: { children: React.ReactNod
   }, [queryClient]);
 
   const refreshAccessToken = useCallback(async () => {
-    if (!refreshToken || isRefreshing.current) return false;
+    if (!refreshToken) return false;
+    // Single-flight: a concurrent caller (the queryFn retry and the 3.5h
+    // interval can race) awaits the SAME refresh and gets its real outcome.
+    // The old boolean ref made the second caller return false — "failed" —
+    // while the refresh was actually succeeding.
+    if (refreshInFlight.current) return refreshInFlight.current;
     const now = Date.now();
     if (now - lastRefreshAttempt.current < 30000) return false;
-    isRefreshing.current = true;
     lastRefreshAttempt.current = now;
-    try {
-      const response = await fetch(apiUrl('/api/marketplace/auth/refresh'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (!response.ok) throw new Error('Refresh failed');
-      const data = await response.json();
-      setAccessToken(data.accessToken);
-      writeAccessToken(data.accessToken);
-      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
-      isRefreshing.current = false;
-      return true;
-    } catch {
-      isRefreshing.current = false;
-      clearTokens();
-      return false;
-    }
+    refreshInFlight.current = (async () => {
+      try {
+        const response = await fetch(apiUrl('/api/marketplace/auth/refresh'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (!response.ok) throw new Error('Refresh failed');
+        const data = await response.json();
+        setAccessToken(data.accessToken);
+        writeAccessToken(data.accessToken);
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
+        return true;
+      } catch {
+        clearTokens();
+        return false;
+      } finally {
+        refreshInFlight.current = null;
+      }
+    })();
+    return refreshInFlight.current;
   }, [refreshToken, queryClient, clearTokens]);
 
   useEffect(() => {

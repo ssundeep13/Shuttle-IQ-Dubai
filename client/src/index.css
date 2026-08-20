@@ -439,15 +439,44 @@
    * release rides the same transition. */
   .siq-press {
     -webkit-tap-highlight-color: transparent;
-    transition: transform 90ms ease-out, opacity 90ms ease-out;
+    /* Longhands, not the shorthand: the shorthand reset transition-property
+       and killed sibling utilities — the bottom nav's transition-colors was
+       proven dead in the built stylesheet (M1 #4). Colours ride at 150ms. */
+    transition-property: transform, opacity, color, background-color, border-color;
+    transition-duration: 90ms, 90ms, 150ms, 150ms, 150ms;
+    transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
   }
   .siq-press:active {
     transform: scale(0.97);
     opacity: 0.85;
   }
+
+  /* M1 #3: the shadcn press language (hover/active-elevate) had NO transition
+     and no scale — an instant overlay with a hard-cut release, while every
+     .siq-press control pressed at 90ms scale(.97). One language now: the
+     overlay still appears instantly on :active (§1), the element scales, and
+     hover/release fade over a mirrored curve (§7). */
+  .hover-elevate, .active-elevate, .hover-elevate-2, .active-elevate-2 {
+    transition-property: transform, color, background-color, border-color;
+    transition-duration: 90ms, 150ms, 150ms, 150ms;
+    transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+  .hover-elevate::after, .active-elevate::after,
+  .hover-elevate-2::after, .active-elevate-2::after {
+    transition: background-color 150ms ease-out;
+  }
+  .active-elevate-2:active:not(.no-default-active-elevate) {
+    transform: scale(0.97);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .siq-press { transition: none; }
     .siq-press:active { transform: none; opacity: 0.8; }
+    .hover-elevate, .active-elevate, .hover-elevate-2, .active-elevate-2 { transition: none; }
+    .hover-elevate::after, .active-elevate::after,
+    .hover-elevate-2::after, .active-elevate-2::after { transition: none; }
+    /* keep the overlay (non-vestibular feedback), drop the scale */
+    .active-elevate-2:active:not(.no-default-active-elevate) { transform: none; }
   }
 
   /* ─── Tiptap Blog Editor ───────────────────────────────────── */

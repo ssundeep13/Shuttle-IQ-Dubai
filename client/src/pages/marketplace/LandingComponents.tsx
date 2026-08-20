@@ -112,13 +112,13 @@ export function accentForCategory(category: string): string {
 const MARKETING_CSS = `
   @keyframes siq-pulse { 0%,100% { transform: scale(1); opacity: .9 } 50% { transform: scale(1.04); opacity: 1 } }
   @keyframes siq-shimmer { 0% { background-position: -200% 0 } 100% { background-position: 200% 0 } }
-  .siq-hover-lift { -webkit-tap-highlight-color: transparent; transition: transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .35s ease; }
+  .siq-hover-lift { -webkit-tap-highlight-color: transparent; transition: transform .35s cubic-bezier(.2,.7,.2,1); }
   /* Design Gate 1: hover-lift only where hover exists — on touch it stuck the
      card 4px up after every tap. Press-down gets its own, faster state. */
   @media (hover: hover) { .siq-hover-lift:hover { transform: translateY(-4px); } }
   .siq-hover-lift:active { transform: translateY(0) scale(.98); transition-duration: 90ms; }
-  .siq-link { position: relative; -webkit-tap-highlight-color: transparent; }
-  .siq-link::after { content:''; position:absolute; left:0; right:0; bottom:-3px; height:1.5px; background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform .35s cubic-bezier(.2,.7,.2,1); }
+  .siq-link { position: relative; -webkit-tap-highlight-color: transparent; transition: opacity 90ms ease-out; }
+  .siq-link::after { content:''; position:absolute; left:0; right:0; bottom:-3px; height:1.5px; background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform 220ms cubic-bezier(.2,.7,.2,1); }
   @media (hover: hover) { .siq-link:hover::after { transform: scaleX(1); } }
   .siq-link:active { opacity: .7; }
   .siq-link:active::after { transform: scaleX(1); transition-duration: 90ms; }

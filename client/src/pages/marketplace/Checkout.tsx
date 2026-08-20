@@ -78,11 +78,27 @@ function CancellationPolicy() {
   );
 }
 
-function GuestForm({ guests, onChange, maxGuests }: {
+// Per-guest validation copy — shared by the inline (blur-time) errors and the
+// submit-time backstop so the two can never disagree.
+export function guestNameError(g: Guest): string | null {
+  return g.name.trim() ? null : 'Guest name is required';
+}
+export function guestEmailError(g: Guest): string | null {
+  return g.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email) ? 'Invalid email address' : null;
+}
+
+function GuestForm({ guests, onChange, maxGuests, submitAttempted }: {
   guests: Guest[];
   onChange: (guests: Guest[]) => void;
   maxGuests: number;
+  submitAttempted: boolean;
 }) {
+  // touched by field, keyed by row index (rows are index-keyed today)
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const markTouched = (idx: number, field: 'name' | 'email') =>
+    setTouched(t => ({ ...t, [`${idx}-${field}`]: true }));
+  const showError = (idx: number, field: 'name' | 'email') =>
+    submitAttempted || touched[`${idx}-${field}`];
   const addGuest = () => {
     if (guests.length < maxGuests) {
       onChange([...guests, { name: '', email: '' }]);
@@ -135,15 +151,25 @@ function GuestForm({ guests, onChange, maxGuests }: {
               placeholder="Guest name *"
               value={guest.name}
               onChange={e => updateGuest(idx, 'name', e.target.value)}
+              onBlur={() => markTouched(idx, 'name')}
+              aria-invalid={showError(idx, 'name') && !!guestNameError(guest)}
               data-testid={`input-guest-name-${idx}`}
             />
+            {showError(idx, 'name') && guestNameError(guest) && (
+              <p className="text-xs text-destructive" role="alert" data-testid={`error-guest-name-${idx}`}>{guestNameError(guest)}</p>
+            )}
             <Input
               placeholder="Guest email (optional — for cancellation link)"
               type="email"
               value={guest.email}
               onChange={e => updateGuest(idx, 'email', e.target.value)}
+              onBlur={() => markTouched(idx, 'email')}
+              aria-invalid={showError(idx, 'email') && !!guestEmailError(guest)}
               data-testid={`input-guest-email-${idx}`}
             />
+            {showError(idx, 'email') && guestEmailError(guest) && (
+              <p className="text-xs text-destructive" role="alert" data-testid={`error-guest-email-${idx}`}>{guestEmailError(guest)}</p>
+            )}
           </div>
           <button
             type="button"
@@ -160,12 +186,17 @@ function GuestForm({ guests, onChange, maxGuests }: {
   );
 }
 
-function OrderSummary({ sessionInfo, amount, spotsBooked, birthdayWaivedAed }: {
+function OrderSummary({ sessionInfo, amount, spotsBooked, birthdayWaivedAed, walletAppliedAed = 0 }: {
   sessionInfo: BookingData['session'];
   amount: number;
   spotsBooked: number;
   birthdayWaivedAed?: number;
+  /* #64: when wallet credit applies, the summary itself carries the maths —
+     the old layout showed "Total AED 45" at 24px here while the amount
+     actually charged sat at 14px inside the wallet card below the fold. */
+  walletAppliedAed?: number;
 }) {
+  const payable = Math.max(0, amount - walletAppliedAed);
   return (
     <div style={cardShell}>
       <div style={{ padding: '18px 20px 0' }}>
@@ -196,9 +227,21 @@ function OrderSummary({ sessionInfo, amount, spotsBooked, birthdayWaivedAed }: {
             <span>− AED {birthdayWaivedAed}</span>
           </div>
         ) : null}
-        <div className="flex items-center justify-between gap-2" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 12 }}>
-          <span className="font-medium" style={{ color: MKT.ink }}>Total</span>
-          <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-checkout-amount">AED {amount}</span>
+        {walletAppliedAed > 0 && (
+          <>
+            <div className="flex items-center justify-between gap-2 text-sm" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 12, color: MKT.inkSub }}>
+              <span>Subtotal</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>AED {amount.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-sm" style={{ color: MKT.tealD }}>
+              <span>Wallet credit</span>
+              <span data-testid="text-wallet-deduction" style={{ fontVariantNumeric: 'tabular-nums' }}>− AED {walletAppliedAed.toFixed(2)}</span>
+            </div>
+          </>
+        )}
+        <div className="flex items-center justify-between gap-2" style={walletAppliedAed > 0 ? undefined : { borderTop: `1px solid ${MKT.line}`, paddingTop: 12 }}>
+          <span className="font-medium" style={{ color: MKT.ink }}>{walletAppliedAed > 0 ? 'You pay' : 'Total'}</span>
+          <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 24, color: MKT.navy, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }} data-testid="text-checkout-amount">AED {walletAppliedAed > 0 ? payable.toFixed(2) : amount}</span>
         </div>
       </div>
     </div>
@@ -217,6 +260,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const [waitlisted, setWaitlisted] = useState<{ position: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
+  const [guestSubmitAttempted, setGuestSubmitAttempted] = useState(false);
   // Opt-OUT default (Layer 2a): wallet credit applies unless the player turns
   // it off. null = untouched → derived ON when credit exists. Client-side
   // only — the server still requires an explicit applyWallet=true.
@@ -241,8 +285,8 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   const validateGuests = () => {
     for (const g of guests) {
-      if (!g.name.trim()) return 'All guest names are required';
-      if (g.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) return 'Invalid guest email address';
+      const err = guestNameError(g) ?? guestEmailError(g);
+      if (err) return err;
     }
     return null;
   };
@@ -250,7 +294,16 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const handlePay = async () => {
     const guestError = validateGuests();
     if (guestError) {
+      // Submit-time backstop only: the per-field errors render inline (blur-
+      // time) in GuestForm. Mark everything touched and bring the first
+      // invalid field back on screen — it can be a viewport above Pay.
+      setGuestSubmitAttempted(true);
       setError(guestError);
+      requestAnimationFrame(() => {
+        const firstInvalid = document.querySelector<HTMLElement>('[data-testid^="input-guest-"][aria-invalid="true"]');
+        firstInvalid?.scrollIntoView({ block: 'center' });
+        firstInvalid?.focus();
+      });
       return;
     }
 
@@ -323,7 +376,7 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
           </p>
         </div>
         <Link href="/marketplace/my-bookings">
-          <button type="button" style={navyBtnStyle()} data-testid="button-view-waitlist">View My Bookings</button>
+          <button type="button" className="siq-press" style={navyBtnStyle()} data-testid="button-view-waitlist">View My Bookings</button>
         </Link>
       </div>
     );
@@ -331,11 +384,10 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   return (
     <div className="space-y-6">
-      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} birthdayWaivedAed={birthdayFree ? pricePerSpot : undefined} />
-
-      {maxGuests > 0 && (
-        <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />
-      )}
+      {/* #64: summary carries the wallet maths and the single payable figure;
+          the toggle sits directly under the number it changes (§16 grouping);
+          the guest form moved below so it no longer separates them. */}
+      <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} walletAppliedAed={useWallet ? walletApplicableAed : 0} birthdayWaivedAed={birthdayFree ? pricePerSpot : undefined} />
 
       {walletBalanceFils > 0 && (
         <div style={cardShell} data-testid="card-wallet-credit">
@@ -364,24 +416,15 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
                 AED {(walletBalanceFils / 100).toFixed(2)} available
               </p>
             )}
-            {useWallet && (
-              <div className="space-y-1" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 8 }}>
-                <div className="flex justify-between text-sm">
-                  <span style={{ color: MKT.inkSub }}>Session cost</span>
-                  <span style={{ color: MKT.ink }}>AED {totalAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm" style={{ color: MKT.tealD }}>
-                  <span>Wallet credit</span>
-                  <span data-testid="text-wallet-deduction">- AED {walletApplicableAed.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-semibold" style={{ borderTop: `1px solid ${MKT.line}`, paddingTop: 4, color: MKT.ink }}>
-                  <span>{walletCoversAll ? 'Amount due' : 'Pay via Ziina'}</span>
-                  <span data-testid="text-remaining-amount">AED {Math.max(0, remainingAfterWallet).toFixed(2)}</span>
-                </div>
-              </div>
-            )}
+            {/* #64: the second, contradicting breakdown that lived here is
+                gone — the Order Summary above now carries the arithmetic and
+                the single "You pay" figure. */}
           </div>
         </div>
+      )}
+
+      {maxGuests > 0 && (
+        <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} submitAttempted={guestSubmitAttempted} />
       )}
 
       <CancellationPolicy />
@@ -459,6 +502,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
+  const [guestSubmitAttempted, setGuestSubmitAttempted] = useState(false);
   const { toast } = useToast();
 
   const { user } = useMarketplaceAuth();
@@ -470,8 +514,8 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
 
   const validateGuests = () => {
     for (const g of guests) {
-      if (!g.name.trim()) return 'All guest names are required';
-      if (g.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) return 'Invalid guest email address';
+      const err = guestNameError(g) ?? guestEmailError(g);
+      if (err) return err;
     }
     return null;
   };
@@ -479,7 +523,13 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
   const handleConfirm = async () => {
     const guestError = validateGuests();
     if (guestError) {
+      setGuestSubmitAttempted(true);
       setError(guestError);
+      requestAnimationFrame(() => {
+        const firstInvalid = document.querySelector<HTMLElement>('[data-testid^="input-guest-"][aria-invalid="true"]');
+        firstInvalid?.scrollIntoView({ block: 'center' });
+        firstInvalid?.focus();
+      });
       return;
     }
 
@@ -525,7 +575,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
       <OrderSummary sessionInfo={sessionInfo} amount={totalAmount} spotsBooked={spotsBooked} birthdayWaivedAed={birthdayFree ? pricePerSpot : undefined} />
 
       {maxGuests > 0 && (
-        <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} />
+        <GuestForm guests={guests} onChange={setGuests} maxGuests={maxGuests} submitAttempted={guestSubmitAttempted} />
       )}
 
       <CancellationPolicy />
@@ -687,10 +737,10 @@ export default function Checkout() {
               )}
               <div className="flex gap-3 justify-center flex-wrap pt-2">
                 <Link href="/marketplace/my-bookings">
-                  <button type="button" style={navyBtnStyle()} data-testid="button-view-bookings">View My Bookings</button>
+                  <button type="button" className="siq-press" style={navyBtnStyle()} data-testid="button-view-bookings">View My Bookings</button>
                 </Link>
                 <Link href="/marketplace/book">
-                  <button type="button" style={ghostBtnStyle()} data-testid="button-browse-sessions">Browse Sessions</button>
+                  <button type="button" className="siq-press" style={ghostBtnStyle()} data-testid="button-browse-sessions">Browse Sessions</button>
                 </Link>
               </div>
             </div>

@@ -108,12 +108,13 @@ function pill(bg: string, fg: string): CSSProperties {
   return { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: bg, color: fg, whiteSpace: 'nowrap' };
 }
 
-function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPending }: {
+function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPending, isCancelPending }: {
   booking: BookingWithDetails;
   canManage: boolean;
   onCancelGuest: (guestId: string, refundPreference?: 'wallet' | 'bank') => void;
   onEditGuest: (guestId: string, name: string, email: string) => void;
   isEditPending: boolean;
+  isCancelPending: boolean;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -202,11 +203,13 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel data-testid={`button-keep-guest-${guest.id}`}>Keep Spot</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => onCancelGuest(guest.id, 'wallet')} data-testid={`button-cancel-guest-wallet-${guest.id}`}>
-                              Refund to wallet
+                            {/* Pending guard (#43): dialog stays open through
+                                the POST; the row disappears on success. */}
+                            <AlertDialogAction onClick={(e) => { e.preventDefault(); onCancelGuest(guest.id, 'wallet'); }} disabled={isCancelPending} data-testid={`button-cancel-guest-wallet-${guest.id}`}>
+                              {isCancelPending ? 'Cancelling…' : 'Refund to wallet'}
                             </AlertDialogAction>
-                            <AlertDialogAction onClick={() => onCancelGuest(guest.id, 'bank')} data-testid={`button-cancel-guest-bank-${guest.id}`}>
-                              Refund to bank
+                            <AlertDialogAction onClick={(e) => { e.preventDefault(); onCancelGuest(guest.id, 'bank'); }} disabled={isCancelPending} data-testid={`button-cancel-guest-bank-${guest.id}`}>
+                              {isCancelPending ? 'Cancelling…' : 'Refund to bank'}
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </>
@@ -220,7 +223,9 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Keep Spot</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => onCancelGuest(guest.id)}>Cancel Spot</AlertDialogAction>
+                            <AlertDialogAction onClick={(e) => { e.preventDefault(); onCancelGuest(guest.id); }} disabled={isCancelPending}>
+                              {isCancelPending ? 'Cancelling…' : 'Cancel Spot'}
+                            </AlertDialogAction>
                           </AlertDialogFooter>
                         </>
                       )}
@@ -251,7 +256,7 @@ export default function MyBookings() {
     refetchOnMount: true,
   });
 
-  const { data: walletData } = useQuery<{ walletBalance: number }>({
+  const { data: walletData, isLoading: walletLoading, isError: walletError, refetch: refetchWallet } = useQuery<{ walletBalance: number }>({
     queryKey: ['/api/marketplace/me/wallet'],
     staleTime: 30_000,
   });
@@ -498,6 +503,7 @@ export default function MyBookings() {
                 onCancelGuest={(guestId, refundPreference) => cancelGuestMutation.mutate({ bookingId: booking.id, guestId, refundPreference })}
                 onEditGuest={(guestId, name, email) => editGuestMutation.mutate({ bookingId: booking.id, guestId, name, email })}
                 isEditPending={editGuestMutation.isPending}
+                isCancelPending={cancelGuestMutation.isPending && cancelGuestMutation.variables?.bookingId === booking.id}
               />
             )}
             {!booking.isGuestBooking && booking.status === 'confirmed' && !isPast && (
@@ -544,15 +550,17 @@ export default function MyBookings() {
                     </p>
                   )}
                 </div>
+                {/* Pending keyed to THIS booking — the shared mutation made
+                    every pending-payment card read "Loading…" at once. */}
                 {!countdown.expired && (
                   <button
                     type="button"
                     onClick={() => initiatePaymentMutation.mutate(booking.id)}
-                    disabled={initiatePaymentMutation.isPending}
+                    disabled={initiatePaymentMutation.isPending && initiatePaymentMutation.variables === booking.id}
                     data-testid={`button-complete-payment-${booking.id}`}
                     {...withStyle(navyBtn('sm'), { flex: 'none' })}
                   >
-                    {initiatePaymentMutation.isPending ? 'Loading...' : 'Pay Now'}
+                    {initiatePaymentMutation.isPending && initiatePaymentMutation.variables === booking.id ? 'Loading...' : 'Pay Now'}
                   </button>
                 )}
               </div>
@@ -610,9 +618,13 @@ export default function MyBookings() {
                     <AlertDialogFooter>
                       <AlertDialogCancel>Keep Spot</AlertDialogCancel>
                       <AlertDialogAction
-                        onClick={() => cancelGuestMutation.mutate({ bookingId: booking.id, guestId: booking.myGuestId! })}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          cancelGuestMutation.mutate({ bookingId: booking.id, guestId: booking.myGuestId! });
+                        }}
+                        disabled={cancelGuestMutation.isPending}
                       >
-                        Cancel Spot
+                        {cancelGuestMutation.isPending ? 'Cancelling…' : 'Cancel Spot'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -651,11 +663,11 @@ export default function MyBookings() {
                           </p>
                           {mySpotNeedsChoice && (
                             <div className="space-y-2 p-3 rounded-md" style={{ background: 'rgba(0,30,70,0.04)', border: '1px solid rgba(0,30,70,0.10)' }}>
-                              <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 14 }}>
+                              <label className="flex items-center gap-2 min-h-11 -my-1 px-1 -mx-1 rounded-md siq-press cursor-pointer" style={{ fontSize: 14 }}>
                                 <input type="radio" name={`refund-myspot-${booking.id}`} checked={mySpotChoice === 'wallet'} onChange={() => setMySpotChoice('wallet')} data-testid={`radio-my-spot-wallet-${booking.id}`} />
                                 <span>Add to my ShuttleIQ wallet — instant</span>
                               </label>
-                              <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 14 }}>
+                              <label className="flex items-center gap-2 min-h-11 -my-1 px-1 -mx-1 rounded-md siq-press cursor-pointer" style={{ fontSize: 14 }}>
                                 <input type="radio" name={`refund-myspot-${booking.id}`} checked={mySpotChoice === 'bank'} onChange={() => setMySpotChoice('bank')} data-testid={`radio-my-spot-bank-${booking.id}`} />
                                 <span>Refund to my bank account — takes 2-3 business days</span>
                               </label>
@@ -692,9 +704,9 @@ export default function MyBookings() {
                   <AlertDialogTrigger asChild>
                     <button
                       type="button"
-                      disabled={cancelMutation.isPending}
+                      disabled={cancelMutation.isPending && cancelMutation.variables?.bookingId === booking.id}
                       data-testid={`button-cancel-${booking.id}`}
-                      {...withStyle(ghostBtn('sm'), { opacity: cancelMutation.isPending ? 0.6 : 1 })}
+                      {...withStyle(ghostBtn('sm'), { opacity: cancelMutation.isPending && cancelMutation.variables?.bookingId === booking.id ? 0.6 : 1 })}
                     >
                       <XCircle className="h-3.5 w-3.5" />
                       {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : 'Cancel'}
@@ -728,11 +740,11 @@ export default function MyBookings() {
                               <p style={{ fontSize: 14, fontWeight: 600, color: MKT.navy }}>
                                 AED {cashRefundAed.toLocaleString('en-US', { maximumFractionDigits: 2 })} refund — how would you like it?
                               </p>
-                              <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 14 }}>
+                              <label className="flex items-center gap-2 min-h-11 -my-1 px-1 -mx-1 rounded-md siq-press cursor-pointer" style={{ fontSize: 14 }}>
                                 <input type="radio" name={`refund-${booking.id}`} checked={refundChoice === 'wallet'} onChange={() => setRefundChoice('wallet')} data-testid={`radio-refund-wallet-${booking.id}`} />
                                 <span>Add to my ShuttleIQ wallet — instant</span>
                               </label>
-                              <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 14 }}>
+                              <label className="flex items-center gap-2 min-h-11 -my-1 px-1 -mx-1 rounded-md siq-press cursor-pointer" style={{ fontSize: 14 }}>
                                 <input type="radio" name={`refund-${booking.id}`} checked={refundChoice === 'ziina'} onChange={() => setRefundChoice('ziina')} data-testid={`radio-refund-ziina-${booking.id}`} />
                                 <span>Refund to my bank account — takes 2-3 business days</span>
                               </label>
@@ -743,12 +755,20 @@ export default function MyBookings() {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>{isWaitlisted ? 'Stay on Waitlist' : isPendingPayment ? 'Keep Spot' : 'Keep Booking'}</AlertDialogCancel>
+                      {/* preventDefault keeps the dialog open through the POST
+                          (the card unmounts from this section on success), and
+                          the pending guard + label mirror the my-spot dialog —
+                          the old version closed instantly and the card sat
+                          unchanged for the whole round trip. */}
                       <AlertDialogAction
-                        onClick={() => cancelMutation.mutate({ bookingId: booking.id, refundMethod: showRefundChoice ? refundChoice ?? undefined : undefined })}
-                        disabled={showRefundChoice && !refundChoice}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          cancelMutation.mutate({ bookingId: booking.id, refundMethod: showRefundChoice ? refundChoice ?? undefined : undefined });
+                        }}
+                        disabled={(showRefundChoice && !refundChoice) || cancelMutation.isPending}
                         className="bg-destructive text-destructive-foreground"
                       >
-                        {isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'}
+                        {cancelMutation.isPending ? 'Cancelling…' : isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
@@ -783,25 +803,40 @@ export default function MyBookings() {
               </h1>
               <p style={{ color: MKT.inkSub, fontSize: 14, marginTop: 4 }}>Manage your session bookings</p>
             </div>
-            {walletData !== undefined && (
-              <div
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 12,
-                  ...(walletData.walletBalance > 0
-                    ? { background: MKT.tealMist, border: `1px solid ${MKT.teal}33`, color: MKT.tealD }
-                    : { background: `${MKT.navy}06`, border: `1px solid ${MKT.navy}14`, color: MKT.inkSub }),
-                }}
-                data-testid="card-wallet-balance"
-              >
-                <Wallet className="h-4 w-4 shrink-0" />
-                <div>
-                  <p style={{ fontSize: 11, lineHeight: 1, marginBottom: 3, opacity: 0.7 }}>Wallet credit</p>
+            {/* #38/#65: the chip shell always renders — it used to mount when
+                /me/wallet resolved (0.046 CLS on slow networks), and a failed
+                fetch made the user's money silently vanish from the page. */}
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 12, minHeight: 50,
+                ...(walletData && walletData.walletBalance > 0
+                  ? { background: MKT.tealMist, border: `1px solid ${MKT.teal}33`, color: MKT.tealD }
+                  : { background: `${MKT.navy}06`, border: `1px solid ${MKT.navy}14`, color: MKT.inkSub }),
+              }}
+              data-testid="card-wallet-balance"
+            >
+              <Wallet className="h-4 w-4 shrink-0" />
+              <div>
+                <p style={{ fontSize: 11, lineHeight: 1, marginBottom: 3, opacity: 0.7 }}>Wallet credit</p>
+                {walletError ? (
+                  <button
+                    type="button"
+                    className="siq-press"
+                    onClick={() => { void refetchWallet(); }}
+                    style={{ fontSize: 12, fontWeight: 600, background: 'transparent', border: 'none', padding: 0, color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
+                    data-testid="button-wallet-retry"
+                  >
+                    Couldn't load — retry
+                  </button>
+                ) : walletLoading ? (
+                  <Skeleton className="h-3.5 w-16" />
+                ) : (
                   <p style={{ fontSize: 14, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }} data-testid="text-wallet-balance">
-                    AED {(walletData.walletBalance / 100).toFixed(2)}
+                    AED {((walletData?.walletBalance ?? 0) / 100).toFixed(2)}
                   </p>
-                </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </Reveal>
 
@@ -893,7 +928,7 @@ export default function MyBookings() {
               <button
                 type="button"
                 onClick={() => setAddGuestPaymentMethod('ziina')}
-                className="flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors"
+                className="siq-press flex flex-col items-center gap-1.5 rounded-md border p-3 text-sm transition-colors"
                 style={addGuestPaymentMethod === 'ziina'
                   ? { borderColor: MKT.teal, background: MKT.tealMist, color: MKT.tealD, fontWeight: 600 }
                   : { borderColor: `${MKT.navy}1F`, background: '#fff', color: MKT.inkSub }}

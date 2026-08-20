@@ -63,6 +63,7 @@ export default function MarketplaceSignup() {
   const [referralValidating, setReferralValidating] = useState(false);
   const [referrerName, setReferrerName] = useState<string | null>(null);
   const [referralError, setReferralError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -72,11 +73,11 @@ export default function MarketplaceSignup() {
     if (refCode) setReferralCode(refCode);
   }, []);
 
-  const validateReferralCode = useCallback(async (code: string) => {
+  const validateReferralCode = useCallback(async (code: string): Promise<boolean> => {
     if (!code.trim()) {
       setReferrerName(null);
       setReferralError(null);
-      return;
+      return true;
     }
     setReferralValidating(true);
     setReferralError(null);
@@ -86,11 +87,13 @@ export default function MarketplaceSignup() {
       const data = await res.json();
       if (data.valid) {
         setReferrerName(data.referrerName);
-      } else {
-        setReferralError('Invalid referral code');
+        return true;
       }
+      setReferralError('Invalid referral code');
+      return false;
     } catch {
       setReferralError('Could not validate code');
+      return false;
     } finally {
       setReferralValidating(false);
     }
@@ -100,10 +103,10 @@ export default function MarketplaceSignup() {
     e.preventDefault();
     // P1 full-name policy — instant feedback; the server enforces the same rule.
     if (!isFullName(name)) {
-      toast({
-        title: 'Please enter your full name (first and last)',
-        variant: 'destructive',
-      });
+      // Inline under the field it's about — the old toast auto-dismissed from
+      // a corner and pointed at nothing (§16: validate inline, not on submit).
+      setNameError('Please enter your full name (first and last)');
+      document.getElementById('name')?.focus();
       return;
     }
     setPhase('assessment');
@@ -150,7 +153,9 @@ export default function MarketplaceSignup() {
         remember,
       });
       toast({ title: 'Account created!' });
-      setLocation('/marketplace');
+      // Same ?from= contract as login: land where the user was headed.
+      const from = new URLSearchParams(window.location.search).get('from');
+      setLocation(from && from.startsWith('/marketplace/') ? from : '/marketplace/dashboard');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Signup failed';
       toast({ title: 'Signup failed', description: message, variant: 'destructive' });
@@ -254,13 +259,27 @@ export default function MarketplaceSignup() {
               )}
             </div>
 
+            {/* Only account creation blocks the tap. The old expression also
+                gated on referralValidating — but the tap itself blurred the
+                input, blur set referralValidating, and the button disabled
+                itself before the click dispatched: the tap was swallowed. An
+                unvalidated code is resolved ON the tap instead. */}
             <Button
               className="w-full"
-              disabled={loading || referralValidating || (!!referralCode.trim() && !referrerName)}
-              onClick={() => handleFinishSignup(referralCode.trim() || undefined)}
+              disabled={loading}
+              onClick={async () => {
+                const code = referralCode.trim();
+                if (code && !referrerName) {
+                  const ok = await validateReferralCode(code);
+                  if (!ok) return; // inline error is now visible under the field
+                }
+                handleFinishSignup(code || undefined);
+              }}
               data-testid="button-continue-referral"
             >
-              {loading ? 'Creating account...' : 'Continue'}
+              {loading ? 'Creating account...' : referralValidating ? (
+                <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Checking code…</span>
+              ) : 'Continue'}
             </Button>
 
             <Button
@@ -319,10 +338,16 @@ export default function MarketplaceSignup() {
               <Input
                 id="name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => { setName(e.target.value); if (nameError) setNameError(null); }}
+                onBlur={() => { if (name.trim() && !isFullName(name)) setNameError('Please enter your full name (first and last)'); }}
                 required
+                aria-invalid={!!nameError}
+                aria-describedby={nameError ? 'name-error' : undefined}
                 data-testid="input-name"
               />
+              {nameError && (
+                <p id="name-error" className="text-xs text-destructive" role="alert" data-testid="error-name">{nameError}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -379,7 +404,7 @@ export default function MarketplaceSignup() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="siq-press absolute right-1 top-1/2 -translate-y-1/2 h-11 w-11 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground transition-colors"
                   data-testid="button-toggle-password"
                   tabIndex={-1}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
@@ -399,7 +424,7 @@ export default function MarketplaceSignup() {
           </form>
           <p className="text-center text-sm text-muted-foreground mt-4">
             Already have an account?{' '}
-            <Link href="/marketplace/login" className="text-primary hover:underline" data-testid="link-login">
+            <Link href="/marketplace/login" className="siq-press inline-flex items-center min-h-11 px-1 text-primary hover:underline active:underline" data-testid="link-login">
               Log in
             </Link>
           </p>

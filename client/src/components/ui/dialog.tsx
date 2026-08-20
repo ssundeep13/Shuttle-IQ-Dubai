@@ -73,7 +73,11 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      // #61: cancel-first on mobile, matching AlertDialogFooter — every usage
+      // (customer and admin) puts the safe action first in the DOM, but
+      // col-reverse stacked the primary on top here while the sibling
+      // AlertDialog on the same page stacked the opposite way.
+      "flex flex-col gap-2 sm:flex-row sm:justify-end sm:space-x-2",
       className
     )}
     {...props}

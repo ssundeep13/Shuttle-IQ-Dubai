@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { Player, PlayerTopTagEntry } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 
 const TAG_CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -147,22 +148,22 @@ export default function Rankings() {
   });
   const topTagMap = new Map<string, PlayerTopTagEntry>(allTopTags.map(e => [e.playerId, e]));
 
-  const { data: allTimePlayers, isLoading: loadingAllTime } = useQuery<Player[]>({
+  const { data: allTimePlayers, isLoading: loadingAllTime, isError: errorAllTime, refetch: refetchAllTime } = useQuery<Player[]>({
     queryKey: ['/api/players'],
     enabled: !isMostImproved && timeFilter === 'all-time',
   });
 
-  const { data: monthPlayers, isLoading: loadingMonth } = useQuery<PlayerWithMonthStats[]>({
+  const { data: monthPlayers, isLoading: loadingMonth, isError: errorMonth, refetch: refetchMonth } = useQuery<PlayerWithMonthStats[]>({
     queryKey: ['/api/stats/month', currentYear, currentMonth],
     enabled: !isMostImproved && timeFilter === 'this-month',
   });
 
-  const { data: weekPlayers, isLoading: loadingWeek } = useQuery<PlayerWithWeekStats[]>({
+  const { data: weekPlayers, isLoading: loadingWeek, isError: errorWeek, refetch: refetchWeek } = useQuery<PlayerWithWeekStats[]>({
     queryKey: ['/api/stats/week'],
     enabled: !isMostImproved && timeFilter === 'this-week',
   });
 
-  const { data: mostImprovedData, isLoading: loadingImproved } = useQuery<MostImprovedPlayer[]>({
+  const { data: mostImprovedData, isLoading: loadingImproved, isError: errorImproved, refetch: refetchImproved } = useQuery<MostImprovedPlayer[]>({
     queryKey: ['/api/stats/most-improved'],
     enabled: isMostImproved,
   });
@@ -177,6 +178,20 @@ export default function Rankings() {
     : (timeFilter === 'all-time' && loadingAllTime) ||
       (timeFilter === 'this-month' && loadingMonth) ||
       (timeFilter === 'this-week' && loadingWeek);
+
+  // #65: an outage used to render the confident "No ranked players yet" empty
+  // state — the exact bug QueryErrorCard documents. Error for the ACTIVE view.
+  const rankedError = isMostImproved
+    ? errorImproved
+    : (timeFilter === 'all-time' && errorAllTime) ||
+      (timeFilter === 'this-month' && errorMonth) ||
+      (timeFilter === 'this-week' && errorWeek);
+  const retryRanked = () => {
+    if (isMostImproved) { void refetchImproved(); return; }
+    if (timeFilter === 'all-time') void refetchAllTime();
+    else if (timeFilter === 'this-month') void refetchMonth();
+    else void refetchWeek();
+  };
 
   let ranked: RankedEntry[] = [];
 
@@ -339,6 +354,8 @@ export default function Rankings() {
               <div className="space-y-3">
                 {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 w-full" />)}
               </div>
+            ) : rankedError ? (
+              <QueryErrorCard message="Couldn't load the rankings right now." onRetry={retryRanked} testId="error-rankings" />
             ) : ranked.length === 0 ? (
               <Card style={cardChrome}>
                 <CardContent className="p-8 text-center">
@@ -364,7 +381,7 @@ export default function Rankings() {
                         <motion.div key={entry.player.id} variants={fadeInUp}>
                           <Link href={`/marketplace/players/${entry.player.id}`}>
                             <Card
-                              className={`text-center ${colors.borderClass} ${podiumIdx === 0 ? 'md:-mt-4' : ''} hover-elevate cursor-pointer`}
+                              className={`text-center ${colors.borderClass} ${podiumIdx === 0 ? 'md:-mt-4' : ''} hover-elevate active-elevate-2 cursor-pointer`}
                               data-testid={`card-podium-${entry.player.id}`}
                             >
                               <CardContent className="p-4">
@@ -425,7 +442,7 @@ export default function Rankings() {
                             <Link key={entry.player.id} href={`/marketplace/players/${entry.player.id}`}>
                               <motion.div
                                 variants={fadeInUp}
-                                className="flex items-center gap-3 px-4 py-3 hover-elevate cursor-pointer"
+                                className="flex items-center gap-3 px-4 py-3 hover-elevate active-elevate-2 cursor-pointer"
                                 data-testid={`row-player-${entry.player.id}`}
                               >
                                 <div className="w-6 text-center shrink-0">
