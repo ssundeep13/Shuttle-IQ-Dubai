@@ -71,6 +71,7 @@ export function MarketplaceFooter() {
             <ul className="space-y-2 text-sm">
               <li><Link href="/marketplace/my-bookings" className={footerLinkClass} data-testid="link-footer-bookings">My Bookings</Link></li>
               <li><Link href="/marketplace/my-scores" className={footerLinkClass} data-testid="link-footer-scores">My Scores</Link></li>
+              <li><Link href="/marketplace/referrals" className={footerLinkClass} data-testid="link-footer-referrals">Referrals</Link></li>
               <li><Link href="/marketplace/scoring-guide" className={footerLinkClass} data-testid="link-footer-scoring-guide">Scoring Guide</Link></li>
               <li><Link href="/marketplace/profile" className={footerLinkClass} data-testid="link-footer-profile">Profile</Link></li>
             </ul>

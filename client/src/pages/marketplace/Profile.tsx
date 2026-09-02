@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Gift, Wallet } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Gift, Wallet, ChevronRight } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import type { PlayerStats } from '@shared/schema';
 import BadgeTag, { formatEarnedDate, progressSubline, progressTitle } from '@/components/BadgeTag';
@@ -1357,6 +1357,36 @@ export default function Profile() {
                       </form>
                     </>
                   )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {user?.linkedPlayerId && (
+            <motion.div variants={fadeInUp}>
+              {/* Permanent doorway to the referrer screen (own code, share
+                  link, rewards). The add-a-code card above hides itself once
+                  the 30-day window closes, which left an established referrer
+                  with nothing referral-related on their own profile. */}
+              <Card
+                style={{ ...cardChrome, cursor: 'pointer' }}
+                className="transition-transform active:scale-[0.99]"
+                data-testid="card-my-referrals-link"
+                role="button"
+                tabIndex={0}
+                aria-label="Open My Referrals"
+                onClick={() => navigate('/marketplace/referrals')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate('/marketplace/referrals'); } }}
+              >
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-md flex items-center justify-center shrink-0 bg-secondary/15">
+                    <Gift className="h-5 w-5 text-secondary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">My Referrals</p>
+                    <p className="text-xs text-muted-foreground">Your code, share link and rewards</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
                 </CardContent>
               </Card>
             </motion.div>

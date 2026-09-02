@@ -18,7 +18,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History, FileText } from 'lucide-react';
+import { User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History, FileText, Gift } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MarketplaceNotification } from '@shared/schema';
 
@@ -44,6 +44,7 @@ const authMenuLinks = [
   { href: '/marketplace/my-bookings', label: 'My Bookings', icon: Bookmark },
   { href: '/marketplace/my-scores', label: 'My Scores', icon: BarChart3 },
   { href: '/marketplace/game-history', label: 'Game History', icon: History },
+  { href: '/marketplace/referrals', label: 'Referrals', icon: Gift },
   { href: '/marketplace/profile', label: 'Profile', icon: User },
 ];
 

@@ -33,9 +33,10 @@ export function MobileBottomNav() {
   const isActive = (href: string) => {
     if (href === '/') return location === '/' || location === '/marketplace';
     if (href === '/marketplace/dashboard') {
-      // Profile has no tab of its own; the Dashboard tab carries it so the
-      // "where am I" question always has an answer (#68).
-      return location === '/marketplace/dashboard' || location.startsWith('/marketplace/profile');
+      // Profile and Referrals have no tab of their own (the bar is full at
+      // five); the Dashboard tab carries them so the "where am I" question
+      // always has an answer (#68).
+      return location === '/marketplace/dashboard' || location.startsWith('/marketplace/profile') || location.startsWith('/marketplace/referrals');
     }
     if (href === '/marketplace/book') {
       return location === '/marketplace/book' || location.startsWith('/marketplace/sessions/') || location.startsWith('/marketplace/checkout/');
