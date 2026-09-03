@@ -1,5 +1,5 @@
 import { useRef, useState, type CSSProperties } from 'react';
-import { MKT } from './LandingComponents';
+import { MKT, navyBtn } from './LandingComponents';
 import { useLocation } from 'wouter';
 import { apiUrl } from '@/lib/queryClient';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
@@ -11,13 +11,14 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Gift, Wallet, ChevronRight } from 'lucide-react';
+import { User, Link2, Search, Check, Mail, Phone, LogOut, ShieldCheck, ArrowLeft, HelpCircle, Pencil, AlertTriangle, Camera, X, Loader2, Gift, Wallet, ChevronRight, Download } from 'lucide-react';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import type { PlayerStats } from '@shared/schema';
 import BadgeTag, { formatEarnedDate, progressSubline, progressTitle } from '@/components/BadgeTag';
 import FoundingMemberSeal from '@/components/FoundingMemberSeal';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useInstallPrompt, IOS_INSTALL_HINT } from '@/hooks/use-install-prompt';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -92,6 +93,7 @@ export default function Profile() {
   usePageTitle('Profile');
   const [, navigate] = useLocation();
   const { user, logout } = useMarketplaceAuth();
+  const { canInstall, install: installApp, showIOSHint, isInstalled } = useInstallPrompt();
   // logout awaits a POST + cache clear — without a pending state the screen
   // sits identical for the whole round trip after the tap (#43).
   const [signingOut, setSigningOut] = useState(false);
@@ -1387,6 +1389,41 @@ export default function Profile() {
                     <p className="text-xs text-muted-foreground">Your code, share link and rewards</p>
                   </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {!isInstalled && (
+            <motion.div variants={fadeInUp}>
+              {/* Always-visible install row. The layout bar can be snoozed and
+                  Chrome's prompt is one-shot, so a player who waved it away
+                  needs somewhere to come back to. Hidden only once installed. */}
+              <Card style={cardChrome} data-testid="card-install-app-profile">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-md flex items-center justify-center shrink-0 bg-secondary/15">
+                    <Download className="h-5 w-5 text-secondary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">Install ShuttleIQ on this device</p>
+                    <p className="text-xs text-muted-foreground">
+                      {showIOSHint
+                        ? IOS_INSTALL_HINT
+                        : canInstall
+                          ? 'Add it to your home screen for quick access.'
+                          : 'Open shuttleiq.ai in Chrome on Android or Safari on iPhone to add it to your home screen.'}
+                    </p>
+                  </div>
+                  {canInstall && (
+                    <button
+                      type="button"
+                      onClick={() => { void installApp(); }}
+                      {...navyBtn('sm')}
+                      data-testid="button-install-app-profile"
+                    >
+                      Install
+                    </button>
+                  )}
                 </CardContent>
               </Card>
             </motion.div>

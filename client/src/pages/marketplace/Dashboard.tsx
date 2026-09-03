@@ -12,7 +12,7 @@ import { isSessionOver } from '@/lib/sessionTime';
 import { format } from 'date-fns';
 import { useReducedMotion } from 'framer-motion';
 import type { BookingWithDetails, PlayerStats, TagSuggestion, BookableSessionWithAvailability } from '@shared/schema';
-import { useInstallPrompt } from '@/hooks/use-install-prompt';
+import { useInstallPrompt, IOS_INSTALL_HINT } from '@/hooks/use-install-prompt';
 import { useToast } from '@/hooks/use-toast';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -390,7 +390,7 @@ export default function Dashboard() {
   usePageTitle('Dashboard');
   const { user } = useMarketplaceAuth();
   const linkedPlayerId = user?.linkedPlayerId;
-  const { canInstall, install } = useInstallPrompt();
+  const { canInstall, install, showIOSHint } = useInstallPrompt();
   const { toast } = useToast();
   const reduce = useReducedMotion();
 
@@ -865,16 +865,24 @@ export default function Dashboard() {
               </Reveal>
             )}
 
-            {canInstall && (
+            {(canInstall || showIOSHint) && (
               <Reveal>
                 <DashCard testid="card-install-app">
                   <div className="text-center" style={{ padding: '8px 0' }}>
                     <Download className="h-8 w-8 mx-auto mb-2" style={{ color: MKT.teal }} />
                     <p style={{ fontWeight: 600, color: MKT.ink, marginBottom: 4 }}>Get the App</p>
-                    <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 16 }}>Install ShuttleIQ on your home screen for quick access</p>
-                    <button type="button" onClick={install} {...withStyle(navyBtn('sm'), { width: '100%' })} data-testid="button-install-app-dashboard">
-                      Install Now <Download className="h-3.5 w-3.5" />
-                    </button>
+                    {showIOSHint ? (
+                      // iOS Safari: no install event exists, so the card carries
+                      // the manual route instead of a button.
+                      <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 0 }} data-testid="text-install-ios-hint-dashboard">{IOS_INSTALL_HINT}</p>
+                    ) : (
+                      <>
+                        <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 16 }}>Install ShuttleIQ on your home screen for quick access</p>
+                        <button type="button" onClick={() => { void install(); }} {...withStyle(navyBtn('sm'), { width: '100%' })} data-testid="button-install-app-dashboard">
+                          Install Now <Download className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </DashCard>
               </Reveal>
