@@ -1,4 +1,6 @@
-const CACHE_NAME = 'shuttleiq-v4';
+// v5: manifest + icons below are precached by name and served cache-first,
+// so the Gate 2 manifest changes need a new cache to reach installed clients.
+const CACHE_NAME = 'shuttleiq-v5';
 
 const PRECACHE_URLS = [
   '/manifest.webmanifest',

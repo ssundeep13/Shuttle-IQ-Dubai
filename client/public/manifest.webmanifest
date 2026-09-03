@@ -1,12 +1,14 @@
 {
+  "id": "/",
+  "scope": "/",
   "name": "ShuttleIQ",
   "short_name": "ShuttleIQ",
-  "description": "Badminton court and player queue management for sports facilities.",
+  "description": "Book skill-matched badminton sessions in Dubai. Captain-verified scores and live rankings.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#0d2b45",
-  "background_color": "#0d2b45",
+  "theme_color": "#002C84",
+  "background_color": "#002C84",
   "lang": "en",
   "categories": ["sports", "productivity"],
   "icons": [
@@ -14,13 +16,19 @@
       "src": "/icons/icon-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
