@@ -24,7 +24,10 @@ import { randomUUID } from "crypto";
 import { sql, eq, inArray } from "drizzle-orm";
 import { db } from "./db";
 import { sessionSeries, sessionCosts, bookableSessions, sessions } from "@shared/schema";
-import { seriesDates, weekdayName, SERIES_WEEKS_MIN, SERIES_WEEKS_MAX } from "@shared/utils/seriesDates";
+import {
+  seriesDates, extensionDates, weekdayName,
+  SERIES_WEEKS_MIN, SERIES_WEEKS_MAX, EXTEND_WEEKS_MIN, EXTEND_WEEKS_MAX,
+} from "@shared/utils/seriesDates";
 
 /** Today in Dubai as 'YYYY-MM-DD'. en-CA formats as ISO, and the explicit
  *  timeZone means the server's own zone never enters into it. */
@@ -122,59 +125,79 @@ export async function generateSeriesWeeks(
     // The originating session joins the series so the list can count it.
     await tx.update(sessions).set({ seriesId }).where(eq(sessions.id, input.originSessionId));
 
-    const weeks: GeneratedWeek[] = [];
-    for (const dateIso of dates) {
-      const opsId = randomUUID();
-      const bookableId = randomUUID();
-
-      await tx.insert(sessions).values({
-        id: opsId,
-        date: sql`${dateIso}::timestamp`,
-        venueName: input.venueName,
-        venueLocation: input.venueLocation,
-        venueMapUrl: input.venueMapUrl,
-        courtCount: input.courtCount,
-        // Never 'active' (the single-active-session rule) and never sandbox.
-        status: 'upcoming',
-        isSandbox: false,
-        seriesId,
-      } as any);
-
-      await tx.insert(bookableSessions).values({
-        id: bookableId,
-        title: input.title,
-        description: input.description,
-        venueName: input.venueName,
-        venueLocation: input.venueLocation,
-        venueMapUrl: input.venueMapUrl,
-        date: sql`${dateIso}::timestamp`,
-        startTime: input.startTime,
-        endTime: input.endTime,
-        courtCount: input.courtCount,
-        capacity: input.capacity,
-        priceAed: input.priceAed,
-        status: 'upcoming',
-        imageUrl: null,
-        linkedSessionId: opsId,
-      } as any);
-
-      if (input.costs) {
-        await tx.insert(sessionCosts).values({
-          id: randomUUID(),
-          sessionId: bookableId,
-          courtCostFils: input.costs.courtCostFils,
-          shuttleCostFils: input.costs.shuttleCostFils,
-          waterCostFils: input.costs.waterCostFils,
-          courtCostOverridden: input.costs.courtCostOverridden,
-          captainId: input.costs.captainId,
-          capturedBy: input.createdBy,
-        });
-      }
-
-      weeks.push({ dateIso, opsId, bookableId });
-    }
+    const weeks = await insertSeriesWeeks(tx, seriesId, dates, input);
     return { seriesId, weeks };
   });
+}
+
+/** What a generated week is made from — the series input minus the parts that
+ *  only matter when a series is first created. An extension builds one of
+ *  these from the series' latest session instead. */
+export type SeriesWeekTemplate = Omit<GenerateSeriesInput, 'originSessionId' | 'anchorDateIso' | 'weeksAhead'>;
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** The three rows for each date: ops session + bookable session + (only if
+ *  the template carries costs) the costs row. Shared by series creation and
+ *  extension so the two can never drift. The CALLER owns the transaction —
+ *  this never commits on its own. */
+export async function insertSeriesWeeks(
+  tx: Tx,
+  seriesId: string,
+  dates: string[],
+  template: SeriesWeekTemplate,
+): Promise<GeneratedWeek[]> {
+  const weeks: GeneratedWeek[] = [];
+  for (const dateIso of dates) {
+    const opsId = randomUUID();
+    const bookableId = randomUUID();
+
+    await tx.insert(sessions).values({
+      id: opsId,
+      date: sql`${dateIso}::timestamp`,
+      venueName: template.venueName,
+      venueLocation: template.venueLocation,
+      venueMapUrl: template.venueMapUrl,
+      courtCount: template.courtCount,
+      // Never 'active' (the single-active-session rule) and never sandbox.
+      status: 'upcoming',
+      isSandbox: false,
+      seriesId,
+    } as any);
+
+    await tx.insert(bookableSessions).values({
+      id: bookableId,
+      title: template.title,
+      description: template.description,
+      venueName: template.venueName,
+      venueLocation: template.venueLocation,
+      venueMapUrl: template.venueMapUrl,
+      date: sql`${dateIso}::timestamp`,
+      startTime: template.startTime,
+      endTime: template.endTime,
+      courtCount: template.courtCount,
+      capacity: template.capacity,
+      priceAed: template.priceAed,
+      status: 'upcoming',
+      imageUrl: null,
+      linkedSessionId: opsId,
+    } as any);
+
+    if (template.costs) {
+      await tx.insert(sessionCosts).values({
+        id: randomUUID(),
+        sessionId: bookableId,
+        courtCostFils: template.costs.courtCostFils,
+        shuttleCostFils: template.costs.shuttleCostFils,
+        waterCostFils: template.costs.waterCostFils,
+        courtCostOverridden: template.costs.courtCostOverridden,
+        captainId: template.costs.captainId,
+        capturedBy: template.createdBy,
+      });
+    }
+
+    weeks.push({ dateIso, opsId, bookableId });
+  }
+  return weeks;
 }
 
 // ── Listing ─────────────────────────────────────────────────────────────────
@@ -193,6 +216,11 @@ export interface SeriesListItem {
   otherCount: number;
   bookedSessions: number;
   stoppedAt: string | null;
+  /** LAST session date currently in the series (YYYY-MM-DD), from rows — the
+   *  stored weeks_ahead is the creation count and goes stale after an extend. */
+  endsDate: string | null;
+  /** The Dubai calendar day the series was stopped (YYYY-MM-DD), or null. */
+  stoppedDate: string | null;
 }
 
 /** Every series with live counts. The originating session is included in
@@ -202,6 +230,8 @@ export async function listSeries(includeStopped = false): Promise<SeriesListItem
   const { rows } = await db.execute(sql`
     SELECT ss.id, ss.venue_name, ss.origin_date, ss.start_time, ss.end_time,
            ss.weeks_ahead, ss.stopped_at,
+           to_char(max(s.date), 'YYYY-MM-DD')                          AS ends_date,
+           to_char(ss.stopped_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dubai', 'YYYY-MM-DD') AS stopped_date,
            count(s.id)::int                                            AS total,
            count(*) FILTER (WHERE s.status = 'draft')::int              AS drafts,
            count(*) FILTER (WHERE s.status = 'upcoming')::int           AS upcoming,
@@ -230,6 +260,8 @@ export async function listSeries(includeStopped = false): Promise<SeriesListItem
     otherCount: Number(r.other),
     bookedSessions: Number(r.booked),
     stoppedAt: r.stopped_at ? new Date(r.stopped_at).toISOString() : null,
+    endsDate: r.ends_date ?? null,
+    stoppedDate: r.stopped_date ?? null,
   }));
 }
 
@@ -288,4 +320,98 @@ export async function stopSeries(
   });
 
   return plan;
+}
+
+// ── Extension ───────────────────────────────────────────────────────────────
+
+export class SeriesNotFoundError extends Error {
+  constructor(seriesId: string) { super(`Series ${seriesId} not found`); this.name = 'SeriesNotFoundError'; }
+}
+export class SeriesStoppedError extends Error {
+  constructor() { super('This series is stopped. Start a new series instead.'); this.name = 'SeriesStoppedError'; }
+}
+export class SeriesTemplateError extends Error {
+  constructor(seriesId: string) { super(`Series ${seriesId}: latest session has no bookable row to copy`); this.name = 'SeriesTemplateError'; }
+}
+
+export interface ExtendSeriesResult {
+  seriesId: string;
+  dates: string[];
+  endsDate: string;
+  /** false when the template session had no session_costs row — nothing is
+   *  invented; the response tells the admin. */
+  costsCopied: boolean;
+}
+
+/** Adds `weeks` more weekly sessions to the END of a series, copying the
+ *  template (venue, time, price, capacity, courts, costs) from the series'
+ *  LATEST session. Extension only — nothing existing is touched.
+ *
+ *  Everything runs inside one transaction that first takes a row lock on the
+ *  series: two admins extending at once would otherwise both read the same
+ *  last date and create duplicate weeks. The last date and the template are
+ *  read UNDER that lock, and dates are string maths from that value. */
+export async function extendSeries(
+  seriesId: string,
+  weeks: number,
+  actor: string | null,
+): Promise<ExtendSeriesResult> {
+  if (!Number.isInteger(weeks) || weeks < EXTEND_WEEKS_MIN || weeks > EXTEND_WEEKS_MAX) {
+    throw new Error(`weeks must be between ${EXTEND_WEEKS_MIN} and ${EXTEND_WEEKS_MAX}`);
+  }
+
+  return db.transaction(async (tx) => {
+    const lock = await tx.execute(sql`
+      SELECT id, stopped_at FROM session_series WHERE id = ${seriesId} FOR UPDATE`);
+    const series = (lock.rows as any[])[0];
+    if (!series) throw new SeriesNotFoundError(seriesId);
+    if (series.stopped_at) throw new SeriesStoppedError();
+
+    const tpl = await tx.execute(sql`
+      SELECT to_char(s.date, 'YYYY-MM-DD') AS last_date_iso,
+             s.venue_name, s.venue_location, s.venue_map_url, s.court_count,
+             bs.title, bs.description, bs.start_time, bs.end_time, bs.capacity, bs.price_aed,
+             (sc.id IS NOT NULL) AS has_costs,
+             sc.court_cost_fils, sc.shuttle_cost_fils, sc.water_cost_fils, sc.court_cost_overridden, sc.captain_id
+        FROM sessions s
+        LEFT JOIN bookable_sessions bs ON bs.linked_session_id = s.id
+        LEFT JOIN session_costs sc ON sc.session_id = bs.id
+       WHERE s.series_id = ${seriesId}
+       ORDER BY s.date DESC
+       LIMIT 1`);
+    const t = (tpl.rows as any[])[0];
+    if (!t || !t.title) throw new SeriesTemplateError(seriesId);
+
+    const template: SeriesWeekTemplate = {
+      createdBy: actor,
+      venueName: t.venue_name,
+      venueLocation: t.venue_location ?? null,
+      venueMapUrl: t.venue_map_url ?? null,
+      courtCount: Number(t.court_count),
+      title: t.title,
+      description: t.description ?? null,
+      startTime: t.start_time,
+      endTime: t.end_time,
+      capacity: Number(t.capacity),
+      priceAed: Number(t.price_aed),
+      costs: t.has_costs
+        ? {
+            courtCostFils: Number(t.court_cost_fils),
+            shuttleCostFils: Number(t.shuttle_cost_fils),
+            waterCostFils: Number(t.water_cost_fils),
+            courtCostOverridden: !!t.court_cost_overridden,
+            captainId: t.captain_id ?? null,
+          }
+        : null,
+    };
+
+    const dates = extensionDates(String(t.last_date_iso), weeks);
+    const generated = await insertSeriesWeeks(tx, seriesId, dates, template);
+    return {
+      seriesId,
+      dates: generated.map((w) => w.dateIso),
+      endsDate: dates[dates.length - 1],
+      costsCopied: template.costs !== null,
+    };
+  });
 }

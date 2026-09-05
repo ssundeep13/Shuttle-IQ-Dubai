@@ -19,8 +19,8 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import { sql, eq, inArray, and, desc, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireCaptain, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
-import { generateSeriesWeeks, listSeries, previewSeriesStop, stopSeries } from "./sessionSeries";
-import { SERIES_WEEKS_MIN, SERIES_WEEKS_MAX, SERIES_WEEKS_DEFAULT } from "@shared/utils/seriesDates";
+import { generateSeriesWeeks, listSeries, previewSeriesStop, stopSeries, extendSeries, SeriesStoppedError, SeriesNotFoundError } from "./sessionSeries";
+import { SERIES_WEEKS_MIN, SERIES_WEEKS_MAX, SERIES_WEEKS_DEFAULT, EXTEND_WEEKS_MIN, EXTEND_WEEKS_MAX } from "@shared/utils/seriesDates";
 import { verifyAccessToken } from "./auth/utils";
 import { 
   generateAccessToken, 
@@ -489,6 +489,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Series stop error:', error);
       res.status(500).json({ error: "Failed to stop series" });
+    }
+  });
+
+  // Adds N more weekly sessions to the END of a series (template = its latest
+  // session). Admin-only: deliberately NOT on the captain allow-list.
+  app.post("/api/sessions/series/:id/extend", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    const weeks = Number(req.body?.weeks);
+    if (!Number.isInteger(weeks) || weeks < EXTEND_WEEKS_MIN || weeks > EXTEND_WEEKS_MAX) {
+      // Range is EXTEND_WEEKS_MIN..MAX (1..8); spelled out so the admin reads a number.
+      return res.status(400).json({ error: "weeks must be a whole number between 1 and 8" });
+    }
+    try {
+      const r = await extendSeries(req.params.id, weeks, req.user?.userId ?? null);
+      console.log(`[SessionSeries] ${req.params.id} extended +${weeks} → ${r.dates.join(', ')} (costs ${r.costsCopied ? 'copied' : 'NOT copied — none on template'})`);
+      res.status(201).json({
+        seriesId: r.seriesId,
+        added: r.dates.length,
+        dates: r.dates,
+        endsDate: r.endsDate,
+        costsCopied: r.costsCopied,
+        note: r.costsCopied ? null : "costs not copied — none on template",
+      });
+    } catch (error) {
+      if (error instanceof SeriesStoppedError) {
+        return res.status(409).json({ error: "This series is stopped. Start a new series instead." });
+      }
+      if (error instanceof SeriesNotFoundError) {
+        return res.status(404).json({ error: "Series not found" });
+      }
+      console.error('Series extend error:', error);
+      res.status(500).json({ error: "Failed to extend series" });
     }
   });
 

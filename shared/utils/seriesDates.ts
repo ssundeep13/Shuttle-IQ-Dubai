@@ -82,3 +82,31 @@ export function repeatLabel(anchorIso: string): string {
 export function repeatCountLabel(anchorIso: string, weeksAhead: number): string {
   return `for the next ${weeksAhead} ${weekdayName(anchorIso)}s`;
 }
+
+// ── Extending an existing series ─────────────────────────────────────────────
+// Separate range from the wizard's: a series is created 4–8 weeks deep, but an
+// extension may add as little as one week.
+export const EXTEND_WEEKS_MIN = 1;
+export const EXTEND_WEEKS_MAX = 8;
+export const EXTEND_WEEKS_DEFAULT = 4;
+
+/** The dates an extension will CREATE: weeks 1..n after the series' current
+ *  LAST date (which already exists and is never included). Shared by the
+ *  server write path and the card preview so they cannot disagree. */
+export function extensionDates(lastIso: string, n: number): string[] {
+  if (!Number.isInteger(n) || n < EXTEND_WEEKS_MIN || n > EXTEND_WEEKS_MAX) {
+    throw new Error(`weeks must be an integer between ${EXTEND_WEEKS_MIN} and ${EXTEND_WEEKS_MAX}, got ${n}`);
+  }
+  const out: string[] = [];
+  for (let w = 1; w <= n; w++) out.push(addWeeksToISODate(lastIso, w));
+  return out;
+}
+
+/** The series card's second meta item: 'ends 21 Sep' from the LAST row's date,
+ *  or 'stopped 5 Sep' once the series is stopped. Both inputs are YYYY-MM-DD
+ *  strings computed server-side — never a JS Date on the client. */
+export function seriesEndLabel(endsIso: string | null, stoppedIso: string | null): string {
+  if (stoppedIso) return `stopped ${formatPreviewDate(stoppedIso)}`;
+  if (endsIso) return `ends ${formatPreviewDate(endsIso)}`;
+  return '';
+}
