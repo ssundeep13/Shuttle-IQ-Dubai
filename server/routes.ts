@@ -7,7 +7,7 @@ import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals, marketplaceUsers } from "@shared/schema";
 import { buildTagFeedEvents, buildCorrectionReplacements, insertFeedEvents, supersedeGameFeedEvents } from "./feedEvents";
-import { flipSettledWinnersForGame } from "./challenges";
+import { flipSettledWinnersForGame, supersedeChallengeCardsForGame } from "./challenges";
 import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
 import { mergePlayers, undoPlayerMerge, MergeError } from "./playerMerge";
 import { BLOG_UPLOADS_DIR } from "./uploadsRoot";
@@ -1014,7 +1014,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Player Challenges (C2): a winner flip re-points every challenge this
       // game settled. Self-guarded — never fails the correction.
       if (winnerChanged) {
-        await flipSettledWinnersForGame(gameId, newWinningTeam, participants.map(p => ({ playerId: p.playerId, team: p.team })));
+        const teams = participants.map(p => ({ playerId: p.playerId, team: p.team }));
+        await flipSettledWinnersForGame(gameId, newWinningTeam, teams);
+        // C3: the settled card is anchored to this game — supersede + corrected card.
+        await supersedeChallengeCardsForGame(gameId, { sessionId: existingGame.sessionId, newWinningTeam, team1Score, team2Score, participants: teams });
       }
 
       const tierChanged = correctionPlayers.some(p => p.newLevel !== p.prevLevel);

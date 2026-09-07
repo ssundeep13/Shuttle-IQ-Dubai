@@ -132,6 +132,35 @@ No challenge rows created; `challenges` count still 0.
 - `tests/challenges-settlement.test.ts` — 18 tests: singles settles; doubles opposite teams settles (winner = winning side); doubles same team does not; pending ignored; absent opponent ignored; several per game; flip pure cases; DB behaviour on a routing fake tx (savepoint taken, update payload, two notifications, sandbox = no savepoint/no reads/no writes, same-team = no writes, thrown update swallowed → `[]`); flip writes / no-op; wiring pins. RED (functions absent) → GREEN.
 - Bar: tsc 28 (baseline), full suite exit 0.
 
+### C2 — closed: commit `81e4085`, Railway deploy `7bd8bb58` SUCCESS, health 200 (2026-09-07 ~10:45 UTC)
+
+Live verification on production (`scripts/scratch/c2-sandbox-verify.mjs`, untracked; test data only):
+```
+pre: active sessions 0 | challenges rows 0
+created test players [ '9c7b405d', '9ddcbf8b' ]            (ZZ-CHALLENGE-TEST-C / -D, Beginner)
+sandbox session 90802ba3 { is_sandbox: true, status: 'active' }   court 23a059ed
+challenge created 0feaa026 pending TEST PLAYER → ZZ-SANDBOX-GOODWILL Tester | tiers Beginner / Beginner
+accepted: accepted respondedAt 2026-09-07T10:46:07.125Z
+/mine (challenger): active 1 outgoing 0
+assigned; court status occupied → end-game 200 (team 1 wins 21–15; challenge pair on opposite teams)
+AFTER sandbox score: challenge {"status":"accepted","game_result_id":null,"winner_player_id":null,"settled_at":null}
+  | feed rows for session 0 | challenge_settled notifications (10 min) 0
+SANDBOX RULE HOLDS
+teardown: session end → 200 {"deleted":true,"sandbox":true}; challenge rows deleted 1; test notifications deleted 2; test players deleted 2
+FINAL STATE: {"active":0,"zz_sessions":0,"challenges":0,"zz_players":0}
+```
+Non-sandbox path: **settlement verified by unit tests + sandbox negative test only; first real settlement to be observed on the next live session.** (No non-sandbox test venue/session flow exists in tests/ or scripts/, and a real-session game would publish real stats and feed rows.)
+
+### C3 — feed cards — built (2026-09-07)
+
+- `shared/utils/challengeCopy.ts` (new): `challengeAcceptedHeadline` → "Dev challenged Reena"; `challengeSettledHeadline` → "Dev beat Reena 21–17 · Challenge settled". One source for server headline + client card.
+- `server/feedEvents.ts`: `buildChallengeAcceptedEvent` (subject = challenger, dedupe `ca:<id>`, payload names + display tiers), `buildChallengeSettledEvent` (subject = winner, `gameResultId` set, dedupe `cs:<id>`; corrections `cs:<id>:corr:<winnerId>`), `feedEventHeadline` cases, type comment.
+- `server/challenges.ts`: `settleChallengesInTx` now takes `team1Score/team2Score` and inserts the settled card via `insertFeedEvents` in the SAME savepoint as the settlement write; `supersedeChallengeCardsForGame` (self-guarded) supersedes published `challenge_settled` cards for the game and inserts corrected cards. `server/storage.ts` passes the scores. `server/routes.ts` PATCH calls it after the winner flip.
+- `server/marketplace-routes.ts` accept route: emits the accepted card (guarded); decline emits nothing (pinned).
+- `client/src/pages/marketplace/CommunityFeed.tsx`: `ChallengeAcceptedCard` (headline navy, both players as name·tier tags in text-teal) and `ChallengeSettledCard` (headline navy, "Captain-verified score" in text-teal); flat white card, 1px border, Inter, max weight 800, no shadow/gradient/emoji, `LikeBar` on both. **Brand note:** the brief's `#003E8C` is banned as a literal by the Gate-2 brand pin under `pages/marketplace`; cards use the app's navy token `MKT.navy` (#002C84) and `MKT.tealText` (#006B5F).
+- Tests: `tests/challenges-feed.test.ts` (13: builders, copy, savepoint emission, sandbox no-card, correction supersede, wiring + client pins); C2 fake `tx.insert` extended to model drizzle's chain; `tests/feed-api.test.ts` LikeBar tripwire updated 2 → 4 with reason. RED (module absent) → GREEN; bar: tsc 28, full suite exit 0.
+- Likes on the new cards: the like route filters on `published` status only — no type filter (pinned).
+
 **Sandeep to review (standing):**
 - **Never run `npx drizzle-kit push` (or `npm run db:push`) against production with drizzle-kit 0.31.4 on PostgreSQL 18** — it would drop 310 NOT NULL constraints, the wallet floor CHECK and the queue/suggestion uniqueness guards. The script is now guarded.
 - `npm run check` (bare `tsc`) has 28 pre-existing errors on `railway-migration`; this build treats "pass" as "no new errors". Separate cleanup gate later.

@@ -55,7 +55,7 @@ import { db } from "./db";
 import { sql, eq, and, or, inArray, desc, asc, gt } from "drizzle-orm";
 import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, feedEventLikes, marketplaceUsers, walletTransactions, type BookableSession } from "@shared/schema";
 import { walletDisplayLabel } from "./walletDisplay";
-import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor, feedEventHeadline, assembleTagWall } from "./feedEvents";
+import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor, feedEventHeadline, assembleTagWall, insertFeedEvents, buildChallengeAcceptedEvent } from "./feedEvents";
 import {
   checkCreateGuards, countOpenOutgoing, findOpenForPair, createChallenge, expireStaleChallenges,
   getChallenge, respondToChallenge, toViews, listMine, statusFor,
@@ -1152,6 +1152,18 @@ export function registerMarketplaceRoutes(app: Express) {
       }
 
       const [view] = await toViews([updated], me);
+
+      // Feed card (C3). Guarded — a feed failure never fails the accept.
+      try {
+        await insertFeedEvents(db, [buildChallengeAcceptedEvent({
+          challengeId: view.id,
+          challenger: view.challenger,
+          challenged: view.challenged,
+        })]);
+      } catch (feedErr) {
+        console.error("[Challenges] accepted card failed (accept unaffected):", feedErr instanceof Error ? feedErr.message : feedErr);
+      }
+
       res.json(view);
     } catch (error) {
       console.error("Challenge accept error:", error);

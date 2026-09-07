@@ -9,6 +9,7 @@ import { Link } from 'wouter';
 import { Users, Heart, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { MKT, FF_BODY } from './LandingComponents';
+import { challengeAcceptedHeadline, challengeSettledHeadline } from '@shared/utils/challengeCopy';
 import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 
 // Spec: brightened teal is approved ONLY as accent on navy fills; brand teal
@@ -389,6 +390,66 @@ const MILESTONE_HEADLINES: Record<string, (name: string) => string> = {
   game_100: (n) => `${n} hit 100 games`,
 };
 
+// ── Player Challenges (C3) ──────────────────────────────────────────────────
+// Flat white cards, 1px border, no shadow. Headline in navy, the challenge
+// accent in text-teal, Inter throughout. Copy comes from the shared helper.
+function TierTag({ name, tier }: { name: string; tier: string }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 999,
+        border: `1px solid ${CARD_BORDER}`, fontFamily: FF_BODY, fontSize: 12, color: MKT.ink,
+      }}
+    >
+      <span style={{ fontWeight: 700 }}>{name}</span>
+      <span style={{ color: MKT.tealText, fontWeight: 600 }}>{tier}</span>
+    </span>
+  );
+}
+
+function ChallengeAcceptedCard({ ev }: { ev: FeedEventDto }) {
+  const p = ev.payload;
+  return (
+    <div style={whiteCard} data-testid="feed-card-challenge-accepted">
+      <div className="flex items-center gap-3">
+        <AvatarCircle name={p.challengerName} size={44} bg={MKT.navy} fg={MKT.cream} />
+        <div className="flex-1 min-w-0">
+          <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 15, color: MKT.navy, lineHeight: 1.35 }}>
+            {challengeAcceptedHeadline(p as { challengerName: string; challengedName: string })}
+          </p>
+          <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(ev, 'challenge accepted')}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
+        <TierTag name={p.challengerName} tier={p.challengerTier} />
+        <TierTag name={p.challengedName} tier={p.challengedTier} />
+      </div>
+      <LikeBar ev={ev} />
+    </div>
+  );
+}
+
+function ChallengeSettledCard({ ev }: { ev: FeedEventDto }) {
+  const p = ev.payload;
+  return (
+    <div style={whiteCard} data-testid="feed-card-challenge-settled">
+      <div className="flex items-center gap-3">
+        <AvatarCircle name={p.winnerName} size={44} bg={MKT.navy} fg={MKT.cream} />
+        <div className="flex-1 min-w-0">
+          <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 15, color: MKT.navy, lineHeight: 1.35 }}>
+            {challengeSettledHeadline(p as { winnerName: string; loserName: string; winnerScore: number; loserScore: number })}
+          </p>
+          <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(ev)}</p>
+        </div>
+      </div>
+      <p style={{ margin: 0, marginTop: 8, fontFamily: FF_BODY, fontSize: 12, fontWeight: 700, color: MKT.tealText }}>
+        Captain-verified score
+      </p>
+      <LikeBar ev={ev} />
+    </div>
+  );
+}
+
 function FeedEventCard({ ev }: { ev: FeedItem }) {
   if (ev.type === 'tag_received_group') return <GroupedTagCard g={ev as TagGroupDto} />;
   if (ev.type === 'tag_overflow') return <OverflowCard o={ev as TagOverflowDto} />;
@@ -399,6 +460,10 @@ function FeedEventCard({ ev }: { ev: FeedItem }) {
       return <PromotionCard ev={evd} />;
     case 'tag_received':
       return <TagCard ev={evd} />;
+    case 'challenge_accepted':
+      return <ChallengeAcceptedCard ev={evd} />;
+    case 'challenge_settled':
+      return <ChallengeSettledCard ev={evd} />;
     case 'milestone': {
       const headline = (MILESTONE_HEADLINES[p.milestone] ?? ((n: string) => `${n} hit a milestone`))(p.playerName);
       return <CompactCard ev={evd} name={p.playerName} headline={headline} meta={metaLine(evd)} testid="feed-card-milestone" />;

@@ -5513,6 +5513,8 @@ export class DatabaseStorage implements IStorage {
         gameResultId: gameId,
         sessionId: args.sessionId,
         isSandbox: args.isSandboxSession,
+        team1Score: args.team1Score,
+        team2Score: args.team2Score,
         perPlayer: computed.map(c => ({ playerId: c.playerId, team: c.team, isWinner: c.team === args.winningTeam })),
       });
       // Feed events (Gate F2). Savepoint-guarded inside — a feed failure can

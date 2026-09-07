@@ -11,8 +11,8 @@
 import { randomUUID } from "crypto";
 import { sql, eq, and, or, inArray, desc, lte } from "drizzle-orm";
 import { db } from "./db";
-import { challenges, players, marketplaceUsers, marketplaceNotifications, type Challenge } from "@shared/schema";
-import { TIER_ORDER } from "./feedEvents";
+import { challenges, players, marketplaceUsers, marketplaceNotifications, feedEvents, type Challenge } from "@shared/schema";
+import { TIER_ORDER, insertFeedEvents, buildChallengeSettledEvent } from "./feedEvents";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
 
 export { TIER_ORDER };
@@ -276,7 +276,7 @@ export interface SettledChallenge {
  *  fail score entry. Sandbox games settle nothing. Returns what settled. */
 export async function settleChallengesInTx(
   tx: Tx,
-  input: { gameResultId: string; sessionId: string; isSandbox: boolean; perPlayer: SettleParticipant[] },
+  input: { gameResultId: string; sessionId: string; isSandbox: boolean; perPlayer: SettleParticipant[]; team1Score?: number; team2Score?: number },
 ): Promise<SettledChallenge[]> {
   if (input.isSandbox) return [];
   try {
@@ -285,6 +285,8 @@ export async function settleChallengesInTx(
       const open = await findOpenChallengeForPlayers(ids, stx, ['accepted']);
       const picks = pickSettlements(open, input.perPlayer);
       if (picks.length === 0) return [];
+      const teamOf = new Map(input.perPlayer.map((p) => [p.playerId, p.team]));
+      const scoreOfTeam = (team: number | undefined) => (team === 1 ? input.team1Score : team === 2 ? input.team2Score : undefined) ?? 0;
 
       const nameRows = await stx.select({ id: players.id, name: players.name }).from(players).where(inArray(players.id, ids));
       const names = new Map(nameRows.map((r) => [r.id, r.name]));
@@ -326,12 +328,71 @@ export async function settleChallengesInTx(
             message: `${winnerName} beat ${loserName} — challenge settled`,
           });
         }
+        // Feed card (C3), in the SAME savepoint as the settlement write.
+        await insertFeedEvents(stx, [buildChallengeSettledEvent({
+          challengeId: row.id,
+          gameResultId: input.gameResultId,
+          sessionId: input.sessionId,
+          winner: { id: pick.winnerPlayerId, name: winnerName },
+          loser: { id: pick.loserPlayerId, name: loserName },
+          score: { winner: scoreOfTeam(teamOf.get(pick.winnerPlayerId)), loser: scoreOfTeam(teamOf.get(pick.loserPlayerId)) },
+        })]);
       }
       return settled;
     });
   } catch (err) {
     console.error('[Challenges] settlement failed (score entry unaffected):', err instanceof Error ? err.message : err);
     return [];
+  }
+}
+
+/** Score-edit path (C3): the settled card is anchored to the game, so after a
+ *  winner flip we supersede every published challenge_settled card for that
+ *  game and insert a corrected card (its own dedupe key) per settled
+ *  challenge. Self-guarded — never fails the correction. Returns the count. */
+export async function supersedeChallengeCardsForGame(
+  gameResultId: string,
+  input: { sessionId: string; newWinningTeam: number; team1Score: number; team2Score: number; participants: Array<{ playerId: string; team: number }> },
+): Promise<number> {
+  try {
+    return await db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(challenges)
+        .where(and(eq(challenges.gameResultId, gameResultId), eq(challenges.status, 'settled')));
+      if (rows.length === 0) return 0;
+      const ids = rows.flatMap((r) => [r.challengerPlayerId, r.challengedPlayerId]);
+      const nameRows = await tx.select({ id: players.id, name: players.name }).from(players).where(inArray(players.id, ids));
+      const names = new Map(nameRows.map((r) => [r.id, r.name]));
+      const teamOf = new Map(input.participants.map((p) => [p.playerId, p.team]));
+      const scoreOfTeam = (team: number | undefined) => (team === 1 ? input.team1Score : team === 2 ? input.team2Score : 0);
+
+      const marker = randomUUID();
+      await tx
+        .update(feedEvents)
+        .set({ status: 'superseded', supersededByEventId: marker })
+        .where(and(eq(feedEvents.gameResultId, gameResultId), eq(feedEvents.type, 'challenge_settled'), eq(feedEvents.status, 'published')));
+
+      let n = 0;
+      for (const c of rows) {
+        const winnerId = c.winnerPlayerId ?? (teamOf.get(c.challengerPlayerId) === input.newWinningTeam ? c.challengerPlayerId : c.challengedPlayerId);
+        const loserId = winnerId === c.challengerPlayerId ? c.challengedPlayerId : c.challengerPlayerId;
+        await insertFeedEvents(tx, [buildChallengeSettledEvent({
+          challengeId: c.id,
+          gameResultId,
+          sessionId: input.sessionId,
+          winner: { id: winnerId, name: names.get(winnerId) ?? 'Player' },
+          loser: { id: loserId, name: names.get(loserId) ?? 'Player' },
+          score: { winner: scoreOfTeam(teamOf.get(winnerId)), loser: scoreOfTeam(teamOf.get(loserId)) },
+          correction: true,
+        })]);
+        n++;
+      }
+      return n;
+    });
+  } catch (err) {
+    console.error('[Challenges] card supersede failed (correction unaffected):', err instanceof Error ? err.message : err);
+    return 0;
   }
 }
 

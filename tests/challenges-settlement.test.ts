@@ -117,8 +117,18 @@ function makeTx() {
         }),
       }),
     }),
+    // Models drizzle's insert chain: `.values()` is awaitable directly (the
+    // notification inserts) AND supports `.onConflictDoNothing().returning()`
+    // (insertFeedEvents, C3). Rows are recorded when the chain resolves.
     insert: (t: any) => ({
-      values: async (v: any) => { fake.writes.push({ op: 'insert', table: t[Symbol.for('drizzle:Name')], values: v }); },
+      values: (v: any) => {
+        const rows = Array.isArray(v) ? v : [v];
+        const done = async () => {
+          for (const r of rows) fake.writes.push({ op: 'insert', table: t[Symbol.for('drizzle:Name')], values: r });
+          return rows.map((r: any) => ({ id: r.id ?? 'evt', type: r.type, subjectPlayerId: r.subjectPlayerId ?? null }));
+        };
+        return { onConflictDoNothing: () => ({ returning: done }), returning: done, then: (res: any, rej: any) => done().then(res, rej) };
+      },
     }),
   };
   const tx: any = {

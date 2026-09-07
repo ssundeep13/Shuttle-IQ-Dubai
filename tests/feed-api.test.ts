@@ -384,8 +384,9 @@ describe('LikeBar UI (tripwires)', () => {
     expect(feed.includes('aria-pressed')).toBe(true);
   });
 
-  it('all three card types carry the LikeBar; navy card uses the onNavy variant', () => {
-    expect((feed.match(/<LikeBar ev=\{ev\} \/>/g) ?? []).length).toBe(2); // TagCard + CompactCard
+  it('every card type carries the LikeBar; navy card uses the onNavy variant', () => {
+    // TagCard + CompactCard + (Challenges C3) ChallengeAcceptedCard + ChallengeSettledCard
+    expect((feed.match(/<LikeBar ev=\{ev\} \/>/g) ?? []).length).toBe(4);
     expect(feed.includes('<LikeBar ev={ev} onNavy />')).toBe(true); // PromotionCard
   });
 });

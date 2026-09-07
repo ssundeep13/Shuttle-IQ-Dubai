@@ -9,6 +9,7 @@ import { sql, eq, and, inArray, ne } from "drizzle-orm";
 import { db } from "./db";
 import { feedEvents } from "@shared/schema";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
+import { challengeAcceptedHeadline, challengeSettledHeadline } from "@shared/utils/challengeCopy";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -317,8 +318,62 @@ export function feedEventHeadline(type: string, payload: Record<string, any>): s
     case "milestone": return `${payload.playerName}'s milestone`;
     case "win_streak": return `${payload.playerName}'s ${payload.streak}-win streak`;
     case "leaderboard_move": return `${payload.playerName}'s leaderboard climb`;
+    case "challenge_accepted": return challengeAcceptedHeadline(payload as any);
+    case "challenge_settled": return challengeSettledHeadline(payload as any);
     default: return "your post";
   }
+}
+
+// ── Player Challenges (C3) — types 'challenge_accepted' | 'challenge_settled' ──
+// Accepted: subject = challenger, no game anchor (nothing supersedes it).
+// Settled: subject = winner, anchored to the game so a score edit supersedes
+// it; a correction gets its own dedupe key so the replacement can land.
+export function buildChallengeAcceptedEvent(input: {
+  challengeId: string;
+  challenger: { id: string; name: string; tier: string };
+  challenged: { id: string; name: string; tier: string };
+}): FeedEventInsert {
+  return {
+    type: "challenge_accepted",
+    subjectPlayerId: input.challenger.id,
+    gameResultId: null,
+    sessionId: null,
+    relatedTagId: null,
+    dedupeKey: `ca:${input.challengeId}`,
+    payload: {
+      challengeId: input.challengeId,
+      challengerName: input.challenger.name,
+      challengedName: input.challenged.name,
+      challengerTier: input.challenger.tier,
+      challengedTier: input.challenged.tier,
+    },
+  };
+}
+
+export function buildChallengeSettledEvent(input: {
+  challengeId: string;
+  gameResultId: string;
+  sessionId: string;
+  winner: { id: string; name: string };
+  loser: { id: string; name: string };
+  score: { winner: number; loser: number };
+  correction?: boolean;
+}): FeedEventInsert {
+  return {
+    type: "challenge_settled",
+    subjectPlayerId: input.winner.id,
+    gameResultId: input.gameResultId,
+    sessionId: input.sessionId,
+    relatedTagId: null,
+    dedupeKey: input.correction ? `cs:${input.challengeId}:corr:${input.winner.id}` : `cs:${input.challengeId}`,
+    payload: {
+      challengeId: input.challengeId,
+      winnerName: input.winner.name,
+      loserName: input.loser.name,
+      winnerScore: input.score.winner,
+      loserScore: input.score.loser,
+    },
+  };
 }
 
 // Correction (winner flip / tier change): replacement tier_promotion events.
