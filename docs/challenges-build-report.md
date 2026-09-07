@@ -208,6 +208,53 @@ Playwright: not installed in the project (`require('playwright')` fails; only an
 - Player-facing: `PlayingScreen` shows "Challenge match · vs <name>" when one of the player's active challenges is against an opponent on court; `SessionDone` lists "Challenge settled — X beat Y" for challenges settled in the last 3 hours.
 - Tests: `tests/challenges-captain.test.tsx` — 22 tests (pure helpers incl. tooltip dates; real jsdom `CourtCard` renders for both labels and both negatives; server/route/storage/middleware pins; client wiring pins; no-emoji). RED (module absent; captain pin 33≠34) → GREEN; tsc 28; full suite exit 0.
 
+### C5 — closed: commit `d3eaa08`, Railway deploy `4e98a077` SUCCESS, health 200 (2026-09-07 ~11:15 UTC)
+
+Live verification (`scripts/scratch/c5-captain-verify.mjs`; sandbox session + DRAFT bookable row + the two test accounts booked and checked in + two throwaway test players):
+```
+check-in 502fbdec → 200 {"added":true}   check-in 11e314ea → 200 {"added":true}
+challenge 50f4bc91 accepted
+GET /api/sessions/<ops id>/challenges      (admin)        → 200 [{"status":"accepted","aName":"TEST PLAYER","bName":"ZZ-SANDBOX-GOODWILL Tester",…}]
+GET /api/sessions/<bookable id>/challenges (admin)        → 200 (same pair)
+GET /api/sessions/<ops id>/challenges      (CAPTAIN role) → 200 (same pair)      player token → 403
+header count would be: open challenges = 1
+assign → 200 (pair on opposite teams) → end-game → 200 | settledChallenges in reply: []   (sandbox: nothing settles)
+challenge after sandbox score: {"status":"accepted","game_result_id":null}
+teardown: session end → {"deleted":true,"sandbox":true}; bookable/bookings/challenge/test players/notifications removed
+FINAL STATE: {"active":0,"zz_sessions":0,"zz_bookable":0,"challenges":0,"zz_players":0,"cards":0}
+```
+DOM assertion of the "vs" tag / header count was not possible (Playwright not installed — see C4); the row tag and header count are rendered from the same endpoint payload above and are pinned at source; `CourtCard` labels are rendered for real in jsdom.
+
+---
+
+## FINAL — 2026-09-07
+
+**Gates completed: C1, C2, C3, C4, C5 — all deployed and live-verified.** Gates skipped: none.
+
+| Gate | Commit | Railway deploy | Live evidence |
+|---|---|---|---|
+| C1 table + endpoints | `ff67c44` | `3b83a424` | `/mine` 200 with empty sets; status 200 `canChallenge:true` vs the other test account; unauth 401; self → "This is you" |
+| C2 settlement | `81e4085` | `7bd8bb58` | sandbox: accepted challenge + score entry → still accepted, no feed rows, no settled notifications; 1040/1040 |
+| C3 feed cards | `acec5d8` | `54f81c88` | `challenge_accepted` card in the feed API with display tiers; like → 1 / unlike → 0; row `published`, `ca:<id>`, no game anchor |
+| C4 player UI | `075a7b1` | `0c455539` | status → create → both `/mine` → `challenge_received` → accept → active both sides → feed card → pair rule 409 |
+| C5 captain view | `d3eaa08` | `4e98a077` | endpoint via ops/bookable id, admin + captain roles, player 403; reply `settledChallenges: []` in sandbox |
+
+Also on the branch before C1: the six `_key → _unique` constraint renames (approved), the one-shot `challenges_table_v1` migration, and the `db:push` guard.
+
+**Test-data teardown — confirmed.** Every verification script deleted what it created and printed its final state; the last one: `{"active":0,"zz_sessions":0,"zz_bookable":0,"challenges":0,"zz_players":0,"cards":0}`. Zero active sandbox sessions. The two pre-existing `ZZ-SANDBOX-GOODWILL` ended sessions (17 Aug fixtures) were never touched. Test accounts used: TEST PLAYER (SIQ-00345) and ZZ-SANDBOX-GOODWILL Tester only; no real player was written to at any point.
+
+**Untracked helper scripts left on disk (never staged):** `scripts/scratch/{mint-mp-token,mint-admin-token,c2-sandbox-verify,c3-feed-verify,c4-mine-verify,c4-browser,c5-captain-verify,tz-probe}.mjs`. Safe to delete; `c4-browser.mjs` needs Playwright, which is not installed.
+
+**Sandeep to review or decide:**
+- **drizzle-kit upgrade gate** (PG18-aware release) — re-preview with `push --strict --verbose`, stdin closed, and lift the `db:push` guard only when the plan is empty. Until then, all schema changes go through `scripts/one-shot/*.mts`.
+- **`npm run check` has 28 pre-existing tsc errors** — this build held the count at 28; separate cleanup gate.
+- **Captain allow-list is now 34** (`GET /api/sessions/:id/challenges`, read-only) — confirm you're happy with captains seeing challenge pairings.
+- **Brand:** feed cards use the app's navy token `#002C84` (the brief's `#003E8C` literal is banned under `pages/marketplace` by the Gate-2 pin) and `MKT.tealText` `#006B5F`.
+- **Placement:** settlement was wired inside `storage.completeGameTransaction` (where the transaction lives), not `routes.ts` as the brief named — same tx, before the feed emitter.
+- **First real settlement and the `challenge_settled` feed card are still to be observed on the next live session** (only sandbox negatives could be run without touching real players). Watch a session with an accepted challenge between two booked players on opposite teams.
+- **Score-edit path** (`PATCH /api/game-results/:id`): winner flip + card supersede are unit-tested and pinned, not exercised live.
+- Playwright is not in the project; DOM walkthroughs for C3–C5 UI were replaced by jsdom renders + API evidence. Installing it (a download + lockfile change) is your call.
+
 **Sandeep to review (standing):**
 - **Never run `npx drizzle-kit push` (or `npm run db:push`) against production with drizzle-kit 0.31.4 on PostgreSQL 18** — it would drop 310 NOT NULL constraints, the wallet floor CHECK and the queue/suggestion uniqueness guards. The script is now guarded.
 - `npm run check` (bare `tsc`) has 28 pre-existing errors on `railway-migration`; this build treats "pass" as "no new errors". Separate cleanup gate later.
