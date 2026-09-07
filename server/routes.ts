@@ -7,6 +7,7 @@ import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals, marketplaceUsers } from "@shared/schema";
 import { buildTagFeedEvents, buildCorrectionReplacements, insertFeedEvents, supersedeGameFeedEvents } from "./feedEvents";
+import { flipSettledWinnersForGame } from "./challenges";
 import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
 import { mergePlayers, undoPlayerMerge, MergeError } from "./playerMerge";
 import { BLOG_UPLOADS_DIR } from "./uploadsRoot";
@@ -1010,6 +1011,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // a tier outcome supersedes this game's published events and emits
       // replacements. supersedeGameFeedEvents is self-guarded — a feed
       // failure never fails the correction.
+      // Player Challenges (C2): a winner flip re-points every challenge this
+      // game settled. Self-guarded — never fails the correction.
+      if (winnerChanged) {
+        await flipSettledWinnersForGame(gameId, newWinningTeam, participants.map(p => ({ playerId: p.playerId, team: p.team })));
+      }
+
       const tierChanged = correctionPlayers.some(p => p.newLevel !== p.prevLevel);
       if (winnerChanged || tierChanged) {
         await supersedeGameFeedEvents(gameId, buildCorrectionReplacements({

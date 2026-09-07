@@ -104,6 +104,7 @@ import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, ne,
 import { randomUUID } from "crypto";
 import { clearSessionRestStates } from "./matchmaking";
 import { emitGameFeedEventsInTx } from "./feedEvents";
+import { settleChallengesInTx } from "./challenges";
 
 // Helper function to add computed SKID to player object
 function addSkidToPlayer(player: typeof players.$inferSelect): Player {
@@ -5506,6 +5507,14 @@ export class DatabaseStorage implements IStorage {
         }
       }
 
+      // Player Challenges (C2). Savepoint-guarded inside — a settlement
+      // failure can never roll back the score entry above. Sandbox: no-op.
+      await settleChallengesInTx(tx, {
+        gameResultId: gameId,
+        sessionId: args.sessionId,
+        isSandbox: args.isSandboxSession,
+        perPlayer: computed.map(c => ({ playerId: c.playerId, team: c.team, isWinner: c.team === args.winningTeam })),
+      });
       // Feed events (Gate F2). Savepoint-guarded inside — a feed failure can
       // never roll back the score entry above. Sandbox sessions emit nothing.
       await emitGameFeedEventsInTx(tx, {

@@ -11,7 +11,7 @@
 import { randomUUID } from "crypto";
 import { sql, eq, and, or, inArray, desc, lte } from "drizzle-orm";
 import { db } from "./db";
-import { challenges, players, type Challenge } from "@shared/schema";
+import { challenges, players, marketplaceUsers, marketplaceNotifications, type Challenge } from "@shared/schema";
 import { TIER_ORDER } from "./feedEvents";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
 
@@ -217,6 +217,150 @@ export interface StatusView {
   canChallenge: boolean;
   reason?: string;
   existing?: { id: string; status: string; direction: Direction };
+}
+
+// ── Settlement (C2) ─────────────────────────────────────────────────────────
+// A game settles every ACCEPTED challenge whose two players stood on OPPOSITE
+// teams; the winner is whichever of them was on the winning side. Same team
+// = not this game. The decision is pure; the write is savepoint-guarded.
+
+export interface SettleParticipant { playerId: string; team: number; isWinner: boolean }
+export interface SettlementPick { challengeId: string; winnerPlayerId: string; loserPlayerId: string }
+
+export function pickSettlements(
+  open: Array<{ id: string; challengerPlayerId: string; challengedPlayerId: string; status: string }>,
+  perPlayer: SettleParticipant[],
+): SettlementPick[] {
+  const byId = new Map(perPlayer.map((p) => [p.playerId, p]));
+  const out: SettlementPick[] = [];
+  for (const c of open) {
+    if (c.status !== 'accepted') continue;
+    const a = byId.get(c.challengerPlayerId);
+    const b = byId.get(c.challengedPlayerId);
+    if (!a || !b || a.team === b.team) continue;
+    const winner = a.isWinner ? a : b.isWinner ? b : null;
+    if (!winner) continue;
+    const loser = winner === a ? b : a;
+    out.push({ challengeId: c.id, winnerPlayerId: winner.playerId, loserPlayerId: loser.playerId });
+  }
+  return out;
+}
+
+/** After a score edit: the settled winner under the NEW winning team, or null
+ *  when nothing changes (or the pair isn't on opposite teams of this game). */
+export function flipWinnerFor(
+  c: { challengerPlayerId: string; challengedPlayerId: string; winnerPlayerId: string | null },
+  newWinningTeam: number,
+  teamOf: Map<string, number>,
+): string | null {
+  const ta = teamOf.get(c.challengerPlayerId);
+  const tb = teamOf.get(c.challengedPlayerId);
+  if (ta === undefined || tb === undefined || ta === tb) return null;
+  const newWinner = ta === newWinningTeam ? c.challengerPlayerId : tb === newWinningTeam ? c.challengedPlayerId : null;
+  if (!newWinner || newWinner === c.winnerPlayerId) return null;
+  return newWinner;
+}
+
+export interface SettledChallenge {
+  id: string;
+  challengerPlayerId: string;
+  challengedPlayerId: string;
+  winnerPlayerId: string;
+  loserPlayerId: string;
+  winnerName: string;
+  loserName: string;
+}
+
+/** Runs inside the score-entry transaction, in its OWN savepoint with its own
+ *  try/catch (exactly like emitGameFeedEventsInTx): a failure here can never
+ *  fail score entry. Sandbox games settle nothing. Returns what settled. */
+export async function settleChallengesInTx(
+  tx: Tx,
+  input: { gameResultId: string; sessionId: string; isSandbox: boolean; perPlayer: SettleParticipant[] },
+): Promise<SettledChallenge[]> {
+  if (input.isSandbox) return [];
+  try {
+    return await tx.transaction(async (stx) => {
+      const ids = input.perPlayer.map((p) => p.playerId);
+      const open = await findOpenChallengeForPlayers(ids, stx, ['accepted']);
+      const picks = pickSettlements(open, input.perPlayer);
+      if (picks.length === 0) return [];
+
+      const nameRows = await stx.select({ id: players.id, name: players.name }).from(players).where(inArray(players.id, ids));
+      const names = new Map(nameRows.map((r) => [r.id, r.name]));
+      const userRows = await stx
+        .select({ id: marketplaceUsers.id, linkedPlayerId: marketplaceUsers.linkedPlayerId })
+        .from(marketplaceUsers)
+        .where(inArray(marketplaceUsers.linkedPlayerId, ids));
+      const userByPlayer = new Map(userRows.map((u) => [u.linkedPlayerId, u.id]));
+
+      const now = new Date();
+      const settled: SettledChallenge[] = [];
+      for (const pick of picks) {
+        // Guarded: only an accepted row settles, so a retried score entry can't re-settle.
+        const [row] = await stx
+          .update(challenges)
+          .set({ status: 'settled', gameResultId: input.gameResultId, winnerPlayerId: pick.winnerPlayerId, settledAt: now })
+          .where(and(eq(challenges.id, pick.challengeId), eq(challenges.status, 'accepted')))
+          .returning();
+        if (!row) continue;
+        const winnerName = names.get(pick.winnerPlayerId) ?? 'Player';
+        const loserName = names.get(pick.loserPlayerId) ?? 'Player';
+        settled.push({
+          id: row.id,
+          challengerPlayerId: row.challengerPlayerId,
+          challengedPlayerId: row.challengedPlayerId,
+          winnerPlayerId: pick.winnerPlayerId,
+          loserPlayerId: pick.loserPlayerId,
+          winnerName,
+          loserName,
+        });
+        for (const pid of [pick.winnerPlayerId, pick.loserPlayerId]) {
+          const userId = userByPlayer.get(pid);
+          if (!userId) continue;
+          await stx.insert(marketplaceNotifications).values({
+            id: randomUUID(),
+            userId,
+            type: 'challenge_settled',
+            title: 'Challenge settled',
+            message: `${winnerName} beat ${loserName} — challenge settled`,
+          });
+        }
+      }
+      return settled;
+    });
+  } catch (err) {
+    console.error('[Challenges] settlement failed (score entry unaffected):', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+/** Score-edit path: re-point the winner of every challenge settled by this
+ *  game when the winning team changed. Self-guarded; returns how many flipped. */
+export async function flipSettledWinnersForGame(
+  gameResultId: string,
+  newWinningTeam: number,
+  participants: Array<{ playerId: string; team: number }>,
+  dbh: DbOrTx = db,
+): Promise<number> {
+  try {
+    const rows = await dbh
+      .select()
+      .from(challenges)
+      .where(and(eq(challenges.gameResultId, gameResultId), eq(challenges.status, 'settled')));
+    const teamOf = new Map(participants.map((p) => [p.playerId, p.team]));
+    let flipped = 0;
+    for (const c of rows) {
+      const newWinner = flipWinnerFor(c, newWinningTeam, teamOf);
+      if (!newWinner) continue;
+      const [u] = await dbh.update(challenges).set({ winnerPlayerId: newWinner }).where(eq(challenges.id, c.id)).returning();
+      if (u) flipped++;
+    }
+    return flipped;
+  } catch (err) {
+    console.error('[Challenges] winner flip failed (correction unaffected):', err instanceof Error ? err.message : err);
+    return 0;
+  }
 }
 
 /** Whether `viewer` may challenge `target` right now, and why not. */

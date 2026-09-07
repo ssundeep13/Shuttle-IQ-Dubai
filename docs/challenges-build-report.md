@@ -109,7 +109,28 @@ Nothing was applied. This is not a naming drift that renames can fix: `drizzle-k
 **Sandeep to decide:**
 - **drizzle-kit upgrade gate** — pick a PG17+/18-aware drizzle-kit release, re-run `push --strict --verbose` with stdin closed, and lift the `db:push` guard only if the plan is empty (or exactly the intended change).
 - `npm run check` has 28 pre-existing tsc errors — separate cleanup gate.
-- Naive-timestamp convention: rows written by scripts run from the Dubai workstation may carry Dubai wall time where Railway writes UTC (see the timezone check recorded below) — worth a `TZ=UTC` rule for all local scripts.
+- (Withdrawn after a direct probe: the app pool's session TimeZone is `Etc/UTC` and `ran_at` equals `now()`, so local scripts write naive UTC exactly like Railway. The only trap remains the read side — node-pg parses naive timestamps as local time on a UTC+4 machine — and, separately, this workstation's Git Bash `date` ignores `TZ=Asia/Dubai`, so wall-clock stamps in this report derived from `date` are UTC; add 4 h for Dubai.)
+
+### C1 — closed: commit `ff67c44`, Railway deploy `3b83a424` SUCCESS, health 200 (2026-09-07 ~10:45 UTC)
+
+Files in the commit: shared/schema.ts, server/feedEvents.ts, server/challenges.ts, server/marketplace-routes.ts, tests/challenges.test.ts, scripts/one-shot/2026-09-05-challenges-table.mts, package.json, drizzle.config.ts, docs/challenges-build-report.md. Pre-commit bar: tsc 28 (baseline, no new), full suite 1040/1040 exit 0.
+
+Live smoke with a bearer minted for the TEST PLAYER account (shuttleiqdubai@gmail.com, player `b23351aa…`, SIQ-00345):
+```
+GET /api/marketplace/challenges/mine                     → 200 {"incoming":[],"outgoing":[],"active":[],"settled":[]}
+GET /api/marketplace/challenges/status/e26b3e7d…         → 200 {"canChallenge":true}      (ZZ-SANDBOX Tester, Beginner vs Beginner)
+GET /api/marketplace/challenges/mine   (no bearer)       → 401
+GET /api/marketplace/challenges/status/b23351aa… (self)  → 200 {"canChallenge":false,"reason":"This is you"}
+```
+No challenge rows created; `challenges` count still 0.
+
+### C2 — settlement (score path + edit path) — built (2026-09-07)
+
+- `server/challenges.ts`: `pickSettlements` (pure: accepted + both in game + opposite teams → winner = the winning side; same team = untouched), `flipWinnerFor` (pure), `settleChallengesInTx(tx, {gameResultId, sessionId, isSandbox, perPlayer})` — sandbox returns `[]` before any read; otherwise runs in its own savepoint (`tx.transaction`) with its own try/catch exactly like `emitGameFeedEventsInTx`, guarded `accepted → settled` update (a retried score entry can't re-settle), and `challenge_settled` notifications to both players ("<winner> beat <loser> — challenge settled"); `flipSettledWinnersForGame` (self-guarded) for the edit path. No `storage` import (cycle guard, pinned).
+- **Placement note:** the brief names `server/routes.ts` end-game path, but the transaction lives in `storage.completeGameTransaction`; the call is inserted there, in the SAME `tx`, immediately before `emitGameFeedEventsInTx` and after participants + player updates are written. No rating math or side-effect ordering changed (pinned: settle precedes feed within 900 chars).
+- `server/routes.ts` `PATCH /api/game-results/:id`: `if (winnerChanged) flipSettledWinnersForGame(gameId, newWinningTeam, participants)` before the existing feed supersede. (C3 will supersede the settled feed card here.)
+- `tests/challenges-settlement.test.ts` — 18 tests: singles settles; doubles opposite teams settles (winner = winning side); doubles same team does not; pending ignored; absent opponent ignored; several per game; flip pure cases; DB behaviour on a routing fake tx (savepoint taken, update payload, two notifications, sandbox = no savepoint/no reads/no writes, same-team = no writes, thrown update swallowed → `[]`); flip writes / no-op; wiring pins. RED (functions absent) → GREEN.
+- Bar: tsc 28 (baseline), full suite exit 0.
 
 **Sandeep to review (standing):**
 - **Never run `npx drizzle-kit push` (or `npm run db:push`) against production with drizzle-kit 0.31.4 on PostgreSQL 18** — it would drop 310 NOT NULL constraints, the wallet floor CHECK and the queue/suggestion uniqueness guards. The script is now guarded.
