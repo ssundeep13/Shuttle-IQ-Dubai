@@ -259,3 +259,40 @@ Also on the branch before C1: the six `_key → _unique` constraint renames (app
 - **Never run `npx drizzle-kit push` (or `npm run db:push`) against production with drizzle-kit 0.31.4 on PostgreSQL 18** — it would drop 310 NOT NULL constraints, the wallet floor CHECK and the queue/suggestion uniqueness guards. The script is now guarded.
 - `npm run check` (bare `tsc`) has 28 pre-existing errors on `railway-migration`; this build treats "pass" as "no new errors". Separate cleanup gate later.
 - The `_key` vs `_unique` naming drift means `drizzle-kit push` has been unusable without manual intervention since these tables were created outside drizzle's naming; the batch above fixes that for good.
+
+## C4.1 — head-to-head panel replaces the Challenge button — 2026-09-07
+
+**Commit `5d80415` "Challenges C4.1: head-to-head panel" → Railway deploy `6218d60d` SUCCESS (16:08 Dubai), health 200.** No schema change was needed (none made; `drizzle-kit push` untouched).
+
+**Built**
+- `server/headToHead.ts` (new): `loadHeadToHeadRows` — one SQL statement joining `game_participants` twice on `game_id` (`me.player_id = $1`, `them.player_id = $2`), `game_results`, `sessions`, with `(s.is_sandbox = false OR s.is_sandbox IS NULL)` and `ORDER BY gr.created_at DESC`; `aggregateHeadToHead` — pure: keeps opposite-team games only (partners excluded), drops any sandbox row a second time, `last` = newest meeting with scores oriented to the viewer; `headToHeadView` — adds `me`/`them` `{ name, skillScore, tierLabel }` via `getTierDisplayName` (never the DB enum).
+- `GET /api/marketplace/players/:playerId/head-to-head` in `server/marketplace-routes.ts` (`requireAuth` + `requireMarketplaceAuth`): 403 "Link your player profile first", 400 on your own id, 404 unknown player. Read-only; not on the captain allow-list (pin stays 34).
+- `client/src/components/HeadToHeadPanel.tsx` (new): white card, 1px ink-10 border, radius 9, padding 16, no shadow/emoji/icons. Row 1 = two 44px overlapping avatars (viewer ringed `MKT.navy`, viewed player ringed `MKT.teal`, initials fallback, photos when present) beside "You 68 · Akhila 74" (Inter 700 16) over the record line (Inter 400 14, `MKT.inkSub`); Row 2 = the ChallengeButton full width. Skeleton while loading; on endpoint error the button renders alone (one retry, then settles). Hidden on own profile / no linked player. Wired in `PlayerPublicProfile.tsx` directly below the navy `hero-banner` card and above `card-community-personality`; the header-row Challenge button is removed.
+- `client/src/components/ChallengeButton.tsx`: label "Challenge <firstName>", full width, min-height 48, radius 6, `MKT.tealText` fill, white, Inter 700 15. Non-actionable states are a disabled button-shaped element (`button-challenge-state`, `data-state`): pending / active → white with 1px navy outline ("Challenge pending" / "Challenge active — settles on court"); out-of-range → ink-10 background, ink-50 text; the 3-open cap keeps its server reason as `capped`. Ink tints are derived from `MKT.ink` at runtime (`inkTint`) — no new colour literals.
+- `shared/utils/headToHeadCopy.ts` (new): `recordLine` ("Met 3 times · Akhila leads 2–1" / "… · You lead 2–1" / "… · Level 1–1" / "You haven't met yet."; a single meeting reads "Met once · …") and `scoreLine`.
+
+**Tests** — RED first, then green: `tests/challenges-head-to-head.test.tsx` (26: aggregation opposite-teams/same-team/sandbox/most-recent/zero, SQL shape against a fake handle, row mapping, copy, panel skeleton → content → error-with-button-alone, the three blocked states inside the panel, avatars, button styling for all four states + cap, page-anchor/old-button/route/brand pins); `tests/challenges-ui.test.tsx` — three C4 pins rewritten for the new behaviour (label with first name, blocked states instead of captions, page renders the panel). Full suite **95 files / 1141 tests green (exit 0)**; `tsc` **28 = baseline**.
+
+**Live evidence (production, test accounts only — `scripts/scratch/c41-h2h-verify.mjs` under `railway run`)**
+```
+A → B: 200 {"met":0,"myWins":0,"theirWins":0,"last":null,"me":{"name":"TEST PLAYER","skillScore":67,"tierLabel":"Beginner"},"them":{"name":"ZZ-SANDBOX-GOODWILL Tester","skillScore":50,"tierLabel":"Beginner"}}
+B → A: 200 {"met":0,...,"me":{"name":"ZZ-SANDBOX-GOODWILL Tester",...},"them":{"name":"TEST PLAYER",...}}
+A → self: 400 {"error":"That's your own profile"}   | no token: 401   | unknown player: 404
+sandbox ccc68579 | assign → 200 | end-game → 200
+sandbox game row exists (opposite teams): [{"game":"2b8fc1f2","sandbox":true,"a_team":1,"b_team":2}]
+A → B after sandbox game: 200 {"met":0,"myWins":0,"theirWins":0,"last":null,...}   ← sandbox excluded
+C4.1 LIVE OK
+--- teardown --- session end → 200 | test players deleted 020027dd, 0baa5b43 | skill scores unchanged (67 / 50)
+FINAL STATE: {"active":0,"zz_sessions":0,"zz_players":0,"test_game_rows":0,"challenges":1}
+```
+The earlier sandbox games from the C2–C5 runs had already cascaded away with their sessions (0 game rows for the test players before this run), so a fresh sandbox game was recorded and proven excluded, then removed.
+
+**Observed, not touched — the first real challenge exists.** `challenges` row `e38380f5`: Clyde Almeida (Advanced → shows Professional) → Divya Raj (Competitive), `pending`, created 15:53 Dubai today (15 minutes before this deploy, via the C4 button), expires 14 Sep 15:53; one `challenge_received` notification; no feed card yet (correct — cards appear on accept/settle). This is the row the "first real settlement" watch item refers to.
+
+**Not done / caveats**
+- No browser walkthrough (Playwright not installed): the 360px "nothing overflows" rule is enforced by `w-full` / `min-w-0` / `truncate` on the text column and the full-width button, verified in jsdom only. Please glance at a public profile on your phone.
+- Panel height is ~136px on mobile (44px avatar block + 48px button + padding), not the ~120px the brief estimated; the two text lines sit beside the avatars to keep it compact.
+
+**Sandeep to decide**
+- `game_participants` has **no index on `player_id`** (21,464 rows today; only `game_results` has indexes). The query is written to use one; it runs fine at this size. Adding `CREATE INDEX ... ON game_participants (player_id, game_id)` is a schema change → one-shot migration, your call.
+- Viewers see their own photo from `/auth/me` (`photoUrl`) in the left avatar; if you'd rather both come from the players table, say so.
