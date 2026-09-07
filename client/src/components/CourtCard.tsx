@@ -28,7 +28,13 @@ import { formatSkillLevel } from "@shared/utils/skillUtils";
 // score-entry hot path. Free courts render a slim placeholder — their
 // actions live in the deck.
 
+import { lineupChallenge, settledLabel, type SessionChallenge } from "@shared/utils/challengeViews";
+
 interface CourtCardProps {
+  // Player Challenges (C5): open challenges in this session, and what the
+  // last score on this court settled (shown until the next lineup).
+  sessionChallenges?: SessionChallenge[];
+  lastSettled?: Array<{ winnerName: string; loserName: string }> | null;
   court: CourtWithPlayers;
   canRemoveCourt: boolean;
   onRemoveCourt: (courtId: string) => void;
@@ -73,6 +79,8 @@ export function CourtCard({
   onOpenAssign,
   recordPending,
   cancelPending,
+  sessionChallenges = [],
+  lastSettled = null,
 }: CourtCardProps) {
   const [bandPickerOpen, setBandPickerOpen] = useState(false);
   // Hot-path score entry: winner tap opens the inline panel; all state is
@@ -230,6 +238,11 @@ export function CourtCard({
         {/* ── Available state: slim placeholder, now actionable (Gate 4) —
                the whole card area opens the SAME AssignSheet the deck link
                opens (state lives in Home; one flow, two entry points). ── */}
+        {isAvailable && lastSettled && lastSettled.length > 0 && (
+          <p className="text-xs font-semibold text-center text-secondary-text" data-testid={`text-challenge-settled-${court.id}`}>
+            {lastSettled.map(settledLabel).join(' · ')}
+          </p>
+        )}
         {isAvailable && (
           <button
             type="button"
@@ -247,6 +260,14 @@ export function CourtCard({
         {/* ── Occupied state ── */}
         {!isAvailable && (
           <div className="flex flex-col gap-3">
+            {(() => {
+              const pair = lineupChallenge(court.players.map((p) => ({ id: p.id, team: p.team })), sessionChallenges);
+              return pair ? (
+                <p className="text-xs font-semibold text-center text-secondary-text" data-testid={`text-challenge-match-${court.id}`}>
+                  Challenge match · {pair.aName} vs {pair.bName}
+                </p>
+              ) : null;
+            })()}
             {/* VS matchup */}
             <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-stretch">
               {/* Team 1 */}

@@ -61,7 +61,10 @@ describe('captain role - allow-list tripwires', () => {
       // stopping one is the same authority over the same rows — not an
       // escalation. Stop is guarded further in application code: it can only
       // remove future sessions that hold zero bookings.
-      'server/routes.ts': 33,
+      // + 1 (Challenges C5): GET /api/sessions/:id/challenges — read-only view
+      // of open challenges between players booked into a session, so the
+      // captain running it sees the "vs" pairings. No write, no escalation.
+      'server/routes.ts': 34,
       'server/marketplace-routes.ts': 1,
       'server/sessionCostRoutes.ts': 2,
       'server/venueRoutes.ts': 1,

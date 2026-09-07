@@ -37,6 +37,7 @@ import VenueTab from '@/components/VenueTab';
 import { queryClient as qc, apiRequest } from '@/lib/queryClient';
 import { SessionSetupWizard } from '@/components/SessionSetupWizard';
 import { SessionSeriesList } from '@/components/SessionSeriesList';
+import { sessionChallengeTag, openChallengeCount, type SessionChallenge } from '@shared/utils/challengeViews';
 import { sortSessionsSoonestFirst, sortSessionsLatestFirst } from '@/lib/sessionOrdering';
 import { PlayerImport } from '@/components/PlayerImport';
 import { GameHistoryExport } from '@/components/GameHistoryExport';
@@ -1021,6 +1022,21 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
     },
   });
 
+  // Player Challenges (C5): open challenges between players booked here —
+  // the "vs <name>" tags on rows and the header count.
+  const { data: sessionChallenges = [] } = useQuery<SessionChallenge[]>({
+    queryKey: ['/api/sessions', linkedBookable?.id, 'challenges'],
+    enabled: !!linkedBookable?.id,
+    queryFn: async () => {
+      const res = await fetch(apiUrl(`/api/sessions/${linkedBookable!.id}/challenges`), {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+  });
+  const openChallenges = openChallengeCount(sessionChallenges);
+
   const attendMutation = useMutation({
     mutationFn: async (bookingId: string) => {
       const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/attend`), {
@@ -1279,6 +1295,19 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
                   style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}
                   data-testid={`tag-birthday-${booking.id}`}>Birthday</span>
               )}
+              {(() => {
+                const tag = booking.user?.linkedPlayerId ? sessionChallengeTag(booking.user.linkedPlayerId, sessionChallenges) : null;
+                return tag ? (
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold border border-secondary-text/40 text-secondary-text"
+                    title={tag.tooltip}
+                    aria-label={tag.tooltip}
+                    data-testid={`tag-challenge-${booking.id}`}
+                  >
+                    vs {tag.opponentFirstName}
+                  </span>
+                ) : null;
+              })()}
             </div>
             <div className="text-xs text-muted-foreground">{booking.user?.email}</div>
           </div>
@@ -1461,6 +1490,11 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
               <div className="flex items-center gap-2">
                 <span data-testid="text-sheet-revenue">AED {sessionRevenue}</span>
                 <Badge variant="outline">{bookings?.filter(b => b.status === 'attended').length || 0} attended</Badge>
+                {openChallenges > 0 && (
+                  <Badge variant="outline" className="text-secondary-text" data-testid="badge-open-challenges">
+                    {openChallenges} open challenge{openChallenges === 1 ? '' : 's'}
+                  </Badge>
+                )}
                 {bookings && bookings.length > 0 && (
                   <Button
                     size="sm"

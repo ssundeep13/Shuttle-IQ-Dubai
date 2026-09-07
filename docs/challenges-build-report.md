@@ -183,6 +183,31 @@ The `challenge_settled` card needs a non-sandbox settlement (unit-tested + savep
 - Notifications: the bell renders free-text `title`/`message` with no per-type branching, so `challenge_received` / `challenge_accepted` / `challenge_settled` need no special case (pinned).
 - Tests: `tests/challenges-ui.test.tsx` — 14 tests, real jsdom renders of both components (status-driven button, three captions, own-profile/unlinked hidden, confirm → POST body → invalidate, inline 409, empty state, section lists + settled cap of 3, accept POST + refresh, no-emoji/no-shadow/no-drifted-hex pins) + page wiring pins. RED (components absent) → GREEN 14/14; one new tsc error fixed (nullable Dubai date) → tsc 28; full suite exit 0.
 
+### C4 — closed: commit `075a7b1`, Railway deploy `0c455539` SUCCESS, health 200 (2026-09-07 ~11:20 UTC)
+
+Live walkthrough with the two test accounts (`scripts/scratch/c4-mine-verify.mjs`):
+```
+status A→B: {"canChallenge":true}
+created 2177a9ae | status A→B now: {"canChallenge":false,"reason":"Challenge pending","existing":{…,"status":"pending","direction":"outgoing"}}
+A /mine: {"outgoing":["2177a9ae"],…} | B /mine: {"incoming":["2177a9ae"],…}
+B notifications (latest): {"type":"challenge_received","title":"New challenge","message":"TEST PLAYER has challenged you"}
+after accept — A /mine: {"active":["2177a9ae"]} | B /mine: {"active":["2177a9ae"]}   (names + display tiers in the rows)
+feed card present: true
+second create (B→A) → 409 Open challenge already exists   (one open challenge per pair)
+teardown: feed rows deleted 1 | challenge deleted 1 | test notifications deleted 2 → FINAL STATE {"challenges":0,"cards":0}
+```
+Playwright: not installed in the project (`require('playwright')` fails; only an npx cache answered `--version`). Installing it means a package download plus lockfile changes, so the DOM walkthrough was not run; the components are exercised in jsdom by `tests/challenges-ui.test.tsx` (14 real renders) and the wiring is pinned. Delete-after: done (see FINAL STATE).
+
+### C5 — captain visibility — built (2026-09-07)
+
+- `server/challenges.ts` `listSessionChallenges(id)`: open (pending|accepted) challenges where BOTH players hold a `confirmed`/`attended` booking in the session; `id` may be the bookable id or the ops id (resolved via `linked_session_id`); shaped `[{challengeId, status, aId, aName, bId, bName, createdAt, respondedAt}]`.
+- `server/routes.ts` `GET /api/sessions/:id/challenges` — `requireAuth, requireCaptain` (middleware admits captain, admin, super_admin — pinned). **Captain allow-list pin updated 33 → 34** in `tests/captain-role.test.ts` with the reason (read-only view, no escalation). End-game replies now carry `settledChallenges` (from `completeGameTransaction`, `[]` on the duplicate/lost-race paths).
+- `shared/utils/challengeViews.ts` (new, pure): `sessionChallengeTag` ("vs <first name>" + tooltip "Dev Kumar vs Reena Pillai · challenged by Dev Kumar · accepted 3 Sep"), `lineupChallenge` (accepted pair on opposite teams), `openChallengeCount`, `settledLabel` ("Challenge settled — Dev beat Reena").
+- Admin `SessionsManagement.tsx` BookingsSheet: fetches `/api/sessions/<bookable>/challenges`; each booking row shows a text-teal "vs <first name>" tag (native tooltip + aria-label) when that player has an open challenge with someone booked here; header badge "N open challenges" when N > 0.
+- Admin court cards: `Home.tsx` fetches the active session's challenges (30 s refetch), keeps `settledByCourt` from the end-game reply and clears it on the next assign; `CourtManagement` passes through; `CourtCard` shows "Challenge match · A vs B" on an occupied lineup with an accepted pair on opposite teams, and "Challenge settled — X beat Y" on the free court until its next lineup.
+- Player-facing: `PlayingScreen` shows "Challenge match · vs <name>" when one of the player's active challenges is against an opponent on court; `SessionDone` lists "Challenge settled — X beat Y" for challenges settled in the last 3 hours.
+- Tests: `tests/challenges-captain.test.tsx` — 22 tests (pure helpers incl. tooltip dates; real jsdom `CourtCard` renders for both labels and both negatives; server/route/storage/middleware pins; client wiring pins; no-emoji). RED (module absent; captain pin 33≠34) → GREEN; tsc 28; full suite exit 0.
+
 **Sandeep to review (standing):**
 - **Never run `npx drizzle-kit push` (or `npm run db:push`) against production with drizzle-kit 0.31.4 on PostgreSQL 18** — it would drop 310 NOT NULL constraints, the wallet floor CHECK and the queue/suggestion uniqueness guards. The script is now guarded.
 - `npm run check` (bare `tsc`) has 28 pre-existing errors on `railway-migration`; this build treats "pass" as "no new errors". Separate cleanup gate later.

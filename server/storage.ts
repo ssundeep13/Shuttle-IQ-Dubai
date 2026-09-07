@@ -642,6 +642,7 @@ export interface IStorage {
     gameId: string;
     participants: Array<{ playerId: string; team: number; skillBefore: number; skillAfter: number }>;
     alreadySubmitted: boolean;
+    settledChallenges: Array<{ id: string; winnerName: string; loserName: string; winnerPlayerId: string; loserPlayerId: string }>;
   }>;
 }
 
@@ -5298,6 +5299,7 @@ export class DatabaseStorage implements IStorage {
     gameId: string;
     participants: Array<{ playerId: string; team: number; skillBefore: number; skillAfter: number }>;
     alreadySubmitted: boolean;
+    settledChallenges: Array<{ id: string; winnerName: string; loserName: string; winnerPlayerId: string; loserPlayerId: string }>;
   }> {
     if (args.playerIds.length !== 4) {
       throw new Error(`completeGameTransaction expects exactly 4 players, got ${args.playerIds.length}`);
@@ -5330,6 +5332,7 @@ export class DatabaseStorage implements IStorage {
               skillAfter: p.skillScoreAfter,
             })),
             alreadySubmitted: true,
+            settledChallenges: [],
           };
         }
       }
@@ -5406,6 +5409,7 @@ export class DatabaseStorage implements IStorage {
             skillAfter: p.skillScoreAfter,
           })),
           alreadySubmitted: true,
+          settledChallenges: [],
         };
       }
 
@@ -5509,7 +5513,7 @@ export class DatabaseStorage implements IStorage {
 
       // Player Challenges (C2). Savepoint-guarded inside — a settlement
       // failure can never roll back the score entry above. Sandbox: no-op.
-      await settleChallengesInTx(tx, {
+      const settledChallenges = await settleChallengesInTx(tx, {
         gameResultId: gameId,
         sessionId: args.sessionId,
         isSandbox: args.isSandboxSession,
@@ -5549,6 +5553,7 @@ export class DatabaseStorage implements IStorage {
           skillAfter: c.skillAfter,
         })),
         alreadySubmitted: false,
+        settledChallenges,
       };
     });
   }

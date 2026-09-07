@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { settledLabel } from '@shared/utils/challengeViews';
 
 const NAVY = '#002C84';
 const TEAL = MKT.tealText; // routed through the brand token (Design Gate 2)
@@ -160,6 +161,29 @@ function ErrorState({ onBook }: { onBook: () => void }) {
   );
 }
 
+// Player Challenges (C5): a challenge settled within the last few hours —
+// i.e. by a game in the session that just ended — gets one line here.
+const SETTLED_RECENT_MS = 3 * 60 * 60 * 1000;
+function RecentChallengeSettled() {
+  const { data } = useQuery<{ settled: Array<{ challenger: { id: string; name: string }; challenged: { id: string; name: string }; winner: { id: string; name: string } | null; settledAt: string | null }> }>({
+    queryKey: ['/api/marketplace/challenges/mine'],
+  });
+  const recent = (data?.settled ?? []).filter((s) => s.winner && s.settledAt && Date.now() - Date.parse(s.settledAt) < SETTLED_RECENT_MS);
+  if (recent.length === 0) return null;
+  return (
+    <div className="space-y-1 pt-1">
+      {recent.map((s) => {
+        const loser = s.winner!.id === s.challenger.id ? s.challenged : s.challenger;
+        return (
+          <p key={`${s.challenger.id}:${s.challenged.id}`} className="text-sm font-semibold" style={{ color: TEAL }} data-testid="text-challenge-settled">
+            {settledLabel({ winnerName: s.winner!.name, loserName: loser.name })}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function NoSessionState({ onBook }: { onBook: () => void }) {
   return (
     <div className="space-y-6 text-center" data-testid="state-no-session">
@@ -236,6 +260,7 @@ function SummaryContent({
         >
           {heading}
         </h1>
+        <RecentChallengeSettled />
       </div>
 
       {playedAnyGames ? (

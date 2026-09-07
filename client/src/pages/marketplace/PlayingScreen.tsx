@@ -147,6 +147,15 @@ function PlayingContent({
   const yourTeam = suggestion.players.filter((p) => p.team === selfTeamNum);
   const opponents = suggestion.players.filter((p) => p.team === oppTeamNum);
 
+  // Player Challenges (C5): one of my ACTIVE challenges is against someone on
+  // the other side of this net — this is a challenge match.
+  const mineQuery = useQuery<{ active: Array<{ challenger: { id: string; name: string }; challenged: { id: string; name: string } }> }>({
+    queryKey: ['/api/marketplace/challenges/mine'],
+  });
+  const opponentIds = new Set(opponents.map((p) => p.playerId));
+  const challengeMatch = (mineQuery.data?.active ?? []).find((c) => opponentIds.has(c.challenger.id) || opponentIds.has(c.challenged.id));
+  const challengeOpponent = challengeMatch ? (opponentIds.has(challengeMatch.challenger.id) ? challengeMatch.challenger : challengeMatch.challenged) : null;
+
   return (
     <div className="space-y-6" data-testid="state-playing">
       <div className="space-y-1">
@@ -172,6 +181,12 @@ function PlayingContent({
               {suggestion.courtName}
             </p>
           </div>
+
+          {challengeOpponent && (
+            <p className="text-center text-xs font-semibold" style={{ color: TEAL }} data-testid="text-challenge-match">
+              Challenge match · vs {challengeOpponent.name}
+            </p>
+          )}
 
           <div className="space-y-3">
             <TeamRow

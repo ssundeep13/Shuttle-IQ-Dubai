@@ -7,7 +7,7 @@ import { storage } from "./storage";
 import { applyWalletDelta } from "./walletLedger";
 import { insertPlayerSchema, insertSessionSchema, gameResults, gameParticipants, players, sessions, tags, playerTags, tagSuggestions, insertTagSuggestionSchema, insertBlogPostSchema, referrals, marketplaceUsers } from "@shared/schema";
 import { buildTagFeedEvents, buildCorrectionReplacements, insertFeedEvents, supersedeGameFeedEvents } from "./feedEvents";
-import { flipSettledWinnersForGame, supersedeChallengeCardsForGame } from "./challenges";
+import { flipSettledWinnersForGame, supersedeChallengeCardsForGame, listSessionChallenges } from "./challenges";
 import { findPlayerCandidates, isFullName } from "@shared/utils/playerMatching";
 import { mergePlayers, undoPlayerMerge, MergeError } from "./playerMerge";
 import { BLOG_UPLOADS_DIR } from "./uploadsRoot";
@@ -521,6 +521,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error('Series extend error:', error);
       res.status(500).json({ error: "Failed to extend series" });
+    }
+  });
+
+  // Player Challenges (C5): open challenges between players booked into this
+  // session (ops OR bookable id). Read-only; captains and admins alike.
+  app.get("/api/sessions/:id/challenges", requireAuth, requireCaptain, async (req: AuthRequest, res) => {
+    try {
+      res.json(await listSessionChallenges(req.params.id));
+    } catch (error) {
+      console.error('Session challenges error:', error);
+      res.status(500).json({ error: "Failed to load session challenges" });
     }
   });
 
@@ -3413,7 +3424,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (txResult.alreadySubmitted) {
         console.log(`[END-GAME] Duplicate end-game for court ${court.id} ignored (game ${txResult.gameId} already recorded).`);
         const currentCourt = await storage.getCourt(court.id);
-        return res.json({ ...currentCourt, players: [] });
+        return res.json({ ...currentCourt, players: [], settledChallenges: [] });
       }
 
       const participantData = txResult.participants;
@@ -3491,7 +3502,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
       });
 
-      res.json({ ...updatedCourt, players: [] });
+      // C5: what this score settled rides the reply so the court card can
+      // show "Challenge settled — X beat Y" until the next lineup.
+      res.json({ ...updatedCourt, players: [], settledChallenges: txResult.settledChallenges });
     } catch (error) {
       console.error(`[END-GAME] Error ending game:`, error);
       res.status(500).json({ error: "Failed to end game" });

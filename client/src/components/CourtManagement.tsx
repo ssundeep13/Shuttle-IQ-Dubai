@@ -8,6 +8,8 @@ import { sortCourts } from "@/lib/courtOrder";
 // next-game controls moved to the NEXT GAMES deck above it, so the props
 // that only fed those flows moved out with them.
 
+import type { SessionChallenge } from "@shared/utils/challengeViews";
+
 interface CourtManagementProps {
   courts: CourtWithPlayers[];
   onAddCourt: () => void;
@@ -18,6 +20,9 @@ interface CourtManagementProps {
   // Gate 3 (3.5): which court's record/cancel mutation is in flight (null = none).
   recordPendingCourtId: string | null;
   cancelPendingCourtId: string | null;
+  // Player Challenges (C5)
+  sessionChallenges?: SessionChallenge[];
+  settledByCourt?: Record<string, Array<{ winnerName: string; loserName: string }>>;
 }
 
 export function CourtManagement({
@@ -29,6 +34,8 @@ export function CourtManagement({
   onRecordGame,
   onCancelGame,
   onOpenAssign,
+  sessionChallenges = [],
+  settledByCourt = {},
 }: CourtManagementProps) {
   const courts = sortCourts(courtsProp);
   const lastCourt = courts[courts.length - 1];
@@ -76,6 +83,8 @@ export function CourtManagement({
             onOpenAssign={onOpenAssign}
             recordPending={recordPendingCourtId === court.id}
             cancelPending={cancelPendingCourtId === court.id}
+            sessionChallenges={sessionChallenges}
+            lastSettled={settledByCourt[court.id] ?? null}
           />
         ))}
       </div>

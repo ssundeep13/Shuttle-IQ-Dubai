@@ -10,6 +10,7 @@ import { CourtWithPlayers, Player, Notification, AppStats, Session } from "@shar
 import { Header } from "@/components/Header";
 import { TabNavigation } from "@/components/TabNavigation";
 import { CourtManagement } from "@/components/CourtManagement";
+import type { SessionChallenge } from "@shared/utils/challengeViews";
 import { NextGamesDeck } from "@/components/NextGamesDeck";
 import { PlayerQueue } from "@/components/PlayerQueue";
 import { GameHistory } from "@/components/GameHistory";
@@ -98,6 +99,14 @@ export default function Home() {
   // Court bands Gate 3: one session-level AI switch (per-court suggestion
   // query keys include it, so flipping regenerates every court's lineup).
   const [aiMatchmaking, setAiMatchmaking] = useState(true);
+  // Player Challenges (C5): what the last score on each court settled — shown
+  // on the free court until the next lineup is assigned there.
+  const [settledByCourt, setSettledByCourt] = useState<Record<string, { winnerName: string; loserName: string }[]>>({});
+  const { data: sessionChallenges = [] } = useQuery<SessionChallenge[]>({
+    queryKey: session?.id ? ['/api/sessions', session.id, 'challenges'] : ['/api/sessions', 'none', 'challenges'],
+    enabled: !!session?.id,
+    refetchInterval: 30000,
+  });
 
   // Fetch courts with players (only when session exists)
   const { data: courts = [], isLoading: courtsLoading } = useQuery<CourtWithPlayers[]>({
@@ -294,6 +303,8 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['/api/players'] });
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
+      // C5: a new lineup on this court retires its "Challenge settled" line.
+      setSettledByCourt(prev => { const next = { ...prev }; delete next[variables.courtId]; return next; });
       // Gate 5c: the post-assign trigger builds Up Next lineups — refetch so
       // the strip shows them right away instead of on the 10s poll. Delayed
       // a beat because the server build is fire-and-forget (setImmediate).
@@ -451,8 +462,11 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['/api/queue'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'], exact: false });
       queryClient.invalidateQueries({ queryKey: ['/api/game-history'], exact: false });
+      // C5: remember what this score settled, for this court, until its next lineup.
+      setSettledByCourt(prev => ({ ...prev, [variables.courtId]: Array.isArray(data?.settledChallenges) ? data.settledChallenges : [] }));
+      queryClient.invalidateQueries({ queryKey: ['/api/sessions', session?.id, 'challenges'] });
       addNotification(
-        `Game ended! Team ${variables.winningTeam} wins ${variables.team1Score}-${variables.team2Score}`, 
+        `Game ended! Team ${variables.winningTeam} wins ${variables.team1Score}-${variables.team2Score}`,
         'success'
       );
     },
@@ -1096,6 +1110,8 @@ export default function Home() {
                 onCancelGame={handleCancelGame}
                 onOpenAssign={openAssignSheet}
                 recordPendingCourtId={endGameMutation.isPending ? endGameMutation.variables?.courtId ?? null : null}
+                sessionChallenges={sessionChallenges}
+                settledByCourt={settledByCourt}
                 cancelPendingCourtId={cancelGameMutation.isPending ? cancelGameMutation.variables?.courtId ?? null : null}
               />
             </>

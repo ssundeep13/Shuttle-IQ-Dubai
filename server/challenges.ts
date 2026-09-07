@@ -424,6 +424,60 @@ export async function flipSettledWinnersForGame(
   }
 }
 
+// ── Captain visibility (C5) ─────────────────────────────────────────────────
+
+export interface SessionChallenge {
+  challengeId: string;
+  status: string;
+  aId: string;
+  aName: string;
+  bId: string;
+  bName: string;
+  createdAt: string;
+  respondedAt: string | null;
+}
+
+/** Open (pending|accepted) challenges where BOTH players hold a confirmed or
+ *  attended booking in the session. `id` may be the bookable session id or
+ *  the operational session id (resolved via linked_session_id). */
+export async function listSessionChallenges(id: string, dbh: DbOrTx = db): Promise<SessionChallenge[]> {
+  const { rows } = await dbh.execute(sql`
+    WITH target AS (
+      SELECT bs.id FROM bookable_sessions bs WHERE bs.id = ${id}
+      UNION ALL
+      SELECT bs.id FROM bookable_sessions bs WHERE bs.linked_session_id = ${id}
+      LIMIT 1
+    ), booked AS (
+      SELECT DISTINCT u.linked_player_id AS player_id
+        FROM bookings b
+        JOIN marketplace_users u ON u.id = b.user_id
+       WHERE b.session_id = (SELECT id FROM target)
+         AND b.status IN ('confirmed', 'attended')
+         AND u.linked_player_id IS NOT NULL
+    )
+    SELECT c.id, c.status,
+           c.challenger_player_id AS a_id, pa.name AS a_name,
+           c.challenged_player_id AS b_id, pb.name AS b_name,
+           c.created_at, c.responded_at
+      FROM challenges c
+      JOIN players pa ON pa.id = c.challenger_player_id
+      JOIN players pb ON pb.id = c.challenged_player_id
+     WHERE c.status IN ('pending', 'accepted')
+       AND c.challenger_player_id IN (SELECT player_id FROM booked)
+       AND c.challenged_player_id IN (SELECT player_id FROM booked)
+     ORDER BY c.created_at`);
+  return (rows as any[]).map((r) => ({
+    challengeId: r.id,
+    status: r.status,
+    aId: r.a_id,
+    aName: r.a_name,
+    bId: r.b_id,
+    bName: r.b_name,
+    createdAt: new Date(r.created_at).toISOString(),
+    respondedAt: r.responded_at ? new Date(r.responded_at).toISOString() : null,
+  }));
+}
+
 /** Whether `viewer` may challenge `target` right now, and why not. */
 export async function statusFor(viewerPlayerId: string, target: { id: string; level: string }, viewerLevel: string, dbh: DbOrTx = db): Promise<StatusView> {
   if (viewerPlayerId === target.id) return { canChallenge: false, reason: 'This is you' };
