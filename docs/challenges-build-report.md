@@ -296,3 +296,37 @@ The earlier sandbox games from the C2–C5 runs had already cascaded away with t
 **Sandeep to decide**
 - `game_participants` has **no index on `player_id`** (21,464 rows today; only `game_results` has indexes). The query is written to use one; it runs fine at this size. Adding `CREATE INDEX ... ON game_participants (player_id, game_id)` is a schema change → one-shot migration, your call.
 - Viewers see their own photo from `/auth/me` (`photoUrl`) in the left avatar; if you'd rather both come from the players table, say so.
+
+## C6 — email the challenged player on challenge creation — 2026-09-07
+
+**Commit `a4ed3f5` "Challenges C6: challenged-player email" → Railway deploy `bddf33c3` SUCCESS (17:19 Dubai), health 200.** No schema change.
+
+**Built**
+- `server/challengeEmail.ts` (new, pure): `buildChallengeReceivedEmail(input) → { subject, html }`. Subject "<challengerFirstName> has challenged you". Body: "Hi <challengedFirst>, <challengerFirst> (<tier> · <pts> pts) has challenged you (<tier> · <pts> pts)." — tiers via `getTierDisplayName` only; the head-to-head line from the challenged player's side (`recordLine`, "You haven't met yet." at met 0); one explanatory line; **Accept challenge** as a navy `#003E8C` button and **Decline** as a plain link, both to `https://shuttleiq.ai/marketplace/profile#challenges` (exactly two occurrences); expiry in Dubai time ("expires on Mon 14 Sep, 3:53 pm if you don't respond") and the privacy line ("Only you and <challengerFirst> can see this challenge until it's accepted."). Cream `#F5EFE0` page, white card with a 1px rule, Inter/system-sans, no images, no shadows, no emoji, no unsubscribe. Footer text identical to the booking confirmation (`© <year> ShuttleIQ. All rights reserved.`), pinned by test against `emailClient.ts`. Names are HTML-escaped.
+- `server/emailClient.ts`: `sendChallengeReceivedEmail(toEmail, input)` next to the booking sender — same `FROM_ADDRESS` (`ShuttleIQ <noreply@shuttleiq.org>`), try/catch/log, never throws. The private `sendEmail` helper now accepts an optional Resend idempotency key and returns the message id for the log line; every other email is unchanged (no key, return value ignored).
+- `server/marketplace-routes.ts` (create route only): after the pending row and the in-app `challenge_received` notification, `challengeEmailRecipient(target)` decides the address (null when no linked marketplace user or blank email → skipped silently); the head-to-head lookup for the email is inside its own try/catch (falls back to met 0); the send is fire-and-forget `.catch(() => {})`, exactly as booking confirmations are sent. No email on accept, decline, settle, or expiry (pinned: one send site in the codebase).
+- **Idempotency (my call):** one email per challenge id via Resend's idempotency key `challenge-received/<challengeId>` on the send, plus the fact that the create route is the only send site and runs once per inserted row (the partial unique index on open pairs already stops a double tap creating two rows). No `sent_at` column was added. Caveat: Resend keeps keys for 24h, so a hypothetical resend of the same challenge more than a day later would go out again — there is no such code path today.
+- `client/src/components/ChallengesCard.tsx`: the Profile card now carries `id="challenges"` and scrolls itself into view when the page opens on `#challenges` (same pattern as the WhatsApp-groups anchor on the marketplace home), so both email CTAs land on the card.
+
+**Tests** — RED first: `tests/challenges-email.test.tsx` (14: subject; every field incl. tier labels, points, h2h line, both CTAs with the deep link counted twice, expiry, privacy; met = 0 branch; brand/flat/no-image/no-emoji/no-unsubscribe + same footer; escaping; Dubai expiry formatting; recipient helper null on no user / blank email; idempotency key; mocked Resend — one call from the booking sender with the key and the logged message id; thrown and returned Resend failures both swallowed; route pins — after the notification, guarded, fire-and-forget, h2h in try/catch, create is the only send site; Profile card anchor + scroll, no scroll without the hash). Full suite **96 files / 1155 tests green (exit 0)**; `tsc` **28 = baseline**.
+
+**Live evidence (production, test accounts only — `scripts/scratch/c6-email-verify.mjs` under `railway run`)**
+```
+create → 201 {"id":"538398d7-c5d8-4d2e-952a-1ab9f97b744e","status":"pending","direction":"outgoing","challenger":{"name":"ZZ-SANDBOX-GOODWILL Tester"...
+challenge_received notifications just now: 1
+resend list poll 1: status 401 {"statusCode":401,"message":"This API key is restricted to only send emails","name":"restricted_api_key"}
+--- teardown --- challenge deleted: 1 | test notification deleted: 1 (second pass, see below)
+FINAL STATE: {"active":0,"test_challenges":0}
+```
+Railway application log for the same request:
+```
+[Email] Challenge email sent to shuttleiqdubai@gmail.com (resend 0e991adc-3835-4b9a-935f-85096f37b37b, challenge 538398d7-c5d8-4d2e-952a-1ab9f97b744e)
+```
+So Resend accepted exactly one message for the test challenge and returned an id. **What I could not confirm:** the `delivered` event — the `RESEND_API_KEY` on Railway is a *sending-only* key, so `GET /emails` and `GET /emails/:id` return 401. Please check the Resend dashboard (message `0e991adc…`, to shuttleiqdubai@gmail.com, subject "ZZ-SANDBOX-GOODWILL has challenged you") or the inbox itself. Teardown note: my script's notification cleanup used a JS `Date` bound against a naive-UTC column from the Dubai workstation (the known +4h gotcha) and matched nothing on the first pass; a second pass with a server-side `now() - interval` window deleted the one test notification. Final: 0 test challenges, 0 test notifications, 0 active sessions.
+
+**Observed, not touched — real usage is under way.** Four real pending challenges now exist, all created *before* this deploy, so none of them got an email (emails go out on create only): Clyde → Divya 15:53, Sandeep → Akhila 16:14, Diljith → Clyde 16:45, Krishnachandran → Diljith 17:13 (Dubai). Each has its in-app notification; no feed cards yet (none accepted). The next real challenge created after 17:19 will be the first real email.
+
+**Caveats / Sandeep to decide**
+- Brand in the email follows this brief literally (`#003E8C` navy, `#F5EFE0` cream). The app tokens are `#002C84` / `#F2ECE1` (Design Gate 2) and the booking emails use their own older palette (`#0a2540` / `#0a7ea4`); the three now differ. Say the word and I'll align the email to the app tokens.
+- The deep link after a login bounce: `MarketplaceProtectedRoute` preserves the path (`?from=/marketplace/profile`) but not the `#challenges` hash, so a signed-out reader lands on the Profile top after logging in; a signed-in reader (persisted session, the normal phone case) lands on the card. Preserving the hash through login is a small follow-up if you want it.
+- Consider a *full-access* Resend key in a separate env var if you want future verifications to read delivery events by API.
