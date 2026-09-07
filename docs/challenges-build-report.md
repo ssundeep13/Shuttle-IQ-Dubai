@@ -161,6 +161,28 @@ Non-sandbox path: **settlement verified by unit tests + sandbox negative test on
 - Tests: `tests/challenges-feed.test.ts` (13: builders, copy, savepoint emission, sandbox no-card, correction supersede, wiring + client pins); C2 fake `tx.insert` extended to model drizzle's chain; `tests/feed-api.test.ts` LikeBar tripwire updated 2 → 4 with reason. RED (module absent) → GREEN; bar: tsc 28, full suite exit 0.
 - Likes on the new cards: the like route filters on `published` status only — no type filter (pinned).
 
+### C3 — closed: commit `acec5d8`, Railway deploy `54f81c88` SUCCESS, health 200 (2026-09-07 ~11:05 UTC)
+
+Live verification (`scripts/scratch/c3-feed-verify.mjs`, test accounts only):
+```
+challenge 4e650c78 accepted   (TEST PLAYER → ZZ-SANDBOX-GOODWILL Tester)
+FEED CARD: {"type":"challenge_accepted","subjectPlayerId":"b23351aa","payload":{"challengeId":"4e650c78…","challengedName":"ZZ-SANDBOX-GOODWILL Tester","challengedTier":"Beginner","challengerName":"TEST PLAYER","challengerTier":"Beginner"},"likeCount":0,"likedByMe":false,"session":null}
+like → 200 {"likeCount":1,"likedByMe":true}      unlike → 200 {"likeCount":0,"likedByMe":false}
+DB feed row: {"type":"challenge_accepted","status":"published","dedupe_key":"ca:4e650c78…","subject_player_id":"b23351aa…","game_result_id":null}
+teardown: feed events deleted 1; challenge deleted 1; test notifications deleted 2
+FINAL STATE: {"challenges":0,"challenge_cards":0,"active":0}
+```
+The `challenge_settled` card needs a non-sandbox settlement (unit-tested + savepoint-emission test; first real one to be observed on the next live session). Client rendering of both cards is source-pinned (the feed page needs auth + cursor providers, matching the repo's existing feed-test approach); a Playwright screenshot was not available in this environment.
+
+### C4 — player UI — built (2026-09-07)
+
+- `client/src/components/ChallengeButton.tsx` (new): navy `navyBtn` "Challenge" on a public profile, driven by `GET /challenges/status/:playerId`; hidden when `!canChallenge` with the reason as caption ("Out of your range" / "Challenge pending" / "Challenge active"); hidden on own profile and for viewers without a linked player; confirm dialog before sending; server error (e.g. 409) shown inline; success invalidates `/api/marketplace/challenges*` and toasts. Full-width under 400px (`w-full min-[400px]:w-auto`).
+- `client/src/components/ChallengesCard.tsx` (new): Profile "Challenges" card — incoming (Accept / Decline, full-width under 400px), waiting-for-reply, active, last 3 settled; empty state "No challenges yet. Find a player to challenge." with a rankings link. Accept/decline POST to the C1 routes and refresh `/mine` + feed.
+- `client/src/lib/apiError.ts` (new): server `{error}` text out of an apiRequest failure.
+- `client/src/pages/marketplace/PlayerPublicProfile.tsx`: renders `ChallengeButton` under the header row with the viewer's `linkedPlayerId` (via `useMarketplaceAuth`). `client/src/pages/marketplace/Profile.tsx`: renders `ChallengesCard` (Profile card chrome) after the My Referrals card, only for linked players.
+- Notifications: the bell renders free-text `title`/`message` with no per-type branching, so `challenge_received` / `challenge_accepted` / `challenge_settled` need no special case (pinned).
+- Tests: `tests/challenges-ui.test.tsx` — 14 tests, real jsdom renders of both components (status-driven button, three captions, own-profile/unlinked hidden, confirm → POST body → invalidate, inline 409, empty state, section lists + settled cap of 3, accept POST + refresh, no-emoji/no-shadow/no-drifted-hex pins) + page wiring pins. RED (components absent) → GREEN 14/14; one new tsc error fixed (nullable Dubai date) → tsc 28; full suite exit 0.
+
 **Sandeep to review (standing):**
 - **Never run `npx drizzle-kit push` (or `npm run db:push`) against production with drizzle-kit 0.31.4 on PostgreSQL 18** — it would drop 310 NOT NULL constraints, the wallet floor CHECK and the queue/suggestion uniqueness guards. The script is now guarded.
 - `npm run check` (bare `tsc`) has 28 pre-existing errors on `railway-migration`; this build treats "pass" as "no new errors". Separate cleanup gate later.

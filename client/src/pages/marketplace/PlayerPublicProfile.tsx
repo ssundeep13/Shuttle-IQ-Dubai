@@ -18,6 +18,8 @@ import {
 import type { PlayerStats, OpponentStats, PartnerStats, PlayerTopTag } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
+import { ChallengeButton } from '@/components/ChallengeButton';
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -66,6 +68,8 @@ function CustomDot(props: Record<string, unknown>) {
 export default function PlayerPublicProfile() {
   usePageTitle('Player Profile');
   const { playerId } = useParams<{ playerId: string }>();
+  // Player Challenges (C4): the CTA needs the viewer's own player id.
+  const { user: viewer } = useMarketplaceAuth();
 
   const { data: stats, isLoading } = useQuery<PlayerStats>({
     queryKey: ['/api/players', playerId, 'stats'],
@@ -175,6 +179,9 @@ export default function PlayerPublicProfile() {
                 <ExternalLink className="h-3.5 w-3.5" /> Share Personality
               </Button>
             </Link>
+          </div>
+          <div className="mt-3">
+            <ChallengeButton playerId={stats.player.id} playerName={stats.player.name} viewerPlayerId={viewer?.linkedPlayerId ?? null} />
           </div>
         </div>
 
