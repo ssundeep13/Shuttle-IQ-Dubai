@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import type { BookableSession } from '../shared/schema';
+import { buildChallengeReceivedEmail, challengeEmailIdempotencyKey, type ChallengeReceivedEmailInput } from './challengeEmail';
 
 const FROM_ADDRESS = 'ShuttleIQ <noreply@shuttleiq.org>';
 
@@ -83,9 +84,15 @@ function sessionBlock(session: BookableSession): string {
   </table>`;
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  const { error } = await getResendClient().emails.send({ from: FROM_ADDRESS, to, subject, html });
+// Returns Resend's message id (for logs). An idempotency key makes a retried
+// send of the same logical email a no-op at Resend (24h window).
+async function sendEmail(to: string, subject: string, html: string, idempotencyKey?: string): Promise<string | null> {
+  const { data, error } = await getResendClient().emails.send(
+    { from: FROM_ADDRESS, to, subject, html },
+    idempotencyKey ? { idempotencyKey } : undefined,
+  );
   if (error) throw new Error(`Resend error: ${JSON.stringify(error)}`);
+  return data?.id ?? null;
 }
 
 // ─── Password Reset ────────────────────────────────────────────────────────
@@ -259,6 +266,20 @@ export async function sendBookingConfirmationEmail(
     console.log(`[Email] Booking confirmation sent to ${toEmail}`);
   } catch (err) {
     console.error('[Email] sendBookingConfirmationEmail failed:', err);
+  }
+}
+
+// ─── Challenge received (C6) ─────────────────────────────────────────────
+// Same sender + footer text as the booking confirmation; brand-flat template
+// lives in challengeEmail.ts. One email per challenge id (Resend idempotency
+// key). Never throws — the create route must not depend on email.
+export async function sendChallengeReceivedEmail(toEmail: string, input: ChallengeReceivedEmailInput): Promise<void> {
+  try {
+    const { subject, html } = buildChallengeReceivedEmail(input);
+    const id = await sendEmail(toEmail, subject, html, challengeEmailIdempotencyKey(input.challengeId));
+    console.log(`[Email] Challenge email sent to ${toEmail} (resend ${id ?? 'n/a'}, challenge ${input.challengeId})`);
+  } catch (err) {
+    console.error('[Email] sendChallengeReceivedEmail failed:', err);
   }
 }
 

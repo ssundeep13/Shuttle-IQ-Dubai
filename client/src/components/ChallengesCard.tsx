@@ -2,7 +2,7 @@
 // Incoming (Accept / Decline), outgoing pending, active, and the last three
 // settled. Data is GET /api/marketplace/challenges/mine; names and tiers in
 // the payload are display values already.
-import type { CSSProperties } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { Link } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,10 +71,24 @@ export function ChallengesCard({ cardStyle, titleStyle }: { cardStyle?: CSSPrope
   });
   const busy = (id: string) => respond.isPending && respond.variables?.id === id;
 
+  // C6 — the challenge email deep-links to /marketplace/profile#challenges.
+  // The SPA renders async, so the native anchor scroll misses; scroll on
+  // mount (and on hash change) the way MarketplaceHome handles its anchor.
+  useEffect(() => {
+    const scrollToCard = () => {
+      if (window.location.hash === '#challenges') {
+        requestAnimationFrame(() => document.getElementById('challenges')?.scrollIntoView({ block: 'start' }));
+      }
+    };
+    scrollToCard();
+    window.addEventListener('hashchange', scrollToCard);
+    return () => window.removeEventListener('hashchange', scrollToCard);
+  }, []);
+
   const empty = !!data && data.incoming.length + data.outgoing.length + data.active.length + data.settled.length === 0;
 
   return (
-    <Card style={cardStyle} data-testid="card-challenges">
+    <Card id="challenges" style={cardStyle} data-testid="card-challenges">
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2" style={titleStyle}>
           <Swords className="h-4 w-4 text-secondary" /> Challenges

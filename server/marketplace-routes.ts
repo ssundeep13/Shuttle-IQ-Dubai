@@ -11,6 +11,7 @@ import {
   sendEmailVerificationEmail,
   sendWelcomeEmail,
   sendBookingConfirmationEmail,
+  sendChallengeReceivedEmail,
   sendWaitlistPromotionEmail,
   sendCancellationEmail,
   sendDisputeResolutionEmail,
@@ -60,7 +61,8 @@ import {
   checkCreateGuards, countOpenOutgoing, findOpenForPair, createChallenge, expireStaleChallenges,
   getChallenge, respondToChallenge, toViews, listMine, statusFor,
 } from "./challenges";
-import { loadHeadToHeadRows, headToHeadView } from "./headToHead";
+import { loadHeadToHeadRows, headToHeadView, aggregateHeadToHead, type HeadToHeadRecord } from "./headToHead";
+import { challengeEmailRecipient } from "./challengeEmail";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
 import { applyPendingWalletCredit } from "./promos";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
@@ -1114,6 +1116,27 @@ export function registerMarketplaceRoutes(app: Express) {
           title: 'New challenge',
           message: `${challenger.name} has challenged you`,
         });
+      }
+
+      // C6 — email the challenged player. Transactional, one per challenge id
+      // (Resend idempotency key). Never blocks the route: the head-to-head
+      // lookup is guarded and the send is fire-and-forget, as booking emails are.
+      const recipient = challengeEmailRecipient(target);
+      if (recipient) {
+        let headToHead: HeadToHeadRecord = { met: 0, myWins: 0, theirWins: 0, last: null };
+        try {
+          headToHead = aggregateHeadToHead(await loadHeadToHeadRows(challengedId, challengerId));
+        } catch (err) {
+          console.error("[Email] head-to-head for challenge email failed:", err);
+        }
+        const them = challenged!; // the create guard already required the challenged player to exist
+        sendChallengeReceivedEmail(recipient, {
+          challengeId: created.id,
+          challenger: { name: challenger.name, level: challenger.level, skillScore: challenger.skillScore },
+          challenged: { name: them.name, level: them.level, skillScore: them.skillScore },
+          headToHead,
+          expiresAt: created.expiresAt,
+        }).catch(() => {});
       }
 
       const [view] = await toViews([created], challengerId);
