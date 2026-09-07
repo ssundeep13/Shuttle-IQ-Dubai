@@ -1193,3 +1193,30 @@ export const systemOneShotMigrations = pgTable("system_one_shot_migrations", {
 });
 
 export type SystemOneShotMigration = typeof systemOneShotMigrations.$inferSelect;
+
+// ─── Player Challenges (C1) ─────────────────────────────────────────────────
+// A player challenges another within one tier of their own. One OPEN
+// (pending|accepted) challenge per unordered pair — enforced by the partial
+// unique index on pair_key, not by application code alone. Settlement (C2)
+// stamps game_result_id + winner_player_id. Timestamps are timestamptz.
+export const challenges = pgTable("challenges", {
+  id: varchar("id").primaryKey(),
+  challengerPlayerId: varchar("challenger_player_id").notNull(),
+  challengedPlayerId: varchar("challenged_player_id").notNull(),
+  pairKey: text("pair_key").notNull(), // sorted player ids joined ':'
+  status: text("status").notNull().default('pending'), // 'pending' | 'accepted' | 'declined' | 'expired' | 'settled'
+  gameResultId: varchar("game_result_id"),
+  winnerPlayerId: varchar("winner_player_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  respondedAt: timestamp("responded_at", { withTimezone: true }),
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+}, (t) => [
+  index('idx_challenges_challenger_status').on(t.challengerPlayerId, t.status),
+  index('idx_challenges_challenged_status').on(t.challengedPlayerId, t.status),
+  index('idx_challenges_pair_status').on(t.pairKey, t.status),
+  uniqueIndex('uq_challenges_open_pair')
+    .on(t.pairKey)
+    .where(sql`status IN ('pending', 'accepted')`),
+]);
+export type Challenge = typeof challenges.$inferSelect;

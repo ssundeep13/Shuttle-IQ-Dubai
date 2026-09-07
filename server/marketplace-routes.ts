@@ -56,6 +56,10 @@ import { sql, eq, and, or, inArray, desc, asc, gt } from "drizzle-orm";
 import { players, matchSuggestions, matchSuggestionPlayers, courts, sessions, bookings, bookableSessions, gameParticipants, gameResults, feedEvents, feedEventLikes, marketplaceUsers, walletTransactions, type BookableSession } from "@shared/schema";
 import { walletDisplayLabel } from "./walletDisplay";
 import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, encodeFeedCursor, feedEventHeadline, assembleTagWall } from "./feedEvents";
+import {
+  checkCreateGuards, countOpenOutgoing, findOpenForPair, createChallenge, expireStaleChallenges,
+  getChallenge, respondToChallenge, toViews, listMine, statusFor,
+} from "./challenges";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
 import { applyPendingWalletCredit } from "./promos";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
@@ -1061,6 +1065,149 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error) {
       console.error("Feed fetch error:", error);
       res.status(500).json({ error: "Failed to load feed" });
+    }
+  });
+
+  // ── Player Challenges (C1) ────────────────────────────────────────────────
+  // Players only: every route needs a linked player (same 403 as tagging),
+  // and every route first lapses stale pendings so "open" is always true.
+
+  app.post("/api/marketplace/challenges", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      await expireStaleChallenges();
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
+      const challengerId = mpUser.linkedPlayerId;
+      const challengedId = String(req.body?.challengedPlayerId ?? '').trim();
+      if (!challengedId) return res.status(400).json({ error: "challengedPlayerId is required" });
+
+      const [challenger, challenged] = await Promise.all([storage.getPlayer(challengerId), storage.getPlayer(challengedId)]);
+      if (!challenger) return res.status(403).json({ error: "Link your player profile first" });
+
+      const guard = checkCreateGuards({
+        challengerId,
+        challengedId,
+        challengerLevel: challenger.level,
+        challengedLevel: challenged?.level ?? '',
+        challengedExists: !!challenged,
+        openOutgoingCount: await countOpenOutgoing(challengerId),
+        existingOpenForPair: (await findOpenForPair(challengerId, challengedId)) ?? null,
+      });
+      if (!guard.ok) return res.status(guard.status).json({ error: guard.error });
+
+      let created;
+      try {
+        created = await createChallenge(challengerId, challengedId);
+      } catch (err: any) {
+        // The partial unique index is the real guard against a race between two taps.
+        if (err?.code === '23505') return res.status(409).json({ error: "Open challenge already exists" });
+        throw err;
+      }
+
+      // Notify the challenged player's account, if they have one.
+      const target = await storage.getMarketplaceUserByLinkedPlayerId(challengedId);
+      if (target) {
+        await storage.createMarketplaceNotification({
+          userId: target.id,
+          type: 'challenge_received',
+          title: 'New challenge',
+          message: `${challenger.name} has challenged you`,
+        });
+      }
+
+      const [view] = await toViews([created], challengerId);
+      res.status(201).json(view);
+    } catch (error) {
+      console.error("Challenge create error:", error);
+      res.status(500).json({ error: "Failed to create challenge" });
+    }
+  });
+
+  app.post("/api/marketplace/challenges/:id/accept", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      await expireStaleChallenges();
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
+      const me = mpUser.linkedPlayerId;
+
+      const challenge = await getChallenge(req.params.id);
+      if (!challenge) return res.status(404).json({ error: "Challenge not found" });
+      if (challenge.challengedPlayerId !== me) return res.status(403).json({ error: "Only the challenged player can accept" });
+      if (challenge.status !== 'pending') return res.status(409).json({ error: "This challenge is no longer pending" });
+
+      const updated = await respondToChallenge(challenge.id, 'accepted');
+      if (!updated) return res.status(409).json({ error: "This challenge is no longer pending" });
+
+      const [challengedPlayer, challengerUser] = await Promise.all([
+        storage.getPlayer(me),
+        storage.getMarketplaceUserByLinkedPlayerId(challenge.challengerPlayerId),
+      ]);
+      if (challengerUser) {
+        await storage.createMarketplaceNotification({
+          userId: challengerUser.id,
+          type: 'challenge_accepted',
+          title: 'Challenge accepted',
+          message: `${challengedPlayer?.name ?? 'Your opponent'} accepted your challenge`,
+        });
+      }
+
+      const [view] = await toViews([updated], me);
+      res.json(view);
+    } catch (error) {
+      console.error("Challenge accept error:", error);
+      res.status(500).json({ error: "Failed to accept challenge" });
+    }
+  });
+
+  // Decline is private: no notification, no feed card.
+  app.post("/api/marketplace/challenges/:id/decline", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      await expireStaleChallenges();
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
+      const me = mpUser.linkedPlayerId;
+
+      const challenge = await getChallenge(req.params.id);
+      if (!challenge) return res.status(404).json({ error: "Challenge not found" });
+      if (challenge.challengedPlayerId !== me) return res.status(403).json({ error: "Only the challenged player can decline" });
+      if (challenge.status !== 'pending') return res.status(409).json({ error: "This challenge is no longer pending" });
+
+      const updated = await respondToChallenge(challenge.id, 'declined');
+      if (!updated) return res.status(409).json({ error: "This challenge is no longer pending" });
+
+      const [view] = await toViews([updated], me);
+      res.json(view);
+    } catch (error) {
+      console.error("Challenge decline error:", error);
+      res.status(500).json({ error: "Failed to decline challenge" });
+    }
+  });
+
+  app.get("/api/marketplace/challenges/mine", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      await expireStaleChallenges();
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
+      res.json(await listMine(mpUser.linkedPlayerId));
+    } catch (error) {
+      console.error("Challenge list error:", error);
+      res.status(500).json({ error: "Failed to load challenges" });
+    }
+  });
+
+  app.get("/api/marketplace/challenges/status/:playerId", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      await expireStaleChallenges();
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
+      const me = mpUser.linkedPlayerId;
+      const [viewer, target] = await Promise.all([storage.getPlayer(me), storage.getPlayer(req.params.playerId)]);
+      if (!viewer) return res.status(403).json({ error: "Link your player profile first" });
+      if (!target) return res.status(404).json({ error: "Player not found" });
+      res.json(await statusFor(me, { id: target.id, level: target.level }, viewer.level));
+    } catch (error) {
+      console.error("Challenge status error:", error);
+      res.status(500).json({ error: "Failed to load challenge status" });
     }
   });
 

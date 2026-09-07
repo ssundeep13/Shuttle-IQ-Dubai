@@ -12,7 +12,8 @@ import { getTierDisplayName } from "@shared/utils/skillUtils";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-const TIER_ORDER = ["Novice", "Beginner", "lower_intermediate", "upper_intermediate", "Advanced", "Professional"];
+// Exported: server/challenges.ts derives its skill-range rule from this same ladder.
+export const TIER_ORDER = ["Novice", "Beginner", "lower_intermediate", "upper_intermediate", "Advanced", "Professional"];
 const tierIndex = (level: string) => TIER_ORDER.indexOf(level);
 
 export interface FeedEventInsert {
