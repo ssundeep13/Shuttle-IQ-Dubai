@@ -32,22 +32,27 @@ const view = (over: Record<string, unknown>) => ({
 describe('ChallengeButton — public profile', () => {
   const statusKey = ['/api/marketplace/challenges/status', 'p2'];
 
-  it('renders the navy Challenge button when the status endpoint allows it', () => {
-    withClient(<ChallengeButton playerId="p2" playerName="Reena" viewerPlayerId="p1" />, [[statusKey, { canChallenge: true }]]);
+  // C4.1: the button lives inside the head-to-head panel — full width, teal,
+  // labelled with the player's first name; non-actionable states render as a
+  // disabled button-shaped element instead of a caption.
+  it('renders the full-width "Challenge <firstName>" button when the status endpoint allows it', () => {
+    withClient(<ChallengeButton playerId="p2" playerName="Reena Pillai" viewerPlayerId="p1" />, [[statusKey, { canChallenge: true }]]);
     const btn = screen.getByTestId('button-challenge');
-    expect(btn.textContent).toContain('Challenge');
+    expect(btn.textContent).toBe('Challenge Reena');
     expect(btn.className).toContain('w-full');
-    expect(btn.className).toContain('min-[400px]:w-auto');
   });
 
   it.each([
-    ['Out of your range', 'Out of your range'],
-    ['Challenge pending', 'Challenge pending'],
-    ['Challenge active', 'Challenge active'],
-  ])('hides the button and shows the reason "%s" as a caption', (reason, caption) => {
+    ['Out of your range', 'out-of-range', 'Out of your range'],
+    ['Challenge pending', 'pending', 'Challenge pending'],
+    ['Challenge active', 'active', 'Challenge active — settles on court'],
+  ])('reason "%s" → disabled state "%s" reading "%s"', (reason, state, label) => {
     withClient(<ChallengeButton playerId="p2" playerName="Reena" viewerPlayerId="p1" />, [[statusKey, { canChallenge: false, reason }]]);
     expect(screen.queryByTestId('button-challenge')).toBeNull();
-    expect(screen.getByTestId('text-challenge-reason').textContent).toBe(caption);
+    const el = screen.getByTestId('button-challenge-state') as HTMLButtonElement;
+    expect(el.getAttribute('data-state')).toBe(state);
+    expect(el.textContent).toBe(label);
+    expect(el.disabled).toBe(true);
   });
 
   it('renders nothing on your own profile, and nothing when the viewer has no linked player', () => {
@@ -133,11 +138,14 @@ describe('ChallengesCard — own Profile', () => {
 });
 
 describe('C4 pins — pages + notifications', () => {
-  it('PlayerPublicProfile renders ChallengeButton with the viewer\'s linked player id', () => {
+  it("PlayerPublicProfile renders the head-to-head panel (which owns ChallengeButton) with the viewer's linked player id (C4.1)", () => {
     const p = read('client/src/pages/marketplace/PlayerPublicProfile.tsx');
-    expect(p).toMatch(/import \{ ChallengeButton \} from '@\/components\/ChallengeButton'/);
-    expect(p).toMatch(/<ChallengeButton playerId=\{stats\.player\.id\} playerName=\{stats\.player\.name\} viewerPlayerId=\{/);
+    expect(p).toMatch(/import \{ HeadToHeadPanel \} from '@\/components\/HeadToHeadPanel'/);
+    expect(p).toMatch(/<HeadToHeadPanel[\s\S]*?playerId=\{stats\.player\.id\}[\s\S]*?playerName=\{stats\.player\.name\}[\s\S]*?viewerPlayerId=\{/);
+    expect(p).not.toMatch(/ChallengeButton/);
     expect(p).toMatch(/useMarketplaceAuth\(\)/);
+    const panel = read('client/src/components/HeadToHeadPanel.tsx');
+    expect(panel).toMatch(/import \{ ChallengeButton, inkTint \} from '@\/components\/ChallengeButton'/);
   });
   it('Profile renders ChallengesCard for linked players, after the referrals card', () => {
     const p = read('client/src/pages/marketplace/Profile.tsx');

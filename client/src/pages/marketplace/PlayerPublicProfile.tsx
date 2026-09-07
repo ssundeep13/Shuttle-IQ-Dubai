@@ -19,7 +19,7 @@ import type { PlayerStats, OpponentStats, PartnerStats, PlayerTopTag } from '@sh
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
-import { ChallengeButton } from '@/components/ChallengeButton';
+import { HeadToHeadPanel } from '@/components/HeadToHeadPanel';
 
 const CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -180,9 +180,6 @@ export default function PlayerPublicProfile() {
               </Button>
             </Link>
           </div>
-          <div className="mt-3">
-            <ChallengeButton playerId={stats.player.id} playerName={stats.player.name} viewerPlayerId={viewer?.linkedPlayerId ?? null} />
-          </div>
         </div>
 
         <div>
@@ -230,6 +227,14 @@ export default function PlayerPublicProfile() {
             </div>
           </div>
         </div>
+
+        <HeadToHeadPanel
+          playerId={stats.player.id}
+          playerName={stats.player.name}
+          playerPhotoUrl={stats.playerPhotoUrl}
+          viewerPlayerId={viewer?.linkedPlayerId ?? null}
+          viewerPhotoUrl={viewer?.photoUrl ?? null}
+        />
 
         {communityTags.length > 0 && (
           <div className="mb-6">

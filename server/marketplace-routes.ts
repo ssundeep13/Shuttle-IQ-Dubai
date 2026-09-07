@@ -60,6 +60,7 @@ import {
   checkCreateGuards, countOpenOutgoing, findOpenForPair, createChallenge, expireStaleChallenges,
   getChallenge, respondToChallenge, toViews, listMine, statusFor,
 } from "./challenges";
+import { loadHeadToHeadRows, headToHeadView } from "./headToHead";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
 import { applyPendingWalletCredit } from "./promos";
 import { autoFillCourtCostFils } from "./sessionCostCompute";
@@ -1220,6 +1221,27 @@ export function registerMarketplaceRoutes(app: Express) {
     } catch (error) {
       console.error("Challenge status error:", error);
       res.status(500).json({ error: "Failed to load challenge status" });
+    }
+  });
+
+  // C4.1 — head-to-head record for the panel on a public profile: games in
+  // non-sandbox sessions where the viewer and this player were on opposite
+  // teams. Display tier labels only. Read-only.
+  app.get("/api/marketplace/players/:playerId/head-to-head", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const mpUser = await storage.getMarketplaceUser(req.user!.userId);
+      if (!mpUser?.linkedPlayerId) return res.status(403).json({ error: "Link your player profile first" });
+      const myId = mpUser.linkedPlayerId;
+      const theirId = req.params.playerId;
+      if (theirId === myId) return res.status(400).json({ error: "That's your own profile" });
+      const [me, them] = await Promise.all([storage.getPlayer(myId), storage.getPlayer(theirId)]);
+      if (!me) return res.status(403).json({ error: "Link your player profile first" });
+      if (!them) return res.status(404).json({ error: "Player not found" });
+      const rows = await loadHeadToHeadRows(myId, theirId);
+      res.json(headToHeadView(rows, me, them));
+    } catch (error) {
+      console.error("Head-to-head error:", error);
+      res.status(500).json({ error: "Failed to load head-to-head" });
     }
   });
 
