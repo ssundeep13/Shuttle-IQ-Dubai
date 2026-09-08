@@ -14,7 +14,8 @@ import { firstName } from "@shared/utils/challengeViews";
 import { recordLine } from "@shared/utils/headToHeadCopy";
 import type { HeadToHeadRecord } from "./headToHead";
 
-export const CHALLENGES_DEEP_LINK = 'https://shuttleiq.ai/marketplace/profile#challenges';
+// C7: the Challenges card lives on the Stats page (/marketplace/my-scores).
+export const CHALLENGES_DEEP_LINK = 'https://shuttleiq.ai/marketplace/my-scores#challenges';
 
 export const challengeEmailIdempotencyKey = (challengeId: string): string => `challenge-received/${challengeId}`;
 

@@ -1,4 +1,5 @@
-// Player Challenges (C4) — the "Challenges" card on the player's own Profile.
+// Player Challenges (C4) — the "Challenges" card on the player's own Stats page
+// (/marketplace/my-scores; moved there from Profile in C7).
 // Incoming (Accept / Decline), outgoing pending, active, and the last three
 // settled. Data is GET /api/marketplace/challenges/mine; names and tiers in
 // the payload are display values already.
@@ -71,7 +72,7 @@ export function ChallengesCard({ cardStyle, titleStyle }: { cardStyle?: CSSPrope
   });
   const busy = (id: string) => respond.isPending && respond.variables?.id === id;
 
-  // C6 — the challenge email deep-links to /marketplace/profile#challenges.
+  // C6/C7 — the challenge email deep-links to /marketplace/my-scores#challenges.
   // The SPA renders async, so the native anchor scroll misses; scroll on
   // mount (and on hash change) the way MarketplaceHome handles its anchor.
   useEffect(() => {

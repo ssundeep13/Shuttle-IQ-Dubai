@@ -19,7 +19,6 @@ import FoundingMemberSeal from '@/components/FoundingMemberSeal';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useInstallPrompt, IOS_INSTALL_HINT } from '@/hooks/use-install-prompt';
-import { ChallengesCard } from '@/components/ChallengesCard';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
@@ -1392,12 +1391,6 @@ export default function Profile() {
                   <ChevronRight className="h-4 w-4 text-muted-foreground ml-auto shrink-0" />
                 </CardContent>
               </Card>
-            </motion.div>
-          )}
-
-          {user?.linkedPlayerId && (
-            <motion.div variants={fadeInUp}>
-              <ChallengesCard cardStyle={cardChrome} titleStyle={titleStyle} />
             </motion.div>
           )}
 

@@ -147,11 +147,12 @@ describe('C4 pins — pages + notifications', () => {
     const panel = read('client/src/components/HeadToHeadPanel.tsx');
     expect(panel).toMatch(/import \{ ChallengeButton, inkTint \} from '@\/components\/ChallengeButton'/);
   });
-  it('Profile renders ChallengesCard for linked players, after the referrals card', () => {
+  it('Profile no longer renders ChallengesCard — it moved to Stats (/marketplace/my-scores) in C7', () => {
     const p = read('client/src/pages/marketplace/Profile.tsx');
-    expect(p).toMatch(/import \{ ChallengesCard \} from '@\/components\/ChallengesCard'/);
-    const ref = p.indexOf('card-my-referrals-link'), card = p.indexOf('<ChallengesCard'), inst = p.indexOf('card-install-app-profile');
-    expect(ref).toBeGreaterThan(0); expect(card).toBeGreaterThan(ref); expect(inst).toBeGreaterThan(card);
+    expect(p).not.toMatch(/ChallengesCard/);
+    const s = read('client/src/pages/marketplace/MyScores.tsx');
+    expect(s).toMatch(/import \{ ChallengesCard \} from '@\/components\/ChallengesCard'/);
+    expect(s.indexOf('<ChallengesCard')).toBeGreaterThan(s.indexOf('card-stat-winrate'));
   });
   it('notification list renders free-text title/message, so the three challenge_* types need no special case', () => {
     const nav = read('client/src/components/MarketplaceNav.tsx');

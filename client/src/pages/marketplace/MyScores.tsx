@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import type { PlayerStats, OpponentStats, PartnerStats, ScoreDispute, PlayerTopTag } from '@shared/schema';
 import TagPlayersDialog from '@/components/TagPlayersDialog';
+import { ChallengesCard } from '@/components/ChallengesCard';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
@@ -402,6 +403,13 @@ export default function MyScores() {
         </div>
       </Reveal>
 
+      {/* Challenges (C7) — moved here from Profile. First card under the headline
+          stats; the challenge email deep-links to #challenges on this page. */}
+      <Reveal>
+        <div style={{ marginBottom: 24 }}>
+          <ChallengesCard cardStyle={cardStyle} titleStyle={{ fontFamily: FF_DISPLAY, fontWeight: 700, color: MKT.navy, letterSpacing: '-0.01em' }} />
+        </div>
+      </Reveal>
       {/* Tags Received — standalone full-width section, hidden when no tags */}
       {communityTopTags.length > 0 && (
         <Reveal>

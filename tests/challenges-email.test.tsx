@@ -5,7 +5,7 @@
 // is exercised against a mocked Resend SDK — one call, the idempotency key,
 // and a failure that must not throw; the route wiring (after the in-app
 // notification, guarded by the recipient helper, fire-and-forget, create only)
-// is pinned at source; the Profile card's #challenges anchor renders in jsdom.
+// is pinned at source; the Challenges card's #challenges anchor renders in jsdom.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -49,8 +49,8 @@ describe('buildChallengeReceivedEmail — template', () => {
     expect(html).toContain('88 pts');
     expect(html).toContain('74 pts');
     expect(html).toContain('Met 2 times · Clyde leads 2–0');
-    // Accept: navy button; Decline: plain link — both to the profile challenges anchor.
-    expect(CHALLENGES_DEEP_LINK).toBe('https://shuttleiq.ai/marketplace/profile#challenges');
+    // Accept: navy button; Decline: plain link — both to the Stats page challenges anchor.
+    expect(CHALLENGES_DEEP_LINK).toBe('https://shuttleiq.ai/marketplace/my-scores#challenges'); // C7: the card lives on Stats
     expect(html).toMatch(new RegExp(`background-color:#003E8C;[^>]*>\\s*<a href="${CHALLENGES_DEEP_LINK}"[^>]*>Accept challenge</a>`, 'i'));
     expect(html).toMatch(new RegExp(`<a href="${CHALLENGES_DEEP_LINK}"[^>]*>Decline</a>`));
     expect((html.match(new RegExp(CHALLENGES_DEEP_LINK.replace(/[.#]/g, '\\$&'), 'g')) ?? []).length).toBe(2);
