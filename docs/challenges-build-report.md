@@ -330,3 +330,41 @@ So Resend accepted exactly one message for the test challenge and returned an id
 - Brand in the email follows this brief literally (`#003E8C` navy, `#F5EFE0` cream). The app tokens are `#002C84` / `#F2ECE1` (Design Gate 2) and the booking emails use their own older palette (`#0a2540` / `#0a7ea4`); the three now differ. Say the word and I'll align the email to the app tokens.
 - The deep link after a login bounce: `MarketplaceProtectedRoute` preserves the path (`?from=/marketplace/profile`) but not the `#challenges` hash, so a signed-out reader lands on the Profile top after logging in; a signed-in reader (persisted session, the normal phone case) lands on the card. Preserving the hash through login is a small follow-up if you want it.
 - Consider a *full-access* Resend key in a separate env var if you want future verifications to read delivery events by API.
+
+## C7 — Challenges card moves from Profile to Stats — 2026-09-08
+
+**Commit `8fdacdd` "Challenges C7: move Challenges card to Stats" → Railway deploy `bc29e4fb` SUCCESS (13:44 Dubai), health 200.** UI + one URL constant; no server logic change, no schema.
+
+**Where the STATS tab resolves:** `MobileBottomNav` → `/marketplace/my-scores` → `App.tsx` route → `client/src/pages/marketplace/MyScores.tsx` (there is no `Stats.tsx`).
+
+**Built**
+- `MyScores.tsx`: `ChallengesCard` mounted as the first card after the headline hero + stat tiles (`card-stat-games/winrate/…`) and before "Tags Received" (`section-tags-received`), the progression chart, and the game-history link — inside the page's `Reveal` wrapper with the page's own `cardStyle` and a navy display-font title. The card keeps `id="challenges"` and its hash-scroll effect (unchanged component, comments updated).
+- `Profile.tsx`: the `ChallengesCard` import and the linked-player block are removed. No stub, no link, no `#challenges` mention remains.
+- `server/challengeEmail.ts`: `CHALLENGES_DEEP_LINK` → `https://shuttleiq.ai/marketplace/my-scores#challenges` (both the Accept button and the Decline link use the constant, so the template renders the new URL twice).
+
+**Every site that referenced the old target (grep `#challenges` and `profile` near `challenge` across `client/src`, `server`, `shared`):**
+1. `server/challengeEmail.ts` — the constant. **Retargeted.**
+2. `client/src/components/ChallengesCard.tsx` — two comments naming the old path (the hash check itself is path-agnostic). **Updated.**
+3. `client/src/pages/marketplace/Profile.tsx` — the render site. **Removed.**
+4. In-app notification tap targets for `challenge_received` / `challenge_accepted` / `challenge_settled`: **none exist** — the notification list (`MarketplaceNav`) renders free-text title/message rows with no per-row navigation (the C4 pin "no special case per type" still holds), so there was nothing to retarget. Adding tap targets would be a new feature.
+5. "View challenges" links in `HeadToHeadPanel` / `ChallengeButton`: **none exist**; the panel's only link is the challenge action itself.
+6. `ChallengesCard` empty-state link → `/marketplace/rankings` (unrelated to the anchor; unchanged).
+Also: `scripts/scratch/c6-email-verify.mjs` (untracked) retargeted for future runs.
+
+**Tests** — RED first: new `tests/challenges-stats-move.test.tsx` (7: MyScores imports + mounts the card between the stat tiles and Tags Received / game history; Profile has no import, render, or `#challenges`; the email constant is the Stats URL; a recursive scan of `client/src`, `server`, `shared` finds no `profile#challenges`; the card keeps its anchor + hash scroll; **jsdom render of the real MyScores page** with a mocked auth context, an IntersectionObserver stub and seeded stats → `card-challenges` present with `id="challenges"`, DOM-ordered after the win-rate tile and before the game-history link; opening on `#challenges` calls `scrollIntoView`). Updated pins: `challenges-ui` (Profile pin flipped to "no longer renders; MyScores does, after the tiles") and `challenges-email` (constant). Full suite **97 files / 1162 tests green** (`portal-runner-wall` hit its known 5s timeout flake once, passed in isolation, full re-run exit 0); `tsc` **28 = baseline**.
+
+**Live evidence (production — `scripts/scratch/c7-render-link.mts` + `c7-stats-verify.mjs` under `railway run`)**
+```
+hrefs in template: ["https://shuttleiq.ai/marketplace/my-scores#challenges","https://shuttleiq.ai/marketplace/my-scores#challenges"]
+GET https://shuttleiq.ai/marketplace/my-scores → 200 | SPA shell: true | content-type: text/html; charset=utf-8
+GET /api/marketplace/challenges/mine (TEST PLAYER bearer) → 200 {"incoming":0,"outgoing":0,"active":0,"settled":0}
+same without a bearer → 401
+served bundle scan: {"anchor":true,"oldTarget":false}
+FINAL STATE: {"active":0,"test_challenges":0}
+```
+No test challenge was created (the card renders its empty state from the 200 above, and C6 would have sent another email to the test inbox), so there was nothing to tear down. "Profile no longer shows it" is proven by the source pins + the served bundle containing a single `card-challenges` site; a rendered-DOM check of the live page needs a signed-in browser (Playwright is not installed; I don't inject test tokens into the in-app browser).
+
+**Notes for Sandeep**
+- On the Stats page the card sits above "Tags Received" for every linked player, including those with no challenges (empty state "No challenges yet. Find a player to challenge."). If you'd rather hide the empty state on Stats, say so — one condition.
+- The hash still does not survive a login bounce (`?from=` keeps the path only) — unchanged from C6; signed-in phones land on the card.
+- The four real pending challenges from yesterday are untouched (still pending, no feed cards).
