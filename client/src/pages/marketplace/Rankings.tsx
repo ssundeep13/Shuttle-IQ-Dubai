@@ -12,6 +12,7 @@ import type { Player, PlayerTopTagEntry } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
+import { PlayerSearch } from '@/components/marketplace/PlayerSearch';
 
 const TAG_CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -296,6 +297,11 @@ export default function Rankings() {
             <Trophy className="h-6 w-6 text-secondary" /> Rankings
           </h1>
           <p className="text-muted-foreground mt-1">Global ShuttleIQ player leaderboard</p>
+        </motion.div>
+
+        {/* Gate 3 — find a player; above the period / sort chips */}
+        <motion.div variants={fadeInUp} className="mb-6">
+          <PlayerSearch />
         </motion.div>
 
         <motion.div variants={fadeInUp} className="space-y-2 mb-6">

@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_BODY, Reveal } from './LandingComponents';
 import CommunityFeed from './CommunityFeed';
+import { PlayerSearch } from '@/components/marketplace/PlayerSearch';
 
 export default function FeedScreen() {
   usePageTitle('Community');
@@ -21,6 +22,12 @@ export default function FeedScreen() {
             >
               <ArrowLeft className="h-4 w-4" /> Back
             </Link>
+          </div>
+        </Reveal>
+        {/* Gate 3 — find a player; sits above the feed filter chips (the feed's first row) */}
+        <Reveal>
+          <div style={{ marginBottom: 14 }}>
+            <PlayerSearch />
           </div>
         </Reveal>
         <Reveal>
