@@ -64,7 +64,7 @@ describe('captain role - allow-list tripwires', () => {
       // + 1 (Challenges C5): GET /api/sessions/:id/challenges — read-only view
       // of open challenges between players booked into a session, so the
       // captain running it sees the "vs" pairings. No write, no escalation.
-      'server/routes.ts': 34,
+      'server/routes.ts': 35, // 35 = 34 + GET /api/players (Gate 1 lockdown, 2026-09-09: the full player list was unauthenticated; captains run sessions and need it)
       'server/marketplace-routes.ts': 1,
       'server/sessionCostRoutes.ts': 2,
       'server/venueRoutes.ts': 1,

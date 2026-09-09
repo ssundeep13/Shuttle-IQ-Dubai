@@ -898,13 +898,18 @@ export class DatabaseStorage implements IStorage {
     return playerList.map(addSkidToPlayer);
   }
 
+  // Shared search (feeds the player-facing /api/marketplace/search-players and
+  // the admin /api/players/search). Matches on name and ShuttleIQ id ONLY —
+  // the email LIKE that used to live here made the player-facing endpoint an
+  // email-existence oracle (Gate 1 lockdown, 2026-09-09). Contact matching is
+  // searchPlayersWithContact, admin-only.
   async searchPlayers(query: string): Promise<Player[]> {
     const lowerQuery = `%${query.toLowerCase()}%`;
     const upperQuery = `%${query.toUpperCase()}%`;
     const playerList = await db
       .select()
       .from(players)
-      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${upperQuery} OR LOWER(${players.email}) LIKE ${lowerQuery} OR LOWER(${players.phone}) LIKE ${lowerQuery}`)
+      .where(sql`LOWER(${players.name}) LIKE ${lowerQuery} OR ${players.shuttleIqId} LIKE ${upperQuery}`)
       .orderBy(asc(players.name));
 
     return playerList.map(addSkidToPlayer);

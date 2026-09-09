@@ -20,6 +20,7 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import { sql, eq, inArray, and, desc, asc } from "drizzle-orm";
 import { requireAuth, requireAdmin, requireCaptain, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
+import { playerListHandler, playerSearchHandler, publicPlayerListHandler } from "./playerRoutes";
 import { generateSeriesWeeks, listSeries, previewSeriesStop, stopSeries, extendSeries, SeriesStoppedError, SeriesNotFoundError } from "./sessionSeries";
 import { SERIES_WEEKS_MIN, SERIES_WEEKS_MAX, SERIES_WEEKS_DEFAULT, EXTEND_WEEKS_MIN, EXTEND_WEEKS_MAX } from "@shared/utils/seriesDates";
 import { verifyAccessToken } from "./auth/utils";
@@ -1051,27 +1052,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Player routes
-  app.get("/api/players", async (req, res) => {
-    try {
-      const players = await storage.getAllPlayers();
-      res.json(players);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch players" });
-    }
-  });
-
-  app.get("/api/players/search", async (req, res) => {
-    try {
-      const query = req.query.q as string || '';
-      if (!query) {
-        return res.json([]);
-      }
-      const players = await storage.searchPlayers(query);
-      res.json(players);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to search players" });
-    }
-  });
+  // Gate 1 lockdown (2026-09-09): full player rows are ops-app data. List →
+  // admin + captain (live-session screen, Add Player, Merge, Registry);
+  // search → admin only (no caller in the codebase). Handlers: playerRoutes.ts.
+  app.get("/api/players", requireAuth, requireCaptain, playerListHandler);
+  app.get("/api/players/search", requireAuth, requireAdmin, playerSearchHandler);
+  // Public projection for the marketplace Rankings page (id, name, shuttleIqId,
+  // level, skillScore, gamesPlayed, wins). Registered before /api/players/:id so
+  // the param route cannot swallow "public".
+  app.get("/api/players/public", publicPlayerListHandler);
 
   app.get("/api/players/:id", async (req, res) => {
     try {

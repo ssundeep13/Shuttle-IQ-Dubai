@@ -149,7 +149,7 @@ export default function Rankings() {
   const topTagMap = new Map<string, PlayerTopTagEntry>(allTopTags.map(e => [e.playerId, e]));
 
   const { data: allTimePlayers, isLoading: loadingAllTime, isError: errorAllTime, refetch: refetchAllTime } = useQuery<Player[]>({
-    queryKey: ['/api/players'],
+    queryKey: ['/api/players/public'],
     enabled: !isMostImproved && timeFilter === 'all-time',
   });
 
