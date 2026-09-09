@@ -54,7 +54,8 @@ describe('builders — payloads carry display names + display tiers only', () =>
     expect(ev).toEqual({
       type: 'challenge_accepted', subjectPlayerId: 'A', gameResultId: null, sessionId: null, relatedTagId: null,
       dedupeKey: 'ca:c1',
-      payload: { challengeId: 'c1', challengerName: 'Dev', challengedName: 'Reena', challengerTier: 'Competitive', challengedTier: 'Intermediate' },
+      // Feed Gate 2: ids ride along for profile links on new events (legacy events resolve them at read time)
+      payload: { challengeId: 'c1', challengerName: 'Dev', challengedName: 'Reena', challengerTier: 'Competitive', challengedTier: 'Intermediate', challengerPlayerId: 'A', challengedPlayerId: 'B' },
     });
     expect(JSON.stringify(ev.payload)).not.toMatch(/upper_intermediate|lower_intermediate/);
   });
@@ -67,7 +68,7 @@ describe('builders — payloads carry display names + display tiers only', () =>
     expect(ev).toEqual({
       type: 'challenge_settled', subjectPlayerId: 'A', gameResultId: 'g1', sessionId: 's1', relatedTagId: null,
       dedupeKey: 'cs:c1',
-      payload: { challengeId: 'c1', winnerName: 'Dev', loserName: 'Reena', winnerScore: 21, loserScore: 17 },
+      payload: { challengeId: 'c1', winnerName: 'Dev', loserName: 'Reena', winnerScore: 21, loserScore: 17, winnerPlayerId: 'A', loserPlayerId: 'B' },
     });
   });
 

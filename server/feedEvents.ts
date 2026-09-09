@@ -346,6 +346,9 @@ export function buildChallengeAcceptedEvent(input: {
       challengedName: input.challenged.name,
       challengerTier: input.challenger.tier,
       challengedTier: input.challenged.tier,
+      // Gate 2: ids for profile links on new events (legacy events resolve via challengeId at read time)
+      challengerPlayerId: input.challenger.id,
+      challengedPlayerId: input.challenged.id,
     },
   };
 }
@@ -372,6 +375,8 @@ export function buildChallengeSettledEvent(input: {
       loserName: input.loser.name,
       winnerScore: input.score.winner,
       loserScore: input.score.loser,
+      winnerPlayerId: input.winner.id,
+      loserPlayerId: input.loser.id,
     },
   };
 }
@@ -571,4 +576,47 @@ export async function supersedeGameFeedEvents(
   } catch (err) {
     console.error("[FeedEvents] supersede failed (correction unaffected):", err instanceof Error ? err.message : err);
   }
+}
+
+// ── Feed Gate 2: player ids on challenge cards (read-time enrichment) ────────
+// Payloads are frozen at write time; older challenge events carry names only.
+// The feed route loads the page's challenge rows in ONE query and this pure
+// helper attaches the four ids to challenge events (row first, then any ids
+// a newer payload carries, else null). Other event types pass through as-is.
+export interface ChallengePlayerRow {
+  id: string;
+  challengerPlayerId: string;
+  challengedPlayerId: string;
+  winnerPlayerId: string | null;
+}
+export interface ChallengePlayerIds {
+  challengerPlayerId: string | null;
+  challengedPlayerId: string | null;
+  winnerPlayerId: string | null;
+  loserPlayerId: string | null;
+}
+const idOrNull = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+
+export function attachChallengePlayerIds<T extends { type: string; payload: Record<string, any> }>(
+  events: T[],
+  byChallengeId: Map<string, ChallengePlayerRow>,
+): Array<T | (T & ChallengePlayerIds)> {
+  return events.map((e) => {
+    if (e.type !== "challenge_accepted" && e.type !== "challenge_settled") return e;
+    const p = e.payload ?? {};
+    const row = typeof p.challengeId === "string" ? byChallengeId.get(p.challengeId) : undefined;
+    const challengerPlayerId = row?.challengerPlayerId ?? idOrNull(p.challengerPlayerId);
+    const challengedPlayerId = row?.challengedPlayerId ?? idOrNull(p.challengedPlayerId);
+    let winnerPlayerId: string | null = null;
+    let loserPlayerId: string | null = null;
+    if (e.type === "challenge_settled") {
+      winnerPlayerId = row?.winnerPlayerId ?? idOrNull(p.winnerPlayerId);
+      if (row && winnerPlayerId) {
+        loserPlayerId = winnerPlayerId === row.challengerPlayerId ? row.challengedPlayerId : row.challengerPlayerId;
+      } else {
+        loserPlayerId = idOrNull(p.loserPlayerId);
+      }
+    }
+    return { ...e, challengerPlayerId, challengedPlayerId, winnerPlayerId, loserPlayerId };
+  });
 }

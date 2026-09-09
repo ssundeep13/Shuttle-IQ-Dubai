@@ -61,7 +61,9 @@ import { FEED_PAGE_SIZE, SESSION_FEED_TYPES, parseFeedFilter, decodeFeedCursor, 
 import {
   checkCreateGuards, countOpenOutgoing, findOpenForPair, createChallenge, expireStaleChallenges,
   getChallenge, respondToChallenge, toViews, listMine, statusFor,
+  loadChallengePlayerIds,
 } from "./challenges";
+import { attachChallengePlayerIds } from "./feedEvents";
 import { loadHeadToHeadRows, headToHeadView, aggregateHeadToHead, type HeadToHeadRecord } from "./headToHead";
 import { challengeEmailRecipient } from "./challengeEmail";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
@@ -1018,6 +1020,14 @@ export function registerMarketplaceRoutes(app: Express) {
       const hasMore = rows.length > FEED_PAGE_SIZE;
       const page = rows.slice(0, FEED_PAGE_SIZE);
 
+      // Feed Gate 2: player ids for the challenge cards — one challenges lookup
+      // for the whole page; event payloads stay frozen.
+      const challengeIds = page
+        .filter(r => r.type === "challenge_accepted" || r.type === "challenge_settled")
+        .map(r => (r.payload as Record<string, any> | null)?.challengeId)
+        .filter((c): c is string => typeof c === "string");
+      const challengeRowsById = await loadChallengePlayerIds(challengeIds);
+
       const sessionIds = Array.from(new Set(page.map(r => r.sessionId).filter((s): s is string => !!s)));
       const sessionRows = sessionIds.length
         ? await db.select({ id: sessions.id, venueName: sessions.venueName, date: sessions.date }).from(sessions).where(inArray(sessions.id, sessionIds))
@@ -1048,7 +1058,7 @@ export function registerMarketplaceRoutes(app: Express) {
       // Tag wall (Gate F3.5): group per-player tag bursts and cap per-session
       // floods — render-side only, applied per page; the cursor still keys on
       // the RAW page rows below, so pagination is untouched.
-      const assembled = assembleTagWall(page.map(r => ({
+      const assembled = assembleTagWall(attachChallengePlayerIds(page.map(r => ({
         id: r.id,
         type: r.type,
         createdAt: r.createdAt,
@@ -1059,7 +1069,7 @@ export function registerMarketplaceRoutes(app: Express) {
         likeCount: likeAgg.get(r.id)?.count ?? 0,
         likedByMe: likeAgg.get(r.id)?.likedByMe ?? false,
         likePreview: likeAgg.get(r.id)?.preview ?? [],
-      })));
+      })), challengeRowsById));
 
       res.setHeader("Cache-Control", "no-store");
       res.json({

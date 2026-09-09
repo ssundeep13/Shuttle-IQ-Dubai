@@ -493,3 +493,23 @@ export async function statusFor(viewerPlayerId: string, target: { id: string; le
   if ((await countOpenOutgoing(viewerPlayerId, dbh)) >= MAX_OUTGOING) return { canChallenge: false, reason: `You have ${MAX_OUTGOING} open challenges` };
   return { canChallenge: true };
 }
+
+/** Feed Gate 2: the player ids behind a page of challenge cards — ONE query
+ *  for all challenge ids on the page; empty input makes no query. */
+export async function loadChallengePlayerIds(
+  ids: string[],
+  dbh: DbOrTx = db,
+): Promise<Map<string, { id: string; challengerPlayerId: string; challengedPlayerId: string; winnerPlayerId: string | null }>> {
+  const unique = Array.from(new Set(ids.filter((id): id is string => typeof id === "string" && id.length > 0)));
+  if (unique.length === 0) return new Map();
+  const rows = await dbh
+    .select({
+      id: challenges.id,
+      challengerPlayerId: challenges.challengerPlayerId,
+      challengedPlayerId: challenges.challengedPlayerId,
+      winnerPlayerId: challenges.winnerPlayerId,
+    })
+    .from(challenges)
+    .where(inArray(challenges.id, unique));
+  return new Map(rows.map((r) => [r.id, r]));
+}

@@ -10,6 +10,7 @@ import { Users, Heart, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { MKT, FF_BODY } from './LandingComponents';
 import { challengeAcceptedHeadline, challengeSettledHeadline } from '@shared/utils/challengeCopy';
+import { PlayerLink } from '@/components/marketplace/PlayerLink';
 import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 
 // Spec: brightened teal is approved ONLY as accent on navy fills; brand teal
@@ -26,6 +27,12 @@ interface FeedEventDto {
   createdAt: string;
   subjectPlayerId: string | null;
   payload: Record<string, any>;
+  // Feed Gate 2 — attached by the server to challenge events only (read-time
+  // lookup of the challenges row; null when that row is gone).
+  challengerPlayerId?: string | null;
+  challengedPlayerId?: string | null;
+  winnerPlayerId?: string | null;
+  loserPlayerId?: string | null;
   session: { venueName: string; date: string } | null;
   likeCount: number;
   likedByMe: boolean;
@@ -393,51 +400,69 @@ const MILESTONE_HEADLINES: Record<string, (name: string) => string> = {
 // ── Player Challenges (C3) ──────────────────────────────────────────────────
 // Flat white cards, 1px border, no shadow. Headline in navy, the challenge
 // accent in text-teal, Inter throughout. Copy comes from the shared helper.
-function TierTag({ name, tier }: { name: string; tier: string }) {
+// ── Challenge cards (C3 → Feed Gate 2): compact, names link to profiles ──────
+// One headline line: name · tier (small teal inline text, not a control) ·
+// "challenged" · name · tier. The avatar and each name are PlayerLinks; the
+// tier text is never interactive. No pill row. Like bar unchanged.
+
+const nameLinkStyle: CSSProperties = { color: 'inherit', textDecoration: 'none', fontWeight: 800 };
+
+function TierText({ tier }: { tier?: string }) {
+  if (!tier) return null;
   return (
     <span
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 999,
-        border: `1px solid ${CARD_BORDER}`, fontFamily: FF_BODY, fontSize: 12, color: MKT.ink,
-      }}
+      data-testid="feed-tier-text"
+      style={{ fontFamily: FF_BODY, fontSize: 11, fontWeight: 600, color: MKT.tealText, marginLeft: 4, whiteSpace: 'nowrap', verticalAlign: 'baseline' }}
     >
-      <span style={{ fontWeight: 700 }}>{name}</span>
-      <span style={{ color: MKT.tealText, fontWeight: 600 }}>{tier}</span>
+      {tier}
     </span>
   );
 }
 
-function ChallengeAcceptedCard({ ev }: { ev: FeedEventDto }) {
-  const p = ev.payload;
+export function ChallengeAcceptedCard({ ev }: { ev: FeedEventDto }) {
+  const p = ev.payload as { challengerName: string; challengedName: string; challengerTier?: string; challengedTier?: string };
   return (
     <div style={whiteCard} data-testid="feed-card-challenge-accepted">
       <div className="flex items-center gap-3">
-        <AvatarCircle name={p.challengerName} size={44} bg={MKT.navy} fg={MKT.cream} />
+        <PlayerLink playerId={ev.challengerPlayerId ?? null} name={p.challengerName} testId="feed-player-avatar-link" style={{ display: 'block', flexShrink: 0 }}>
+          <AvatarCircle name={p.challengerName} size={44} bg={MKT.navy} fg={MKT.cream} />
+        </PlayerLink>
         <div className="flex-1 min-w-0">
-          <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 15, color: MKT.navy, lineHeight: 1.35 }}>
-            {challengeAcceptedHeadline(p as { challengerName: string; challengedName: string })}
+          <p
+            aria-label={challengeAcceptedHeadline(p)}
+            style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 15, color: MKT.navy, lineHeight: 1.35 }}
+          >
+            <PlayerLink playerId={ev.challengerPlayerId ?? null} name={p.challengerName} testId="feed-player-link" style={nameLinkStyle} />
+            <TierText tier={p.challengerTier} />
+            <span style={{ fontWeight: 500 }}> challenged </span>
+            <PlayerLink playerId={ev.challengedPlayerId ?? null} name={p.challengedName} testId="feed-player-link" style={nameLinkStyle} />
+            <TierText tier={p.challengedTier} />
           </p>
           <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(ev, 'challenge accepted')}</p>
         </div>
-      </div>
-      <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
-        <TierTag name={p.challengerName} tier={p.challengerTier} />
-        <TierTag name={p.challengedName} tier={p.challengedTier} />
       </div>
       <LikeBar ev={ev} />
     </div>
   );
 }
 
-function ChallengeSettledCard({ ev }: { ev: FeedEventDto }) {
-  const p = ev.payload;
+export function ChallengeSettledCard({ ev }: { ev: FeedEventDto }) {
+  const p = ev.payload as { winnerName: string; loserName: string; winnerScore: number; loserScore: number };
   return (
     <div style={whiteCard} data-testid="feed-card-challenge-settled">
       <div className="flex items-center gap-3">
-        <AvatarCircle name={p.winnerName} size={44} bg={MKT.navy} fg={MKT.cream} />
+        <PlayerLink playerId={ev.winnerPlayerId ?? null} name={p.winnerName} testId="feed-player-avatar-link" style={{ display: 'block', flexShrink: 0 }}>
+          <AvatarCircle name={p.winnerName} size={44} bg={MKT.navy} fg={MKT.cream} />
+        </PlayerLink>
         <div className="flex-1 min-w-0">
-          <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 15, color: MKT.navy, lineHeight: 1.35 }}>
-            {challengeSettledHeadline(p as { winnerName: string; loserName: string; winnerScore: number; loserScore: number })}
+          <p
+            aria-label={challengeSettledHeadline(p)}
+            style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 15, color: MKT.navy, lineHeight: 1.35 }}
+          >
+            <PlayerLink playerId={ev.winnerPlayerId ?? null} name={p.winnerName} testId="feed-player-link" style={nameLinkStyle} />
+            <span style={{ fontWeight: 500 }}> beat </span>
+            <PlayerLink playerId={ev.loserPlayerId ?? null} name={p.loserName} testId="feed-player-link" style={nameLinkStyle} />
+            <span style={{ fontWeight: 500 }}>{` ${p.winnerScore}\u2013${p.loserScore} \u00b7 Challenge settled`}</span>
           </p>
           <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(ev)}</p>
         </div>
