@@ -170,7 +170,7 @@ describe('GET /api/marketplace/search-players — response shape', () => {
     expect(h).toMatch(/query\.length < 2/);
     expect(h).toMatch(/\.slice\(0, 10\)\.map\(publicPlayerSearchResult\)/);
     expect(h).not.toMatch(/email|phone|walletBalance/);
-    expect(mp).toMatch(/import \{ publicPlayerSearchResult \} from "\.\/playerRoutes";/);
+    expect(mp).toMatch(/import \{ publicPlayerSearchResult(, isTestAccountName)? \} from "\.\/playerRoutes";/); // Gate 4 adds the test-account exclusion
   });
 });
 

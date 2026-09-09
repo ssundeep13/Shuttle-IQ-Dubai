@@ -186,7 +186,7 @@ describe('Gate 2 pins — route, DTO, cards, component', () => {
     expect(c).toMatch(/import \{ PlayerLink \} from '@\/components\/marketplace\/PlayerLink'/);
     const cards = c.slice(c.indexOf('function ChallengeAcceptedCard'), c.indexOf('function FeedEventCard'));
     expect(cards).not.toMatch(/TierTag/);
-    expect(cards).not.toMatch(/flex-wrap/);
+    expect(cards).not.toMatch(/flex flex-wrap gap-2/); // the old pill-row wrapper (headline rows may wrap for the like list — Gate 4)
     expect((cards.match(/<PlayerLink/g) ?? []).length).toBeGreaterThanOrEqual(6);
     expect(c).not.toMatch(/function TierTag/);
   });

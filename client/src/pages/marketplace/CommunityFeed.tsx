@@ -5,7 +5,7 @@
 import { type CSSProperties, type ReactNode } from 'react';
 import { useState } from 'react';
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import { Link } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import { Users, Heart, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 import { MKT, FF_BODY } from './LandingComponents';
@@ -19,7 +19,11 @@ const TEAL_ON_NAVY = '#2BB3A3';
 const CARD_BORDER = 'rgba(0,20,60,0.08)';
 const TROPHY_BG = 'hsl(174, 60%, 94%)';
 
-export type FeedFilterValue = 'all' | 'you' | 'sessions';
+export type FeedFilterValue = 'all' | 'you' | 'sessions' | 'challenges' | 'results' | 'tags';
+// Feed Gate 4 — the chip is carried in ?filter= so a refresh keeps it; unknown → all.
+export function parseFeedFilterParam(v: string | null | undefined): FeedFilterValue {
+  return v === 'you' || v === 'sessions' || v === 'challenges' || v === 'results' || v === 'tags' ? v : 'all';
+}
 
 interface FeedEventDto {
   id: string;
@@ -64,7 +68,21 @@ interface TagOverflowDto {
   playerCount: number;
   previewNames: string[];
 }
-type FeedItem = FeedEventDto | TagGroupDto | TagOverflowDto;
+// Feed Gate 4 — adjacent same-day challenge_accepted events, folded server-side
+// (like anchor = newest member, as the tag wall does).
+interface ChallengeGroupDto {
+  type: 'challenge_accepted_group';
+  id: string; // likeTarget
+  eventIds: string[];
+  likeTarget: string;
+  createdAt: string;
+  day: string;
+  members: Array<{ id: string; createdAt: string; challengerName: string; challengedName: string; challengerTier: string | null; challengedTier: string | null; challengerPlayerId: string | null; challengedPlayerId: string | null }>;
+  likeCount: number;
+  likedByMe: boolean;
+  likePreview: string[];
+}
+type FeedItem = FeedEventDto | TagGroupDto | TagOverflowDto | ChallengeGroupDto;
 
 // The minimum LikeBar needs — real events and tag groups both satisfy it.
 interface Likeable {
@@ -180,9 +198,12 @@ function LikeBar({ ev, onNavy = false }: { ev: Likeable; onNavy?: boolean }) {
   const stackRing = onNavy ? MKT.navy : '#fff';
   const preview = likePreviewText(ev);
 
+  // Feed Gate 4 — inline: heart + liker stack at the right edge of the
+  // headline row (the row wraps, so the expanded likers list drops under it
+  // as a full-width line). The 44px hit box is the 18px heart + 13px padding.
   return (
-    <div style={{ marginTop: 12 }}>
-      <div className="flex items-center gap-2.5">
+    <>
+      <div className="flex items-center shrink-0" style={{ marginLeft: 'auto', paddingLeft: 10 }} data-testid="feed-like-inline">
         <button
           onClick={() => toggle.mutate()}
           aria-label={ev.likedByMe ? 'Unlike' : 'Like'}
@@ -192,38 +213,40 @@ function LikeBar({ ev, onNavy = false }: { ev: Likeable; onNavy?: boolean }) {
         >
           <Heart className="h-[18px] w-[18px]" fill={ev.likedByMe ? 'currentColor' : 'none'} strokeWidth={2} />
         </button>
-        {ev.likePreview.length > 0 && (
-          <div className="flex items-center" data-testid="feed-like-stack" aria-hidden>
-            {ev.likePreview.slice(0, 3).map((n, i) => (
-              <div key={i} style={{
-                width: 22, height: 22, borderRadius: '50%', marginLeft: i === 0 ? 0 : -6,
-                background: onNavy ? 'rgba(255,255,255,0.18)' : MKT.tealMist,
-                color: onNavy ? '#fff' : MKT.tealD,
-                border: `2px solid ${stackRing}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontFamily: FF_BODY, fontWeight: 800, fontSize: 8, letterSpacing: '0.02em',
-              }}>
-                {initialsOf(n)}
-              </div>
-            ))}
-            {ev.likeCount > 3 && (
-              <span style={{ marginLeft: 4, fontFamily: FF_BODY, fontSize: 11, fontWeight: 700, color: textColor }}>+{ev.likeCount - 3}</span>
-            )}
-          </div>
-        )}
-        {preview && (
+        {ev.likeCount > 0 && (
           <button
             onClick={() => setExpanded(x => !x)}
+            aria-label={preview ?? 'See who liked this'}
+            aria-expanded={expanded}
             data-testid="feed-likers-expand"
             className="siq-press"
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, fontFamily: FF_BODY, fontSize: 12, color: textColor, textAlign: 'left' }}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, marginLeft: 10, display: 'inline-flex', alignItems: 'center' }}
           >
-            {preview}
+            <div className="flex items-center" data-testid="feed-like-stack" aria-hidden>
+              {ev.likePreview.slice(0, 3).map((n, i) => (
+                <div key={i} style={{
+                  width: 22, height: 22, borderRadius: '50%', marginLeft: i === 0 ? 0 : -6,
+                  background: onNavy ? 'rgba(255,255,255,0.18)' : MKT.tealMist,
+                  color: onNavy ? '#fff' : MKT.tealD,
+                  border: `2px solid ${stackRing}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: FF_BODY, fontWeight: 800, fontSize: 8, letterSpacing: '0.02em',
+                }}>
+                  {initialsOf(n)}
+                </div>
+              ))}
+              {ev.likeCount > 3 && (
+                <span style={{ marginLeft: 4, fontFamily: FF_BODY, fontSize: 11, fontWeight: 700, color: textColor }}>+{ev.likeCount - 3}</span>
+              )}
+              {ev.likePreview.length === 0 && (
+                <span style={{ fontFamily: FF_BODY, fontSize: 11, fontWeight: 700, color: textColor }}>{ev.likeCount}</span>
+              )}
+            </div>
           </button>
         )}
       </div>
       {expanded && (
-        <div style={{ marginTop: 8, paddingLeft: 2 }} data-testid="feed-likers-list">
+        <div style={{ flexBasis: '100%', marginTop: 6, paddingLeft: 56 }} data-testid="feed-likers-list">
           {likersLoading && <p style={{ margin: 0, fontFamily: FF_BODY, fontSize: 12, color: textColor }}>Loading…</p>}
           {likersData?.likers.map((l, i) => (
             <p key={i} style={{ margin: 0, marginTop: i === 0 ? 0 : 3, fontFamily: FF_BODY, fontSize: 12, fontWeight: 600, color: onNavy ? '#fff' : MKT.ink }}>{l.name}</p>
@@ -233,21 +256,21 @@ function LikeBar({ ev, onNavy = false }: { ev: Likeable; onNavy?: boolean }) {
           )}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
 function CompactCard({ ev, name, headline, meta, testid }: { ev: FeedEventDto; name?: string; headline: ReactNode; meta: string; testid: string }) {
   return (
     <div style={whiteCard} data-testid={testid}>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap" data-testid="feed-headline-row">
         <AvatarCircle name={name} size={44} bg={MKT.teal} fg="#fff" />
         <div className="flex-1 min-w-0">
           <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>{headline}</p>
           <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{meta}</p>
         </div>
+        <LikeBar ev={ev} />
       </div>
-      <LikeBar ev={ev} />
     </div>
   );
 }
@@ -267,16 +290,16 @@ function PromotionCard({ ev }: { ev: FeedEventDto }) {
       <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: TEAL_ON_NAVY }}>
         Tier promotion{corrected ? ' · corrected' : ''}
       </p>
-      <div className="flex items-center gap-3.5" style={{ marginTop: 12 }}>
+      <div className="flex items-center gap-3.5 flex-wrap" style={{ marginTop: 12 }} data-testid="feed-headline-row">
         <AvatarCircle name={playerName} size={52} bg="#fff" fg={MKT.navy} />
-        <div className="min-w-0">
+        <div className="flex-1 min-w-0">
           <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 18, color: '#fff', lineHeight: 1.3 }}>
             {playerName} is now {toTier}
           </p>
           <p style={{ margin: 0, marginTop: 3, fontFamily: FF_BODY, fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>{metaLine(ev)}</p>
         </div>
+        <LikeBar ev={ev} onNavy />
       </div>
-      <LikeBar ev={ev} onNavy />
     </div>
   );
 }
@@ -286,18 +309,18 @@ function TagCard({ ev }: { ev: FeedEventDto }) {
   const { receiverName, giverName, tagLabel } = ev.payload;
   return (
     <div style={whiteCard} data-testid="feed-card-tag-received">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap" data-testid="feed-headline-row">
         <AvatarCircle name={receiverName} size={44} bg={MKT.teal} fg="#fff" />
         <div className="flex-1 min-w-0">
           <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>{receiverName} earned a tag</p>
           <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(ev, `from ${giverName}`)}</p>
         </div>
+        <LikeBar ev={ev} />
       </div>
       <div style={{ marginTop: 12, background: TROPHY_BG, borderRadius: 10, padding: '10px 14px' }}>
         <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 16, color: MKT.tealD }}>{tagLabel}</p>
         <p style={{ margin: 0, marginTop: 1, fontFamily: FF_BODY, fontSize: 11, color: MKT.teal }}>Captain-verified session</p>
       </div>
-      <LikeBar ev={ev} />
     </div>
   );
 }
@@ -308,7 +331,7 @@ function GroupedTagCard({ g }: { g: TagGroupDto }) {
   const givers = g.giverNames.join(', ');
   return (
     <div style={whiteCard} data-testid="feed-card-tag-group">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap" data-testid="feed-headline-row">
         <AvatarCircle name={g.subjectName} size={44} bg={MKT.teal} fg="#fff" />
         <div className="flex-1 min-w-0">
           <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 15, color: MKT.ink, lineHeight: 1.35 }}>
@@ -316,6 +339,7 @@ function GroupedTagCard({ g }: { g: TagGroupDto }) {
           </p>
           <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(g, `from ${givers}`)}</p>
         </div>
+        <LikeBar ev={g} />
       </div>
       <div style={{ marginTop: 12, background: TROPHY_BG, borderRadius: 10, padding: '10px 14px' }}>
         <div className="flex flex-wrap" style={{ gap: '2px 14px' }}>
@@ -325,7 +349,6 @@ function GroupedTagCard({ g }: { g: TagGroupDto }) {
         </div>
         <p style={{ margin: 0, marginTop: 3, fontFamily: FF_BODY, fontSize: 11, color: MKT.teal }}>Captain-verified session</p>
       </div>
-      <LikeBar ev={g} />
     </div>
   );
 }
@@ -374,14 +397,14 @@ function OverflowCard({ o }: { o: TagOverflowDto }) {
         <div data-testid="feed-overflow-rows">
           {o.groups.map(g => (
             <div key={g.id} style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${CARD_BORDER}` }}>
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2.5 flex-wrap" data-testid="feed-headline-row">
                 <AvatarCircle name={g.subjectName} size={32} bg={MKT.teal} fg="#fff" />
                 <div className="flex-1 min-w-0">
                   <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 700, fontSize: 14, color: MKT.ink }}>{g.subjectName}</p>
                   <p style={{ margin: 0, marginTop: 1, fontFamily: FF_BODY, fontSize: 12, fontWeight: 700, color: MKT.tealD }}>{g.tagLabels.join(' · ')}</p>
                 </div>
+                <LikeBar ev={g} />
               </div>
-              <LikeBar ev={g} />
             </div>
           ))}
         </div>
@@ -419,11 +442,46 @@ function TierText({ tier }: { tier?: string }) {
   );
 }
 
+// Feed Gate 4 — "N new challenges": adjacent same-day challenge_accepted
+// events folded server-side. One compact line per challenge, newest first;
+// the like control anchors on the newest event (the group id).
+export function GroupedChallengeCard({ g }: { g: ChallengeGroupDto }) {
+  return (
+    <div style={whiteCard} data-testid="feed-card-challenge-group">
+      <div className="flex items-center gap-3 flex-wrap" data-testid="feed-headline-row">
+        <AvatarCircle name={String(g.members.length)} size={44} bg={MKT.navy} fg={MKT.cream} />
+        <div className="flex-1 min-w-0">
+          <p style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 15, color: MKT.navy, lineHeight: 1.35 }}>
+            {g.members.length} new challenges
+          </p>
+          <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(g, 'challenges accepted')}</p>
+        </div>
+        <LikeBar ev={g} />
+      </div>
+      <div style={{ marginTop: 8 }}>
+        {g.members.map((m) => (
+          <p
+            key={m.id}
+            data-testid="feed-challenge-group-row"
+            style={{ margin: 0, padding: '7px 0', borderTop: `1px solid ${CARD_BORDER}`, fontFamily: FF_BODY, fontSize: 14, color: MKT.navy, lineHeight: 1.35 }}
+          >
+            <PlayerLink playerId={m.challengerPlayerId} name={m.challengerName} testId="feed-player-link" style={nameLinkStyle} />
+            <TierText tier={m.challengerTier ?? undefined} />
+            <span style={{ fontWeight: 500 }}> challenged </span>
+            <PlayerLink playerId={m.challengedPlayerId} name={m.challengedName} testId="feed-player-link" style={nameLinkStyle} />
+            <TierText tier={m.challengedTier ?? undefined} />
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ChallengeAcceptedCard({ ev }: { ev: FeedEventDto }) {
   const p = ev.payload as { challengerName: string; challengedName: string; challengerTier?: string; challengedTier?: string };
   return (
     <div style={whiteCard} data-testid="feed-card-challenge-accepted">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap" data-testid="feed-headline-row">
         <PlayerLink playerId={ev.challengerPlayerId ?? null} name={p.challengerName} testId="feed-player-avatar-link" style={{ display: 'block', flexShrink: 0 }}>
           <AvatarCircle name={p.challengerName} size={44} bg={MKT.navy} fg={MKT.cream} />
         </PlayerLink>
@@ -440,8 +498,8 @@ export function ChallengeAcceptedCard({ ev }: { ev: FeedEventDto }) {
           </p>
           <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(ev, 'challenge accepted')}</p>
         </div>
+        <LikeBar ev={ev} />
       </div>
-      <LikeBar ev={ev} />
     </div>
   );
 }
@@ -450,7 +508,7 @@ export function ChallengeSettledCard({ ev }: { ev: FeedEventDto }) {
   const p = ev.payload as { winnerName: string; loserName: string; winnerScore: number; loserScore: number };
   return (
     <div style={whiteCard} data-testid="feed-card-challenge-settled">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap" data-testid="feed-headline-row">
         <PlayerLink playerId={ev.winnerPlayerId ?? null} name={p.winnerName} testId="feed-player-avatar-link" style={{ display: 'block', flexShrink: 0 }}>
           <AvatarCircle name={p.winnerName} size={44} bg={MKT.navy} fg={MKT.cream} />
         </PlayerLink>
@@ -466,18 +524,19 @@ export function ChallengeSettledCard({ ev }: { ev: FeedEventDto }) {
           </p>
           <p style={{ margin: 0, marginTop: 2, fontFamily: FF_BODY, fontSize: 12, color: MKT.inkSub }}>{metaLine(ev)}</p>
         </div>
+        <LikeBar ev={ev} />
       </div>
       <p style={{ margin: 0, marginTop: 8, fontFamily: FF_BODY, fontSize: 12, fontWeight: 700, color: MKT.tealText }}>
         Captain-verified score
       </p>
-      <LikeBar ev={ev} />
     </div>
   );
 }
 
-function FeedEventCard({ ev }: { ev: FeedItem }) {
+export function FeedEventCard({ ev }: { ev: FeedItem }) {
   if (ev.type === 'tag_received_group') return <GroupedTagCard g={ev as TagGroupDto} />;
   if (ev.type === 'tag_overflow') return <OverflowCard o={ev as TagOverflowDto} />;
+  if (ev.type === 'challenge_accepted_group') return <GroupedChallengeCard g={ev as ChallengeGroupDto} />;
   const evd = ev as FeedEventDto;
   const p = evd.payload;
   switch (evd.type) {
@@ -519,6 +578,10 @@ const SHOW_SESSIONS_FILTER = false;
 const FILTERS: Array<{ value: FeedFilterValue; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'you', label: 'You' },
+  // Feed Gate 4 — type chips (server maps each to an exact type set).
+  { value: 'challenges', label: 'Challenges' },
+  { value: 'results', label: 'Results' },
+  { value: 'tags', label: 'Tags' },
   { value: 'sessions', label: 'Sessions' },
 ].filter(f => SHOW_SESSIONS_FILTER || f.value !== 'sessions') as Array<{ value: FeedFilterValue; label: string }>;
 
@@ -529,7 +592,15 @@ const FILTERS: Array<{ value: FeedFilterValue; label: string }> = [
 const DASHBOARD_FEED_CAP = 6;
 
 export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: ReactNode; variant?: 'dashboard' | 'full' }) {
-  const [filter, setFilter] = useState<FeedFilterValue>('all');
+  // Feed Gate 4 — the chip lives in ?filter= (replace navigation, so Back is
+  // not polluted) and is read back on mount, so a refresh keeps it.
+  const search = useSearch();
+  const [location, navigate] = useLocation();
+  const [filter, setFilter] = useState<FeedFilterValue>(() => parseFeedFilterParam(new URLSearchParams(search).get('filter')));
+  const selectFilter = (v: FeedFilterValue) => {
+    setFilter(v);
+    navigate(v === 'all' ? location : `${location}?filter=${v}`, { replace: true });
+  };
 
   const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery<FeedPage>({
     queryKey: ['/api/marketplace/feed', filter],
@@ -557,7 +628,7 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
                 key={f.value}
                 role="tab"
                 aria-selected={active}
-                onClick={() => setFilter(f.value)}
+                onClick={() => selectFilter(f.value)}
                 data-testid={`feed-filter-${f.value}`}
                 className="siq-press"
                 style={{

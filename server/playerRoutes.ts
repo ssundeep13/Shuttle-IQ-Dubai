@@ -16,6 +16,17 @@
 import type { Request, Response } from "express";
 import { storage } from "./storage";
 
+/** Feed Gate 4: sandbox / test accounts never surface in the PLAYER-FACING
+ *  search (GET /api/marketplace/search-players). The naming convention across
+ *  the seed and sandbox scripts is a "ZZ-" prefix (ZZ-SANDBOX-GOODWILL Tester,
+ *  ZZ-CHALLENGE-TEST-*, ZZ-FEED-VERIFY, …) plus the fixed "TEST PLAYER"
+ *  account. The admin search and the ops search are unaffected. */
+export const TEST_ACCOUNT_NAME_PREFIXES = ["ZZ-", "TEST PLAYER"];
+export function isTestAccountName(name: string | null | undefined): boolean {
+  const n = (name ?? "").trimStart();
+  return TEST_ACCOUNT_NAME_PREFIXES.some((p) => n.startsWith(p));
+}
+
 export async function playerListHandler(_req: Request, res: Response) {
   try {
     const players = await storage.getAllPlayers();

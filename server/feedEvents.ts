@@ -521,10 +521,18 @@ export async function emitGameFeedEventsInTx(
 // Keyset cursor over (created_at, id) DESC — stable under concurrent inserts.
 export const FEED_PAGE_SIZE = 20;
 export const SESSION_FEED_TYPES = ["session_recap", "scarcity"]; // F5/F7 types — filter built now, returns empty
-export type FeedFilter = "all" | "you" | "sessions";
+// Feed Gate 4 — type filter chips. Each key is a chip; the value is the exact
+// set of event types the chip shows. Unknown values fall back to "all".
+export const FEED_TYPE_FILTERS: Record<"challenges" | "results" | "tags", string[]> = {
+  challenges: ["challenge_accepted", "challenge_settled"],
+  results: ["win_streak", "milestone", "leaderboard_move", "tier_promotion"],
+  tags: ["tag_received"],
+};
+export type FeedTypeFilter = keyof typeof FEED_TYPE_FILTERS;
+export type FeedFilter = "all" | "you" | "sessions" | FeedTypeFilter;
 
 export function parseFeedFilter(v: unknown): FeedFilter {
-  return v === "you" || v === "sessions" ? v : "all";
+  return v === "you" || v === "sessions" || v === "challenges" || v === "results" || v === "tags" ? v : "all";
 }
 
 // The cursor timestamp is carried as Postgres's own ::text rendering and
@@ -619,4 +627,89 @@ export function attachChallengePlayerIds<T extends { type: string; payload: Reco
     }
     return { ...e, challengerPlayerId, challengedPlayerId, winnerPlayerId, loserPlayerId };
   });
+}
+
+// ── Feed Gate 4: fold adjacent same-day challenge_accepted events ─────────
+// Applied to the assembled page AFTER the tag wall (so the dashboard cap of
+// six counts groups as one item). A run of 2+ adjacent challenge_accepted
+// events from the same Dubai calendar day becomes one group anchored on the
+// newest event — same like rule as the tag wall. A lone event, a
+// challenge_settled, or any other type breaks the run and passes through.
+const DUBAI_DAY_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Dubai", year: "numeric", month: "2-digit", day: "2-digit" });
+export function dubaiDay(instant: Date | string): string {
+  return DUBAI_DAY_FMT.format(new Date(instant));
+}
+
+export interface ChallengeGroupMember {
+  id: string;
+  createdAt: Date | string;
+  challengerName: string;
+  challengedName: string;
+  challengerTier: string | null;
+  challengedTier: string | null;
+  challengerPlayerId: string | null;
+  challengedPlayerId: string | null;
+}
+export interface ChallengeGroupItem<T extends WallEventBase> {
+  type: "challenge_accepted_group";
+  id: string; // likeTarget — newest member, stable key + like anchor
+  eventIds: string[];
+  likeTarget: string;
+  createdAt: T["createdAt"]; // newest member
+  day: string; // Dubai calendar day shared by every member
+  members: ChallengeGroupMember[]; // newest first
+  likeCount: number;
+  likedByMe: boolean;
+  likePreview: string[];
+}
+
+const strOrNull = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
+
+function toChallengeGroup<T extends WallEventBase>(run: T[]): ChallengeGroupItem<T> {
+  const newest = run[0];
+  return {
+    type: "challenge_accepted_group",
+    id: newest.id,
+    eventIds: run.map((e) => e.id),
+    likeTarget: newest.id,
+    createdAt: newest.createdAt,
+    day: dubaiDay(newest.createdAt),
+    members: run.map((e) => ({
+      id: e.id,
+      createdAt: e.createdAt,
+      challengerName: String(e.payload.challengerName ?? "A player"),
+      challengedName: String(e.payload.challengedName ?? "A player"),
+      challengerTier: strOrNull(e.payload.challengerTier),
+      challengedTier: strOrNull(e.payload.challengedTier),
+      challengerPlayerId: strOrNull((e as Record<string, unknown>).challengerPlayerId),
+      challengedPlayerId: strOrNull((e as Record<string, unknown>).challengedPlayerId),
+    })),
+    likeCount: newest.likeCount ?? 0,
+    likedByMe: newest.likedByMe ?? false,
+    likePreview: newest.likePreview ?? [],
+  };
+}
+
+export function groupChallengeRuns<T extends WallEventBase, U extends { type: string }>(
+  items: Array<T | U>,
+): Array<T | U | ChallengeGroupItem<T>> {
+  const out: Array<T | U | ChallengeGroupItem<T>> = [];
+  let run: T[] = [];
+  const flush = () => {
+    if (run.length >= 2) out.push(toChallengeGroup(run));
+    else out.push(...run);
+    run = [];
+  };
+  for (const item of items) {
+    if (item.type === "challenge_accepted") {
+      const ev = item as T;
+      if (run.length > 0 && dubaiDay(run[0].createdAt) !== dubaiDay(ev.createdAt)) flush();
+      run.push(ev);
+    } else {
+      flush();
+      out.push(item);
+    }
+  }
+  flush();
+  return out;
 }

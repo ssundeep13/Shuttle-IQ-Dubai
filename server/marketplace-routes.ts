@@ -24,7 +24,7 @@ import {
 import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
 import { createHash, randomInt } from "crypto";
 import { requireAuth, requireAdmin, requireCaptain, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
-import { publicPlayerSearchResult } from "./playerRoutes";
+import { publicPlayerSearchResult, isTestAccountName } from "./playerRoutes";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -63,7 +63,7 @@ import {
   getChallenge, respondToChallenge, toViews, listMine, statusFor,
   loadChallengePlayerIds,
 } from "./challenges";
-import { attachChallengePlayerIds } from "./feedEvents";
+import { attachChallengePlayerIds, groupChallengeRuns, FEED_TYPE_FILTERS } from "./feedEvents";
 import { loadHeadToHeadRows, headToHeadView, aggregateHeadToHead, type HeadToHeadRecord } from "./headToHead";
 import { challengeEmailRecipient } from "./challengeEmail";
 import { getTierDisplayName } from "@shared/utils/skillUtils";
@@ -995,6 +995,9 @@ export function registerMarketplaceRoutes(app: Express) {
         )!);
       } else if (filter === "sessions") {
         conds.push(inArray(feedEvents.type, SESSION_FEED_TYPES));
+      } else if (filter === "challenges" || filter === "results" || filter === "tags") {
+        // Feed Gate 4 — type chips map to exact type sets.
+        conds.push(inArray(feedEvents.type, FEED_TYPE_FILTERS[filter]));
       }
       if (cursor) {
         conds.push(sql`(${feedEvents.createdAt}, ${feedEvents.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id})`);
@@ -1058,7 +1061,8 @@ export function registerMarketplaceRoutes(app: Express) {
       // Tag wall (Gate F3.5): group per-player tag bursts and cap per-session
       // floods — render-side only, applied per page; the cursor still keys on
       // the RAW page rows below, so pagination is untouched.
-      const assembled = assembleTagWall(attachChallengePlayerIds(page.map(r => ({
+      // Feed Gate 4: adjacent same-day accepted challenges fold into one card after the tag wall.
+      const assembled = groupChallengeRuns(assembleTagWall(attachChallengePlayerIds(page.map(r => ({
         id: r.id,
         type: r.type,
         createdAt: r.createdAt,
@@ -1069,7 +1073,7 @@ export function registerMarketplaceRoutes(app: Express) {
         likeCount: likeAgg.get(r.id)?.count ?? 0,
         likedByMe: likeAgg.get(r.id)?.likedByMe ?? false,
         likePreview: likeAgg.get(r.id)?.preview ?? [],
-      })), challengeRowsById));
+      })), challengeRowsById)));
 
       res.setHeader("Cache-Control", "no-store");
       res.json({
@@ -2591,7 +2595,8 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!query || query.length < 2) return res.json([]);
       const results = await storage.searchPlayers(query);
       // Gate 1: exactly {id, name, shuttleIqId, level, skillScore} — nothing else leaves.
-      res.json(results.slice(0, 10).map(publicPlayerSearchResult));
+      // Feed Gate 4: sandbox / test accounts never surface here (admin search unaffected).
+      res.json(results.filter((p) => !isTestAccountName(p.name)).slice(0, 10).map(publicPlayerSearchResult));
     } catch (error) {
       res.status(500).json({ error: "Search failed" });
     }
