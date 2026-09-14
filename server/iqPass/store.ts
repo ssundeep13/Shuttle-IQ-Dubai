@@ -7,8 +7,9 @@ import { randomUUID } from "crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
-import { packs, bookings, bookingGuests, bookableSessions, payments, marketplaceNotifications, type Pack } from "@shared/schema";
-import { IQ_PASS_TIERS, validatePicks, type CalendarSession, type PackTier } from "./rules";
+import { packs, bookings, bookingGuests, bookableSessions, payments, marketplaceNotifications, type Pack, type Booking } from "@shared/schema";
+import { IQ_PASS_TIERS, MOVE_CUTOFF_MS, validatePicks, type CalendarSession, type PackTier } from "./rules";
+import { sessionStartEpochMs } from "@shared/sessionTime";
 
 /** Thrown inside createHold when the row-locked re-validation fails (or a unique index fires). */
 export class PickConflictError extends Error {
@@ -48,6 +49,45 @@ export type SeatSession = {
   status: string;
   session: { title: string; venueName: string; date: Date; startTime: string; endTime: string };
 };
+
+/** A session as the move / re-pick rules see it. */
+export type MoveSession = {
+  id: string;
+  dateDubai: string;
+  startTime: string;
+  status: string;
+  linked: boolean;
+  capacity: number;
+  spotsRemaining: number;
+};
+
+export type MyPacksView = {
+  packs: Array<{
+    id: string;
+    tier: string;
+    label: string;
+    status: string;
+    gamesTotal: number;
+    repickCredits: number;
+    jerseySize: string | null;
+    jerseyHandedOverAt: Date | null;
+    paidAt: Date | null;
+    holdExpiresAt: Date;
+    lastGameDate: string | null;
+    seats: Array<{
+      bookingId: string;
+      sessionId: string;
+      status: string;
+      session: { title: string; venueName: string; date: Date; startTime: string; endTime: string };
+      canMoveUntil: string;
+      canMove: boolean;
+    }>;
+  }>;
+};
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+/** 'YYYY-MM-DD' from a stored session date (Dubai calendar day held as UTC midnight). */
+const dateOnly = (d: Date | string) => { const x = new Date(d); return `${x.getUTCFullYear()}-${pad2(x.getUTCMonth() + 1)}-${pad2(x.getUTCDate())}`; };
 
 // bookable_sessions.date is the Dubai calendar day stored as UTC midnight; take
 // the Y-M-D in SQL so node-pg's local-time parsing never shifts it (see memory:
@@ -261,6 +301,202 @@ export const iqPassStore = {
     });
   },
 
+  /** A session as the move / re-pick rules see it (live spots). */
+  async getSessionForMove(id: string): Promise<MoveSession | undefined> {
+    const [r] = await db
+      .select({
+        id: bookableSessions.id,
+        dateDubai: dateYmd,
+        startTime: bookableSessions.startTime,
+        status: bookableSessions.status,
+        linked: sql<boolean>`${bookableSessions.linkedSessionId} IS NOT NULL`,
+        capacity: bookableSessions.capacity,
+        taken: sql<number>`(SELECT coalesce(sum(b.spots_booked), 0)::int FROM bookings b WHERE b.session_id = ${bookableSessions.id} AND b.status IN ('confirmed', 'attended', 'pending_payment'))`,
+      })
+      .from(bookableSessions)
+      .where(eq(bookableSessions.id, id));
+    if (!r) return undefined;
+    const { taken, ...rest } = r;
+    return { ...rest, spotsRemaining: Math.max(0, r.capacity - taken) };
+  },
+
+  /** A non-primary guest slot that is confirmed or pending — a seat with guests cannot move. */
+  async hasActiveGuests(bookingId: string): Promise<boolean> {
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(bookingGuests)
+      .where(and(eq(bookingGuests.bookingId, bookingId), eq(bookingGuests.isPrimary, false), sql`${bookingGuests.status} IN ('confirmed', 'pending')`));
+    return (r?.n ?? 0) > 0;
+  },
+
+  /**
+   * One-step move: target locked FOR UPDATE and recounted, source re-checked
+   * under the lock, new confirmed seat inserted (audit: moved_from_booking_id),
+   * source seat + its primary slot cancelled with reason iq_pass_move.
+   */
+  async moveSeatTx(input: { source: Booking; toSessionId: string; user: { name: string; email: string | null }; tier: PackTier; now: Date }): Promise<{ newBookingId: string }> {
+    const tier = IQ_PASS_TIERS[input.tier];
+    try {
+      return await db.transaction(async (tx) => {
+        const [target] = await tx
+          .select({ id: bookableSessions.id, capacity: bookableSessions.capacity, status: bookableSessions.status })
+          .from(bookableSessions)
+          .where(eq(bookableSessions.id, input.toSessionId))
+          .for('update');
+        if (!target || target.status !== 'upcoming') throw new PickConflictError({ status: 400, error: 'session_unavailable', sessionId: input.toSessionId });
+        const [cnt] = await tx
+          .select({ taken: sql<number>`coalesce(sum(${bookings.spotsBooked}), 0)::int` })
+          .from(bookings)
+          .where(and(eq(bookings.sessionId, input.toSessionId), HELD));
+        if (target.capacity - (cnt?.taken ?? 0) < 1) throw new PickConflictError({ status: 409, error: 'session_full', sessionId: input.toSessionId });
+        const [source] = await tx.select().from(bookings).where(eq(bookings.id, input.source.id)).for('update');
+        if (!source || source.status !== 'confirmed' || !source.packId) throw new PickConflictError({ status: 409, error: 'seat_not_confirmed' });
+
+        const newBookingId = randomUUID();
+        await tx.insert(bookings).values({
+          id: newBookingId,
+          userId: source.userId,
+          sessionId: input.toSessionId,
+          status: 'confirmed',
+          paymentMethod: 'iq_pass',
+          amountAed: tier.allocationAed,
+          cashPaid: false,
+          spotsBooked: 1,
+          promotedAt: null,
+          walletAmountUsed: 0,
+          packId: source.packId,
+          movedFromBookingId: source.id,
+        });
+        await tx.insert(bookingGuests).values({
+          id: randomUUID(),
+          bookingId: newBookingId,
+          name: input.user.name,
+          email: input.user.email,
+          isPrimary: true,
+          status: 'confirmed',
+          linkedUserId: source.userId,
+        });
+        await tx
+          .update(bookings)
+          .set({ status: 'cancelled', cancelledAt: input.now, cancellationReason: 'iq_pass_move' })
+          .where(eq(bookings.id, source.id));
+        await tx
+          .update(bookingGuests)
+          .set({ status: 'cancelled', cancelledAt: input.now })
+          .where(and(eq(bookingGuests.bookingId, source.id), sql`${bookingGuests.status} <> 'cancelled'`));
+        return { newBookingId };
+      });
+    } catch (err: any) {
+      if (err?.code === '23505') throw new PickConflictError({ status: 409, error: 'already_booked', sessionId: input.toSessionId });
+      throw err;
+    }
+  },
+
+  /** Free re-pick: pack locked FOR UPDATE, credit checked and decremented, seat inserted — one transaction. */
+  async repickSeatTx(input: { pack: Pack; toSessionId: string; user: { name: string; email: string | null }; tier: PackTier; now: Date }): Promise<{ newBookingId: string }> {
+    const tier = IQ_PASS_TIERS[input.tier];
+    try {
+      return await db.transaction(async (tx) => {
+        const [pack] = await tx.select().from(packs).where(eq(packs.id, input.pack.id)).for('update');
+        if (!pack || pack.status !== 'active') throw new PickConflictError({ status: 409, error: 'pack_not_active' });
+        if (pack.repickCredits < 1) throw new PickConflictError({ status: 409, error: 'no_repick_credit' });
+        const [target] = await tx
+          .select({ id: bookableSessions.id, capacity: bookableSessions.capacity, status: bookableSessions.status })
+          .from(bookableSessions)
+          .where(eq(bookableSessions.id, input.toSessionId))
+          .for('update');
+        if (!target || target.status !== 'upcoming') throw new PickConflictError({ status: 400, error: 'session_unavailable', sessionId: input.toSessionId });
+        const [cnt] = await tx
+          .select({ taken: sql<number>`coalesce(sum(${bookings.spotsBooked}), 0)::int` })
+          .from(bookings)
+          .where(and(eq(bookings.sessionId, input.toSessionId), HELD));
+        if (target.capacity - (cnt?.taken ?? 0) < 1) throw new PickConflictError({ status: 409, error: 'session_full', sessionId: input.toSessionId });
+        // audit: the most recent seat lost to a ShuttleIQ cancellation, if any
+        const [lost] = await tx
+          .select({ id: bookings.id })
+          .from(bookings)
+          .where(and(eq(bookings.packId, pack.id), eq(bookings.cancellationReason, 'event_cancelled_by_admin')))
+          .orderBy(desc(bookings.cancelledAt))
+          .limit(1);
+        const newBookingId = randomUUID();
+        await tx.insert(bookings).values({
+          id: newBookingId,
+          userId: pack.userId,
+          sessionId: input.toSessionId,
+          status: 'confirmed',
+          paymentMethod: 'iq_pass',
+          amountAed: tier.allocationAed,
+          cashPaid: false,
+          spotsBooked: 1,
+          promotedAt: null,
+          walletAmountUsed: 0,
+          packId: pack.id,
+          movedFromBookingId: lost?.id ?? null,
+        });
+        await tx.insert(bookingGuests).values({
+          id: randomUUID(),
+          bookingId: newBookingId,
+          name: input.user.name,
+          email: input.user.email,
+          isPrimary: true,
+          status: 'confirmed',
+          linkedUserId: pack.userId,
+        });
+        await tx.update(packs).set({ repickCredits: sql`${packs.repickCredits} - 1` }).where(eq(packs.id, pack.id));
+        return { newBookingId };
+      });
+    } catch (err: any) {
+      if (err?.code === '23505') throw new PickConflictError({ status: 409, error: 'already_booked', sessionId: input.toSessionId });
+      throw err;
+    }
+  },
+
+  /** Users among `userIds` holding an ACTIVE Club Plus / Club Elite pack — priority on waitlists. */
+  async getPlusTierUserIds(userIds: string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const rows = await db
+      .selectDistinct({ userId: packs.userId })
+      .from(packs)
+      .where(and(inArray(packs.userId, userIds), eq(packs.status, 'active'), sql`${packs.tier} IN ('club_plus', 'club_elite')`));
+    return new Set(rows.map((r) => r.userId));
+  },
+
+  /** The player's packs with their seats — what the IQ Pass page and My Bookings render. */
+  async getMyPacks(userId: string, now: Date): Promise<MyPacksView> {
+    const mine = await iqPassStore.getPacksForUser(userId);
+    const out: MyPacksView['packs'] = [];
+    for (const p of mine) {
+      const seats = await iqPassStore.getPackSeatSessions(p.id);
+      const seatViews = seats.map((s) => {
+        const canMoveUntil = new Date(sessionStartEpochMs(s.session.date, s.session.startTime) - MOVE_CUTOFF_MS);
+        return {
+          bookingId: s.bookingId,
+          sessionId: s.sessionId,
+          status: s.status,
+          session: { title: s.session.title, venueName: s.session.venueName, date: s.session.date, startTime: s.session.startTime, endTime: s.session.endTime },
+          canMoveUntil: canMoveUntil.toISOString(),
+          canMove: s.status === 'confirmed' && p.status === 'active' && now.getTime() < canMoveUntil.getTime(),
+        };
+      });
+      const last = seats.length ? seats[seats.length - 1].session.date : null;
+      out.push({
+        id: p.id,
+        tier: p.tier,
+        label: IQ_PASS_TIERS[p.tier as PackTier]?.label ?? p.tier,
+        status: p.status,
+        gamesTotal: p.gamesTotal,
+        repickCredits: p.repickCredits,
+        jerseySize: p.jerseySize,
+        jerseyHandedOverAt: p.jerseyHandedOverAt,
+        paidAt: p.paidAt,
+        holdExpiresAt: p.holdExpiresAt,
+        lastGameDate: last ? dateOnly(last) : null,
+        seats: seatViews,
+      });
+    }
+    return { packs: out };
+  },
+
   /**
    * The atomic confirm. Pack row locked; every held seat flipped in one UPDATE
    * whose RETURNING count must equal games_total (else the transaction
@@ -298,6 +534,30 @@ export const iqPassStore = {
           });
         }
         return { kind: 'hold_gone' as const, pack };
+      }
+      // Seats lost meanwhile (a picked session was cancelled during the hold)?
+      // Never confirm a partial pass: record the money, queue the refund, cancel
+      // the hold and its remaining seats — same outcome as a lapsed hold.
+      const held = await tx.select({ id: bookings.id }).from(bookings).where(and(eq(bookings.packId, pack.id), eq(bookings.status, 'pending_payment')));
+      if (pack.gamesTotal !== held.length) {
+        if (existing.length === 0) {
+          await tx.insert(payments).values(paymentRow());
+          await tx.insert(marketplaceNotifications).values({
+            id: randomUUID(),
+            userId: pack.userId,
+            type: 'refund_required',
+            title: 'Refund needed — IQ Pass seats were lost before payment landed',
+            message: `An IQ Pass payment of AED ${pack.priceAed} completed but only ${held.length} of ${pack.gamesTotal} held seats remained (a picked session was cancelled). Nothing was confirmed — refund the payment in the Ziina dashboard (intent ${intentId}).`,
+            refundAmountFils: pack.priceAed * 100,
+            refundPreference: 'bank',
+          });
+        }
+        await tx.update(packs).set({ status: 'cancelled', cancelledAt: now, cancellationReason: 'seats_lost' }).where(eq(packs.id, pack.id));
+        if (held.length > 0) {
+          await tx.update(bookings).set({ status: 'cancelled', cancelledAt: now, cancellationReason: 'iq_pass_seats_lost' }).where(and(eq(bookings.packId, pack.id), eq(bookings.status, 'pending_payment')));
+          await tx.update(bookingGuests).set({ status: 'cancelled', cancelledAt: now }).where(and(inArray(bookingGuests.bookingId, held.map((h) => h.id)), eq(bookingGuests.status, 'pending')));
+        }
+        return { kind: 'hold_gone' as const, pack: { ...pack, status: 'cancelled' } };
       }
       const flipped = await tx
         .update(bookings)

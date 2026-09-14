@@ -1,4 +1,7 @@
 import { isCollected, isUnpaidCash, isCardTender, isIqPassTender } from "./revenueClassifier";
+import { isIqPassEnabled } from "./iqPass/flag";
+import { sortWaitlistWithPriority } from "./iqPass/rules";
+import { packs } from "@shared/schema";
 import { 
   type Player, 
   type InsertPlayer, 
@@ -2316,12 +2319,13 @@ export class DatabaseStorage implements IStorage {
     walletRefundedCount: number;
     ziinaRefundCount: number;
     cashRefundCount: number;
+    iqPassRepickCount: number;
   }> {
     const session = await this.getBookableSession(id);
     if (!session) throw new Error('Bookable session not found');
 
     if (session.status === 'cancelled') {
-      return { alreadyCancelled: true, affectedBookings: [], walletRefundedCount: 0, ziinaRefundCount: 0, cashRefundCount: 0 };
+      return { alreadyCancelled: true, affectedBookings: [], walletRefundedCount: 0, ziinaRefundCount: 0, cashRefundCount: 0, iqPassRepickCount: 0 };
     }
 
     // Snapshot the bookings BEFORE we mutate them so the route can email and
@@ -2332,6 +2336,7 @@ export class DatabaseStorage implements IStorage {
     let walletRefundedCount = 0;
     let ziinaRefundCount = 0;
     let cashRefundCount = 0;
+    let iqPassRepickCount = 0;
     const cancelledAt = new Date();
 
     // Wrap booking cancellations + wallet refunds + refund-notification
@@ -2384,6 +2389,23 @@ export class DatabaseStorage implements IStorage {
           booking.paymentMethod === 'cash' &&
           booking.cashPaid === true;
 
+        // IQ Pass: a pack seat on a ShuttleIQ-cancelled session becomes a FREE
+        // re-pick — never a refund row (the pass was paid as a whole). Active
+        // packs only; the player is told in-app and by the cancel email.
+        if (booking.packId && wasPaidStatus) {
+          await tx.update(packs).set({ repickCredits: sql`${packs.repickCredits} + 1` })
+            .where(and(eq(packs.id, booking.packId), eq(packs.status, 'active')));
+          await tx.insert(marketplaceNotifications).values({
+            id: randomUUID(),
+            userId: booking.userId,
+            type: 'iq_pass_repick',
+            title: 'Session cancelled — pick another game',
+            message: `"${session.title}" was cancelled by ShuttleIQ. Your IQ Pass has a free re-pick — choose another game from My Bookings.`,
+            relatedBookingId: booking.id,
+          });
+          iqPassRepickCount += 1;
+        }
+
         if (isZiinaPaid) {
           await tx.insert(marketplaceNotifications).values({
             id: randomUUID(),
@@ -2419,6 +2441,7 @@ export class DatabaseStorage implements IStorage {
       walletRefundedCount,
       ziinaRefundCount,
       cashRefundCount,
+      iqPassRepickCount,
     };
   }
 
@@ -2445,11 +2468,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]> {
-    return await db
+    const rows = await db
       .select()
       .from(bookings)
       .where(and(eq(bookings.sessionId, sessionId), eq(bookings.status, 'waitlisted')))
       .orderBy(asc(bookings.createdAt));
+    // IQ Pass: Club Plus / Club Elite holders go first (stable within each
+    // group), flag on only — the flag-off order is exactly the created_at
+    // order above. Every promotion site and the renumbering read this method.
+    if (!isIqPassEnabled()) return rows;
+    const plus = await this.getPlusTierUserIds(Array.from(new Set(rows.map((r) => r.userId))));
+    return sortWaitlistWithPriority(rows, plus);
+  }
+
+  /** Users among `userIds` holding an ACTIVE Club Plus / Club Elite pack. */
+  async getPlusTierUserIds(userIds: string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const rows = await db
+      .selectDistinct({ userId: packs.userId })
+      .from(packs)
+      .where(and(inArray(packs.userId, userIds), eq(packs.status, 'active'), sql`${packs.tier} IN ('club_plus', 'club_elite')`));
+    return new Set(rows.map((r) => r.userId));
   }
 
   async getWaitlistCountForSession(sessionId: string): Promise<number> {

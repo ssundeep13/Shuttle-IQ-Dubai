@@ -376,6 +376,7 @@ export async function sendCancellationEmail(
     eventCancelledByAdmin?: boolean;
     paymentMethod?: 'ziina' | 'cash' | string | null;
     walletAmountUsedAed?: number;
+    iqPassRepick?: boolean; // IQ Pass seat: free re-pick wording, no refund block
   },
 ): Promise<void> {
   const adminCancelled = !!options?.eventCancelledByAdmin;
@@ -391,7 +392,13 @@ export async function sendCancellationEmail(
   // Admin cancellation gets an explicit refund block: how much, how it
   // arrives, and the 3–5 working day note for Ziina refunds.
   let adminRefundNote = '';
-  if (adminCancelled && !lateFeeApplied) {
+  if (adminCancelled && options?.iqPassRepick) {
+    // IQ Pass seat: the pass was paid as a whole — no refund; a free re-pick instead.
+    adminRefundNote = `<div style="margin:0 0 20px;font-size:14px;color:#0a2540;line-height:1.7;background-color:#f0f9ff;border-radius:6px;padding:14px 18px;">
+        <p style="margin:0 0 8px;font-weight:600;">Your IQ Pass</p>
+        <p style="margin:0 0 6px;">This game was part of your IQ Pass. Your pass now has a <strong>free re-pick</strong> — choose another game from My Bookings.</p>
+       </div>`;
+  } else if (adminCancelled && !lateFeeApplied) {
     const lines: string[] = [];
     if (paymentMethod === 'ziina' && amountAed > 0) {
       lines.push(`<strong>Full refund of AED ${amountAed.toFixed(2)}</strong> will be issued to the card you paid with via Ziina.`);

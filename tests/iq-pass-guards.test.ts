@@ -74,7 +74,7 @@ describe('store transactions (server/iqPass/store.ts)', () => {
     const flip = confirm.indexOf(".update(bookings)");
     const returning = confirm.indexOf('.returning(', flip);
     const countCheck = confirm.indexOf('!== pack.gamesTotal');
-    const guests = confirm.indexOf('.update(bookingGuests)');
+    const guests = confirm.lastIndexOf('.update(bookingGuests)'); // the confirmed path's flip (the seats-lost branch cancels earlier)
     const activate = confirm.indexOf("status: 'active'");
     const pay = confirm.lastIndexOf('.insert(payments)'); // the confirmed path's insert (the hold_gone branch records earlier)
     expect(lock).toBeGreaterThan(-1);

@@ -6,6 +6,8 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { requireAuth, requireMarketplaceAuth, type AuthRequest } from "../auth/middleware";
 import { isIqPassEnabled } from "./flag";
 import { buildCalendar, startPurchase, type PurchaseDeps } from "./purchase";
+import { moveSeat, repickSeat, type MoveDeps } from "./moves";
+import type { MyPacksView } from "./store";
 import type { Pack } from "@shared/schema";
 
 const notFound = (res: Response) => res.status(404).json({ error: "Not found" });
@@ -25,21 +27,24 @@ export type IqPassRouterDeps = {
     isSuccessful(status: string): boolean;
     confirm(intentId: string): Promise<{ confirmed: boolean; alreadyConfirmed?: boolean; error?: string }>;
   };
+  moves?: MoveDeps;
+  me?: { getMyPacks(userId: string, now: Date): Promise<MyPacksView> };
 };
 
 /** All pack routes. The flag gate runs first so a flag-off app never reveals the routes exist. */
 export function createIqPassRouter(deps: IqPassRouterDeps): Router {
   const r = Router();
   const gate = (_req: Request, res: Response, next: NextFunction) => (isIqPassEnabled() ? next() : notFound(res));
+  const fail = (res: Response, label: string, e: unknown) => {
+    console.error(`[IQ Pass] ${label} failed:`, e instanceof Error ? e.message : e);
+    return res.status(500).json({ error: `Failed to ${label}` });
+  };
 
   r.get("/api/marketplace/iq-pass/calendar", gate, requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       res.setHeader("Cache-Control", "no-store");
       res.json(await buildCalendar(req.user!.userId, deps.purchase));
-    } catch (e) {
-      console.error('[IQ Pass] calendar failed:', e instanceof Error ? e.message : e);
-      res.status(500).json({ error: "Failed to load the IQ Pass calendar" });
-    }
+    } catch (e) { return fail(res, 'load the IQ Pass calendar', e); }
   });
 
   r.post("/api/marketplace/iq-pass/purchase", gate, requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
@@ -51,10 +56,7 @@ export function createIqPassRouter(deps: IqPassRouterDeps): Router {
       );
       if (!result.ok) return res.status(result.status).json({ error: result.error, ...(result.sessionId ? { sessionId: result.sessionId } : {}) });
       return res.json({ packId: result.packId, redirectUrl: result.redirectUrl });
-    } catch (e) {
-      console.error('[IQ Pass] purchase failed:', e instanceof Error ? e.message : e);
-      return res.status(500).json({ error: "Failed to start the IQ Pass purchase" });
-    }
+    } catch (e) { return fail(res, 'start the IQ Pass purchase', e); }
   });
 
   // Poll fallback for the success page — no auth: the pack UUID is the secret,
@@ -68,10 +70,38 @@ export function createIqPassRouter(deps: IqPassRouterDeps): Router {
       const intent = await deps.confirm.retrieveIntent(pack.ziinaPaymentIntentId);
       if (!deps.confirm.isSuccessful(intent.status)) return res.json({ confirmed: false, status: intent.status });
       return res.json(await deps.confirm.confirm(pack.ziinaPaymentIntentId));
-    } catch (e) {
-      console.error('[IQ Pass] confirm poll failed:', e instanceof Error ? e.message : e);
-      return res.status(500).json({ error: "Failed to confirm the IQ Pass" });
-    }
+    } catch (e) { return fail(res, 'confirm the IQ Pass', e); }
+  });
+
+  // ── Gate 4: moves, re-picks, my packs ────────────────────────────────────
+  r.post("/api/marketplace/iq-pass/bookings/:bookingId/move", gate, requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!deps.moves) return fail(res, 'move the game', new Error('moves not configured'));
+      const toSessionId = (req.body ?? {}).toSessionId;
+      if (typeof toSessionId !== 'string' || !toSessionId) return res.status(400).json({ error: 'to_session_required' });
+      const result = await moveSeat({ userId: req.user!.userId, bookingId: req.params.bookingId, toSessionId }, deps.moves);
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      return res.json({ newBookingId: result.newBookingId });
+    } catch (e) { return fail(res, 'move the game', e); }
+  });
+
+  r.post("/api/marketplace/iq-pass/packs/:packId/repick", gate, requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!deps.moves) return fail(res, 're-pick the game', new Error('moves not configured'));
+      const toSessionId = (req.body ?? {}).toSessionId;
+      if (typeof toSessionId !== 'string' || !toSessionId) return res.status(400).json({ error: 'to_session_required' });
+      const result = await repickSeat({ userId: req.user!.userId, packId: req.params.packId, toSessionId }, deps.moves);
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      return res.json({ newBookingId: result.newBookingId });
+    } catch (e) { return fail(res, 're-pick the game', e); }
+  });
+
+  r.get("/api/marketplace/iq-pass/me", gate, requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!deps.me) return fail(res, 'load your IQ Pass', new Error('me not configured'));
+      res.setHeader("Cache-Control", "no-store");
+      res.json(await deps.me.getMyPacks(req.user!.userId, new Date()));
+    } catch (e) { return fail(res, 'load your IQ Pass', e); }
   });
 
   return r;

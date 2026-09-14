@@ -43,6 +43,7 @@ import { hasCompletedPayment } from "./paidBookingGuard";
 import { iqPassConfigHandler, createIqPassRouter } from "./iqPass/routes";
 import { iqPassStore } from "./iqPass/store";
 import { confirmPackByIntentId } from "./iqPass/confirm";
+import { defaultMoveDeps } from "./iqPass/moves";
 import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
@@ -2813,11 +2814,12 @@ export function registerMarketplaceRoutes(app: Express) {
               user.name ?? 'there',
               bookableSession,
               false,
-              wasPaidStatus ? booking.amountAed : 0,
+              booking.packId ? 0 : (wasPaidStatus ? booking.amountAed : 0), // IQ Pass seats never show a per-game amount
               {
                 eventCancelledByAdmin: true,
                 paymentMethod: wasPaidStatus ? booking.paymentMethod : null,
                 walletAmountUsedAed: wasPaidStatus ? walletAed : 0,
+                iqPassRepick: !!booking.packId && wasPaidStatus, // free re-pick wording instead of a refund block
               },
             );
             emailsSent += 1;
@@ -2833,6 +2835,7 @@ export function registerMarketplaceRoutes(app: Express) {
         bookingsCancelled: result.affectedBookings.length,
         ziinaRefundCount: result.ziinaRefundCount,
         cashRefundCount: result.cashRefundCount,
+        iqPassRepickCount: result.iqPassRepickCount,
         walletRefundedCount: result.walletRefundedCount,
         emailsSent,
       });
@@ -2867,6 +2870,8 @@ export function registerMarketplaceRoutes(app: Express) {
       isSuccessful: isZiinaPaymentSuccessful,
       confirm: (intentId) => confirmPackByIntentId(intentId),
     },
+    moves: defaultMoveDeps,
+    me: { getMyPacks: (userId, now) => iqPassStore.getMyPacks(userId, now) },
   }));
 
   app.get("/api/marketplace/sessions", async (_req, res) => {

@@ -113,3 +113,16 @@ export function canMoveSeat(sessionDate: Date | string, startTime: string, now: 
 export function jerseyEligible(tier: PackTier, priorElitePacks: number): boolean {
   return tier === 'club_elite' && priorElitePacks === 0;
 }
+
+/**
+ * Priority waitlist (Club Plus / Club Elite first). Stable within each group;
+ * returns the SAME array when nobody has priority so a flag-off app keeps
+ * today's created_at order byte for byte.
+ */
+export function sortWaitlistWithPriority<T extends { userId: string }>(rows: T[], priorityUserIds: Set<string>): T[] {
+  if (priorityUserIds.size === 0) return rows;
+  const first: T[] = [];
+  const rest: T[] = [];
+  for (const r of rows) (priorityUserIds.has(r.userId) ? first : rest).push(r);
+  return first.length === 0 ? rows : [...first, ...rest];
+}
