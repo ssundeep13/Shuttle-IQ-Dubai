@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import type { BookableSession } from '../shared/schema';
 import { buildChallengeReceivedEmail, challengeEmailIdempotencyKey, type ChallengeReceivedEmailInput } from './challengeEmail';
+import { buildIqPassConfirmationEmail, iqPassConfirmIdempotencyKey, type IqPassConfirmationEmailInput } from './iqPassEmail';
 
 const FROM_ADDRESS = 'ShuttleIQ <noreply@shuttleiq.org>';
 
@@ -266,6 +267,19 @@ export async function sendBookingConfirmationEmail(
     console.log(`[Email] Booking confirmation sent to ${toEmail}`);
   } catch (err) {
     console.error('[Email] sendBookingConfirmationEmail failed:', err);
+  }
+}
+
+// ─── IQ Pass confirmation (Gate 2) ───────────────────────────────────────
+// Pure template in iqPassEmail.ts; one email per pack (Resend idempotency
+// key). Never throws — the confirm path must not depend on email.
+export async function sendIqPassConfirmationEmail(toEmail: string, input: IqPassConfirmationEmailInput): Promise<void> {
+  try {
+    const { subject, html } = buildIqPassConfirmationEmail(input);
+    const id = await sendEmail(toEmail, subject, html, iqPassConfirmIdempotencyKey(input.packId));
+    console.log(`[Email] IQ Pass confirmation sent to ${toEmail} (pack ${input.packId}, resend ${id ?? 'n/a'})`);
+  } catch (err) {
+    console.error('[Email] sendIqPassConfirmationEmail failed:', err);
   }
 }
 

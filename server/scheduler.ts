@@ -9,6 +9,8 @@ import { runExpiredPendingGuestSweep } from "./guestOrphanSweep";
 import { db } from "./db";
 import { players } from "@shared/schema";
 import { sql } from "drizzle-orm";
+import { isIqPassEnabled } from "./iqPass/flag";
+import { runPackHoldExpiryJob, runPackReconciliationJob, HOLD_EXPIRY_INTERVAL_MS } from "./iqPass/jobs";
 
 const REMINDER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -565,4 +567,14 @@ export function startScheduler(): void {
   console.log('[Scheduler] Match suggestion auto-approve sweep started (runs every 15 s)');
   setInterval(runMatchSuggestionAutoApproveSweep, AUTO_APPROVE_SWEEP_INTERVAL_MS);
   runMatchSuggestionAutoApproveSweep();
+
+  // IQ Pass jobs exist only while the flag is on — the flag-off scheduler is
+  // exactly the list above.
+  if (isIqPassEnabled()) {
+    console.log('[Scheduler] IQ Pass jobs started (hold expiry every 5 min, pack reconciliation every 10 min)');
+    setInterval(runPackHoldExpiryJob, HOLD_EXPIRY_INTERVAL_MS);
+    runPackHoldExpiryJob();
+    setInterval(runPackReconciliationJob, RECONCILE_INTERVAL_MS);
+    runPackReconciliationJob();
+  }
 }

@@ -23,6 +23,7 @@ export function resolveNativeScheme(
 export function buildZiinaReturnUrls(input: {
   baseUrl: string;
   bookingId: string;
+  packId?: string;        // IQ Pass: adds &pack_id=… to every return URL (absent → URLs unchanged)
   resumeParam?: string;   // e.g. '&resume=abc' or '' — preserved verbatim
   extraGuest?: boolean;   // adds &extra_guest=1 to successUrl (add-guest flow)
   returnScheme?: string;  // client-supplied; honoured only if allowlisted
@@ -31,13 +32,14 @@ export function buildZiinaReturnUrls(input: {
   const nativeScheme = resolveNativeScheme(input.returnScheme, input.allowedSchemes);
   const resume = input.resumeParam || '';
   const extra = input.extraGuest ? '&extra_guest=1' : '';
+  const pack = input.packId ? `&pack_id=${input.packId}` : '';
   // Web: ${baseUrl}/marketplace/checkout/…   Native: com.shuttleiq.app://checkout/…
   const prefix = nativeScheme
     ? `${nativeScheme}://checkout/`
     : `${input.baseUrl}/marketplace/checkout/`;
   return {
-    successUrl: `${prefix}success?booking_id=${input.bookingId}${extra}${resume}`,
-    cancelUrl: `${prefix}cancel?booking_id=${input.bookingId}`,
-    failureUrl: `${prefix}cancel?booking_id=${input.bookingId}&failed=1`,
+    successUrl: `${prefix}success?booking_id=${input.bookingId}${pack}${extra}${resume}`,
+    cancelUrl: `${prefix}cancel?booking_id=${input.bookingId}${pack}`,
+    failureUrl: `${prefix}cancel?booking_id=${input.bookingId}${pack}&failed=1`,
   };
 }

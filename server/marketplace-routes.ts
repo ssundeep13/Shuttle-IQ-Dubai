@@ -40,7 +40,9 @@ import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId, confirmPromotedBookingIfPaid } from "./webhookHandler";
 import { hasCompletedPayment } from "./paidBookingGuard";
-import { iqPassConfigHandler } from "./iqPass/routes";
+import { iqPassConfigHandler, createIqPassRouter } from "./iqPass/routes";
+import { iqPassStore } from "./iqPass/store";
+import { confirmPackByIntentId } from "./iqPass/confirm";
 import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
@@ -2847,6 +2849,25 @@ export function registerMarketplaceRoutes(app: Express) {
   // IQ Pass: the client learns the flag here. 404 while the flag is off — the
   // same JSON 404 an unknown /api path already returns (server/index.ts).
   app.get("/api/marketplace/config", iqPassConfigHandler);
+  // IQ Pass routes (calendar, purchase, confirm poll). Every handler 404s
+  // while the flag is off. The private helpers (resume token, deep-link
+  // allowlist) are injected so they stay private to this module.
+  app.use(createIqPassRouter({
+    purchase: {
+      ...iqPassStore,
+      now: () => new Date(),
+      mintResumeParam: mintPaymentResumeParam,
+      createIntent: createZiinaPaymentIntent,
+      allowedSchemes: getAllowedDeepLinkSchemes,
+      baseUrl: () => (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 'http://localhost:5000'),
+    },
+    confirm: {
+      getPack: (id) => iqPassStore.getPack(id),
+      retrieveIntent: retrieveZiinaPaymentIntent,
+      isSuccessful: isZiinaPaymentSuccessful,
+      confirm: (intentId) => confirmPackByIntentId(intentId),
+    },
+  }));
 
   app.get("/api/marketplace/sessions", async (_req, res) => {
     try {
@@ -3477,6 +3498,7 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.packId) return res.status(400).json({ error: "iq_pass_seat", message: "IQ Pass games are managed from the IQ Pass page — they can be moved, not cancelled or re-paid." });
       if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
       if (booking.status !== 'pending_payment') {
         return res.status(400).json({ error: "Booking is not awaiting payment" });
@@ -4025,6 +4047,7 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.packId) return res.status(400).json({ error: "iq_pass_seat", message: "IQ Pass games are managed from the IQ Pass page — they can be moved, not cancelled or re-paid." });
       if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
       if (booking.status === "cancelled") return res.status(400).json({ error: "Already cancelled" });
       // Double-refund guard: never refund the same booking twice.
@@ -4965,6 +4988,7 @@ export function registerMarketplaceRoutes(app: Express) {
     try {
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.packId) return res.status(400).json({ error: "iq_pass_seat", message: "IQ Pass games are managed from the IQ Pass page — they can be moved, not cancelled or re-paid." });
       if (booking.paymentMethod !== 'cash') return res.status(400).json({ error: "Only cash bookings can be toggled" });
 
       const newCashPaid = !!req.body.cashPaid;
@@ -4991,6 +5015,7 @@ export function registerMarketplaceRoutes(app: Express) {
     try {
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.packId) return res.status(400).json({ error: "iq_pass_seat", message: "IQ Pass games are managed from the IQ Pass page — they can be moved, not cancelled or re-paid." });
       if (booking.paymentMethod === 'cash') {
         return res.status(400).json({ error: "This action is for Ziina bookings. Use the cash-paid toggle for cash bookings." });
       }
@@ -5074,6 +5099,7 @@ export function registerMarketplaceRoutes(app: Express) {
       const override = { method: parsed.method, note: parsed.note };
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.packId) return res.status(400).json({ error: "iq_pass_seat", message: "IQ Pass games are managed from the IQ Pass page — they can be moved, not cancelled or re-paid." });
       // Cash bookings keep using the cash-paid toggle — unless the admin is overriding the method.
       if (shouldRefuseCash(booking, override)) return res.status(400).json({ error: "Use the cash-paid toggle for cash bookings" });
       if (booking.status === 'confirmed' || booking.status === 'attended') {
@@ -5163,6 +5189,7 @@ export function registerMarketplaceRoutes(app: Express) {
     try {
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
+      if (booking.packId) return res.status(400).json({ error: "iq_pass_seat", message: "IQ Pass games are managed from the IQ Pass page — they can be moved, not cancelled or re-paid." });
       if (booking.status !== 'waitlisted') {
         return res.status(400).json({ error: "Booking is not waitlisted" });
       }

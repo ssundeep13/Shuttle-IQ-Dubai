@@ -10,6 +10,8 @@ import type { Server } from 'http';
 import { getTableColumns } from 'drizzle-orm';
 
 process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/dummy';
+process.env.JWT_SECRET = 'test-main-secret';          // routes.ts pulls in the auth middleware
+process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
 
 const { packs, jobRuns, bookings, payments } = await import('../shared/schema');
 const { isIqPassEnabled } = await import('../server/iqPass/flag');
@@ -121,7 +123,7 @@ describe('GET /api/marketplace/config — over HTTP', () => {
 
   it('is wired in registerMarketplaceRoutes through the handler module (tripwire)', () => {
     const routes = read('server/marketplace-routes.ts');
-    expect(routes).toMatch(/import \{ iqPassConfigHandler \} from "\.\/iqPass\/routes";/);
+    expect(routes).toMatch(/import \{ iqPassConfigHandler(?:, createIqPassRouter)? \} from "\.\/iqPass\/routes";/);
     expect(routes).toMatch(/app\.get\("\/api\/marketplace\/config", iqPassConfigHandler\);/);
   });
 });
