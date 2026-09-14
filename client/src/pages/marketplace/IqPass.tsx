@@ -12,6 +12,7 @@ import { useIqPassEnabled } from '@/hooks/useIqPass';
 import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
 import { PACK_TIER_ORDER, type PackTier } from '@shared/iqPassTiers';
 import { IqPassMoveDialog, MOVE_ERROR_COPY, dubaiDayLabel, type IqPassCalendarSession } from '@/components/marketplace/IqPassMoveDialog';
+import { IqPassCalendar, shortVenue, useViewportWidth, BOTTOM_NAV_MAX, type CalendarItem } from '@/components/marketplace/IqPassCalendar';
 import { usePageTitle } from '@/hooks/usePageTitle';
 
 type TierInfo = { label: string; games: number; priceAed: number };
@@ -69,6 +70,10 @@ export default function IqPass() {
   const [moveFor, setMoveFor] = useState<{ bookingId: string; sessionId: string } | null>(null);
   const [repickFor, setRepickFor] = useState<string | null>(null);
   const [repickTarget, setRepickTarget] = useState<string | null>(null);
+  // Gate 9: the picker is a calendar by default; "List" keeps the day-by-day rows. Remembered per device.
+  const [view, setView] = useState<'calendar' | 'list'>(() => { try { return localStorage.getItem('iqp_picker_view') === 'list' ? 'list' : 'calendar'; } catch { return 'calendar'; } });
+  const setPickerView = (v: 'calendar' | 'list') => { setView(v); try { localStorage.setItem('iqp_picker_view', v); } catch { /* per-device convenience only */ } };
+  const width = useViewportWidth();
 
   const me = useQuery<{ packs: MyPack[] }>({
     queryKey: ['/api/marketplace/iq-pass/me'],
@@ -95,6 +100,11 @@ export default function IqPass() {
     for (const s of cal.data?.sessions ?? []) { const l = groups.get(s.dateDubai) ?? []; l.push(s); groups.set(s.dateDubai, l); }
     return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [cal.data]);
+  const calendarItems = useMemo<CalendarItem[]>(() => (cal.data?.sessions ?? []).map((s) => {
+    const picked = picks.includes(s.id);
+    const reason = s.alreadyBooked ? 'Already booked' : s.spotsRemaining < 1 ? 'Session full' : s.packSeatsLeft < 1 ? 'Pass seats full' : !picked && picks.length >= games ? 'All games picked' : null;
+    return { id: s.id, ymd: s.dateDubai, label: `${shortVenue(s.venueName)} ${s.startTime}`, state: picked ? 'picked' : reason ? 'blocked' : 'pickable', blockedReason: reason ?? undefined };
+  }), [cal.data, picks, games]);
 
   const showTiers = step === 'tiers' || (step === 'home' && activePacks.length === 0 && !pendingHold);
 
@@ -151,7 +161,7 @@ export default function IqPass() {
 
   return (
     <div style={{ background: IQP.cream, color: IQP.ink, minHeight: '100%', fontFamily: IQP_FONT }}>
-      <div style={{ maxWidth: 640, margin: '0 auto', padding: 'clamp(20px, 4vw, 32px) 16px clamp(48px, 6vw, 64px)', display: 'grid', gap: 16 }}>
+      <div style={{ maxWidth: step === 'picks' && view === 'calendar' ? 960 : 640, margin: '0 auto', padding: 'clamp(20px, 4vw, 32px) 16px clamp(48px, 6vw, 64px)', display: 'grid', gap: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontFamily: IQP_FONT, fontWeight: 700, fontSize: 28, color: IQP.navy, letterSpacing: '-0.02em' }}>IQ Pass</h1>
           <p style={sub}>Pick your games for the month up front, pay once, play.</p>
@@ -245,15 +255,28 @@ export default function IqPass() {
           </div>
         )}
 
-        {/* ── Step 2: picks ── */}
+        {/* ── Step 2: picks (Gate 9: calendar by default, list behind a toggle) ── */}
         {step === 'picks' && tier && tiers && (
           <div style={{ display: 'grid', gap: 12 }}>
             <div>
               <h2 style={h2}>{tiers[tier].label} — pick your {games} games</h2>
               <p style={sub}>{dubaiDayLabel(cal.data!.window.start)} to {dubaiDayLabel(cal.data!.window.end)}, any venue. Moves are free until five hours before a game.</p>
-              <p data-testid="text-pick-count" style={{ ...sub, fontWeight: 700, color: IQP.navy }}>{picks.length} of {games} picked</p>
             </div>
-            {byDay.map(([day, list]) => (
+            {/* pinned under the sticky header (h-14) */}
+            <div data-testid="bar-pick-count" style={{ position: 'sticky', top: 56, zIndex: 5, background: IQP.cream, padding: '8px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <p data-testid="text-pick-count" style={{ ...sub, margin: 0, fontWeight: 700, color: IQP.navy }}>{picks.length} of {games} picked</p>
+              <div role="group" aria-label="Picker view" style={{ display: 'flex', gap: 4 }}>
+                {(['calendar', 'list'] as const).map((v) => (
+                  <button key={v} type="button" aria-pressed={view === v} data-testid={`button-view-${v}`} onClick={() => setPickerView(v)}
+                    style={{ ...ghostBtn, minHeight: 36, padding: '0 12px', fontSize: 13, background: view === v ? IQP.navy : IQP.white, color: view === v ? IQP.white : IQP.navy, borderColor: view === v ? IQP.navy : IQP.line }}>
+                    {v === 'calendar' ? 'Calendar' : 'List'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {view === 'calendar' ? (
+              <IqPassCalendar mode="pick" windowStart={cal.data!.window.start} windowEnd={cal.data!.window.end} items={calendarItems} onPick={togglePick} />
+            ) : byDay.map(([day, list]) => (
               <div key={day} style={card}>
                 <div style={{ fontWeight: 700, fontSize: 13, color: IQP.inkSub, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 8 }}>{dubaiDayLabel(day)}</div>
                 <div style={{ display: 'grid', gap: 6 }}>
@@ -290,11 +313,19 @@ export default function IqPass() {
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <button type="button" style={ghostBtn} onClick={() => { setStep(activePacks.length ? 'home' : 'tiers'); setTier(null); setPicks([]); }}>Back</button>
-              <button type="button" style={primaryBtn(!canContinue)} disabled={!canContinue} onClick={() => setStep('review')} data-testid="button-continue">Continue</button>
             </div>
+            {/* "Review" pins to the bottom the moment every game is picked; above the fixed bottom nav on phones */}
+            {picks.length === games && (
+              <div data-testid="bar-review" style={{ position: 'fixed', left: 0, right: 0, bottom: width <= BOTTOM_NAV_MAX ? 64 : 0, marginBottom: width <= BOTTOM_NAV_MAX ? 'env(safe-area-inset-bottom)' : 0, zIndex: 30, padding: '10px 16px', background: IQP.white, borderTop: `1px solid ${IQP.line}` }}>
+                <div style={{ maxWidth: 928, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ ...sub, margin: 0, flex: 1 }}>{jerseyNeeded && !JERSEY_SIZES.includes(jerseySize) ? 'Pick your jersey size to review.' : `${games} of ${games} picked. Review your month.`}</span>
+                  <button type="button" style={{ ...primaryBtn(!canContinue), width: 'auto', minWidth: 140 }} disabled={!canContinue} onClick={() => setStep('review')} data-testid="button-continue">Review</button>
+                </div>
+              </div>
+            )}
+            {picks.length === games && <div aria-hidden="true" style={{ height: 72 }} />}
           </div>
         )}
-
         {/* ── Step 3: review ── */}
         {step === 'review' && tier && tiers && (
           <div style={{ display: 'grid', gap: 12 }}>

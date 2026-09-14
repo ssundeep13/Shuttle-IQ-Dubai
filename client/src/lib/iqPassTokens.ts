@@ -19,3 +19,18 @@ export const IQP = {
 
 /** Inter — the app loads it as --font-sans (client/src/index.css). */
 export const IQP_FONT = 'var(--font-sans)';
+
+/**
+ * Venue dots on the bookings calendar (Gate 10). Brand navy and teal first, then
+ * four muted companions picked to read apart from each other on cream at 10 px.
+ * Assigned per venue by a stable hash (IqPassCalendar.venueColour), so a venue
+ * keeps its colour across visits.
+ */
+export const IQP_VENUE_PALETTE: readonly string[] = [
+  IQP.navy,
+  IQP.teal,
+  '#8A6A1B', // ochre
+  '#6E2F5B', // plum
+  '#3F5F7F', // slate
+  '#9A4A2A', // rust
+] as const;
