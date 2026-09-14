@@ -179,7 +179,7 @@ export function AgendaRow({ booking, area, seat, open, onToggle, onMove, childre
             {booking.packId ? <span data-testid={`chip-iq-pass-${booking.id}`} style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: IQP.teal, border: `1px solid ${IQP.teal}`, borderRadius: 4, padding: '1px 6px' }}>IQ Pass</span> : null}
             {status ? <span data-testid={`chip-status-${booking.id}`} style={{ ...caption, fontWeight: 700 }}>{status}</span> : null}
           </div>
-          <span style={{ fontSize: 14, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{booking.session.venueName}{area ? <span style={caption}> · {area}</span> : null}</span>
+          <span style={{ fontSize: 14, fontWeight: 500, overflowWrap: 'anywhere' }}>{booking.session.venueName}{area ? <span style={caption}> · {area}</span> : null}</span>
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '0 10px', alignItems: 'center' }}>
           {seat?.canMove && booking.status === 'confirmed' && <button type="button" data-testid={`button-move-${booking.id}`} onClick={onMove} style={ghost}>Move</button>}

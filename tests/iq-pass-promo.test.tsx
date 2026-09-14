@@ -121,6 +121,16 @@ describe('source pins — wiring, gating, brand', () => {
     expect(src).toMatch(/user\?\.iqPass\s*\?\s*\(?\s*<IqPassProgressLine/);
     expect(src).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
   });
+  it('"played" comes from the server summary (seats whose session has ended), the same definition My games uses — never total minus remaining', () => {
+    const dash = read('client/src/pages/marketplace/Dashboard.tsx');
+    expect(dash).toMatch(/played=\{user\.iqPass\.gamesPlayed\}/);
+    expect(dash).not.toMatch(/gamesTotal - user\.iqPass\.gamesRemaining/);
+    const store = read('server/iqPass/store.ts');
+    expect(store).toMatch(/gamesPlayed: number;/);
+    expect(store).toMatch(/gamesPlayed: played/);
+    expect(store).toMatch(/const played = seats\.filter\(\(s\) => \(s\.status === 'confirmed' \|\| s\.status === 'attended'\) && sessionStartEpochMs\(s\.session\.date, s\.session\.endTime \|\| '23:59'\) < now\.getTime\(\)\)\.length;/);
+    expect(read('client/src/contexts/MarketplaceAuthContext.tsx')).toMatch(/gamesPlayed: number;/);
+  });
   it('Landing: the IQ Pass section sits right after the hero and before the referral promo; CTA is sign-in first when logged out', () => {
     const src = read('client/src/pages/marketplace/MarketplaceHome.tsx');
     expect(src).toMatch(/from '@\/components\/marketplace\/IqPassPromo'/);

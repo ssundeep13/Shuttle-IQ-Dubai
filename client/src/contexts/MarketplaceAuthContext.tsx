@@ -39,6 +39,7 @@ interface MarketplaceUser {
     label: string;
     gamesTotal: number;
     gamesRemaining: number;
+    gamesPlayed: number;
     lastGameDate: string | null;
     repickCredits: number;
   } | null;

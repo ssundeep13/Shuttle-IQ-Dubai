@@ -39,6 +39,8 @@ export type IqPassSummary = {
   label: string;
   gamesTotal: number;
   gamesRemaining: number;
+  /** seats whose session has already ended (confirmed or attended) — the one definition of "played" */
+  gamesPlayed: number;
   lastGameDate: string | null;
   repickCredits: number;
 };
@@ -370,14 +372,16 @@ export const iqPassStore = {
   async getActiveTierForUser(userId: string): Promise<IqPassSummary | null> {
     const active = (await iqPassStore.getPacksForUser(userId)).filter((p) => p.status === 'active');
     if (active.length === 0) return null;
-    const today = todayDubai(new Date());
+    const now = new Date();
+    const today = todayDubai(now);
     let best: IqPassSummary | null = null;
     for (const p of active) {
       const seats = await iqPassStore.getPackSeatSessions(p.id);
       const remaining = seats.filter((s) => s.status === 'confirmed' && dateOnly(s.session.date) >= today).length;
+      const played = seats.filter((s) => (s.status === 'confirmed' || s.status === 'attended') && sessionStartEpochMs(s.session.date, s.session.endTime || '23:59') < now.getTime()).length;
       const last = seats.length ? dateOnly(seats[seats.length - 1].session.date) : null;
       const tier = isPackTier(p.tier) ? p.tier : 'club';
-      const view: IqPassSummary = { packId: p.id, tier, label: IQ_PASS_TIERS[tier].label, gamesTotal: p.gamesTotal, gamesRemaining: remaining, lastGameDate: last, repickCredits: p.repickCredits };
+      const view: IqPassSummary = { packId: p.id, tier, label: IQ_PASS_TIERS[tier].label, gamesTotal: p.gamesTotal, gamesRemaining: remaining, gamesPlayed: played, lastGameDate: last, repickCredits: p.repickCredits };
       // several active packs (current + next): show the one whose games are still ahead
       if (!best || (view.gamesRemaining > 0 && (best.gamesRemaining === 0 || (view.lastGameDate ?? '') < (best.lastGameDate ?? '')))) best = view;
     }

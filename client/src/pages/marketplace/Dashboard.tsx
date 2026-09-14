@@ -740,7 +740,7 @@ export default function Dashboard() {
         {iqPass.enabled && (
           <Reveal style={{ marginBottom: 20 }}>
             {user?.iqPass ? (
-              <IqPassProgressLine label={user.iqPass.label} played={Math.max(0, user.iqPass.gamesTotal - user.iqPass.gamesRemaining)} total={user.iqPass.gamesTotal} href="/marketplace/iq-pass" />
+              <IqPassProgressLine label={user.iqPass.label} played={user.iqPass.gamesPlayed} total={user.iqPass.gamesTotal} href="/marketplace/iq-pass" />
             ) : (
               <IqPassPromoCard tiers={iqPass.tiers} href="/marketplace/iq-pass" />
             )}
