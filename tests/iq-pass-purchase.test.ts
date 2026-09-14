@@ -12,7 +12,7 @@ process.env.JWT_SECRET = 'test-main-secret';
 process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
 process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/dummy';
 
-const { startPurchase, buildCalendar, JERSEY_SIZES, PickConflictError } = await import('../server/iqPass/purchase');
+const { startPurchase, buildCalendar, JERSEY_SIZES, PickConflictError, iqPassIntentMessage } = await import('../server/iqPass/purchase');
 const { createIqPassRouter } = await import('../server/iqPass/routes');
 const { buildZiinaReturnUrls } = await import('../server/ziinaReturn');
 
@@ -95,11 +95,27 @@ describe('startPurchase', () => {
     expect(deps.mintResumeParam).toHaveBeenCalledWith('u-1', 'b1');
     const intent = deps.createIntent.mock.calls[0][0];
     expect(intent.amountAed).toBe(188);
-    expect(intent.message).toBe('ShuttleIQ IQ Pass · Club');
+    // Ziina receipt line (Sandeep, 2026-09-14): "ShuttleIQ IQ Pass · <first name> · <tier>" so Shannon can match receipts to players.
+    expect(intent.message).toBe('ShuttleIQ IQ Pass · Test · Club');
     expect(intent.successUrl).toBe('https://shuttleiq.ai/marketplace/checkout/success?booking_id=b1&pack_id=pk-new&resume=abc');
     expect(intent.cancelUrl).toBe('https://shuttleiq.ai/marketplace/checkout/cancel?booking_id=b1&pack_id=pk-new');
     expect(deps.attachIntent).toHaveBeenCalledWith('pk-new', 'pi_new');
     expect(deps.cancelHold).not.toHaveBeenCalled();
+  });
+
+  it('the Ziina message carries the first name only — extra spaces trimmed, a blank name falls back to the tier alone, and Club Elite reads in full', async () => {
+    const spaced = fakeDeps({ getUser: vi.fn().mockResolvedValue({ id: 'u-1', name: '  Anna   Maria  Lopez ', email: 'a@example.com' }) });
+    await startPurchase(good, spaced);
+    expect(spaced.createIntent.mock.calls[0][0].message).toBe('ShuttleIQ IQ Pass · Anna · Club');
+    const blank = fakeDeps({ getUser: vi.fn().mockResolvedValue({ id: 'u-1', name: '   ', email: 'b@example.com' }) });
+    await startPurchase(good, blank);
+    expect(blank.createIntent.mock.calls[0][0].message).toBe('ShuttleIQ IQ Pass · Club');
+    // never the allocation or the price, never the email
+    for (const d of [spaced, blank]) expect(d.createIntent.mock.calls[0][0].message).not.toMatch(/47|188|516|@/);
+    expect(iqPassIntentMessage('Krishnachandran', 'Club Elite')).toBe('ShuttleIQ IQ Pass · Krishnachandran · Club Elite');
+    expect(iqPassIntentMessage(null, 'Club Plus')).toBe('ShuttleIQ IQ Pass · Club Plus');
+    // the longest real combination stays inside ziinaClient's 50-byte cap (the middle dot is 2 bytes)
+    expect(Buffer.byteLength(iqPassIntentMessage('Krishnachandran', 'Club Elite'), 'utf8')).toBeLessThanOrEqual(50);
   });
 
   it('rejects an unknown tier and a non-array pick list before touching the DB', async () => {

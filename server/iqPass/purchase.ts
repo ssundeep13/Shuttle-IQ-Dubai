@@ -84,6 +84,14 @@ export async function buildCalendar(userId: string, deps: PurchaseDeps): Promise
   };
 }
 
+// Ziina receipt line: "ShuttleIQ IQ Pass · <first name> · <tier>" — the first name lets the finance team match a
+// Ziina receipt to a player (Sandeep, 2026-09-14). First token of the trimmed name; a blank name drops the segment.
+// Never the price or the allocation. ziinaClient's sanitiser still caps the whole string at 50 bytes.
+export function iqPassIntentMessage(name: string | null | undefined, tierLabel: string): string {
+  const first = (name ?? '').trim().split(/\s+/)[0] ?? '';
+  return first ? `ShuttleIQ IQ Pass · ${first} · ${tierLabel}` : `ShuttleIQ IQ Pass · ${tierLabel}`;
+}
+
 export async function startPurchase(
   input: { userId: string; tier: unknown; sessionIds: unknown; jerseySize?: unknown; returnScheme?: string },
   deps: PurchaseDeps,
@@ -149,7 +157,7 @@ export async function startPurchase(
   try {
     intent = await deps.createIntent({
       amountAed: t.priceAed,
-      message: `ShuttleIQ IQ Pass · ${t.label}`,
+      message: iqPassIntentMessage(user.name, t.label),
       successUrl: urls.successUrl,
       cancelUrl: urls.cancelUrl,
       failureUrl: urls.failureUrl,
