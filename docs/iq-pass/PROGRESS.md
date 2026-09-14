@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 2 — code complete and committed, **staging verification pending** · **Tests:** 1355/1355 · tsc 28 · **Hard stop pending: YES — create the Railway staging environment (ruling E4a)** · **Next action for Sandeep:** the three steps under "HARD STOP 1" below, then reply "staging created"
+**Current gate:** 3 — finance (shared collected-revenue helper, portal line) while staging is sorted; Gate 2 staging verification still pending · **Tests:** 1358/1358 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -61,7 +61,21 @@ What you do (about five minutes in the Railway dashboard, project ShuttleIQ):
 
 Cost: one extra web service + one Postgres while it exists (usage-based, small); I will remind you to delete it after Gate 8.
 
+## Staging check (2026-09-14, after "staging created")
+
+- **Not found.** `railway environment list --json` and a direct GraphQL query of project ShuttleIQ (`f6a94abd…`) both return exactly one environment, `production` (`895e5ecd…`, created 2026-05-24). The account's only other project (arthadao) also has only `production`. Nothing named `staging` exists as far as the CLI token (workspace "ssundeep13's Projects") can see, so no staging variable could be read and **the DATABASE_URL confirmation is still pending**. Likely causes: the duplicate dialog was not confirmed, or the environment was created in a different Railway account/workspace than the one the CLI is logged into. Nothing was created or changed by me (hard stop respected).
+- **Production hosts for the later comparison (masked):** app `DATABASE_URL` host `pos***.railway.internal:5432/railway`; public proxy `caboose.proxy.rlwy.net:25452`. A duplicated environment gets its own Postgres service with a different proxy host/port; I will print staging's masked host here and refuse to run anything if it matches production's.
+- **Ziina "test keys":** this integration has ONE Ziina token (`ZIINA_API_TOKEN`) and no separate sandbox key — test mode is set per intent (`test: NODE_ENV !== 'production'`, `server/ziinaClient.ts:156`). On staging I set `NODE_ENV=staging`, so every intent minted there is a Ziina test intent (the staging verify step reads the intent back from Ziina and logs its `test` flag). The registered Ziina webhook URL is production's, so a test intent's event reaches production, where the flag is off and an unknown intent is dropped exactly as today (`webhookHandler.ts` guest path, 200 with `guest_not_found`); staging confirms through the poll route and the 10-minute pack reconciliation sweep. `RESEND_API_KEY` is inherited → real emails, test inbox only.
+- **DECISION (continue while staging is sorted):** Gate 3 is server-only finance work verified on production with pure reads plus one test-account row, so it does not depend on the unverified purchase path; I am proceeding with it rather than idling. Gate 2's staging verification runs the moment the environment is reachable, before Gate 4.
+
+## Brand tokens for the IQ Pass screens (checked 2026-09-14)
+
+- App-wide `MKT` (`client/src/pages/marketplace/LandingComponents.tsx:19-29`): `navy #002C84`, `cream #F2ECE1`, `tealText #006B5F`. Against the brief: navy and beige differ, teal matches.
+- Per your instruction the IQ Pass screens override: new module `client/src/lib/iqPassTokens.ts` exports `IQP` = navy `#003E8C`, teal `#006B5F`, cream `#F5EFE0`, white, the shared ink scale, and `IQP_FONT` = Inter (`var(--font-sans)`). It lives outside the customer-layer sweep globs (which ban the brief's navy/beige literals inside `pages/marketplace` and `components/marketplace`), and every IQ Pass screen will import it rather than inline hex — pinned by `tests/iq-pass-tokens.test.ts` (3 tests). App-wide tokens untouched. This supersedes the earlier brand DECISION above for IQ Pass screens only.
+
 ## Found, not fixed
+
+- **Brand drift (app-wide):** `MKT.navy` is `#002C84` and `MKT.cream` is `#F2ECE1` where the IQ Pass brief specifies `#003E8C` / `#F5EFE0`; `index.css --primary` is also `#002C84`. Every existing marketplace screen uses the drifted values and `tests/gate2-typography-brand.test.tsx:141-150` enforces them. Not changed (out of scope); IQ Pass screens use `IQP`.
 
 - Pre-fix data only: a booking whose `ziina_payment_intent_id` was overwritten by a second `initiate-payment` before this fix has a completed payments row under the first intent. `confirmPromotedBookingIfPaid` looks the booking up by that intent, misses, and returns false; `initiate-payment` now 409s, so the admin path (Confirm Payment) is the way through. No such rows exist today (Owais was repaired by hand on 3 Sep).
 - `scheduler.ts` computes `dateLabel` before the promotion branch; unused on the paid path (harmless).
