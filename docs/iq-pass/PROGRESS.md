@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 8 — Staging verification DONE for Gates 2, 4, 5, 6, 7 (one manual step left: the Ziina test-card payment on Staging, blocked for automation by Ziina's Cloudflare bot check); merging `feature/iq-pass` into `railway-migration` next (flag off in production) · **Tests:** 1447/1447 · tsc 28 · **Hard stop pending: YES — hard stop 2** (after the merge deploys: staging test-card payment → production flag-on → AED 188 real purchase) · **Next action for Sandeep:** see "HARD STOP 2" at the bottom once the merge is live
+**Current gate:** 8 — MERGED and DEPLOYED to production with the flag OFF (`941addf`, Railway `ada5478c…`, health 200); every staging check done except the Ziina test-card submission (needs a human: Cloudflare bot check) · **Tests:** 1447/1447 · tsc 28 · **Hard stop pending: YES — HARD STOP 2** · **Next action for Sandeep:** three steps under "HARD STOP 2" at the bottom of this file: (0) pay the Staging test intent with the Ziina test card, (1) say "flag on" (or set `IQ_PASS_ENABLED=true` on production yourself), (2) buy the AED 188 Club pass on your own account
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -106,7 +106,7 @@ Cost: one extra web service + one Postgres while it exists (usage-based, small);
 1. Staging config (me): `NODE_ENV=staging` comes from a **Staging-only start-command override in `railway.json`** (`npm start` hard-codes `NODE_ENV=production`, so a variable alone cannot switch Ziina to test mode; the Railway `NODE_ENV` variable stays `production` so the build is byte-identical); `IQ_PASS_ENABLED=true`, `REPLIT_DOMAINS=<staging domain>`; confirm the staging database is not production's (masked hosts + identity probe below); seed the staging Postgres from a read-only production dump (pg_dump/psql inside the Staging Postgres container over `railway ssh` — no Docker on this machine). **DONE 2026-09-14 — see "Staging check — second attempt".**
 2. Gate 2 verify (`g2-staging-verify.mjs`: config → purchase → Ziina test card → poll → verify → expiry → teardown). **DONE 2026-09-14 (see "Gate 8 — staging verification"); the Ziina test-card step is the one manual item left for Sandeep.**
 3. Gates 4–7 verify (`g4-7-staging-verify.mjs`: me → move → cutoff → pills → cancel-session + repick → renewal run + `job_runs` → admin list + jersey), plus a phone-width screen pass of `/marketplace/iq-pass`, My Bookings, Who's Playing, Rankings, Profile in the in-app browser. **DONE 2026-09-14.**
-4. Merge `feature/iq-pass` into `railway-migration` (fast-forward is impossible — the Gate 0 cherry-pick sits on both branches; a merge commit is expected), push, watch the deploy, `/api/health` 200, confirm every pack route still 404s and `/auth/me` carries no `iqPass` key (flag off).
+4. Merge `feature/iq-pass` into `railway-migration` (fast-forward is impossible — the Gate 0 cherry-pick sits on both branches; a merge commit is expected), push, watch the deploy, `/api/health` 200, confirm every pack route still 404s and `/auth/me` carries no `iqPass` key (flag off). **DONE 2026-09-14 — see "Merge and production deploy (flag off)".**
 5. **HARD STOP 2:** you set `IQ_PASS_ENABLED=true` on production (or say "flag on" and I run `railway variables set`), then the AED 188 real-money purchase on your own account; I read back pack / seats / payment / email and the finance lines, and monitor for 48 h.
 
 ## Staging check — first attempt (2026-09-14, after "staging created")
@@ -143,6 +143,11 @@ Scripts ran under `railway run --environment Staging --service shuttleiq-app` (J
 - **Gate 7 — renewal job:** `runIqPassRenewalJob()` run from the repo against Staging (`g8-run-renewal.mts`): last game 17 Sep, today 14 Sep → `{"renewals":1,"followups":0,"completed":0}`, renewal email sent by Resend (id `3262614b…`), `renewal_email_sent_at` stamped, one `job_runs` row `iq_pass_renewal` / `ok` with details `{renewals 1, completed 0, followups 0, candidates 1}`. Admin: `GET /api/admin/iq-pass/packs` → 200 (2 rows), jersey handover → 200 with `jerseyHandedOverAt` (jersey size set on the test pack directly for this check).
 - **Teardown:** both packs and every row they created deleted (10 bookings, 10 guest slots, 1 payment, 5 notifications, 2 packs), the ZZ leftover row deleted, the fixture session set back to `upcoming`. Staging after: packs 0 · bookings 0 · guests 0 · payments 0 · notifications 0 · 36 upcoming sessions; the one `job_runs` row is left as ledger evidence. Production was never written.
 
+## Merge and production deploy (flag off) — 2026-09-14
+
+- `feature/iq-pass` merged into `railway-migration` with a merge commit `941addf` (19 commits; the Gate 0 cherry-pick already sat on both sides and merged cleanly). Full suite on the merged tree 1447/1447, tsc at the 28 baseline. Pushed; Railway deployment `ada5478c-063d-49a4-a6f9-d1f666803ef5` reached SUCCESS.
+- **Flag-off proof on production after the deploy:** `/api/health` 200; `/api/marketplace/config` 404 (`{"error":"Not found"}`, byte-identical to any unknown `/api` path); `POST /api/marketplace/iq-pass/purchase` 404; `GET /api/marketplace/iq-pass/me` 404; `GET /api/admin/iq-pass/packs` 404; `/auth/me` for TEST PLAYER carries an `iqPass` key: **no**. `IQ_PASS_ENABLED` is unset on the production service (read back after the deploy). No production data was touched.
+
 ## Brand tokens for the IQ Pass screens (checked 2026-09-14)
 
 - App-wide `MKT` (`client/src/pages/marketplace/LandingComponents.tsx:19-29`): `navy #002C84`, `cream #F2ECE1`, `tealText #006B5F`. Against the brief: navy and beige differ, teal matches.
@@ -157,3 +162,16 @@ Scripts ran under `railway run --environment Staging --service shuttleiq-app` (J
 
 - Pre-fix data only: a booking whose `ziina_payment_intent_id` was overwritten by a second `initiate-payment` before this fix has a completed payments row under the first intent. `confirmPromotedBookingIfPaid` looks the booking up by that intent, misses, and returns false; `initiate-payment` now 409s, so the admin path (Confirm Payment) is the way through. No such rows exist today (Owais was repaired by hand on 3 Sep).
 - `scheduler.ts` computes `dateLabel` before the promotion branch; unused on the paid path (harmless).
+
+
+## HARD STOP 2 — Ziina test-card payment on Staging, then production flag-on + the AED 188 real-money purchase
+
+Everything below is yours. Nothing runs until you say so.
+
+**Step 0 — prove the Ziina → confirm handshake on Staging (about two minutes, no real money).** Reply "staging pay" and I create a fresh Club hold for TEST PLAYER on Staging and give you a `pay.ziina.com` link (the intent is a Ziina TEST intent: Staging starts with `NODE_ENV=staging`). Open it, pass the "verify you are human" check, and pay with Ziina's documented test card `4242 4242 4242 4242`, any future expiry, any 3-digit CVV, any name, email shuttleiqdubai@gmail.com (untick "Save my data"). You land on the Staging success page ("Your IQ Pass is active"); I run the poll and the full read-back and tear the rows down. The hold lasts 30 minutes.
+
+**Step 1 — turn the flag on in production.** Either reply "flag on" and I run `railway variables --set IQ_PASS_ENABLED=true --environment production --service shuttleiq-app` (Railway redeploys; I watch it to SUCCESS and re-check `/api/marketplace/config` → 200 `{"iqPassEnabled":true}`), or set it yourself in the Railway dashboard → shuttleiq-app → Variables (production).
+
+**Step 2 — the real purchase (AED 188, your own account).** On https://shuttleiq.ai open the IQ Pass entry (Profile card, the Sessions banner, or the menu link) → Club → pick your 4 games → "Your month is locked" → Pay → Ziina with your real card. Reply "paid" (or the Ziina reference). I then read back: pack `active` and `paid_at`, four `confirmed` seats at 47 with `promoted_at` null, one `payments` row for 188 with `pack_id` and no `booking_id`, the `iq_pass_active` notification, the "Your IQ Pass is active — Club" email in Resend, the finance figures (+188 collected today, `iqPass` bucket, portal "IQ Pass sales (info)" Club 188, reconcile `iq_pass` intents) and Who's Playing tags on your four sessions — then monitor for 48 hours (hold-expiry sweep, reconciliation sweep, the 09:00 Dubai renewal job's `job_runs` rows).
+
+**If anything looks wrong at any step:** reply "flag off" — I set `IQ_PASS_ENABLED` back to unset, Railway redeploys, and the app is byte-identical to today (pack routes 404, `/auth/me` unchanged); any pack rows stay in the database for inspection and nothing else references them.
