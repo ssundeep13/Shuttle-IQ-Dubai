@@ -50,7 +50,7 @@ export interface BookingForRevenueFils {
 }
 
 export interface RevenueBasesFils {
-  revenueFils: number;     // collected: ziina + paid cash, refund-netted
+  revenueFils: number;     // collected: ziina + bank transfer + paid cash, refund-netted
   walletPaidFils: number;  // wallet, refund-netted
   valueFils: number;       // collected + wallet
   unpaidCashFils: number;  // cash not yet marked paid (gross; excluded from both bases)
@@ -64,7 +64,8 @@ export function computeRevenueBasesFils(
   for (const b of bookings) {
     const grossFils = b.amountAed * 100;
     const refundedFils = refundedFilsByBookingId.get(b.id) ?? 0;
-    if (b.paymentMethod === 'ziina' || (b.paymentMethod === 'cash' && b.cashPaid)) {
+    // Gate BT1: bank_transfer is money already in the bank — collected, same bucket as paid cash.
+    if (b.paymentMethod === 'ziina' || b.paymentMethod === 'bank_transfer' || (b.paymentMethod === 'cash' && b.cashPaid)) {
       collected += grossFils - refundedFils;
     } else if (b.paymentMethod === 'wallet') {
       wallet += grossFils - refundedFils;

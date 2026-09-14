@@ -25,6 +25,7 @@ import { isSmsConfigured, sendPlayerLinkOtpSms } from "./smsClient";
 import { createHash, randomInt } from "crypto";
 import { requireAuth, requireAdmin, requireCaptain, requireMarketplaceAuth, type AuthRequest } from "./auth/middleware";
 import { publicPlayerSearchResult, isTestAccountName } from "./playerRoutes";
+import { parseAdminConfirmBody, planAdminConfirm, shouldRefuseCash } from "./adminConfirm";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -5045,9 +5046,15 @@ export function registerMarketplaceRoutes(app: Express) {
   // Admin: force-confirm a pending Ziina booking (escape hatch when Ziina timing caused status to get stuck)
   app.post("/api/marketplace/bookings/:id/admin-confirm", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
     try {
+      // Gate BT1: optional { method: 'cash' | 'bank_transfer', note? } — the
+      // money arrived off-app. Without it the route behaves exactly as before.
+      const parsed = parseAdminConfirmBody(req.body);
+      if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+      const override = { method: parsed.method, note: parsed.note };
       const booking = await storage.getBooking(req.params.id);
       if (!booking) return res.status(404).json({ error: "Booking not found" });
-      if (booking.paymentMethod === 'cash') return res.status(400).json({ error: "Use the cash-paid toggle for cash bookings" });
+      // Cash bookings keep using the cash-paid toggle — unless the admin is overriding the method.
+      if (shouldRefuseCash(booking, override)) return res.status(400).json({ error: "Use the cash-paid toggle for cash bookings" });
       if (booking.status === 'confirmed' || booking.status === 'attended') {
         return res.json({ message: "Booking already confirmed", booking });
       }
@@ -5064,7 +5071,9 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       }
 
-      await storage.updateBooking(booking.id, { status: 'confirmed' });
+      const existingPayments = await storage.getPaymentsByBookingId(booking.id);
+      const plan = planAdminConfirm(booking, override, existingPayments);
+      await storage.updateBooking(booking.id, plan.bookingPatch);
       // PR2 trigger site 3/5: admin force-confirm. Bypasses the webhook path
       // but reaches the same "booking is now confirmed" state, so the same
       // referral trigger fires. Pre-condition above (status !== 'confirmed'
@@ -5073,19 +5082,11 @@ export function registerMarketplaceRoutes(app: Express) {
       syncFoundingMember(booking.userId, 'admin-confirm');
       fireDubailandPromo(booking.userId, 'admin-confirm');
 
-      // Record the payment if not already present
-      if (booking.ziinaPaymentIntentId) {
-        const existingPayments = await storage.getPaymentsByBookingId(booking.id);
-        const alreadyRecorded = existingPayments.some(p => p.ziinaPaymentIntentId === booking.ziinaPaymentIntentId);
-        if (!alreadyRecorded) {
-          await storage.createPayment({
-            bookingId: booking.id,
-            ziinaPaymentIntentId: booking.ziinaPaymentIntentId,
-            amount: booking.amountAed,
-            currency: 'aed',
-            status: 'completed',
-          });
-        }
+      // Record the payment if not already present. With a method override the
+      // row carries NO Ziina intent id (the money came off-app); without one it
+      // is tied to the booking's intent exactly as before.
+      if (plan.paymentInsert) {
+        await storage.createPayment({ bookingId: booking.id, ...plan.paymentInsert });
       }
 
       // Confirm all pending guest slots and send guest emails/notifications
@@ -5093,7 +5094,7 @@ export function registerMarketplaceRoutes(app: Express) {
         const user = await storage.getMarketplaceUser(booking.userId);
         const session = await storage.getBookableSession(booking.sessionId);
         if (user && session) {
-          sendBookingConfirmationEmail(user.email, user.name, session, 'ziina', booking.amountAed).catch(() => {});
+          sendBookingConfirmationEmail(user.email, user.name, session, plan.emailMethod, booking.amountAed).catch(() => {});
 
           const adminConfirmBaseUrl = process.env.REPLIT_DOMAINS
             ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
@@ -5129,7 +5130,7 @@ export function registerMarketplaceRoutes(app: Express) {
       fireGoodwillCredit(booking.id, 'admin-confirm');
 
       const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
-      res.json({ confirmed: true, ziinaStatus, booking: bookingWithDetails });
+      res.json({ confirmed: true, ziinaStatus, method: plan.emailMethod, booking: bookingWithDetails });
     } catch (error: any) {
       console.error('Admin confirm error:', error);
       res.status(500).json({ error: "Failed to confirm booking" });

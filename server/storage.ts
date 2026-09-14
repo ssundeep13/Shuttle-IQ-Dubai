@@ -3695,7 +3695,7 @@ export class DatabaseStorage implements IStorage {
     const waitlisted = bookingRows.filter(b => b.status === 'waitlisted');
     const cancelled = bookingRows.filter(b => b.status === 'cancelled');
 
-    const cardBookings = confirmed.filter(b => b.paymentMethod === 'ziina');
+    const cardBookings = confirmed.filter(b => b.paymentMethod === 'ziina' || b.paymentMethod === 'bank_transfer'); // Gate BT1: bank transfer = collected
     const cashBookings = confirmed.filter(b => b.paymentMethod === 'cash');
     const cashPaid = cashBookings.filter(b => b.cashPaid);
     const cashPending = cashBookings.filter(b => !b.cashPaid);
@@ -3763,7 +3763,7 @@ export class DatabaseStorage implements IStorage {
         totalSpotsBooked: sumField(bkgs, 'spotsBooked'),
         revenueChargedAed: sumField(bkgs, 'amountAed'),
         revenueCollectedAed:
-          sumField(bkgs.filter(b => b.paymentMethod === 'ziina'), 'amountAed') +
+          sumField(bkgs.filter(b => b.paymentMethod === 'ziina' || b.paymentMethod === 'bank_transfer'), 'amountAed') +
           sumField(bkgs.filter(b => b.paymentMethod === 'cash' && b.cashPaid), 'amountAed'),
         revenuePendingCashAed: sumField(bkgs.filter(b => b.paymentMethod === 'cash' && !b.cashPaid), 'amountAed'),
       }));

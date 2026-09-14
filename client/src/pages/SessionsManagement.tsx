@@ -47,6 +47,7 @@ import { EditSessionModal } from '@/components/EditSessionModal';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { ConfirmPaymentDialog } from '@/components/ConfirmPaymentDialog';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Session, Player, BookableSessionWithAvailability, BookingWithDetails, MarketplaceUser, ScoreDisputeWithDetails, BookingGuest, BookingGuestWithLinked, RefundNotificationWithDetails, TagSuggestionWithVote } from '@shared/schema';
 import { isInBirthdayWindow } from '@shared/birthday';
@@ -1037,6 +1038,9 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
   });
   const openChallenges = openChallengeCount(sessionChallenges);
 
+  // Gate BT1 — which booking the Confirm Payment picker is open for (null = closed).
+  const [confirmTarget, setConfirmTarget] = useState<BookingWithDetails | null>(null);
+
   const attendMutation = useMutation({
     mutationFn: async (bookingId: string) => {
       const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/attend`), {
@@ -1083,24 +1087,26 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
   });
 
   const adminConfirmMutation = useMutation({
-    mutationFn: async (bookingId: string) => {
+    mutationFn: async ({ bookingId, method, note }: { bookingId: string; method?: 'cash' | 'bank_transfer'; note?: string }) => {
       const res = await fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/admin-confirm`), {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` },
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method, note }),
       });
       if (!res.ok) throw new Error('Failed');
       return res.json();
     },
     onSuccess: (data) => {
+      setConfirmTarget(null);
+      const recorded = data.method === 'cash' ? 'Recorded as cash' : data.method === 'bank_transfer' ? 'Recorded as bank transfer' : undefined;
       toast({
         title: 'Booking confirmed',
-        description: data.ziinaStatus ? `Ziina status was: ${data.ziinaStatus}` : undefined,
+        description: recorded ?? (data.ziinaStatus ? `Ziina status was: ${data.ziinaStatus}` : undefined),
       });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', linkedBookable?.id, 'bookings'] });
     },
     onError: () => toast({ title: 'Failed to confirm booking', variant: 'destructive' }),
   });
-
   const paymentNotReceivedMutation = useMutation({
     mutationFn: async (bookingId: string) => {
       const res = await fetch(apiUrl(`/api/admin/bookings/${bookingId}/payment-not-received`), {
@@ -1410,12 +1416,12 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
               {booking.cashPaid ? 'Mark Unpaid' : 'Mark Cash Paid'}
             </Button>
           )}
-          {booking.paymentMethod !== 'cash' && booking.status === 'pending' && (
+          {booking.paymentMethod !== 'cash' && (booking.status === 'pending' || booking.status === 'pending_payment') && (
             <Button
               size="sm"
               variant="outline"
               className="gap-1 border-amber-400 text-amber-700 dark:border-amber-600 dark:text-amber-400"
-              onClick={() => adminConfirmMutation.mutate(booking.id)}
+              onClick={() => setConfirmTarget(booking)}
               disabled={adminConfirmMutation.isPending}
               data-testid={`button-admin-confirm-${booking.id}`}
             >
@@ -1479,6 +1485,16 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
   return (
     <Sheet open={!!session} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+        {confirmTarget && (
+          <ConfirmPaymentDialog
+            open={!!confirmTarget}
+            onOpenChange={(o) => { if (!o) setConfirmTarget(null); }}
+            playerName={confirmTarget.user?.name ?? 'this player'}
+            amountAed={confirmTarget.amountAed}
+            pending={adminConfirmMutation.isPending}
+            onConfirm={(method, note) => adminConfirmMutation.mutate({ bookingId: confirmTarget.id, method, note })}
+          />
+        )}
         <SheetHeader>
           <SheetTitle>{session?.venueName} — Bookings</SheetTitle>
         </SheetHeader>

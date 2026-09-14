@@ -449,6 +449,7 @@ export const bookings = pgTable("bookings", {
   userId: varchar("user_id").notNull(),
   sessionId: varchar("session_id").notNull(),
   status: text("status").notNull().default('pending'), // 'pending', 'confirmed', 'waitlisted', 'pending_payment', 'attended', 'cancelled'
+  // 'ziina' | 'cash' | 'wallet' | 'birthday_free' | 'bank_transfer' (Gate BT1: money received off-app, admin-confirmed with a method override)
   paymentMethod: text("payment_method").notNull().default('ziina'),
   ziinaPaymentIntentId: text("ziina_payment_intent_id"),
   amountAed: integer("amount_aed").notNull(),
@@ -461,6 +462,8 @@ export const bookings = pgTable("bookings", {
   // Cancellation audit. Currently only written by the admin event-cancel
   // path ('event_cancelled_by_admin'); 40 / 743 rows populated on prod DB.
   cancellationReason: text("cancellation_reason"),
+  // Gate BT1 — free-text note an admin attaches when confirming an off-app payment (one-shot migration bookings_admin_note_v1).
+  adminNote: text("admin_note"),
   attendedAt: timestamp("attended_at"),
   reminderSentAt: timestamp("reminder_sent_at"),
   promotedAt: timestamp("promoted_at"),

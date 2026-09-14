@@ -128,4 +128,10 @@ describe('admin UI hold control (tripwires)', () => {
     expect(admin.includes("'Keep hold' : 'Keep booking'")).toBe(true);
     expect(admin.includes('No charge was made')).toBe(true);
   });
+
+  it('Gate BT1: Confirm Payment renders for holds too (pending AND pending_payment), next to Release Hold', () => {
+    const btn = admin.slice(admin.lastIndexOf("{booking.paymentMethod !== 'cash' &&", admin.indexOf('button-admin-confirm-')), admin.indexOf('button-admin-confirm-'));
+    expect(btn.includes("(booking.status === 'pending' || booking.status === 'pending_payment')")).toBe(true);
+    expect(btn.includes("booking.status === 'pending' &&")).toBe(false);
+  });
 });

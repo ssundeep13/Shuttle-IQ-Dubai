@@ -243,7 +243,7 @@ export async function sendBookingConfirmationEmail(
   paymentMethod: string,
   amountAed: number,
 ): Promise<void> {
-  const paymentLabel = paymentMethod === 'cash' ? 'Cash (pay at venue)' : 'Card (paid online)';
+  const paymentLabel = paymentMethod === 'cash' ? 'Cash (pay at venue)' : paymentMethod === 'bank_transfer' ? 'Bank transfer' : 'Card (paid online)';
   const body = `
     <h1 style="margin:0 0 4px;font-size:22px;font-weight:600;color:#0a2540;">Booking confirmed!</h1>
     <p style="margin:0 0 24px;font-size:15px;color:#4a5568;line-height:1.6;">Hi ${name}, your spot is locked in. Here are your booking details:</p>
