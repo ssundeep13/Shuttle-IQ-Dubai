@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 8 — MERGED and DEPLOYED to production with the flag OFF (`941addf`, Railway `ada5478c…`, health 200); staging verification COMPLETE including the Ziina test-card payment (hard stop 2 step 0 done by Sandeep 2026-09-14) · **Tests:** 1447/1447 · tsc 28 · **Hard stop pending: YES — HARD STOP 2 steps 1–2** · **Next action for Sandeep:** reply "flag on" (or set `IQ_PASS_ENABLED=true` on the production shuttleiq-app service yourself), then buy the AED 188 Club pass on your own account and reply "paid"
+**Current gate:** 9 — IQ Pass terms page built (Sandeep's pre-flag-on request), merged tree deploying to production with the flag still OFF; then flag-on · **Tests:** 1452/1452 · tsc 28 · **Hard stop pending: YES — HARD STOP 2 steps 1–2** (flag-on runs on your "flag on"; you make the AED 188 purchase) · **Next action for Sandeep:** none until I report the flag is live
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -100,6 +100,15 @@ Cost: one extra web service + one Postgres while it exists (usage-based, small);
 - Code: `server/iqPass/renewal.ts` (`runIqPassRenewalJob`: renewal in [last − 7 d, last − 1 d] so a missed day still sends; follow-up once last + 7 d with no newer pass; active packs whose last game is past → `completed`; idempotent via the two timestamps; one pack's failure never stops the sweep and leaves its stamp unset for the next run; every run = one `job_runs` row `running → ok | error` with counts), `server/iqPassEmail.ts` (`buildIqPassRenewalEmail` "Your IQ Pass wraps up on Wed 30 Sep — lock your next month", `buildIqPassFollowupEmail` "Ready for another month on court?", keys `iq-pass-renewal/<id>` / `iq-pass-followup/<id>`, no money in the copy), `emailClient.ts` senders, `store.ts` (candidates, `hasNewerPack`, stamps, `markCompleted`, `startJobRun` / `finishJobRun`, `listPacksAdmin`, `markJerseyHandedOver`), `routes.ts` (`GET /api/admin/iq-pass/packs`, `POST /api/admin/iq-pass/packs/:id/jersey-handed-over`, `requireAdmin`, 404 while off; HTTP-tested 404/401/403/200), `scheduler.ts` (`scheduleDailyAtUtcHour(5, runIqPassRenewalJob)` inside the flag block), `client/src/pages/IqPassAdmin.tsx` at `/admin/iq-pass` (ProtectedRoute).
 - Commit `3889b7a` on `feature/iq-pass`.
 - Draft copy note: the renewal / follow-up wording is mine (the brief fixed only the timing); tweak the strings in `server/iqPassEmail.ts` if you want a different voice — the tests pin the subject lines.
+
+### Gate 9 — IQ Pass terms page `/iq-pass/terms` — DONE (2026-09-14, on `railway-migration`, before flag-on)
+
+- **Ask (Sandeep):** a terms page at `/iq-pass/terms`, brand tokens, Inter, mobile-first, no emoji, flag-gated like the rest, linked from the purchase review screen as "IQ Pass terms" next to the pay button; content verbatim (11 clauses).
+- **Tests first (`tests/iq-pass-terms.test.tsx`, 5 tests, RED → GREEN):** the page renders the heading and the eleven clauses verbatim and in order as a numbered list with a back link to `/marketplace/iq-pass`; flag off shows the same "not available" notice as the purchase page and no clauses; source pins — IQ Pass tokens only, `IQP_FONT` (Inter), no hex literal, no emoji, no savings copy, `usePageTitle('IQ Pass Terms')`, `useIqPassEnabled()`; `client/src/App.tsx` routes `/iq-pass/terms` through the public `MarketplaceRoute` wrapper; the review screen (jsdom, Club, four picks → "Your month is locked") shows `link-iq-pass-terms` "IQ Pass terms" → `/iq-pass/terms` inside the same block as `button-pay`.
+- **Built:** `client/src/pages/marketplace/IqPassTerms.tsx` (clauses live in one exported array `IQ_PASS_TERMS`), route in `App.tsx`, link in `client/src/pages/marketplace/IqPass.tsx`.
+- **DECISION (placement):** "next to the pay button" at phone width — the Pay button already fills its row beside "Change picks", so the link sits directly under Pay inside the same block (teal, 13 px, centred) rather than squeezing a third item into the row.
+- **DECISION (route wrapper):** the path is the literal `/iq-pass/terms` (outside the `/marketplace` prefix) as asked; it uses the public `MarketplaceRoute` (nav + layout, no login wall) so the terms can be read before signing in, and the page itself gates on the flag: with `IQ_PASS_ENABLED` unset it shows "IQ Pass is not available right now." exactly like the purchase page.
+- **Verification:** full suite 1452/1452, tsc 28; production deploy evidence and the flag-off 404 sweep are recorded under "Merge and production deploy".
 
 ## Gate 8 checklist — runs the moment staging is reachable
 

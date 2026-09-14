@@ -312,9 +312,12 @@ export default function IqPass() {
               <p style={{ ...sub, marginTop: 12 }}>Games you do not play expire with the pass. You can move a game until five hours before it starts.</p>
             </div>
             {error && <p data-testid="text-purchase-error" style={{ ...sub, color: IQP.navy, margin: 0 }}>{error}</p>}
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
               <button type="button" style={ghostBtn} onClick={() => setStep('picks')} disabled={busy}>Change picks</button>
-              <button type="button" style={primaryBtn(busy)} disabled={busy} onClick={pay} data-testid="button-pay">{busy ? 'Starting payment…' : `Pay AED ${tiers[tier].priceAed}`}</button>
+              <div style={{ flex: 1, display: 'grid', gap: 6 }}>
+                <button type="button" style={primaryBtn(busy)} disabled={busy} onClick={pay} data-testid="button-pay">{busy ? 'Starting payment…' : `Pay AED ${tiers[tier].priceAed}`}</button>
+                <Link href="/iq-pass/terms" data-testid="link-iq-pass-terms" style={{ fontFamily: IQP_FONT, fontSize: 13, fontWeight: 600, color: IQP.teal, textAlign: 'center' }}>IQ Pass terms</Link>
+              </div>
             </div>
           </div>
         )}
