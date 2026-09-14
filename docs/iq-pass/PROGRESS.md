@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 7 — renewal job, job_runs ledger, admin jersey handover; Gates 2, 4, 5, 6 staging verification still pending · **Tests:** 1430/1430 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown
+**Current gate:** 8 — ALL code gates 0–7 built and unit-verified on `feature/iq-pass`; staging verification of Gates 2, 4, 5, 6, 7 waits on the environment, then hard stop 2 (real-money test + flag-on) · **Tests:** 1444/1444 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown (see "Gate 8 checklist" for what follows)
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -93,6 +93,21 @@ Cost: one extra web service + one Postgres while it exists (usage-based, small);
 - Code: `client/src/pages/marketplace/IqPass.tsx` (tiers → picks → "Your month is locked" → one purchase POST → Ziina; pass management with Move / free re-pick / "Buy your next pass"; flag off renders a plain "not available" notice and requests nothing), `client/src/components/marketplace/IqPassMoveDialog.tsx` (shared calendar picker + move POST, copy per server error code), `MyBookings.tsx` (own "IQ Pass" section, no cancel / pay-now / amount on pack seats, tier label, Move when the server says the seat can move, holds shown as "awaiting payment"), `CheckoutSuccess.tsx` (`pack_id` → pack confirm route, refreshes the pass; heading "Your IQ Pass is active"), `CheckoutCancel.tsx` (never cancels a seat on a pack return; explains the 30-minute hold), `MarketplaceNav.tsx` (dropdown entry under the flag), `MobileBottomNav.tsx` (Sessions tab carries `/marketplace/iq-pass`), `App.tsx` (auth route), `BookSessions.tsx` (one banner under the flag), `server/iqPass/purchase.ts` (calendar payload now carries the player-facing tier table: label, games, pass price — the UI never re-derives money; no allocation).
 - Commit `72003bc` on `feature/iq-pass`.
 - Copy rule held: jsdom asserts the rendered page never contains "per game", "save/saving" or a per-seat amount; the pass price is the only money shown.
+
+### Gate 7 — renewal job, job_runs ledger, admin jersey handover — CODE DONE (2026-09-14, feature branch; staging check pending)
+
+- RED: `tests/iq-pass-renewal.test.ts` failed at import → **48/48** on the first run after the splice (with the jobs, email and purchase files). Full suite **1444/1444**, tsc **28**.
+- Code: `server/iqPass/renewal.ts` (`runIqPassRenewalJob`: renewal in [last − 7 d, last − 1 d] so a missed day still sends; follow-up once last + 7 d with no newer pass; active packs whose last game is past → `completed`; idempotent via the two timestamps; one pack's failure never stops the sweep and leaves its stamp unset for the next run; every run = one `job_runs` row `running → ok | error` with counts), `server/iqPassEmail.ts` (`buildIqPassRenewalEmail` "Your IQ Pass wraps up on Wed 30 Sep — lock your next month", `buildIqPassFollowupEmail` "Ready for another month on court?", keys `iq-pass-renewal/<id>` / `iq-pass-followup/<id>`, no money in the copy), `emailClient.ts` senders, `store.ts` (candidates, `hasNewerPack`, stamps, `markCompleted`, `startJobRun` / `finishJobRun`, `listPacksAdmin`, `markJerseyHandedOver`), `routes.ts` (`GET /api/admin/iq-pass/packs`, `POST /api/admin/iq-pass/packs/:id/jersey-handed-over`, `requireAdmin`, 404 while off; HTTP-tested 404/401/403/200), `scheduler.ts` (`scheduleDailyAtUtcHour(5, runIqPassRenewalJob)` inside the flag block), `client/src/pages/IqPassAdmin.tsx` at `/admin/iq-pass` (ProtectedRoute).
+- Commit `3889b7a` on `feature/iq-pass`.
+- Draft copy note: the renewal / follow-up wording is mine (the brief fixed only the timing); tweak the strings in `server/iqPassEmail.ts` if you want a different voice — the tests pin the subject lines.
+
+## Gate 8 checklist — runs the moment staging is reachable
+
+1. Staging config (CLI, me): `NODE_ENV=staging`, `IQ_PASS_ENABLED=true`, `REPLIT_DOMAINS=<staging domain>`; confirm the staging `DATABASE_URL` host differs from production's `pos***.railway.internal:5432` / proxy `caboose.proxy.rlwy.net:25452` and print it masked here; seed the staging Postgres from a read-only production dump (Docker `postgres:18`).
+2. Gate 2 verify (`g2-staging-verify.mjs`: config → purchase → Ziina test card → poll → verify → expiry → teardown).
+3. Gates 4–7 verify (`g4-7-staging-verify.mjs`: me → move → cutoff → pills → cancel-session + repick → renewal run + `job_runs` → admin list + jersey), plus a phone-width screen pass of `/marketplace/iq-pass`, My Bookings, Who's Playing, Rankings, Profile in the in-app browser.
+4. Merge `feature/iq-pass` into `railway-migration` (fast-forward is impossible — the Gate 0 cherry-pick sits on both branches; a merge commit is expected), push, watch the deploy, `/api/health` 200, confirm every pack route still 404s and `/auth/me` carries no `iqPass` key (flag off).
+5. **HARD STOP 2:** you set `IQ_PASS_ENABLED=true` on production (or say "flag on" and I run `railway variables set`), then the AED 188 real-money purchase on your own account; I read back pack / seats / payment / email and the finance lines, and monitor for 48 h.
 
 ## Staging check (2026-09-14, after "staging created")
 
