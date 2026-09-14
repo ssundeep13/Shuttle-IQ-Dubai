@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 5 — tier tag on Profile, Who's Playing, Play, Rankings; Gate 2 + Gate 4 staging verification still pending · **Tests:** 1401/1401 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown
+**Current gate:** 6 — purchase UI and My Bookings; Gates 2, 4, 5 staging verification still pending · **Tests:** 1418/1418 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -79,6 +79,13 @@ Cost: one extra web service + one Postgres while it exists (usage-based, small);
 - **DECISION (seat with guests):** a pack seat that has an extra guest attached cannot be moved (409 `move_with_guests`); the guest is cancelled through the existing guest flow first. Moving the guest's money across sessions silently would corrupt the guest-slot refund maths.
 - **DECISION (session cancelled during a hold):** rather than the confirm transaction throwing forever on a pack whose held seats vanished, the money is recorded, a `refund_required` row is queued and the hold is cancelled (`seats_lost`) — the same outcome as a lapsed hold, so nothing is ever confirmed partially and no payment goes invisible.
 - Flag-off proof: the priority sort is behind `if (!isIqPassEnabled()) return rows;` (pinned); the session-cancel block only fires on rows with `pack_id`; the email variant only with `iqPassRepick`; the three routes 404 while off (HTTP test).
+
+### Gate 5 — tier tag on Profile, Who's Playing, Play, Rankings — CODE DONE (2026-09-14, feature branch; staging screen check pending)
+
+- RED: `tests/iq-pass-tag.test.tsx` failed at import → GREEN 64/64 with the rules and badge-surface files after the splice. Full suite 1417/1418 with one pin knock-on: `tests/badges.test.ts:135` slices 2,200 chars of the `/auth/me` route and the IQ Pass block pushed the badge keys past it — window widened to 3,200, assertions unchanged → **1418/1418**, tsc **28**.
+- Code: `shared/iqPassTiers.ts` (labels + order + `highestTier`, imported by the server rules and the client tag — one source), `client/src/components/marketplace/IqPassTag.tsx` (IQP tokens only, no emoji, no price, nothing for a missing tier), `client/src/hooks/useIqPass.ts` (`useIqPassEnabled` via `/api/marketplace/config`, 404 = off; `useIqPassTiers` overlay, requested only while on), `server/iqPass/store.ts` (`getActiveTierByPlayerIds`, `getActiveTiersPublic`, `getActiveTierForUser`), `routes.ts` (`GET /iq-pass/tiers`, public, 404 while off), `marketplace-routes.ts` (`/auth/me` `iqPass` summary, Who's Playing `iqPassTier`, current-suggestion `iqPassTier` — each emitted only under `isIqPassEnabled()`, key absent otherwise), the six surfaces (`Rankings` podium + list via the overlay map, `SessionDetails`, `Play`, `PlayingScreen` after the untouched `BadgeTag` line, `Profile` name row + IQ Pass card → `/marketplace/iq-pass`, `MyScores` SIQ row), `MarketplaceAuthContext` type.
+- Commit `6dee3d6` on `feature/iq-pass`. Ruling E5a honoured: `PUBLIC_PLAYER_KEYS` untouched (pinned).
+- Flag-off proof: config 404 → hook reports off → no overlay request (jsdom test); server payload keys are spread in only under the flag (pinned); the tag renders nothing without a tier.
 
 ## Staging check (2026-09-14, after "staging created")
 
