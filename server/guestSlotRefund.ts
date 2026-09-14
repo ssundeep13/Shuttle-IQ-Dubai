@@ -1,6 +1,7 @@
 import { storage } from "./storage";
 import { db } from "./db";
 import { players, type Booking } from "@shared/schema";
+import { confirmPromotedBookingIfPaid } from "./webhookHandler";
 import { eq, sql } from "drizzle-orm";
 import { applyWalletDelta } from "./walletLedger";
 import { sendWaitlistPromotionEmail } from "./emailClient";
@@ -270,38 +271,49 @@ export async function promoteFirstFittingWaitlisted(
     promotedAt,
   });
 
-  const dateLabel = new Date(bookableSession.date).toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
-  await storage.createMarketplaceNotification({
-    userId: first.userId,
-    type: "waitlist_promoted",
-    title: "Spot available — complete payment!",
-    // Explicit Asia/Dubai deadline — the server clock is UTC, so a locally
-    // formatted time would state an hour the player never sees.
-    message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
-    relatedBookingId: first.id,
-  });
+  // Gate 0: already paid (lost a capacity race earlier)? Confirm outright and
+  // skip the pay-by-deadline notification + email below.
+  if (await confirmPromotedBookingIfPaid(first)) {
+    await storage.createMarketplaceNotification({
+      userId: first.userId,
+      type: "waitlist_promoted",
+      title: 'Your spot is confirmed',
+      message: `A spot opened up for "${bookableSession.title}" — your earlier payment covers it. See you there.`,
+      relatedBookingId: first.id,
+    });
+  } else {
+    const dateLabel = new Date(bookableSession.date).toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+    await storage.createMarketplaceNotification({
+      userId: first.userId,
+      type: "waitlist_promoted",
+      title: "Spot available — complete payment!",
+      // Explicit Asia/Dubai deadline — the server clock is UTC, so a locally
+      // formatted time would state an hour the player never sees.
+      message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
+      relatedBookingId: first.id,
+    });
 
-  try {
-    const promotedUser = await storage.getMarketplaceUser(first.userId);
-    if (promotedUser) {
-      const baseUrl = process.env.REPLIT_DOMAINS
-        ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
-        : "http://localhost:5000";
-      sendWaitlistPromotionEmail(
-        promotedUser.email,
-        promotedUser.name,
-        bookableSession,
-        `${baseUrl}/marketplace/my-bookings`,
-      ).catch(() => {});
+    try {
+      const promotedUser = await storage.getMarketplaceUser(first.userId);
+      if (promotedUser) {
+        const baseUrl = process.env.REPLIT_DOMAINS
+          ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}`
+          : "http://localhost:5000";
+        sendWaitlistPromotionEmail(
+          promotedUser.email,
+          promotedUser.name,
+          bookableSession,
+          `${baseUrl}/marketplace/my-bookings`,
+        ).catch(() => {});
+      }
+    } catch (emailErr) {
+      console.error("[Email] waitlist promotion lookup failed:", emailErr);
     }
-  } catch (emailErr) {
-    console.error("[Email] waitlist promotion lookup failed:", emailErr);
   }
-
   // Re-number remaining waitlisted bookings (exclude the promoted one)
   const remaining = waitlisted.filter((w) => w.id !== first.id);
   for (let i = 0; i < remaining.length; i++) {

@@ -38,7 +38,8 @@ import { computeZiinaRefundFils, classifyRefundReentry } from "./refundMath";
 import { isSchemeAllowed, buildOAuthCallbackRedirect } from "./oauthReturn";
 import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
-import { confirmZiinaBookingByIntentId, confirmGuestByIntentId } from "./webhookHandler";
+import { confirmZiinaBookingByIntentId, confirmGuestByIntentId, confirmPromotedBookingIfPaid } from "./webhookHandler";
+import { hasCompletedPayment } from "./paidBookingGuard";
 import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
@@ -3485,6 +3486,10 @@ export function registerMarketplaceRoutes(app: Express) {
       if (Date.now() > paymentDeadline) {
         return res.status(410).json({ error: "Payment window has expired. Your spot has been released." });
       }
+      // Gate 0: never mint a second intent over a paid one — that orphans the money.
+      if (hasCompletedPayment(await storage.getPaymentsByBookingId(booking.id))) {
+        return res.status(409).json({ error: "already_paid", message: "This booking is already paid — no further payment is needed." });
+      }
 
       const bookableSession = await storage.getBookableSession(booking.sessionId);
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
@@ -4180,26 +4185,37 @@ export function registerMarketplaceRoutes(app: Express) {
 
             promoted = { bookingId: first.id, userId: first.userId };
 
-            // Create notification for promoted user
-            const dateLabel = new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-            await storage.createMarketplaceNotification({
-              userId: first.userId,
-              type: 'waitlist_promoted',
-              title: 'Spot available — complete payment!',
-              // Explicit Asia/Dubai deadline (server clock is UTC).
-              message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
-              relatedBookingId: first.id,
-            });
+            // Gate 0: already paid (lost a capacity race earlier)? Confirm outright and
+            // skip the pay-by-deadline notification + email below.
+            if (await confirmPromotedBookingIfPaid(first)) {
+              await storage.createMarketplaceNotification({
+                userId: first.userId,
+                type: 'waitlist_promoted',
+                title: 'Your spot is confirmed',
+                message: `A spot opened up for "${bookableSession.title}" — your earlier payment covers it. See you there.`,
+                relatedBookingId: first.id,
+              });
+            } else {
+              // Create notification for promoted user
+              const dateLabel = new Date(bookableSession.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+              await storage.createMarketplaceNotification({
+                userId: first.userId,
+                type: 'waitlist_promoted',
+                title: 'Spot available — complete payment!',
+                // Explicit Asia/Dubai deadline (server clock is UTC).
+                message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
+                relatedBookingId: first.id,
+              });
 
-            // Send waitlist promotion email + notify/email non-primary guest slots (fully isolated)
-            try {
-              const promotedUser = await storage.getMarketplaceUser(first.userId);
-              if (promotedUser) {
-                const checkoutUrl = `${promotionBaseUrl}/marketplace/my-bookings`;
-                sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession, checkoutUrl).catch(() => {});
-              }
-            } catch (emailErr) { console.error('[Email] waitlist promotion lookup failed:', emailErr); }
-
+              // Send waitlist promotion email + notify/email non-primary guest slots (fully isolated)
+              try {
+                const promotedUser = await storage.getMarketplaceUser(first.userId);
+                if (promotedUser) {
+                  const checkoutUrl = `${promotionBaseUrl}/marketplace/my-bookings`;
+                  sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession, checkoutUrl).catch(() => {});
+                }
+              } catch (emailErr) { console.error('[Email] waitlist promotion lookup failed:', emailErr); }
+            }
             // Re-number remaining waitlisted bookings (exclude the promoted one)
             const remaining = waitlisted.filter(w => w.id !== first.id);
             for (let i = 0; i < remaining.length; i++) {

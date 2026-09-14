@@ -1,7 +1,7 @@
 import { storage } from "./storage";
 import { sendSessionReminderEmail, sendWaitlistPromotionEmail, sendBirthdayReminderEmail } from "./emailClient";
 import { retrieveZiinaPaymentIntent, isZiinaPaymentSuccessful } from "./ziinaClient";
-import { confirmZiinaBookingByIntentId } from "./webhookHandler";
+import { confirmZiinaBookingByIntentId, confirmPromotedBookingIfPaid } from "./webhookHandler";
 import { daysUntilBirthday, birthdayWindowRange } from "@shared/birthday";
 import { formatDubaiDeadline, paymentDeadline } from "@shared/dubaiTime";
 import { maybeCreateRefundNotification } from "./refundNotifications";
@@ -282,25 +282,36 @@ async function runExpiredPaymentJob(): Promise<void> {
             promotedAt,
           });
 
-          await storage.createMarketplaceNotification({
-            userId: next.userId,
-            type: 'waitlist_promoted',
-            title: 'Spot available — complete payment!',
-            // Explicit Asia/Dubai deadline (server clock is UTC).
-            message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
-            relatedBookingId: next.id,
-          });
+          // Gate 0: already paid (lost a capacity race earlier)? Confirm outright and
+          // skip the pay-by-deadline notification + email below.
+          if (await confirmPromotedBookingIfPaid(next)) {
+            await storage.createMarketplaceNotification({
+              userId: next.userId,
+              type: 'waitlist_promoted',
+              title: 'Your spot is confirmed',
+              message: `A spot opened up for "${bookableSession.title}" — your earlier payment covers it. See you there.`,
+              relatedBookingId: next.id,
+            });
+          } else {
+            await storage.createMarketplaceNotification({
+              userId: next.userId,
+              type: 'waitlist_promoted',
+              title: 'Spot available — complete payment!',
+              // Explicit Asia/Dubai deadline (server clock is UTC).
+              message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
+              relatedBookingId: next.id,
+            });
 
-          try {
-            const nextUser = await storage.getMarketplaceUser(next.userId);
-            if (nextUser) {
-              const checkoutUrl = `${baseUrl}/marketplace/my-bookings`;
-              sendWaitlistPromotionEmail(nextUser.email, nextUser.name, bookableSession, checkoutUrl).catch(() => {});
+            try {
+              const nextUser = await storage.getMarketplaceUser(next.userId);
+              if (nextUser) {
+                const checkoutUrl = `${baseUrl}/marketplace/my-bookings`;
+                sendWaitlistPromotionEmail(nextUser.email, nextUser.name, bookableSession, checkoutUrl).catch(() => {});
+              }
+            } catch (emailErr) {
+              console.error('[Scheduler] Failed to send promotion email:', emailErr);
             }
-          } catch (emailErr) {
-            console.error('[Scheduler] Failed to send promotion email:', emailErr);
           }
-
           // Re-number remaining waitlisted bookings
           const remaining = (await storage.getWaitlistedBookingsForSession(booking.sessionId))
             .filter(w => w.id !== next.id);

@@ -7,6 +7,8 @@ import { fireReferralOnPayment } from "./referrals";
 import { syncFoundingMemberForUser } from "./venueAwards";
 import { applyDubailandPromo } from "./dubailandPromo";
 import { fireGoodwillCredit } from "./goodwillCredit";
+import { hasCompletedPayment } from "./paidBookingGuard";
+import type { Booking } from "@shared/schema";
 import {
   sendBookingConfirmationEmail,
   sendGuestBookingEmail,
@@ -151,7 +153,7 @@ export async function confirmGuestByIntentId(
 export async function confirmZiinaBookingByIntentId(
   intentId: string,
   intentStatus: string
-): Promise<{ confirmed: boolean; waitlisted?: boolean; alreadyConfirmed?: boolean; error?: string }> {
+): Promise<{ confirmed: boolean; waitlisted?: boolean; alreadyConfirmed?: boolean; paid?: boolean; error?: string }> {
   if (!isZiinaPaymentSuccessful(intentStatus)) {
     return { confirmed: false };
   }
@@ -181,12 +183,28 @@ export async function confirmZiinaBookingByIntentId(
     const sessionForCapacity = await storage.getBookableSessionWithAvailability(booking.sessionId);
     const neededSpots = booking.spotsBooked ?? 1;
     if (sessionForCapacity && sessionForCapacity.spotsRemaining < neededSpots) {
+      // Gate 0: the money is already captured at Ziina. Record it NOW so the
+      // paid fact survives the waitlist round-trip — every promotion site
+      // checks for it (confirmPromotedBookingIfPaid) and confirms without
+      // asking the player to pay twice.
+      const existing = await storage.getPaymentsByBookingId(booking.id);
+      if (!existing.some((p) => p.ziinaPaymentIntentId === intentId)) {
+        await storage.createPayment({
+          bookingId: booking.id,
+          ziinaPaymentIntentId: intentId,
+          amount: booking.amountAed,
+          currency: "aed",
+          status: "completed",
+          completedAt: new Date(),
+        });
+      }
+      console.warn(`[Ziina Webhook] PAID booking ${booking.id} lost the capacity race — re-waitlisted with payment recorded (intent ${intentId})`);
       const waitlistCount = await storage.getWaitlistCountForSession(booking.sessionId);
       await storage.updateBooking(booking.id, {
         status: "waitlisted",
         waitlistPosition: waitlistCount + 1,
       });
-      return { confirmed: false, waitlisted: true };
+      return { confirmed: false, waitlisted: true, paid: true };
     }
   }
 
@@ -277,6 +295,24 @@ export async function confirmZiinaBookingByIntentId(
   fireGoodwillCredit(booking.id, 'ziina-confirm');
 
   return { confirmed: true };
+}
+
+/**
+ * Gate 0 promotion helper: if the booking already carries a completed,
+ * un-refunded payment — it paid, lost a capacity race and was re-waitlisted —
+ * confirm it through the normal pipeline (guest slots, emails, referral,
+ * founding, goodwill) and return true. The caller must then skip its
+ * "complete payment" notification + email. The booking is already
+ * pending_payment (spot reserved), so the capacity re-check is skipped.
+ */
+export async function confirmPromotedBookingIfPaid(booking: Booking): Promise<boolean> {
+  const payments = await storage.getPaymentsByBookingId(booking.id);
+  if (!hasCompletedPayment(payments)) return false;
+  const paid = payments.find((p) => p.status === "completed" && p.refundStatus !== "completed");
+  const intentId = paid?.ziinaPaymentIntentId ?? booking.ziinaPaymentIntentId;
+  if (!intentId) return false;
+  const r = await confirmZiinaBookingByIntentId(intentId, "completed");
+  return r.confirmed === true;
 }
 
 // Register the Ziina webhook endpoint on the Express app.
