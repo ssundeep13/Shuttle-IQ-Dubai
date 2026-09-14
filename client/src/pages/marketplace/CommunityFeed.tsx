@@ -618,9 +618,12 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
 
   return (
     <section data-testid="section-community-feed">
-      <div className="flex items-center justify-between gap-3 flex-wrap" style={{ marginBottom: 14 }}>
+      {/* The chip row scrolls inside itself on a narrow screen (Sandeep, 2026-09-14: the five chips were 381 px wide, so the
+          Dashboard scrolled 22 px sideways at 375). minWidth 0 on both boxes lets the row shrink instead of pushing the page. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap" style={{ marginBottom: 14, minWidth: 0 }}>
         <h3 style={{ margin: 0, fontFamily: FF_BODY, fontWeight: 800, fontSize: 20, color: MKT.navy, letterSpacing: '-0.02em' }}>Community</h3>
-        <div className="flex items-center gap-1.5" role="tablist" aria-label="Feed filter">
+        <div className="flex items-center gap-1.5" role="tablist" aria-label="Feed filter"
+          style={{ overflowX: 'auto', flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', paddingBottom: 2 }}>
           {FILTERS.map(f => {
             const active = filter === f.value;
             return (
@@ -632,7 +635,7 @@ export default function CommunityFeed({ pinned, variant = 'full' }: { pinned?: R
                 data-testid={`feed-filter-${f.value}`}
                 className="siq-press"
                 style={{
-                  fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, padding: '11px 16px', borderRadius: 999,
+                  fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, padding: '11px 16px', borderRadius: 999, flexShrink: 0, whiteSpace: 'nowrap',
                   border: `1px solid ${active ? MKT.navy : CARD_BORDER}`, cursor: 'pointer',
                   background: active ? MKT.navy : '#fff', color: active ? '#fff' : MKT.navy,
                 }}

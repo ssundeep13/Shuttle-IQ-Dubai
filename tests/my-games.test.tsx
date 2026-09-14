@@ -152,15 +152,35 @@ describe('My games', () => {
     expect(screen.getByTestId('row-game-b-pass-2')).toBeTruthy(); // next week's game is in the second group
   });
 
-  it('past games sit under a collapsed "Played" section, one line each with the outcome', async () => {
+  it('"Played (n)" counts only attended or completed games; cancelled and unpaid past rows sit under a separate collapsed "Not played" section', async () => {
+    // Sandeep (2026-09-14): after a swept hold a player with no games read "Played (4)" — cancelled seats were counted.
+    const done = booking('b-done', { venueArea: 'Green Community', session: session('s-done', pastDay2, BRIGHT, '18:00'), sessionId: 's-done' }); // confirmed, session over → completed
+    const unpaid = booking('b-unpaid', { status: 'pending_payment', venueArea: 'Dubailand', session: session('s-unpaid', pastDay, SMASH, '18:00'), sessionId: 's-unpaid' });
+    handlers['/api/marketplace/bookings/mine'] = () => [...bookings, done, unpaid];
     mount();
     await screen.findByTestId('card-next-game');
     const played = screen.getByTestId('section-played') as HTMLDetailsElement;
     expect(played.tagName).toBe('DETAILS'); expect(played.open).toBe(false);
     expect(within(played).getByTestId('summary-played').textContent).toMatch(/^Played \(2\)$/);
     expect(within(played).getByTestId('row-past-b-pass-past').textContent).toMatch(/Attended/);
-    expect(within(played).getByTestId('row-past-b-cancelled').textContent).toMatch(/Cancelled/);
+    expect(within(played).getByTestId('row-past-b-done').textContent).toMatch(/Booked/);
+    expect(within(played).queryByTestId('row-past-b-cancelled')).toBeNull();
+    expect(within(played).queryByTestId('row-past-b-unpaid')).toBeNull();
+    const notPlayed = screen.getByTestId('section-not-played') as HTMLDetailsElement;
+    expect(notPlayed.tagName).toBe('DETAILS'); expect(notPlayed.open).toBe(false);
+    expect(within(notPlayed).getByTestId('summary-not-played').textContent).toMatch(/^Not played \(2\)$/);
+    expect(within(notPlayed).getByTestId('row-past-b-cancelled').textContent).toMatch(/Cancelled/);
+    expect(within(notPlayed).getByTestId('row-past-b-unpaid').textContent).toMatch(/Unpaid/);
+    expect(played.compareDocumentPosition(notPlayed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByTestId('row-game-b-pass-past')).toBeNull();
+  });
+
+  it('only cancelled rows in the past → no "Played" section at all, just "Not played"', async () => {
+    handlers['/api/marketplace/bookings/mine'] = () => bookings.filter((b) => b.id === 'b-cancelled' || b.id === 'b-pass-1');
+    mount();
+    await screen.findByTestId('card-next-game');
+    expect(screen.queryByTestId('section-played')).toBeNull();
+    expect(screen.getByTestId('summary-not-played').textContent).toBe('Not played (1)');
   });
 
   it('nothing ahead → "Nothing booked." with one "Get your IQ Pass" button to the pass page; no hero, no strip tiles; the strip stays horizontal and full width', async () => {

@@ -238,6 +238,20 @@ describe('feed type filter — chips + URL persistence', () => {
     renderIn(<CommunityFeed variant="full" />);
     expect(screen.getByTestId('feed-filter-all').getAttribute('aria-selected')).toBe('true');
   });
+  it('the chip row scrolls inside itself on a narrow screen instead of widening the page (Dashboard scrolled 22 px sideways at 375)', () => {
+    window.history.replaceState({}, '', '/marketplace/feed');
+    renderIn(<CommunityFeed variant="dashboard" />);
+    const row = screen.getByRole('tablist') as HTMLElement;
+    expect(row.style.overflowX).toBe('auto');
+    expect(row.style.flexWrap).toBe('nowrap');
+    expect(['0', '0px']).toContain(row.style.minWidth);
+    expect(row.style.maxWidth).toBe('100%');
+    // the chips never wrap or shrink into two lines; the row is the thing that scrolls
+    for (const btn of within(row).getAllByRole('tab')) { expect((btn as HTMLElement).style.flexShrink).toBe('0'); expect((btn as HTMLElement).style.whiteSpace).toBe('nowrap'); }
+    // the header row that holds the title and the chips lets the chips shrink instead of pushing the section wider
+    const header = row.parentElement as HTMLElement;
+    expect(['0', '0px']).toContain(header.style.minWidth);
+  });
 });
 
 // ── 4. search exclusion ─────────────────────────────────────────────────────

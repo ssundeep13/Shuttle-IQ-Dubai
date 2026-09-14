@@ -41,7 +41,7 @@ export function pastResult(b: { status: string; attendedAt?: unknown }): string 
   if (b.status === 'cancelled') return 'Cancelled';
   if (b.status === 'attended' || b.attendedAt) return 'Attended';
   if (b.status === 'waitlisted') return 'Waitlisted';
-  if (b.status === 'pending_payment') return 'Unpaid';
+  if (b.status === 'pending_payment' || b.status === 'pending') return 'Unpaid';
   return 'Booked';
 }
 
@@ -205,13 +205,37 @@ export function PastLine({ booking }: { booking: BookingWithDetails }) {
   );
 }
 
+/** A past booking counts as played when it was attended, or confirmed and the session is over. */
+export function isPlayed(b: { status: string; attendedAt?: unknown }): boolean {
+  const r = pastResult(b);
+  return r === 'Attended' || r === 'Booked';
+}
+
+const summaryStyle: React.CSSProperties = { cursor: 'pointer', fontSize: 14, fontWeight: 700, color: IQP.navy, padding: '8px 0', listStyle: 'none' };
+
+/**
+ * "Played (n)" counts only attended or completed games (Sandeep, 2026-09-14 — cancelled seats used to be counted);
+ * cancelled, unpaid and waitlisted past rows keep their trace under a separate collapsed "Not played" section.
+ */
 export function PlayedSection({ bookings }: { bookings: BookingWithDetails[] }) {
   const sorted = [...bookings].sort((a, b) => startOf(b) - startOf(a));
+  const played = sorted.filter((b) => isPlayed(b as { status: string; attendedAt?: unknown }));
+  const notPlayed = sorted.filter((b) => !isPlayed(b as { status: string; attendedAt?: unknown }));
   return (
-    <details data-testid="section-played" style={{ fontFamily: IQP_FONT }}>
-      <summary data-testid="summary-played" style={{ cursor: 'pointer', fontSize: 14, fontWeight: 700, color: IQP.navy, padding: '8px 0', listStyle: 'none' }}>Played ({sorted.length})</summary>
-      <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>{sorted.map((b) => <PastLine key={b.id} booking={b} />)}</div>
-    </details>
+    <>
+      {played.length > 0 && (
+        <details data-testid="section-played" style={{ fontFamily: IQP_FONT }}>
+          <summary data-testid="summary-played" style={summaryStyle}>Played ({played.length})</summary>
+          <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>{played.map((b) => <PastLine key={b.id} booking={b} />)}</div>
+        </details>
+      )}
+      {notPlayed.length > 0 && (
+        <details data-testid="section-not-played" style={{ fontFamily: IQP_FONT }}>
+          <summary data-testid="summary-not-played" style={summaryStyle}>Not played ({notPlayed.length})</summary>
+          <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>{notPlayed.map((b) => <PastLine key={b.id} booking={b} />)}</div>
+        </details>
+      )}
+    </>
   );
 }
 
