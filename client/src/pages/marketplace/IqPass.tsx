@@ -309,7 +309,8 @@ export default function IqPass() {
               <button type="button" style={ghostBtn} onClick={() => setStep('picks')} disabled={busy}>Change picks</button>
             </div>
             {/* Pay pinned to the bottom; above the fixed bottom nav on phones */}
-            <div data-testid="bar-pay" style={{ position: 'fixed', left: 0, right: 0, bottom: width <= BOTTOM_NAV_MAX ? 64 : 0, marginBottom: width <= BOTTOM_NAV_MAX ? 'env(safe-area-inset-bottom)' : 0, zIndex: 30, padding: '10px 16px', background: IQP.white, borderTop: `1px solid ${IQP.line}` }}>
+            {/* z-45: above the InstallAppBar (fixed to the same bottom edge at z-40), below the sticky header (z-50). */}
+            <div data-testid="bar-pay" style={{ position: 'fixed', left: 0, right: 0, bottom: width <= BOTTOM_NAV_MAX ? 64 : 0, marginBottom: width <= BOTTOM_NAV_MAX ? 'env(safe-area-inset-bottom)' : 0, zIndex: 45, padding: '10px 16px', background: IQP.white, borderTop: `1px solid ${IQP.line}` }}>
               <div style={{ maxWidth: 608, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Link href="/iq-pass/terms" data-testid="link-iq-pass-terms" style={{ fontFamily: IQP_FONT, fontSize: 13, fontWeight: 600, color: IQP.teal, flex: 1 }}>IQ Pass terms</Link>
                 <button type="button" style={{ ...primaryBtn(busy), width: 'auto', minWidth: 160 }} disabled={busy} onClick={pay} data-testid="button-pay">{busy ? 'Starting payment…' : `Pay AED ${tiers[tier].priceAed}`}</button>

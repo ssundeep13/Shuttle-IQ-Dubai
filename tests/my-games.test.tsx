@@ -163,24 +163,54 @@ describe('My games', () => {
     expect(screen.queryByTestId('row-game-b-pass-past')).toBeNull();
   });
 
-  it('nothing ahead → "Nothing booked." with an IQ Pass link (and Browse Sessions); no hero, no strip tiles', async () => {
+  it('nothing ahead → "Nothing booked." with one "Get your IQ Pass" button to the pass page; no hero, no strip tiles; the strip stays horizontal and full width', async () => {
     handlers['/api/marketplace/bookings/mine'] = () => bookings.filter((b) => b.id === 'b-pass-past' || b.id === 'b-cancelled');
     handlers['/api/marketplace/iq-pass/me'] = () => ({ packs: [] });
+    setWidth(1280);
     mount();
-    expect((await screen.findByTestId('text-nothing-booked')).textContent).toBe('Nothing booked.');
-    expect(screen.getByTestId('link-empty-iq-pass').getAttribute('href')).toBe('/marketplace/iq-pass');
-    expect(screen.getByTestId('button-browse-sessions')).toBeTruthy();
+    const empty = await screen.findByTestId('empty-upcoming');
+    expect(within(empty).getByTestId('text-nothing-booked').textContent).toBe('Nothing booked.');
+    const btn = within(empty).getByTestId('button-get-iq-pass') as HTMLAnchorElement;
+    expect(btn.textContent).toBe('Get your IQ Pass'); expect(btn.getAttribute('href')).toBe('/marketplace/iq-pass');
+    expect(within(empty).queryByTestId('button-browse-sessions')).toBeNull();
+    expect(within(empty).queryByTestId('link-empty-iq-pass')).toBeNull();
     expect(screen.queryByTestId('card-next-game')).toBeNull();
     expect(screen.queryAllByTestId(/^tile-/).length).toBe(0);
     expect(screen.getByTestId('section-played')).toBeTruthy();
+    // Bug (2026-09-14): at 1280 the empty card sat in a narrow left column with the strip as a vertical list and
+    // "Played" floating alone on the right. Now: one column — card, then the horizontal strip, then Played.
+    const layout = screen.getByTestId('my-games-layout') as HTMLElement;
+    expect(layout.style.gridTemplateColumns === '' || layout.style.gridTemplateColumns === '1fr').toBe(true);
+    const strip = screen.getByTestId('strip-days');
+    expect(strip.getAttribute('data-orientation')).toBe('horizontal');
+    expect(empty.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(strip.compareDocumentPosition(screen.getByTestId('section-played')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('desktop: the strip and the agenda sit side by side; phone: one column', async () => {
+  it('desktop (1280): one column — the hero spans the content width, the horizontal scrolling strip sits beneath it, then the agenda, then Played', async () => {
     setWidth(1280);
     mount();
-    await screen.findByTestId('card-next-game');
-    expect((screen.getByTestId('my-games-layout') as HTMLElement).style.gridTemplateColumns).toMatch(/\S+\s+\S+/);
-    expect(screen.getByTestId('strip-days').getAttribute('data-orientation')).toBe('vertical');
+    const hero = await screen.findByTestId('card-next-game');
+    const layout = screen.getByTestId('my-games-layout') as HTMLElement;
+    expect(layout.style.gridTemplateColumns === '' || layout.style.gridTemplateColumns === '1fr').toBe(true);
+    const strip = screen.getByTestId('strip-days') as HTMLElement;
+    expect(strip.getAttribute('data-orientation')).toBe('horizontal');
+    expect(strip.style.overflowX).toBe('auto');
+    expect(strip.style.flexDirection === '' || strip.style.flexDirection === 'row').toBe(true);
+    const agenda = screen.getAllByTestId(/^agenda-week-/)[0];
+    const played = screen.getByTestId('section-played');
+    const follows = (a: Element, b: Element) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(hero, strip)).toBe(true); expect(follows(strip, agenda)).toBe(true); expect(follows(agenda, played)).toBe(true);
+  });
+
+  it('flag off: the empty state falls back to a "Browse Sessions" button (no IQ Pass button)', async () => {
+    flagMock.enabled = false;
+    handlers['/api/marketplace/bookings/mine'] = () => bookings.filter((b) => b.id === 'b-pass-past' || b.id === 'b-cancelled');
+    handlers['/api/marketplace/iq-pass/me'] = () => ({ packs: [] });
+    mount();
+    const empty = await screen.findByTestId('empty-upcoming');
+    expect(within(empty).queryByTestId('button-get-iq-pass')).toBeNull();
+    expect(within(empty).getByTestId('button-browse-sessions').getAttribute('href')).toBe('/marketplace/book');
   });
 });
 

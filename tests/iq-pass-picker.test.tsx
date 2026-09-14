@@ -206,6 +206,27 @@ describe('IqPass page — picks + review', () => {
     expect(document.body.textContent).not.toMatch(/per game|saving|save/i);
   });
 
+  it('desktop (1280): the Pay button is in the DOM, the Pay bar is fixed to the bottom edge, not hidden, and stacks above the install bar', async () => {
+    // Bug (2026-09-14): InstallAppBar is fixed to the same bottom edge at z-40 on every marketplace page whenever
+    // Chrome offers the PWA install; the Pay bar sat at z-30 behind it, so the review screen showed no Pay button.
+    setWidth(1280);
+    mount(<IqPass />);
+    fireEvent.click(await screen.findByTestId('card-tier-club'));
+    await screen.findByTestId('bar-slots');
+    for (const id of ['s0', 's1', 's2', 's3']) fireEvent.click(screen.getByTestId(`card-session-${id}`));
+    fireEvent.click(within(screen.getByTestId('bar-slots')).getByTestId('button-continue'));
+    await screen.findByTestId('text-review-title');
+    const bar = screen.getByTestId('bar-pay') as HTMLElement;
+    const pay = screen.getByTestId('button-pay') as HTMLButtonElement;
+    expect(pay.isConnected).toBe(true); expect(pay.disabled).toBe(false);
+    expect(bar.style.position).toBe('fixed'); expect(bar.style.bottom).toBe('0px');
+    expect(bar.style.display).not.toBe('none'); expect(bar.style.visibility).not.toBe('hidden'); expect(bar.style.opacity).not.toBe('0');
+    const installZ = Number(read('client/src/components/InstallAppBar.tsx').match(/\bz-(\d+)\b/)![1]);
+    expect(installZ).toBe(40);
+    expect(Number(bar.style.zIndex)).toBeGreaterThan(installZ);
+    expect(Number(bar.style.zIndex)).toBeLessThan(50); // still under the sticky header (z-50)
+  });
+
   it('Club Elite: with all 12 slots filled the Review button waits for the jersey size', async () => {
     mount(<IqPass />);
     fireEvent.click(await screen.findByTestId('card-tier-club_elite'));

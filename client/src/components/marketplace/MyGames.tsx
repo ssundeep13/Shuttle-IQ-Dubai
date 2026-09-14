@@ -117,21 +117,22 @@ export function buildStripDays(upcoming: BookingWithDetails[], today: string): S
   return Array.from({ length: 42 }, (_, i) => { const ymd = addDays(first, i); return { ymd, tiles: (byDay.get(ymd) ?? []).sort((a, b) => a.startTime.localeCompare(b.startTime)) }; });
 }
 
-export function MonthStrip({ days, today, vertical, onPick }: { days: StripDay[]; today: string; vertical: boolean; onPick: (bookingId: string) => void }) {
+// Always a horizontal, scrolling row (today centred) at every width — the desktop column mode was dropped 2026-09-14.
+export function MonthStrip({ days, today, onPick }: { days: StripDay[]; today: string; onPick: (bookingId: string) => void }) {
   const todayRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { todayRef.current?.scrollIntoView?.({ inline: 'center', block: 'nearest' }); }, [vertical]);
+  useEffect(() => { todayRef.current?.scrollIntoView?.({ inline: 'center', block: 'nearest' }); }, []);
   return (
-    <div data-testid="strip-days" data-orientation={vertical ? 'vertical' : 'horizontal'} aria-label="Your month"
-      style={{ display: 'flex', flexDirection: vertical ? 'column' : 'row', gap: vertical ? 2 : 6, overflowX: vertical ? 'visible' : 'auto', scrollSnapType: vertical ? undefined : 'x proximity', padding: vertical ? 0 : '4px 0 8px', fontFamily: IQP_FONT }}>
+    <div data-testid="strip-days" data-orientation="horizontal" aria-label="Your month"
+      style={{ display: 'flex', flexDirection: 'row', gap: 6, overflowX: 'auto', scrollSnapType: 'x proximity', padding: '4px 0 8px', fontFamily: IQP_FONT }}>
       {days.map((d) => {
         const isToday = d.ymd === today;
         return (
           <div key={d.ymd} ref={isToday ? todayRef : undefined} data-testid={`day-${d.ymd}`} data-today={isToday ? 'true' : 'false'}
-            style={{ flex: '0 0 auto', minWidth: vertical ? undefined : 44, display: 'flex', flexDirection: vertical ? 'row' : 'column', alignItems: 'center', gap: vertical ? 10 : 2,
-              padding: vertical ? '5px 0' : '2px 2px 4px', borderBottomWidth: 2, borderBottomStyle: 'solid', borderBottomColor: isToday ? IQP.teal : 'transparent', scrollSnapAlign: 'center' }}>
-            <span data-testid={`text-day-letter-${d.ymd}`} style={{ fontSize: 11, fontWeight: 600, color: IQP.inkSub, minWidth: vertical ? 12 : undefined }}>{dayLetter(d.ymd)}</span>
-            <span data-testid={`text-day-number-${d.ymd}`} style={{ fontSize: 14, fontWeight: isToday ? 800 : 600, color: isToday ? IQP.teal : IQP.ink, minWidth: vertical ? 22 : undefined }}>{dayNumber(d.ymd)}</span>
-            <span style={{ display: 'flex', flexDirection: vertical ? 'row' : 'column', gap: 2, minHeight: vertical ? undefined : 22 }}>
+            style={{ flex: '0 0 auto', minWidth: 44, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+              padding: '2px 2px 4px', borderBottomWidth: 2, borderBottomStyle: 'solid', borderBottomColor: isToday ? IQP.teal : 'transparent', scrollSnapAlign: 'center' }}>
+            <span data-testid={`text-day-letter-${d.ymd}`} style={{ fontSize: 11, fontWeight: 600, color: IQP.inkSub }}>{dayLetter(d.ymd)}</span>
+            <span data-testid={`text-day-number-${d.ymd}`} style={{ fontSize: 14, fontWeight: isToday ? 800 : 600, color: isToday ? IQP.teal : IQP.ink }}>{dayNumber(d.ymd)}</span>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minHeight: 22 }}>
               {d.tiles.map((t) => (
                 <button key={t.bookingId} type="button" data-testid={`tile-${t.bookingId}`} aria-label={`${dayDateLabel(d.ymd)} ${t.startTime} ${t.venueName}`} onClick={() => onPick(t.bookingId)}
                   style={{ border: 'none', borderRadius: 4, padding: '2px 6px', fontSize: 11, fontWeight: 700, backgroundColor: venueColour(t.venueName), color: VENUE_TILE_TEXT, cursor: 'pointer', fontFamily: IQP_FONT, lineHeight: 1.4 }}>
@@ -213,12 +214,16 @@ export function PlayedSection({ bookings }: { bookings: BookingWithDetails[] }) 
   );
 }
 
+const emptyBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, padding: '0 18px', borderRadius: 6, backgroundColor: IQP.navy, color: IQP.white, fontWeight: 700, fontSize: 15, textDecoration: 'none', width: 'fit-content' };
+
+// One action only: with IQ Pass on it is the pass (flag off falls back to the session list).
 export function EmptyUpcoming({ iqPassEnabled, browseHref }: { iqPassEnabled: boolean; browseHref: string }) {
   return (
     <div data-testid="empty-upcoming" style={{ background: IQP.white, border: `1px solid ${IQP.line}`, borderRadius: 12, padding: '20px', fontFamily: IQP_FONT, display: 'grid', gap: 10 }}>
       <p data-testid="text-nothing-booked" style={{ margin: 0, fontSize: 18, fontWeight: 800, color: IQP.navy, letterSpacing: '-0.01em' }}>Nothing booked.</p>
-      {iqPassEnabled && <Link href="/marketplace/iq-pass" data-testid="link-empty-iq-pass" style={{ fontSize: 14, fontWeight: 600, color: IQP.teal }}>Pick a month of games with an IQ Pass</Link>}
-      <Link href={browseHref} data-testid="button-browse-sessions" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 44, padding: '0 18px', borderRadius: 6, backgroundColor: IQP.navy, color: IQP.white, fontWeight: 700, fontSize: 15, textDecoration: 'none', width: 'fit-content' }}>Browse Sessions</Link>
+      {iqPassEnabled
+        ? <Link href="/marketplace/iq-pass" data-testid="button-get-iq-pass" style={emptyBtn}>Get your IQ Pass</Link>
+        : <Link href={browseHref} data-testid="button-browse-sessions" style={emptyBtn}>Browse Sessions</Link>}
     </div>
   );
 }

@@ -27,7 +27,6 @@ import { useIqPassEnabled } from '@/hooks/useIqPass';
 import { NextGameCard, MonthStrip, AgendaWeek, AgendaRow, PlayedSection, EmptyUpcoming, buildStripDays, groupUpcomingByWeek, pickStripPack, playedOf, startOf, type MyPackLite, type SeatInfo } from '@/components/marketplace/MyGames';
 import { todayDubai } from '@/lib/iqPassDates';
 import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
-import { useViewportWidth } from '@/hooks/useViewportWidth';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
@@ -281,8 +280,6 @@ export default function MyBookings() {
   // Gate 13 (My games): the page is built around the next game; each agenda row opens the existing card on demand.
   const today = todayDubai();
   const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
-  const width = useViewportWidth();
-  const wide = width >= 1024;
   const seatInfoById = new Map<string, SeatInfo>((myPacks?.packs ?? []).flatMap(p => p.seats.map(s => [s.bookingId, { label: p.label, canMove: s.canMove, canMoveUntil: s.canMoveUntil ?? null }] as [string, SeatInfo])));
   const stripPack = iqPassEnabled ? pickStripPack(myPacks?.packs ?? [], today) : null;
 
@@ -916,7 +913,9 @@ export default function MyBookings() {
         ) : bookings.length === 0 ? (
           <EmptyUpcoming iqPassEnabled={iqPassEnabled} browseHref="/marketplace/book" />
         ) : (
-          <div data-testid="my-games-layout" style={{ display: 'grid', gridTemplateColumns: wide ? '320px minmax(0, 1fr)' : '1fr', gap: 20, alignItems: 'start' }}>
+          // One column at every width (2026-09-14): the hero or empty card spans the content width, the horizontal strip
+          // sits beneath it, then the agenda and Played. No side-by-side split — the strip never has column content.
+          <div data-testid="my-games-layout" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 20, alignItems: 'start' }}>
             <div style={{ display: 'grid', gap: 14 }}>
               {nextGame ? (
                 <NextGameCard booking={nextGame} area={nextGame.venueArea ?? null} seat={seatInfoById.get(nextGame.id) ?? null} passLine={nextGame.packId ? passLine : null}
@@ -924,7 +923,7 @@ export default function MyBookings() {
               ) : (
                 <EmptyUpcoming iqPassEnabled={iqPassEnabled} browseHref="/marketplace/book" />
               )}
-              <MonthStrip days={buildStripDays(upcoming, today)} today={today} vertical={wide} onPick={openGame} />
+              <MonthStrip days={buildStripDays(upcoming, today)} today={today} onPick={openGame} />
             </div>
             <div style={{ display: 'grid', gap: 16 }}>
               {groupUpcomingByWeek(upcoming).map((w) => (
