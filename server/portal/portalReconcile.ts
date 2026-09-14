@@ -14,6 +14,7 @@
 //    payments.amount (partial-wallet hazard).
 
 import { sql } from "drizzle-orm";
+import { IQ_PASS_TIERS, isPackTier } from "../iqPass/rules";
 
 // ── CSV parsing ───────────────────────────────────────────────────────────────
 export interface CsvTx {
@@ -98,6 +99,11 @@ export function parseZiinaCsv(text: string): CsvTx[] {
 export interface DbPaymentRow {
   paymentId: string;
   bookingId: string | null;
+  // IQ Pass: the pack payment row carries pack_id (no booking); a seat that
+  // later took a guest charge carries the seat pack tier for the allocation.
+  packId?: string | null;
+  packPriceAed?: number | null;
+  seatPackTier?: string | null;
   intent: string | null;
   payAed: number;            // payments.amount — whole AED
   status: string;
@@ -134,11 +140,15 @@ export async function loadReconcileInput(): Promise<ReconcileDbInput> {
            p.amount AS pay_aed, p.status, p.completed_at, p.created_at,
            p.ziina_refund_id, p.refunded_amount, p.refund_status, p.refunded_at,
            b.amount_aed, b.wallet_amount_used, b.status AS bstatus,
-           to_char(s.date,'YYYY-MM-DD') AS session_date, mu.name AS user_name
+           to_char(s.date,'YYYY-MM-DD') AS session_date, COALESCE(mu.name, pmu.name) AS user_name,
+           p.pack_id, pk.price_aed AS pack_price_aed, spk.tier AS seat_pack_tier
     FROM payments p
     LEFT JOIN bookings b ON b.id = p.booking_id
     LEFT JOIN bookable_sessions s ON s.id = b.session_id
-    LEFT JOIN marketplace_users mu ON mu.id = b.user_id`);
+    LEFT JOIN marketplace_users mu ON mu.id = b.user_id
+    LEFT JOIN packs pk ON pk.id = p.pack_id
+    LEFT JOIN packs spk ON spk.id = b.pack_id
+    LEFT JOIN marketplace_users pmu ON pmu.id = pk.user_id`);
   const bRes = await db.execute(sql`
     SELECT b.id AS booking_id, b.ziina_payment_intent_id AS intent, b.amount_aed,
            b.wallet_amount_used, b.status AS bstatus,
@@ -159,6 +169,7 @@ export async function loadReconcileInput(): Promise<ReconcileDbInput> {
   return {
     payments: (pRes.rows as any[]).map((r) => ({
       paymentId: r.payment_id, bookingId: r.booking_id, intent: r.intent,
+      packId: r.pack_id ?? null, packPriceAed: r.pack_price_aed == null ? null : Number(r.pack_price_aed), seatPackTier: r.seat_pack_tier ?? null,
       payAed: Number(r.pay_aed), status: r.status,
       completedAt: d(r.completed_at), createdAt: d(r.created_at)!,
       ziinaRefundId: r.ziina_refund_id, refundedAmountFils: r.refunded_amount == null ? null : Number(r.refunded_amount),
@@ -221,6 +232,14 @@ function classifyNoAppMessage(msg: string): string {
   return "other app charges";
 }
 
+// Expected CARD money for a booking: amount − wallet — and for an IQ Pass seat
+// also minus the seat's per-seat allocation (the pass was paid separately), so
+// what remains is exactly the guest charge(s) made on that seat.
+export function expectedCardFilsForBooking(b: { bookingAmountAed: number; walletAmountUsedFils: number | null; seatPackTier?: string | null }): number {
+  const allocation = b.seatPackTier && isPackTier(b.seatPackTier) ? IQ_PASS_TIERS[b.seatPackTier].allocationAed : 0;
+  return Math.max(0, (b.bookingAmountAed - allocation) * 100 - (b.walletAmountUsedFils ?? 0));
+}
+
 // ── The engine (pure) ─────────────────────────────────────────────────────────
 export function reconcileZiinaCsv(csvText: string, dbIn: ReconcileDbInput): ReconcileResult {
   const txs = parseZiinaCsv(csvText);
@@ -246,13 +265,20 @@ export function reconcileZiinaCsv(csvText: string, dbIn: ReconcileDbInput): Reco
     if (p && p.bookingId) {
       matched.push({
         tx: t, bookingId: p.bookingId,
-        expectedFils: p.bookingAmountAed == null ? null : p.bookingAmountAed * 100 - (p.walletAmountUsedFils ?? 0),
+        expectedFils: p.bookingAmountAed == null ? null : expectedCardFilsForBooking({ bookingAmountAed: p.bookingAmountAed, walletAmountUsedFils: p.walletAmountUsedFils, seatPackTier: p.seatPackTier }),
         sessionDate: p.sessionDate, customer: `${maskName(p.userName)}`, bookingShort: short(p.bookingId),
+      });
+    } else if (p && p.packId) {
+      // IQ Pass: the pack's single payment carries no booking — expected = the pack price.
+      matched.push({
+        tx: t, bookingId: p.packId,
+        expectedFils: p.packPriceAed == null ? null : p.packPriceAed * 100,
+        sessionDate: p.sessionDate, customer: maskName(p.userName), bookingShort: `IQ Pass ${short(p.packId)}`,
       });
     } else if (b) {
       matched.push({
         tx: t, bookingId: b.bookingId,
-        expectedFils: b.bookingAmountAed * 100 - b.walletAmountUsedFils,
+        expectedFils: expectedCardFilsForBooking({ bookingAmountAed: b.bookingAmountAed, walletAmountUsedFils: b.walletAmountUsedFils }),
         sessionDate: b.sessionDate, customer: maskName(b.userName), bookingShort: short(b.bookingId),
       });
     } else {
@@ -295,7 +321,9 @@ export function reconcileZiinaCsv(csvText: string, dbIn: ReconcileDbInput): Reco
       date: list[0].sessionDate ?? list[0].tx.rawTime.slice(6, 10) + "-" + list[0].tx.rawTime.slice(3, 5) + "-" + list[0].tx.rawTime.slice(0, 2),
       amountAed: aed(sumFils),
       customer: list[0].customer,
-      detail: `booking ${short(bookingId)} · ${list.length} charge(s) AED ${aed(sumFils)} vs booking AED ${expected == null ? "?" : aed(expected)}`,
+      detail: list[0].bookingShort.startsWith("IQ Pass")
+        ? `${list[0].bookingShort} · ${list.length} charge(s) AED ${aed(sumFils)} vs pack AED ${expected == null ? "?" : aed(expected)}`
+        : `booking ${short(bookingId)} · ${list.length} charge(s) AED ${aed(sumFils)} vs booking AED ${expected == null ? "?" : aed(expected)}`,
     };
     if (expected == null || sumFils === expected) { consistent.push(row); consistentFils += sumFils; }
     else if (sumFils > expected) { overFils += sumFils - expected; over.push({ ...row, deltaAed: aed(sumFils - expected), detail: row.detail + ` → OVER by AED ${aed(sumFils - expected)}` }); }

@@ -22,6 +22,7 @@ import Home from "@/pages/Home";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/Login";
 import SessionsManagement from "@/pages/SessionsManagement";
+import IqPassAdmin from "@/pages/IqPassAdmin";
 import PlayerProfile from "@/pages/PlayerProfile";
 import PlayerRegistry from "@/pages/PlayerRegistry";
 import MarketplaceHome from "@/pages/marketplace/MarketplaceHome";
@@ -30,6 +31,7 @@ import MarketplaceSignup from "@/pages/marketplace/MarketplaceSignup";
 import BookSessions from "@/pages/marketplace/BookSessions";
 import SessionDetails from "@/pages/marketplace/SessionDetails";
 import MyBookings from "@/pages/marketplace/MyBookings";
+import IqPass from '@/pages/marketplace/IqPass';
 import MyScores from "@/pages/marketplace/MyScores";
 import FeedScreen from "@/pages/marketplace/FeedScreen";
 import ReferralScreen from "@/pages/marketplace/ReferralScreen";
@@ -190,6 +192,11 @@ function Router() {
             <SessionsManagement />
           </ProtectedRoute>
         </Route>
+        <Route path="/admin/iq-pass">
+          <ProtectedRoute>
+            <IqPassAdmin />
+          </ProtectedRoute>
+        </Route>
         <Route path="/admin/marketplace"><Redirect to="/admin" /></Route>
         <Route path="/admin"><Redirect to="/admin/sessions" /></Route>
 
@@ -248,6 +255,9 @@ function Router() {
           <MarketplaceRoute component={GuestCancel} />
         </Route>
 
+        <Route path="/marketplace/iq-pass">
+          <MarketplaceAuthRoute component={IqPass} />
+        </Route>
         <Route path="/marketplace/my-bookings">
           <MarketplaceAuthRoute component={MyBookings} />
         </Route>

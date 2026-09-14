@@ -1,3 +1,7 @@
+import { isCollected, isUnpaidCash, isCardTender, isIqPassTender } from "./revenueClassifier";
+import { isIqPassEnabled } from "./iqPass/flag";
+import { sortWaitlistWithPriority } from "./iqPass/rules";
+import { packs } from "@shared/schema";
 import { 
   type Player, 
   type InsertPlayer, 
@@ -184,6 +188,7 @@ export type PublicAnalyticsResponse = {
     byPaymentMethod: {
       card: { bookings: number; spotsBooked: number; amountAed: number };
       cash: { bookings: number; spotsBooked: number; amountAed: number; collectedAed: number; pendingAed: number };
+      iqPass: { bookings: number; spotsBooked: number; amountAed: number };
     };
   };
   sessions: Array<{
@@ -2314,12 +2319,13 @@ export class DatabaseStorage implements IStorage {
     walletRefundedCount: number;
     ziinaRefundCount: number;
     cashRefundCount: number;
+    iqPassRepickCount: number;
   }> {
     const session = await this.getBookableSession(id);
     if (!session) throw new Error('Bookable session not found');
 
     if (session.status === 'cancelled') {
-      return { alreadyCancelled: true, affectedBookings: [], walletRefundedCount: 0, ziinaRefundCount: 0, cashRefundCount: 0 };
+      return { alreadyCancelled: true, affectedBookings: [], walletRefundedCount: 0, ziinaRefundCount: 0, cashRefundCount: 0, iqPassRepickCount: 0 };
     }
 
     // Snapshot the bookings BEFORE we mutate them so the route can email and
@@ -2330,6 +2336,7 @@ export class DatabaseStorage implements IStorage {
     let walletRefundedCount = 0;
     let ziinaRefundCount = 0;
     let cashRefundCount = 0;
+    let iqPassRepickCount = 0;
     const cancelledAt = new Date();
 
     // Wrap booking cancellations + wallet refunds + refund-notification
@@ -2382,6 +2389,23 @@ export class DatabaseStorage implements IStorage {
           booking.paymentMethod === 'cash' &&
           booking.cashPaid === true;
 
+        // IQ Pass: a pack seat on a ShuttleIQ-cancelled session becomes a FREE
+        // re-pick — never a refund row (the pass was paid as a whole). Active
+        // packs only; the player is told in-app and by the cancel email.
+        if (booking.packId && wasPaidStatus) {
+          await tx.update(packs).set({ repickCredits: sql`${packs.repickCredits} + 1` })
+            .where(and(eq(packs.id, booking.packId), eq(packs.status, 'active')));
+          await tx.insert(marketplaceNotifications).values({
+            id: randomUUID(),
+            userId: booking.userId,
+            type: 'iq_pass_repick',
+            title: 'Session cancelled — pick another game',
+            message: `"${session.title}" was cancelled by ShuttleIQ. Your IQ Pass has a free re-pick — choose another game from My Bookings.`,
+            relatedBookingId: booking.id,
+          });
+          iqPassRepickCount += 1;
+        }
+
         if (isZiinaPaid) {
           await tx.insert(marketplaceNotifications).values({
             id: randomUUID(),
@@ -2417,6 +2441,7 @@ export class DatabaseStorage implements IStorage {
       walletRefundedCount,
       ziinaRefundCount,
       cashRefundCount,
+      iqPassRepickCount,
     };
   }
 
@@ -2443,11 +2468,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]> {
-    return await db
+    const rows = await db
       .select()
       .from(bookings)
       .where(and(eq(bookings.sessionId, sessionId), eq(bookings.status, 'waitlisted')))
       .orderBy(asc(bookings.createdAt));
+    // IQ Pass: Club Plus / Club Elite holders go first (stable within each
+    // group), flag on only — the flag-off order is exactly the created_at
+    // order above. Every promotion site and the renumbering read this method.
+    if (!isIqPassEnabled()) return rows;
+    const plus = await this.getPlusTierUserIds(Array.from(new Set(rows.map((r) => r.userId))));
+    return sortWaitlistWithPriority(rows, plus);
+  }
+
+  /** Users among `userIds` holding an ACTIVE Club Plus / Club Elite pack. */
+  async getPlusTierUserIds(userIds: string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const rows = await db
+      .selectDistinct({ userId: packs.userId })
+      .from(packs)
+      .where(and(inArray(packs.userId, userIds), eq(packs.status, 'active'), sql`${packs.tier} IN ('club_plus', 'club_elite')`));
+    return new Set(rows.map((r) => r.userId));
   }
 
   async getWaitlistCountForSession(sessionId: string): Promise<number> {
@@ -2822,7 +2863,7 @@ export class DatabaseStorage implements IStorage {
       .groupBy(payments.bookingId);
     const map: Record<string, number> = {};
     for (const row of rows) {
-      map[row.bookingId] = row.total;
+      if (row.bookingId) map[row.bookingId] = row.total; // IQ Pass: pack payment rows have no booking_id (filtered out above; type-only guard)
     }
     return map;
   }
@@ -3695,7 +3736,10 @@ export class DatabaseStorage implements IStorage {
     const waitlisted = bookingRows.filter(b => b.status === 'waitlisted');
     const cancelled = bookingRows.filter(b => b.status === 'cancelled');
 
-    const cardBookings = confirmed.filter(b => b.paymentMethod === 'ziina' || b.paymentMethod === 'bank_transfer'); // Gate BT1: bank transfer = collected
+    // Collected / pending go through the shared classifier (server/revenueClassifier.ts).
+    // "card" stays ziina + bank transfer; IQ Pass seats get their own bucket.
+    const cardBookings = confirmed.filter(isCardTender);
+    const iqPassBookings = confirmed.filter(isIqPassTender);
     const cashBookings = confirmed.filter(b => b.paymentMethod === 'cash');
     const cashPaid = cashBookings.filter(b => b.cashPaid);
     const cashPending = cashBookings.filter(b => !b.cashPaid);
@@ -3730,10 +3774,8 @@ export class DatabaseStorage implements IStorage {
           bookings: conf.length,
           spots: sumField(conf, 'spotsBooked'),
           revenueAed: sumField(conf, 'amountAed'),
-          collectedAed:
-            sumField(conf.filter(b => b.paymentMethod === 'ziina'), 'amountAed') +
-            sumField(conf.filter(b => b.paymentMethod === 'cash' && b.cashPaid), 'amountAed'),
-          pendingCashAed: sumField(conf.filter(b => b.paymentMethod === 'cash' && !b.cashPaid), 'amountAed'),
+          collectedAed: sumField(conf.filter(isCollected), 'amountAed'),
+          pendingCashAed: sumField(conf.filter(isUnpaidCash), 'amountAed'),
         },
         waitlisted: {
           bookings: wait.length,
@@ -3762,10 +3804,8 @@ export class DatabaseStorage implements IStorage {
         confirmedBookings: bkgs.length,
         totalSpotsBooked: sumField(bkgs, 'spotsBooked'),
         revenueChargedAed: sumField(bkgs, 'amountAed'),
-        revenueCollectedAed:
-          sumField(bkgs.filter(b => b.paymentMethod === 'ziina' || b.paymentMethod === 'bank_transfer'), 'amountAed') +
-          sumField(bkgs.filter(b => b.paymentMethod === 'cash' && b.cashPaid), 'amountAed'),
-        revenuePendingCashAed: sumField(bkgs.filter(b => b.paymentMethod === 'cash' && !b.cashPaid), 'amountAed'),
+        revenueCollectedAed: sumField(bkgs.filter(isCollected), 'amountAed'),
+        revenuePendingCashAed: sumField(bkgs.filter(isUnpaidCash), 'amountAed'),
       }));
 
     return {
@@ -3779,8 +3819,8 @@ export class DatabaseStorage implements IStorage {
         confirmedBookings: confirmed.length,
         totalSpotsBooked: sumField(confirmed, 'spotsBooked'),
         revenueChargedAed: sumField(confirmed, 'amountAed'),
-        revenueCollectedAed: sumField(cardBookings, 'amountAed') + sumField(cashPaid, 'amountAed'),
-        revenuePendingCashAed: sumField(cashPending, 'amountAed'),
+        revenueCollectedAed: sumField(confirmed.filter(isCollected), 'amountAed'),
+        revenuePendingCashAed: sumField(confirmed.filter(isUnpaidCash), 'amountAed'),
         cancelledBookings: cancelled.length,
         lateFeesRetainedAed: sumField(cancelled.filter(b => b.lateFeeApplied), 'amountAed'),
         waitlistedBookings: waitlisted.length,
@@ -3796,6 +3836,11 @@ export class DatabaseStorage implements IStorage {
             amountAed: sumField(cashBookings, 'amountAed'),
             collectedAed: sumField(cashPaid, 'amountAed'),
             pendingAed: sumField(cashPending, 'amountAed'),
+          },
+          iqPass: {
+            bookings: iqPassBookings.length,
+            spotsBooked: sumField(iqPassBookings, 'spotsBooked'),
+            amountAed: sumField(iqPassBookings, 'amountAed'),
           },
         },
       },
@@ -3998,13 +4043,12 @@ export class DatabaseStorage implements IStorage {
     const isActive = (b: BRow) => ['confirmed', 'attended'].includes(b.status);
     const confirmed = bookingRows.filter(isActive);
     const cancelled = bookingRows.filter(b => b.status === 'cancelled');
-    const cardRows = confirmed.filter(b => b.paymentMethod === 'ziina');
-    const cashPaidRows = confirmed.filter(b => b.paymentMethod === 'cash' && b.cashPaid);
     const sumAed = (arr: BRow[]) => arr.reduce((s, b) => s + b.amountAed, 0);
 
     const chargedAed = sumAed(confirmed);
-    const collectedAed = sumAed(cardRows) + sumAed(cashPaidRows);
-    const pendingCashAed = sumAed(confirmed.filter(b => b.paymentMethod === 'cash' && !b.cashPaid));
+    // Shared classifier (server/revenueClassifier.ts): ziina, bank transfer, IQ Pass seats, paid cash.
+    const collectedAed = sumAed(confirmed.filter(isCollected));
+    const pendingCashAed = sumAed(confirmed.filter(isUnpaidCash));
     const lateFeesAed = sumAed(cancelled.filter(b => b.lateFeeApplied));
 
     // ── Expenses ──────────────────────────────────────────────────────────
@@ -4065,7 +4109,7 @@ export class DatabaseStorage implements IStorage {
     const revenueByMonth = new Map<string, number>();
     for (const b of confirmed) {
       const m = b.createdAt.toISOString().substring(0, 7);
-      const amt = b.paymentMethod === 'ziina' ? b.amountAed : (b.cashPaid ? b.amountAed : 0);
+      const amt = isCollected(b) ? b.amountAed : 0;
       revenueByMonth.set(m, (revenueByMonth.get(m) ?? 0) + amt);
     }
     const expensesByMonth = new Map<string, number>();

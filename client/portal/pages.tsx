@@ -70,6 +70,8 @@ interface PnlRow {
   socialMediaPayAed?: number;     // monthly P&L only — 15% of collected session profit
   managementProfitAed?: number;   // monthly P&L only — net − runner pay − social media
   walletPaidAed?: number; // monthly P&L only — informational, not in the net formula
+  iqPassRevenueAed?: number;      // monthly P&L only — IQ Pass sales by purchase month, informational
+  iqPassByTierAed?: { club: number; club_plus: number; club_elite: number };
 }
 
 const WALLET_FOOTNOTE = "Wallet-paid spots were collected when the credit was originally issued.";
@@ -98,6 +100,7 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
               <th className="num">− Social media (15%)</th>
               <th className="num">Management profit</th>
               <th className="num">Wallet-paid (info)</th>
+              <th className="num">IQ Pass sales (info)</th>
             </tr>
           </thead>
           <tbody>
@@ -112,6 +115,9 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
                 <td className="num"><Amount value={m.socialMediaPayAed ?? 0} /></td>
                 <td className="num strong"><Amount value={m.managementProfitAed ?? m.netProfitAed} /></td>
                 <td className="num"><Amount value={m.walletPaidAed ?? 0} /></td>
+                <td className="num" title={m.iqPassByTierAed ? `Club ${fmtAed(m.iqPassByTierAed.club)} · Club Plus ${fmtAed(m.iqPassByTierAed.club_plus)} · Club Elite ${fmtAed(m.iqPassByTierAed.club_elite)}` : undefined}>
+                  <Amount value={m.iqPassRevenueAed ?? 0} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -119,6 +125,8 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
       </div>
       <p className="note footnote">
         {WALLET_FOOTNOTE} Wallet-paid amounts are informational and not part of the net formula.
+        IQ Pass sales are informational too: each pass is already inside Collected revenue as its
+        games' per-seat share on the session dates (hover the figure for the split by tier).
         Runner pay is ACCRUED (owed, 25% of session-value profit) for assigned runners only —
         sessions without a captain pay nobody and their profit stays with management.
       </p>

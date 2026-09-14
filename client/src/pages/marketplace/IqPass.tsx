@@ -1,0 +1,343 @@
+// IQ Pass — buy a pass (tier → pick every game from the rolling 4-week
+// calendar → "Your month is locked" → one Ziina payment) and manage the pass
+// you hold (games, Move, free re-pick, buy the next one). Prices come from the
+// server's tier table (calendar payload) so the UI never re-derives money;
+// nothing here shows per-game maths or a discount claim. IQ Pass token module only.
+import { useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'wouter';
+import { apiUrl, getMarketplaceAccessToken } from '@/lib/queryClient';
+import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
+import { useIqPassEnabled } from '@/hooks/useIqPass';
+import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
+import { PACK_TIER_ORDER, type PackTier } from '@shared/iqPassTiers';
+import { IqPassMoveDialog, MOVE_ERROR_COPY, dubaiDayLabel, type IqPassCalendarSession } from '@/components/marketplace/IqPassMoveDialog';
+import { usePageTitle } from '@/hooks/usePageTitle';
+
+type TierInfo = { label: string; games: number; priceAed: number };
+type Calendar = {
+  window: { start: string; end: string };
+  currentPass: { id: string; tier: PackTier; label: string; gamesTotal: number; lastGameDate: string | null } | null;
+  jerseyEligibleForElite: boolean;
+  tiers: Record<PackTier, TierInfo>;
+  sessions: IqPassCalendarSession[];
+};
+type MyPack = {
+  id: string; tier: string; label: string; status: string; gamesTotal: number; repickCredits: number;
+  jerseySize: string | null; jerseyHandedOverAt: string | null; paidAt: string | null; holdExpiresAt: string; lastGameDate: string | null;
+  seats: Array<{ bookingId: string; sessionId: string; status: string; session: { title: string; venueName: string; date: string; startTime: string; endTime: string }; canMoveUntil: string; canMove: boolean }>;
+};
+
+const JERSEY_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+const authHeaders = (): Record<string, string> => { const t = getMarketplaceAccessToken(); return t ? { Authorization: `Bearer ${t}` } : {}; };
+const ymdOf = (d: string) => String(d).slice(0, 10);
+
+const PURCHASE_ERROR_COPY: Record<string, string> = {
+  pack_cap_reached: 'No IQ Pass seats left on one of your picks. Choose another game for that day.',
+  session_full: 'One of your picks is now full. Choose another game.',
+  already_booked: 'You already have a booking on one of your picks. Choose another game.',
+  hold_in_progress: 'You already have a pass waiting for payment. Finish that one, or wait 30 minutes for the hold to lapse.',
+  jersey_size_required: 'Pick a jersey size to continue.',
+  invalid_jersey_size: 'Pick a jersey size from the list.',
+  pick_count: 'Pick the full number of games for this pass.',
+  out_of_window: 'One of your picks falls outside the four-week window.',
+  payment_start_failed: 'We could not start the card payment. Please try again in a moment.',
+};
+
+const card: React.CSSProperties = { background: IQP.white, border: `1px solid ${IQP.line}`, borderRadius: 9, padding: 16 };
+const h2: React.CSSProperties = { margin: 0, fontFamily: IQP_FONT, fontWeight: 700, fontSize: 18, color: IQP.navy, letterSpacing: '-0.01em' };
+const sub: React.CSSProperties = { margin: '4px 0 0', fontFamily: IQP_FONT, fontSize: 14, color: IQP.inkSub, lineHeight: 1.5 };
+const primaryBtn = (disabled?: boolean): React.CSSProperties => ({
+  minHeight: 48, padding: '0 20px', borderRadius: 6, border: 'none', background: IQP.teal, color: IQP.white,
+  fontFamily: IQP_FONT, fontWeight: 700, fontSize: 15, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1, width: '100%',
+});
+const ghostBtn: React.CSSProperties = {
+  minHeight: 44, padding: '0 14px', borderRadius: 6, border: `1px solid ${IQP.line}`, background: IQP.white, color: IQP.navy,
+  fontFamily: IQP_FONT, fontWeight: 600, fontSize: 14, cursor: 'pointer',
+};
+
+export default function IqPass() {
+  usePageTitle('IQ Pass');
+  const enabled = useIqPassEnabled();
+  const queryClient = useQueryClient();
+  const [step, setStep] = useState<'home' | 'tiers' | 'picks' | 'review'>('home');
+  const [tier, setTier] = useState<PackTier | null>(null);
+  const [picks, setPicks] = useState<string[]>([]);
+  const [jerseySize, setJerseySize] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [moveFor, setMoveFor] = useState<{ bookingId: string; sessionId: string } | null>(null);
+  const [repickFor, setRepickFor] = useState<string | null>(null);
+  const [repickTarget, setRepickTarget] = useState<string | null>(null);
+
+  const me = useQuery<{ packs: MyPack[] }>({
+    queryKey: ['/api/marketplace/iq-pass/me'],
+    queryFn: async () => { const r = await fetch(apiUrl('/api/marketplace/iq-pass/me'), { headers: authHeaders() }); if (!r.ok) throw new Error('me'); return r.json(); },
+    enabled,
+    staleTime: 0,
+  });
+  const cal = useQuery<Calendar>({
+    queryKey: ['/api/marketplace/iq-pass/calendar'],
+    queryFn: async () => { const r = await fetch(apiUrl('/api/marketplace/iq-pass/calendar'), { headers: authHeaders() }); if (!r.ok) throw new Error('calendar'); return r.json(); },
+    enabled,
+    staleTime: 15_000,
+  });
+
+  const packs = me.data?.packs ?? [];
+  const activePacks = packs.filter((p) => p.status === 'active');
+  const pendingHold = packs.find((p) => p.status === 'pending_payment');
+  const tiers = cal.data?.tiers;
+  const games = tier && tiers ? tiers[tier].games : 0;
+  const jerseyNeeded = tier === 'club_elite' && !!cal.data?.jerseyEligibleForElite;
+  const canContinue = !!tier && picks.length === games && (!jerseyNeeded || JERSEY_SIZES.includes(jerseySize));
+  const byDay = useMemo(() => {
+    const groups = new Map<string, IqPassCalendarSession[]>();
+    for (const s of cal.data?.sessions ?? []) { const l = groups.get(s.dateDubai) ?? []; l.push(s); groups.set(s.dateDubai, l); }
+    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [cal.data]);
+
+  const showTiers = step === 'tiers' || (step === 'home' && activePacks.length === 0 && !pendingHold);
+
+  const togglePick = (id: string) => {
+    setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length < games ? [...p, id] : p));
+  };
+
+  const pay = async () => {
+    if (!tier || !canContinue) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch(apiUrl('/api/marketplace/iq-pass/purchase'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ tier, sessionIds: picks, ...(jerseyNeeded ? { jerseySize } : {}), ...nativeReturnFields() }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(PURCHASE_ERROR_COPY[j?.error] ?? 'Could not start your IQ Pass. Please try again.'); return; }
+      if (!j.redirectUrl) { setError('No payment link was returned. Please try again.'); return; }
+      await openCheckoutRedirect(j.redirectUrl);
+    } catch {
+      setError('Could not start your IQ Pass. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const repick = async () => {
+    if (!repickFor || !repickTarget) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch(apiUrl(`/api/marketplace/iq-pass/packs/${repickFor}/repick`), {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify({ toSessionId: repickTarget }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(MOVE_ERROR_COPY[j?.error] ?? 'Could not book the re-pick. Please try again.'); return; }
+      setRepickFor(null); setRepickTarget(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/iq-pass/me'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!enabled) {
+    return (
+      <div style={{ background: IQP.cream, minHeight: '100%', padding: '32px 16px', fontFamily: IQP_FONT }}>
+        <div style={{ ...card, maxWidth: 560, margin: '0 auto' }}>
+          <p data-testid="text-iq-pass-unavailable" style={{ margin: 0, color: IQP.inkSub }}>IQ Pass is not available right now.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: IQP.cream, color: IQP.ink, minHeight: '100%', fontFamily: IQP_FONT }}>
+      <div style={{ maxWidth: 640, margin: '0 auto', padding: 'clamp(20px, 4vw, 32px) 16px clamp(48px, 6vw, 64px)', display: 'grid', gap: 16 }}>
+        <div>
+          <h1 style={{ margin: 0, fontFamily: IQP_FONT, fontWeight: 700, fontSize: 28, color: IQP.navy, letterSpacing: '-0.02em' }}>IQ Pass</h1>
+          <p style={sub}>Pick your games for the month up front, pay once, play.</p>
+        </div>
+
+        {(me.isError || cal.isError) && (
+          <div style={card}><p style={{ ...sub, margin: 0 }}>Could not load IQ Pass right now. Pull to refresh or try again shortly.</p></div>
+        )}
+
+        {/* ── Passes I hold ── */}
+        {pendingHold && (
+          <div style={card} data-testid={`card-my-pass-${pendingHold.id}`}>
+            <h2 style={h2}>{pendingHold.label} · awaiting payment</h2>
+            <p style={sub}>Your picks are held for 30 minutes from checkout. If you closed the payment page, the hold lapses on its own and you can start again.</p>
+          </div>
+        )}
+        {activePacks.map((p) => {
+          const today = ymdOf(new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString());
+          const ahead = p.seats.filter((s) => s.status === 'confirmed' && ymdOf(s.session.date) >= today).length;
+          return (
+            <div key={p.id} style={card} data-testid={`card-my-pass-${p.id}`}>
+              <h2 style={h2}>{p.label}</h2>
+              <p style={sub}>
+                {ahead} of {p.gamesTotal} games ahead
+                {p.repickCredits > 0 ? ` · ${p.repickCredits} free re-pick${p.repickCredits === 1 ? '' : 's'}` : ''}
+                {p.jerseySize ? ` · Jersey ${p.jerseySize}${p.jerseyHandedOverAt ? ' (handed over)' : ''}` : ''}
+              </p>
+              <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+                {p.seats.map((s) => (
+                  <div key={s.bookingId} data-testid={`row-seat-${s.bookingId}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${IQP.line}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{dubaiDayLabel(ymdOf(s.session.date))} · {s.session.startTime}–{s.session.endTime}</div>
+                      <div style={{ fontSize: 12, color: IQP.inkSub }}>{s.session.venueName}{s.status !== 'confirmed' ? ` · ${s.status}` : ''}</div>
+                    </div>
+                    {s.canMove && (
+                      <button type="button" style={ghostBtn} onClick={() => setMoveFor({ bookingId: s.bookingId, sessionId: s.sessionId })} data-testid={`button-move-${s.bookingId}`}>Move</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                {p.repickCredits > 0 && (
+                  <button type="button" style={ghostBtn} onClick={() => { setRepickFor(p.id); setRepickTarget(null); setError(null); }} data-testid={`button-repick-${p.id}`}>Use free re-pick</button>
+                )}
+                <button type="button" style={ghostBtn} onClick={() => { setStep('tiers'); setTier(null); setPicks([]); setError(null); }} data-testid="button-buy-next">Buy your next pass</button>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* ── Free re-pick picker ── */}
+        {repickFor && (
+          <div style={card} data-testid="card-repick">
+            <h2 style={h2}>Choose a game for your free re-pick</h2>
+            <div style={{ display: 'grid', gap: 6, marginTop: 12, maxHeight: 320, overflowY: 'auto' }}>
+              {(cal.data?.sessions ?? []).filter((s) => !s.alreadyBooked && s.spotsRemaining > 0).map((s) => (
+                <button key={s.id} type="button" aria-pressed={repickTarget === s.id} onClick={() => setRepickTarget(s.id)} data-testid={`repick-row-${s.id}`}
+                  style={{ ...ghostBtn, textAlign: 'left', background: repickTarget === s.id ? IQP.navy : IQP.white, color: repickTarget === s.id ? IQP.white : IQP.ink }}>
+                  {dubaiDayLabel(s.dateDubai)} · {s.startTime}–{s.endTime} · {s.venueName}
+                </button>
+              ))}
+            </div>
+            {error && <p data-testid="text-repick-error" style={{ ...sub, color: IQP.navy }}>{error}</p>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button type="button" style={ghostBtn} onClick={() => { setRepickFor(null); setRepickTarget(null); }}>Not now</button>
+              <button type="button" style={{ ...primaryBtn(!repickTarget || busy), width: 'auto' }} disabled={!repickTarget || busy} onClick={repick} data-testid="button-repick-confirm">{busy ? 'Booking…' : 'Book this game'}</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 1: tiers ── */}
+        {showTiers && tiers && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <h2 style={h2}>{activePacks.length ? 'Your next pass' : 'Choose your pass'}</h2>
+            {cal.data?.currentPass && (
+              <p style={sub}>Your next pass opens the day after your current last game — picks run from {dubaiDayLabel(cal.data.window.start)}.</p>
+            )}
+            {PACK_TIER_ORDER.map((t) => (
+              <button key={t} type="button" onClick={() => { setTier(t); setPicks([]); setJerseySize(''); setError(null); setStep('picks'); }} data-testid={`card-tier-${t}`}
+                style={{ ...card, textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontFamily: IQP_FONT }}>
+                <span>
+                  <span style={{ display: 'block', fontWeight: 700, fontSize: 17, color: IQP.navy }}>{tiers[t].label}</span>
+                  <span style={{ display: 'block', fontSize: 14, color: IQP.inkSub, marginTop: 2 }}>{tiers[t].games} games · any venue · pick them all now</span>
+                </span>
+                <span style={{ fontWeight: 700, fontSize: 17, color: IQP.teal, whiteSpace: 'nowrap' }}>AED {tiers[t].priceAed}</span>
+              </button>
+            ))}
+            {activePacks.length > 0 && step === 'tiers' && (
+              <button type="button" style={ghostBtn} onClick={() => setStep('home')}>Back</button>
+            )}
+          </div>
+        )}
+
+        {/* ── Step 2: picks ── */}
+        {step === 'picks' && tier && tiers && (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div>
+              <h2 style={h2}>{tiers[tier].label} — pick your {games} games</h2>
+              <p style={sub}>{dubaiDayLabel(cal.data!.window.start)} to {dubaiDayLabel(cal.data!.window.end)}, any venue. Moves are free until five hours before a game.</p>
+              <p data-testid="text-pick-count" style={{ ...sub, fontWeight: 700, color: IQP.navy }}>{picks.length} of {games} picked</p>
+            </div>
+            {byDay.map(([day, list]) => (
+              <div key={day} style={card}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: IQP.inkSub, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 8 }}>{dubaiDayLabel(day)}</div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {list.map((s) => {
+                    const picked = picks.includes(s.id);
+                    const blocked = s.alreadyBooked ? 'Booked' : s.spotsRemaining < 1 ? 'Full' : s.packSeatsLeft < 1 ? 'No IQ Pass seats left' : null;
+                    const disabled = !!blocked || (!picked && picks.length >= games);
+                    return (
+                      <button key={s.id} type="button" onClick={() => togglePick(s.id)} disabled={disabled} aria-pressed={picked} data-testid={`row-session-${s.id}`}
+                        style={{
+                          textAlign: 'left', minHeight: 48, padding: '8px 12px', borderRadius: 6, cursor: disabled ? 'default' : 'pointer', fontFamily: IQP_FONT,
+                          background: picked ? IQP.navy : IQP.white, color: picked ? IQP.white : IQP.ink, border: `1px solid ${picked ? IQP.navy : IQP.line}`, opacity: blocked ? 0.5 : 1,
+                        }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                          <span style={{ fontWeight: 600, fontSize: 14 }}>{s.startTime}–{s.endTime} · {s.venueName}</span>
+                          <span style={{ fontSize: 12, opacity: 0.85, whiteSpace: 'nowrap' }}>{blocked ?? (picked ? 'Picked' : `${s.spotsRemaining} spots`)}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            {jerseyNeeded && (
+              <div style={card}>
+                <label htmlFor="jersey-size" style={{ display: 'block', fontWeight: 700, fontSize: 14, color: IQP.navy }}>Your Club Elite jersey size</label>
+                <p style={sub}>Included with your first Club Elite pass. We hand it over at your next session.</p>
+                <select id="jersey-size" value={jerseySize} onChange={(e) => setJerseySize(e.target.value)} data-testid="select-jersey-size"
+                  style={{ marginTop: 8, minHeight: 44, width: '100%', borderRadius: 6, border: `1px solid ${IQP.line}`, padding: '0 10px', fontFamily: IQP_FONT, background: IQP.white, color: IQP.ink }}>
+                  <option value="">Choose a size</option>
+                  {JERSEY_SIZES.map((sz) => <option key={sz} value={sz}>{sz}</option>)}
+                </select>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" style={ghostBtn} onClick={() => { setStep(activePacks.length ? 'home' : 'tiers'); setTier(null); setPicks([]); }}>Back</button>
+              <button type="button" style={primaryBtn(!canContinue)} disabled={!canContinue} onClick={() => setStep('review')} data-testid="button-continue">Continue</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 3: review ── */}
+        {step === 'review' && tier && tiers && (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={card}>
+              <h2 style={h2} data-testid="text-review-title">Your month is locked</h2>
+              <p style={sub}>{tiers[tier].label} · {games} games{jerseyNeeded ? ` · jersey ${jerseySize}` : ''}</p>
+              <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+                {picks.map((id) => cal.data?.sessions.find((s) => s.id === id)).filter(Boolean).map((s) => (
+                  <div key={s!.id} style={{ padding: '8px 0', borderTop: `1px solid ${IQP.line}`, fontSize: 14 }}>
+                    <span style={{ fontWeight: 600 }}>{dubaiDayLabel(s!.dateDubai)} · {s!.startTime}–{s!.endTime}</span>
+                    <span style={{ color: IQP.inkSub }}> · {s!.venueName}</span>
+                  </div>
+                ))}
+              </div>
+              <p style={{ ...sub, marginTop: 12 }}>Games you do not play expire with the pass. You can move a game until five hours before it starts.</p>
+            </div>
+            {error && <p data-testid="text-purchase-error" style={{ ...sub, color: IQP.navy, margin: 0 }}>{error}</p>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" style={ghostBtn} onClick={() => setStep('picks')} disabled={busy}>Change picks</button>
+              <button type="button" style={primaryBtn(busy)} disabled={busy} onClick={pay} data-testid="button-pay">{busy ? 'Starting payment…' : `Pay AED ${tiers[tier].priceAed}`}</button>
+            </div>
+          </div>
+        )}
+
+        <p style={{ ...sub, textAlign: 'center' }}>
+          <Link href="/marketplace/my-bookings" style={{ color: IQP.teal, fontWeight: 600 }}>My Bookings</Link>
+        </p>
+      </div>
+
+      {moveFor && (
+        <IqPassMoveDialog
+          open
+          onOpenChange={(o) => { if (!o) setMoveFor(null); }}
+          bookingId={moveFor.bookingId}
+          currentSessionId={moveFor.sessionId}
+          onMoved={() => {
+            setMoveFor(null);
+            queryClient.invalidateQueries({ queryKey: ['/api/marketplace/iq-pass/me'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/marketplace/iq-pass/calendar'] });
+          }}
+        />
+      )}
+    </div>
+  );
+}

@@ -1,6 +1,6 @@
 import { useRef, useState, type CSSProperties } from 'react';
 import { MKT, navyBtn } from './LandingComponents';
-import { useLocation } from 'wouter';
+import { useLocation, Link } from 'wouter';
 import { apiUrl } from '@/lib/queryClient';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
@@ -16,6 +16,8 @@ import { getTierDisplayName } from '@shared/utils/skillUtils';
 import type { PlayerStats } from '@shared/schema';
 import BadgeTag, { formatEarnedDate, progressSubline, progressTitle } from '@/components/BadgeTag';
 import FoundingMemberSeal from '@/components/FoundingMemberSeal';
+import { IqPassTag } from '@/components/marketplace/IqPassTag';
+import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
 import { motion } from 'framer-motion';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useInstallPrompt, IOS_INSTALL_HINT } from '@/hooks/use-install-prompt';
@@ -530,6 +532,7 @@ export default function Profile() {
               {user?.badge && user.badgeStatus === 'active' && (
                 <BadgeTag badge={user.badge} testid="tag-profile-badge" />
               )}
+              <IqPassTag tier={user?.iqPass?.tier} testid="tag-profile-iqpass" />
               {/* Dormant is own-profile-only, rendered HERE (never via the
                   shared BadgeTag, which has no dormant path by design). */}
               {user?.badge && user.badgeStatus === 'dormant' && (
@@ -569,6 +572,31 @@ export default function Profile() {
         </motion.div>
 
         <div className="space-y-6">
+          {/* IQ Pass card (Gate 5): tier, games left, re-pick credits, and the
+              way to the IQ Pass page. Present only while the server flag is on
+              (the iqPass key is absent from /auth/me otherwise). No prices. */}
+          {user?.iqPass && (
+            <motion.div variants={fadeInUp}>
+              <Link href="/marketplace/iq-pass" style={{ textDecoration: 'none' }}>
+                <Card style={cardChrome} data-testid="card-iq-pass">
+                  <CardContent className="p-4">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div data-testid="text-iq-pass-card-title" style={{ fontFamily: IQP_FONT, fontWeight: 700, fontSize: 15, color: IQP.navy }}>
+                          IQ Pass · {user.iqPass.label}
+                        </div>
+                        <div data-testid="text-iq-pass-card-subtitle" style={{ marginTop: 3, fontFamily: IQP_FONT, fontWeight: 500, fontSize: 12, color: IQP.inkSub }}>
+                          {user.iqPass.gamesRemaining} of {user.iqPass.gamesTotal} games ahead
+                          {user.iqPass.repickCredits > 0 ? ` · ${user.iqPass.repickCredits} free re-pick${user.iqPass.repickCredits === 1 ? '' : 's'}` : ''}
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0" style={{ color: IQP.teal }} />
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            </motion.div>
+          )}
           {/* Founding Member card. Sits ABOVE the consistency progress card
               rather than replacing it — the two badges are independent, and a
               player can hold both. Display strings come from the server. */}

@@ -15,6 +15,7 @@
 
 import { bookings, payments, sessionCosts } from "@shared/schema";
 import { and, inArray, sql } from "drizzle-orm";
+import { classifyRevenue } from "../revenueClassifier";
 
 export interface ProfitInputsFils {
   revenueFils: number;
@@ -50,7 +51,7 @@ export interface BookingForRevenueFils {
 }
 
 export interface RevenueBasesFils {
-  revenueFils: number;     // collected: ziina + bank transfer + paid cash, refund-netted
+  revenueFils: number;     // collected (see revenueClassifier): ziina + bank transfer + IQ Pass seats + paid cash, refund-netted
   walletPaidFils: number;  // wallet, refund-netted
   valueFils: number;       // collected + wallet
   unpaidCashFils: number;  // cash not yet marked paid (gross; excluded from both bases)
@@ -64,15 +65,17 @@ export function computeRevenueBasesFils(
   for (const b of bookings) {
     const grossFils = b.amountAed * 100;
     const refundedFils = refundedFilsByBookingId.get(b.id) ?? 0;
-    // Gate BT1: bank_transfer is money already in the bank — collected, same bucket as paid cash.
-    if (b.paymentMethod === 'ziina' || b.paymentMethod === 'bank_transfer' || (b.paymentMethod === 'cash' && b.cashPaid)) {
+    // ONE rule for collected vs value (server/revenueClassifier.ts): ziina, bank
+    // transfer, IQ Pass seats (per-seat allocation) and paid cash are collected.
+    const bucket = classifyRevenue(b);
+    if (bucket === 'collected') {
       collected += grossFils - refundedFils;
-    } else if (b.paymentMethod === 'wallet') {
+    } else if (bucket === 'wallet') {
       wallet += grossFils - refundedFils;
-    } else if (b.paymentMethod === 'cash' && !b.cashPaid) {
+    } else if (bucket === 'unpaid_cash') {
       unpaidCash += grossFils; // flag only — no refund netting on uncollected money
     }
-    // any other paymentMethod: excluded everywhere (unchanged behaviour)
+    // 'excluded' (any other paymentMethod): counted nowhere (unchanged behaviour)
   }
   return {
     revenueFils: collected,
@@ -170,7 +173,8 @@ export async function computeSessionProfitsBatchFils(
     let list = bookingsBySession.get(b.sessionId);
     if (!list) { list = []; bookingsBySession.set(b.sessionId, list); }
     list.push({ id: b.id, amountAed: b.amountAed, paymentMethod: b.paymentMethod, cashPaid: b.cashPaid });
-    if (b.paymentMethod === 'ziina' || (b.paymentMethod === 'cash' && b.cashPaid) || b.paymentMethod === 'wallet') {
+    const bucket = classifyRevenue(b);
+    if (bucket === 'collected' || bucket === 'wallet') {
       refundLookupIds.push(b.id);
     }
   }

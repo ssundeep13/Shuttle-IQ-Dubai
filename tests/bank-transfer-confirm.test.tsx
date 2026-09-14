@@ -20,6 +20,7 @@ process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/test';
 process.env.RESEND_API_KEY = 'test-key-not-real';
 const { parseAdminConfirmBody, planAdminConfirm, shouldRefuseCash, ADMIN_CONFIRM_METHODS } = await import('../server/adminConfirm');
 const { computeRevenueBasesFils } = await import('../server/portal/sessionProfit');
+const { COLLECTED_METHODS, CARD_METHODS } = await import('../server/revenueClassifier');
 const { sendBookingConfirmationEmail } = await import('../server/emailClient');
 const { ConfirmPaymentDialog } = await import('../client/src/components/ConfirmPaymentDialog');
 
@@ -144,9 +145,15 @@ describe('bank_transfer counts as collected revenue', () => {
     expect(out.valueFils).toBe(out.revenueFils + 1000);
   });
   it('the admin session revenue summary counts bank_transfer as collected in both the monthly and the totals block', () => {
+    // IQ Pass Gate 3 (amendment 1): the literal predicates were replaced by the
+    // shared classifier — bank_transfer is collected there, and both blocks
+    // (plus the "card" bucket) go through it.
+    expect(COLLECTED_METHODS).toContain('bank_transfer');
+    expect(CARD_METHODS).toContain('bank_transfer');
     const s = read('server/storage.ts');
-    expect(s).toMatch(/sumField\(bkgs\.filter\(b => b\.paymentMethod === 'ziina' \|\| b\.paymentMethod === 'bank_transfer'\), 'amountAed'\)/);
-    expect(s).toMatch(/const cardBookings = confirmed\.filter\(b => b\.paymentMethod === 'ziina' \|\| b\.paymentMethod === 'bank_transfer'\);/);
+    expect(s).toMatch(/revenueCollectedAed: sumField\(bkgs\.filter\(isCollected\), 'amountAed'\)/);
+    expect(s).toMatch(/revenueCollectedAed: sumField\(confirmed\.filter\(isCollected\), 'amountAed'\)/);
+    expect(s).toMatch(/const cardBookings = confirmed\.filter\(isCardTender\);/);
   });
 });
 

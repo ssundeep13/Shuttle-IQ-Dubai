@@ -12,6 +12,7 @@ import { usePageTitle } from '@/hooks/usePageTitle';
 import { useToast } from '@/hooks/use-toast';
 import BadgeTag from '@/components/BadgeTag';
 import FoundingMemberSeal from '@/components/FoundingMemberSeal';
+import { IqPassTag } from '@/components/marketplace/IqPassTag';
 import type { BookingWithDetails } from '@shared/schema';
 import { primarySlotActive } from '@shared/utils/slotUtils';
 
@@ -27,6 +28,8 @@ interface CurrentSuggestionPlayer {
   badge?: string | null;
   // Founding Member seal — a separate flag, so it renders beside the badge.
   foundingMember?: boolean;
+  // IQ Pass tier (Gate 5) — present only while the server flag is on.
+  iqPassTier?: string | null;
 }
 
 interface CurrentSuggestion {
@@ -593,6 +596,7 @@ function TeamRow({
               </p>
               <FoundingMemberSeal show={p.foundingMember} size={18} testid={`seal-${p.playerId}`} />
               <BadgeTag badge={p.badge} small testid={`tag-badge-${p.playerId}`} />
+              <IqPassTag tier={p.iqPassTier} small testid={`tag-iqpass-${p.playerId}`} />
             </div>
           ))
         )}

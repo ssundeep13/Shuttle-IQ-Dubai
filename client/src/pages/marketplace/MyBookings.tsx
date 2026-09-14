@@ -22,6 +22,8 @@ import { sessionStartEpochMs } from '@shared/sessionTime';
 import { primaryCancelInfo } from '@/lib/primaryCancel';
 import { formatDubaiTime, paymentDeadline } from '@shared/dubaiTime';
 import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
+import { IqPassMoveDialog } from '@/components/marketplace/IqPassMoveDialog';
+import { useIqPassEnabled } from '@/hooks/useIqPass';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
@@ -261,6 +263,18 @@ export default function MyBookings() {
     staleTime: 30_000,
   });
 
+  // IQ Pass (Gate 6): pass labels + which seats may still move. Only requested
+  // while the flag is on; pack seats render as ordinary bookings otherwise.
+  const iqPassEnabled = useIqPassEnabled();
+  const { data: myPacks } = useQuery<{ packs: Array<{ id: string; label: string; status: string; seats: Array<{ bookingId: string; canMove: boolean }> }> }>({
+    queryKey: ['/api/marketplace/iq-pass/me'],
+    enabled: iqPassEnabled,
+    staleTime: 0,
+  });
+  const packLabelById = new Map((myPacks?.packs ?? []).map(p => [p.id, p.label] as const));
+  const seatCanMove = new Set((myPacks?.packs ?? []).flatMap(p => p.seats.filter(s => s.canMove).map(s => s.bookingId)));
+  const [moveTarget, setMoveTarget] = useState<{ bookingId: string; sessionId: string } | null>(null);
+
   const cancelMutation = useMutation({
     mutationFn: async ({ bookingId, refundMethod }: { bookingId: string; refundMethod?: 'wallet' | 'ziina' }) => {
       return apiRequest('POST', `/api/marketplace/bookings/${bookingId}/cancel`, refundMethod ? { refundMethod } : {});
@@ -382,8 +396,10 @@ export default function MyBookings() {
   const sessionEndTime = (b: BookingWithDetails) => new Date(`${String(b.session.date).slice(0, 10)}T${b.session.endTime || '23:59'}`);
   const upcoming = bookings.filter(b => b.status !== 'cancelled' && sessionEndTime(b) >= new Date());
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
-  const pendingPayment = upcoming.filter(b => b.status === 'pending_payment');
-  const active = upcoming.filter(b => b.status !== 'waitlisted' && b.status !== 'pending_payment');
+  const pendingPayment = upcoming.filter(b => b.status === 'pending_payment' && !b.packId);
+  const active = upcoming.filter(b => b.status !== 'waitlisted' && b.status !== 'pending_payment' && !b.packId);
+  // IQ Pass seats (confirmed games and a hold awaiting payment) get their own section.
+  const packSeats = upcoming.filter(b => !!b.packId && b.status !== 'waitlisted');
   const past = bookings.filter(b => b.status === 'cancelled' || sessionEndTime(b) < new Date());
 
   const BookingCard = ({ booking, isPast }: { booking: BookingWithDetails; isPast?: boolean }) => {
@@ -393,7 +409,7 @@ export default function MyBookings() {
     const isPendingPayment = booking.status === 'pending_payment';
     const countdown = usePaymentCountdown(isPendingPayment ? booking.promotedAt : null);
     const isLinkedGuest = booking.isGuestBooking && !!booking.myGuestId;
-    const canCancel = !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && sessionEndTime(booking) >= new Date();
+    const canCancel = !booking.packId && !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && sessionEndTime(booking) >= new Date();
     const canCancelAsGuest = isLinkedGuest && booking.status !== 'cancelled' && sessionEndTime(booking) >= new Date();
     const lateFee = !isWaitlisted && !isPendingPayment && canCancel && isWithin5Hours(booking.session.date, booking.session.startTime);
     // Cash refund choice: only confirmed Ziina bookings outside the late window
@@ -521,9 +537,20 @@ export default function MyBookings() {
                 Add Guest
               </button>
             )}
+            {booking.packId && booking.status === 'confirmed' && !isPast && seatCanMove.has(booking.id) && (
+              <button
+                type="button"
+                onClick={() => setMoveTarget({ bookingId: booking.id, sessionId: booking.sessionId })}
+                data-testid={`button-move-${booking.id}`}
+                {...withStyle(ghostBtn('sm'), { marginTop: 8, marginLeft: 8 })}
+              >
+                <ArrowRight className="h-3.5 w-3.5" />
+                Move game
+              </button>
+            )}
 
-            {/* Pending payment banner */}
-            {isPendingPayment && (
+            {/* Pending payment banner (never for an IQ Pass hold — that is paid as a pass) */}
+            {isPendingPayment && !booking.packId && (
               <div
                 className="mb-4 mt-3 flex items-start gap-3 rounded-xl p-3"
                 style={countdown.expired
@@ -568,7 +595,12 @@ export default function MyBookings() {
 
             <div className="flex items-center justify-between gap-2 pt-3 flex-wrap" style={{ borderTop: `1px solid ${MKT.line}` }}>
               <div className="flex items-center gap-3 flex-wrap">
-                {!isWaitlisted && !isPendingPayment && (
+                {booking.packId && (
+                  <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '-0.01em' }} data-testid={`text-booking-iqpass-${booking.id}`}>
+                    IQ Pass{packLabelById.get(booking.packId) ? ` · ${packLabelById.get(booking.packId)}` : ''}{isPendingPayment ? ' — awaiting payment' : ''}
+                  </span>
+                )}
+                {!isWaitlisted && !isPendingPayment && !booking.packId && (
                   <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }} data-testid={`text-booking-amount-${booking.id}`}>
                     AED {booking.totalPaidAed ?? booking.amountAed}
                   </span>
@@ -579,7 +611,7 @@ export default function MyBookings() {
                     {booking.spotsBooked} spots
                   </span>
                 )}
-                {!isWaitlisted && !isPendingPayment && (
+                {!isWaitlisted && !isPendingPayment && !booking.packId && (
                   <span style={pill('rgba(0,30,70,0.06)', MKT.inkSub)} data-testid={`badge-method-${booking.id}`}>
                     {booking.paymentMethod === 'cash' ? (
                       <><Banknote className="h-3 w-3" /> {booking.cashPaid ? 'Cash Paid' : 'Pay at Venue'}</>
@@ -591,7 +623,7 @@ export default function MyBookings() {
                 {isWaitlisted && (
                   <span style={{ fontSize: 12, color: MKT.inkSub }}>No payment until confirmed</span>
                 )}
-                {isPendingPayment && (
+                {isPendingPayment && !booking.packId && (
                   <span style={{ fontSize: 12, color: MKT.inkSub }}>AED {booking.amountAed} — payment required</span>
                 )}
               </div>
@@ -793,6 +825,20 @@ export default function MyBookings() {
 
   return (
     <>
+    {moveTarget && (
+      <IqPassMoveDialog
+        open
+        onOpenChange={(o) => { if (!o) setMoveTarget(null); }}
+        bookingId={moveTarget.bookingId}
+        currentSessionId={moveTarget.sessionId}
+        onMoved={() => {
+          setMoveTarget(null);
+          queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+          queryClient.invalidateQueries({ queryKey: ['/api/marketplace/iq-pass/me'] });
+          toast({ title: 'Game moved' });
+        }}
+      />
+    )}
     <div style={{ background: MKT.cream, color: MKT.ink, fontFamily: FF_BODY, minHeight: '100%' }}>
       <div className="max-w-3xl mx-auto" style={{ padding: 'clamp(20px, 4vw, 32px) clamp(16px, 4vw, 24px) clamp(48px, 6vw, 64px)' }}>
         <Reveal>
@@ -865,6 +911,16 @@ export default function MyBookings() {
           </Reveal>
         ) : (
           <div className="space-y-8">
+            {packSeats.length > 0 && (
+              <div>
+                <Reveal>{sectionHeader('IQ Pass', packSeats.length, <span style={{ width: 0 }} />, 'text-iqpass-title', pill(MKT.tealMist, MKT.tealD))}</Reveal>
+                <div className="space-y-3">
+                  {packSeats.map((b, i) => (
+                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} /></Reveal>
+                  ))}
+                </div>
+              </div>
+            )}
             {pendingPayment.length > 0 && (
               <div>
                 <Reveal>{sectionHeader('Payment Required', pendingPayment.length, <Timer className="h-5 w-5" style={{ color: AMBER }} />, 'text-pending-payment-title', pill('#F6E6CC', '#7A4A0E'))}</Reveal>

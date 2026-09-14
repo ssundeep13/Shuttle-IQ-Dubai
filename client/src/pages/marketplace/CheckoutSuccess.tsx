@@ -58,10 +58,12 @@ export default function CheckoutSuccess() {
   const { loginWithTokens, isAuthenticated } = useMarketplaceAuth();
   const reduce = useReducedMotion();
   const isExtraGuest = new URLSearchParams(window.location.search).get('extra_guest') === '1';
+  const isPack = new URLSearchParams(window.location.search).get('pack_id') !== null; // IQ Pass return
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get('booking_id');
+    const packId = params.get('pack_id');
     const resumeToken = params.get('resume');
 
     if (!bookingId) {
@@ -116,9 +118,12 @@ export default function CheckoutSuccess() {
       // Extra-guest return: use the dedicated confirm-guest endpoint, which finds
       // the pending guest intent and mirrors the webhook's confirmation logic.
       // Primary booking return: use the normal /confirm endpoint (unchanged).
-      const confirmPath = isExtraGuest
-        ? `/api/marketplace/bookings/${bookingId}/confirm-guest`
-        : `/api/marketplace/bookings/${bookingId}/confirm`;
+      // IQ Pass return: the pack confirm route (no auth — the pack UUID is the secret).
+      const confirmPath = packId
+        ? `/api/marketplace/iq-pass/packs/${packId}/confirm`
+        : isExtraGuest
+          ? `/api/marketplace/bookings/${bookingId}/confirm-guest`
+          : `/api/marketplace/bookings/${bookingId}/confirm`;
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
         if (cancelled) return;
         if (i > 0) {
@@ -158,6 +163,10 @@ export default function CheckoutSuccess() {
               queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions', sid] });
             }
             queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+            if (packId) {
+              queryClient.invalidateQueries({ queryKey: ['/api/marketplace/iq-pass/me'] });
+              queryClient.invalidateQueries({ queryKey: ['/api/marketplace/iq-pass/calendar'] });
+            }
             return;
           }
 
@@ -249,7 +258,7 @@ export default function CheckoutSuccess() {
                   <CheckCircle className="h-10 w-10" />
                 </IconCircle>
                 <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 30, color: MKT.navy, letterSpacing: '-0.025em' }} data-testid="text-booking-confirmed">
-                  {isExtraGuest ? 'Guest Added!' : 'Booking Confirmed!'}
+                  {isPack ? 'Your IQ Pass is active' : isExtraGuest ? 'Guest Added!' : 'Booking Confirmed!'}
                 </h1>
               </>
             )}

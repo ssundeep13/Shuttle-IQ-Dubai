@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Wordmark } from '@/components/Wordmark';
 import { Link, useLocation } from 'wouter';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
+import { useIqPassEnabled } from '@/hooks/useIqPass';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History, FileText, Gift } from 'lucide-react';
+import { User, Calendar, Trophy, BarChart3, LogOut, Home, LayoutDashboard, Bookmark, Bell, CheckCheck, History, FileText, Gift, Ticket } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { MarketplaceNotification } from '@shared/schema';
 
@@ -47,6 +48,8 @@ const authMenuLinks = [
   { href: '/marketplace/referrals', label: 'Referrals', icon: Gift },
   { href: '/marketplace/profile', label: 'Profile', icon: User },
 ];
+// IQ Pass (Gate 6): shown in the dropdown only while the server flag is on.
+const iqPassMenuLink = { href: '/marketplace/iq-pass', label: 'IQ Pass', icon: Ticket };
 
 function getInitials(name: string | undefined) {
   if (!name) return '?';
@@ -169,6 +172,7 @@ function NotificationBell() {
 
 export function MarketplaceNav() {
   const { isAuthenticated, user, logout } = useMarketplaceAuth();
+  const iqPassEnabled = useIqPassEnabled();
   const [location] = useLocation();
 
   const isActive = (href: string) => {
@@ -238,7 +242,7 @@ export function MarketplaceNav() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                  {authMenuLinks.map((link) => (
+                  {[...authMenuLinks, ...(iqPassEnabled ? [iqPassMenuLink] : [])].map((link) => (
                     <Link key={link.href} href={link.href}>
                       <DropdownMenuItem className="gap-2 cursor-pointer" data-testid={`link-nav-${link.label.toLowerCase().replace(/\s/g, '-')}`}>
                         <link.icon className="h-4 w-4" />

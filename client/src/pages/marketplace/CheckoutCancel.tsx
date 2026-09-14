@@ -29,7 +29,10 @@ export default function CheckoutCancel() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get('booking_id');
-    if (bookingId) {
+    const packId = params.get('pack_id');
+    // IQ Pass return: never cancel the seat booking here — the 30-minute hold
+    // lapses on its own and the player can start again from the IQ Pass page.
+    if (bookingId && !packId) {
       const token = getMarketplaceAccessToken();
       if (token) {
         fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/cancel`), {
@@ -59,6 +62,7 @@ export default function CheckoutCancel() {
               <div className="text-center space-y-5" style={{ padding: '8px 28px 32px' }}>
                 <p style={{ color: MKT.inkSub, lineHeight: 1.55 }}>
                   Your payment was cancelled and no charge was made. You can try booking again whenever you're ready.
+                  {new URLSearchParams(window.location.search).get('pack_id') ? ' Your picked games stay held for 30 minutes, then release on their own — start again from IQ Pass any time.' : ''}
                 </p>
                 <div className="flex gap-3 justify-center flex-wrap pt-1">
                   <Link href="/marketplace/book">

@@ -1359,7 +1359,9 @@ function BookingsSheet({ session, onClose }: { session: Session | null; onClose:
             variant={booking.paymentMethod === 'cash' ? 'secondary' : 'outline'}
             data-testid={`badge-method-${booking.id}`}
           >
-            {booking.paymentMethod === 'cash' ? (
+            {booking.packId ? (
+              <><CreditCard className="h-3 w-3 mr-1" /> IQ Pass</>
+            ) : booking.paymentMethod === 'cash' ? (
               <><Banknote className="h-3 w-3 mr-1" /> Cash</>
             ) : (
               <><CreditCard className="h-3 w-3 mr-1" /> Ziina</>

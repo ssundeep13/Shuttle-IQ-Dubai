@@ -13,6 +13,8 @@ import { getTierDisplayName } from '@shared/utils/skillUtils';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 import { PlayerSearch } from '@/components/marketplace/PlayerSearch';
+import { IqPassTag } from '@/components/marketplace/IqPassTag';
+import { useIqPassTiers } from '@/hooks/useIqPass';
 
 const TAG_CATEGORY_COLOR: Record<string, string> = {
   playing_style: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -148,6 +150,8 @@ export default function Rankings() {
     staleTime: 5 * 60 * 1000,
   });
   const topTagMap = new Map<string, PlayerTopTagEntry>(allTopTags.map(e => [e.playerId, e]));
+  // IQ Pass tier overlay (ruling E5a): one map for every ranking mode; {} while the flag is off.
+  const iqPassTiers = useIqPassTiers();
 
   const { data: allTimePlayers, isLoading: loadingAllTime, isError: errorAllTime, refetch: refetchAllTime } = useQuery<Player[]>({
     queryKey: ['/api/players/public'],
@@ -413,6 +417,7 @@ export default function Rankings() {
                                 <Badge variant="outline" className={`mt-2 ${levelColor(entry.player.level)}`}>
                                   {getTierDisplayName(entry.player.level)}
                                 </Badge>
+                                <IqPassTag tier={iqPassTiers[entry.player.id]} small testid={`tag-iqpass-podium-${entry.player.id}`} />
                                 {(() => {
                                   const topTag = topTagMap.get(entry.player.id);
                                   if (!topTag) return null;
@@ -463,6 +468,7 @@ export default function Rankings() {
                                     <Badge variant="outline" className={`text-[10px] px-1.5 py-0 shrink-0 no-default-hover-elevate no-default-active-elevate ${levelColor(entry.player.level)}`}>
                                       {getTierDisplayName(entry.player.level)}
                                     </Badge>
+                                    <IqPassTag tier={iqPassTiers[entry.player.id]} small testid={`tag-iqpass-${entry.player.id}`} />
                                   </div>
                                 </div>
                                 <div className="text-right shrink-0 space-y-1">

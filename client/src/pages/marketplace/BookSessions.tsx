@@ -11,6 +11,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useIqPassEnabled } from '@/hooks/useIqPass';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
 function isoDate(dateStr: string): string {
@@ -405,6 +406,7 @@ export default function BookSessions() {
     setBirthdayPromptDismissed(true);
   };
   const reduce = !!useReducedMotion();
+  const iqPassEnabled = useIqPassEnabled(); // IQ Pass banner (Gate 6), flag on only
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -518,6 +520,39 @@ export default function BookSessions() {
           </div>
         </Reveal>
 
+        {/* IQ Pass (Gate 6): one line, flag on only. No savings, no per-game maths. */}
+        {iqPassEnabled && (
+          <Reveal>
+            <div
+              data-testid="banner-iq-pass"
+              style={{
+                marginTop: 'clamp(20px, 3vw, 28px)',
+                borderRadius: 14,
+                border: `1px solid ${MKT.navy}1F`,
+                background: '#fff',
+                padding: 'clamp(14px, 2.5vw, 18px) clamp(16px, 3vw, 22px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                gap: 16, flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 18, color: MKT.navy, letterSpacing: '-0.02em' }}>
+                  Lock your month with IQ Pass
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.5, color: MKT.inkSub, marginTop: 2 }}>
+                  4, 8 or 12 games picked up front, any venue, one payment. Move a game until five hours before it starts.
+                </div>
+              </div>
+              <Link
+                href="/marketplace/iq-pass"
+                data-testid="button-iq-pass"
+                style={{ fontFamily: FF_BODY, fontWeight: 600, fontSize: 14, padding: '9px 16px', borderRadius: 9, background: MKT.navy, color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}
+              >
+                See IQ Pass
+              </Link>
+            </div>
+          </Reveal>
+        )}
         {/* Birthday prompt — shown only when the player has no birthday set and
             hasn't dismissed it (localStorage, no DB column). Not a blocking modal. */}
         {user && !user.birthDay && !birthdayPromptDismissed && (

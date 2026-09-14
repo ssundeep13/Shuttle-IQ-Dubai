@@ -8,6 +8,9 @@ import { syncFoundingMemberForUser } from "./venueAwards";
 import { applyDubailandPromo } from "./dubailandPromo";
 import { fireGoodwillCredit } from "./goodwillCredit";
 import { hasCompletedPayment } from "./paidBookingGuard";
+import { isIqPassEnabled } from "./iqPass/flag";
+import { iqPassStore } from "./iqPass/store";
+import { confirmPackByIntentId } from "./iqPass/confirm";
 import type { Booking } from "@shared/schema";
 import {
   sendBookingConfirmationEmail,
@@ -160,8 +163,14 @@ export async function confirmZiinaBookingByIntentId(
 
   const booking = await storage.getBookingByZiinaPaymentIntentId(intentId);
 
-  // No booking found — delegate to the dedicated extra-guest confirmation path
+  // No booking found — an IQ Pass payment (flag on only: the pack lookup never
+  // runs while the flag is off, so that path is byte-identical to before), else
+  // delegate to the dedicated extra-guest confirmation path.
   if (!booking) {
+    if (isIqPassEnabled()) {
+      const pack = await iqPassStore.getPackByIntent(intentId);
+      if (pack) return confirmPackByIntentId(intentId);
+    }
     return confirmGuestByIntentId(intentId);
   }
 

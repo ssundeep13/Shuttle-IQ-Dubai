@@ -1,6 +1,7 @@
 import { Resend } from 'resend';
 import type { BookableSession } from '../shared/schema';
 import { buildChallengeReceivedEmail, challengeEmailIdempotencyKey, type ChallengeReceivedEmailInput } from './challengeEmail';
+import { buildIqPassConfirmationEmail, iqPassConfirmIdempotencyKey, buildIqPassRenewalEmail, buildIqPassFollowupEmail, iqPassRenewalIdempotencyKey, iqPassFollowupIdempotencyKey, type IqPassConfirmationEmailInput, type IqPassRenewalEmailInput } from './iqPassEmail';
 
 const FROM_ADDRESS = 'ShuttleIQ <noreply@shuttleiq.org>';
 
@@ -269,6 +270,42 @@ export async function sendBookingConfirmationEmail(
   }
 }
 
+// ─── IQ Pass confirmation (Gate 2) ───────────────────────────────────────
+// Pure template in iqPassEmail.ts; one email per pack (Resend idempotency
+// key). Never throws — the confirm path must not depend on email.
+export async function sendIqPassConfirmationEmail(toEmail: string, input: IqPassConfirmationEmailInput): Promise<void> {
+  try {
+    const { subject, html } = buildIqPassConfirmationEmail(input);
+    const id = await sendEmail(toEmail, subject, html, iqPassConfirmIdempotencyKey(input.packId));
+    console.log(`[Email] IQ Pass confirmation sent to ${toEmail} (pack ${input.packId}, resend ${id ?? 'n/a'})`);
+  } catch (err) {
+    console.error('[Email] sendIqPassConfirmationEmail failed:', err);
+  }
+}
+
+// ─── IQ Pass renewal + follow-up (Gate 7) ───────────────────────────────
+// One email per pack per kind (Resend idempotency keys). Never throws — the
+// daily job records the failure and retries on its next run.
+export async function sendIqPassRenewalEmail(toEmail: string, input: IqPassRenewalEmailInput): Promise<void> {
+  try {
+    const { subject, html } = buildIqPassRenewalEmail(input);
+    const id = await sendEmail(toEmail, subject, html, iqPassRenewalIdempotencyKey(input.packId));
+    console.log(`[Email] IQ Pass renewal sent to ${toEmail} (pack ${input.packId}, resend ${id ?? 'n/a'})`);
+  } catch (err) {
+    console.error('[Email] sendIqPassRenewalEmail failed:', err);
+  }
+}
+
+export async function sendIqPassFollowupEmail(toEmail: string, input: IqPassRenewalEmailInput): Promise<void> {
+  try {
+    const { subject, html } = buildIqPassFollowupEmail(input);
+    const id = await sendEmail(toEmail, subject, html, iqPassFollowupIdempotencyKey(input.packId));
+    console.log(`[Email] IQ Pass follow-up sent to ${toEmail} (pack ${input.packId}, resend ${id ?? 'n/a'})`);
+  } catch (err) {
+    console.error('[Email] sendIqPassFollowupEmail failed:', err);
+  }
+}
+
 // ─── Challenge received (C6) ─────────────────────────────────────────────
 // Same sender + footer text as the booking confirmation; brand-flat template
 // lives in challengeEmail.ts. One email per challenge id (Resend idempotency
@@ -362,6 +399,7 @@ export async function sendCancellationEmail(
     eventCancelledByAdmin?: boolean;
     paymentMethod?: 'ziina' | 'cash' | string | null;
     walletAmountUsedAed?: number;
+    iqPassRepick?: boolean; // IQ Pass seat: free re-pick wording, no refund block
   },
 ): Promise<void> {
   const adminCancelled = !!options?.eventCancelledByAdmin;
@@ -377,7 +415,13 @@ export async function sendCancellationEmail(
   // Admin cancellation gets an explicit refund block: how much, how it
   // arrives, and the 3–5 working day note for Ziina refunds.
   let adminRefundNote = '';
-  if (adminCancelled && !lateFeeApplied) {
+  if (adminCancelled && options?.iqPassRepick) {
+    // IQ Pass seat: the pass was paid as a whole — no refund; a free re-pick instead.
+    adminRefundNote = `<div style="margin:0 0 20px;font-size:14px;color:#0a2540;line-height:1.7;background-color:#f0f9ff;border-radius:6px;padding:14px 18px;">
+        <p style="margin:0 0 8px;font-weight:600;">Your IQ Pass</p>
+        <p style="margin:0 0 6px;">This game was part of your IQ Pass. Your pass now has a <strong>free re-pick</strong> — choose another game from My Bookings.</p>
+       </div>`;
+  } else if (adminCancelled && !lateFeeApplied) {
     const lines: string[] = [];
     if (paymentMethod === 'ziina' && amountAed > 0) {
       lines.push(`<strong>Full refund of AED ${amountAed.toFixed(2)}</strong> will be issued to the card you paid with via Ziina.`);
