@@ -15,6 +15,8 @@ import {
   aggregateRunnerPay,
   aggregateSocialMediaPayWeekly,
   filterRunnerPayWeeksForRunner,
+  loadPackRevenueRows,
+  aggregatePackRevenueByMonth,
 } from "./portalFinance";
 import { reconcileZiinaCsv, loadReconcileInput } from "./portalReconcile";
 import { buildGrowthReport } from "./portalGrowth";
@@ -171,8 +173,9 @@ export function registerPortalRoutes(app: Express): void {
   // net = collected revenue − session costs − general expenses (NOT floored).
   app.get("/api/portal/finance/pnl", requirePortalAuth, requirePortalOwner, async (_req: Request, res: Response) => {
     try {
-      const [rows, expensesRows] = await Promise.all([loadSessionFinanceRows(), loadGeneralExpenseRows()]);
+      const [rows, expensesRows, packRows] = await Promise.all([loadSessionFinanceRows(), loadGeneralExpenseRows(), loadPackRevenueRows()]);
       const months = aggregateMonthlyPnl(rows, expensesRows, new Date().toISOString().slice(0, 7));
+      const packSales = aggregatePackRevenueByMonth(packRows); // IQ Pass — informational, never in net
       res.json({
         months: months.map((p) => ({
           month: p.month,
@@ -184,6 +187,12 @@ export function registerPortalRoutes(app: Express): void {
           socialMediaPayAed: filsToAed(p.socialMediaPayFils), // 15% of collected profit, every session
           managementProfitAed: filsToAed(p.managementProfitFils), // net − runner pay − social media (can be negative)
           walletPaidAed: filsToAed(p.walletPaidFils), // informational — not in the net formula
+          iqPassRevenueAed: filsToAed(packSales[p.month]?.totalFils ?? 0), // informational — passes are already inside collected revenue via per-seat shares
+          iqPassByTierAed: {
+            club: filsToAed(packSales[p.month]?.byTierFils.club ?? 0),
+            club_plus: filsToAed(packSales[p.month]?.byTierFils.club_plus ?? 0),
+            club_elite: filsToAed(packSales[p.month]?.byTierFils.club_elite ?? 0),
+          },
         })),
       });
     } catch (err: unknown) {

@@ -1,3 +1,4 @@
+import { isCollected, isUnpaidCash, isCardTender, isIqPassTender } from "./revenueClassifier";
 import { 
   type Player, 
   type InsertPlayer, 
@@ -184,6 +185,7 @@ export type PublicAnalyticsResponse = {
     byPaymentMethod: {
       card: { bookings: number; spotsBooked: number; amountAed: number };
       cash: { bookings: number; spotsBooked: number; amountAed: number; collectedAed: number; pendingAed: number };
+      iqPass: { bookings: number; spotsBooked: number; amountAed: number };
     };
   };
   sessions: Array<{
@@ -3695,7 +3697,10 @@ export class DatabaseStorage implements IStorage {
     const waitlisted = bookingRows.filter(b => b.status === 'waitlisted');
     const cancelled = bookingRows.filter(b => b.status === 'cancelled');
 
-    const cardBookings = confirmed.filter(b => b.paymentMethod === 'ziina' || b.paymentMethod === 'bank_transfer'); // Gate BT1: bank transfer = collected
+    // Collected / pending go through the shared classifier (server/revenueClassifier.ts).
+    // "card" stays ziina + bank transfer; IQ Pass seats get their own bucket.
+    const cardBookings = confirmed.filter(isCardTender);
+    const iqPassBookings = confirmed.filter(isIqPassTender);
     const cashBookings = confirmed.filter(b => b.paymentMethod === 'cash');
     const cashPaid = cashBookings.filter(b => b.cashPaid);
     const cashPending = cashBookings.filter(b => !b.cashPaid);
@@ -3730,10 +3735,8 @@ export class DatabaseStorage implements IStorage {
           bookings: conf.length,
           spots: sumField(conf, 'spotsBooked'),
           revenueAed: sumField(conf, 'amountAed'),
-          collectedAed:
-            sumField(conf.filter(b => b.paymentMethod === 'ziina'), 'amountAed') +
-            sumField(conf.filter(b => b.paymentMethod === 'cash' && b.cashPaid), 'amountAed'),
-          pendingCashAed: sumField(conf.filter(b => b.paymentMethod === 'cash' && !b.cashPaid), 'amountAed'),
+          collectedAed: sumField(conf.filter(isCollected), 'amountAed'),
+          pendingCashAed: sumField(conf.filter(isUnpaidCash), 'amountAed'),
         },
         waitlisted: {
           bookings: wait.length,
@@ -3762,10 +3765,8 @@ export class DatabaseStorage implements IStorage {
         confirmedBookings: bkgs.length,
         totalSpotsBooked: sumField(bkgs, 'spotsBooked'),
         revenueChargedAed: sumField(bkgs, 'amountAed'),
-        revenueCollectedAed:
-          sumField(bkgs.filter(b => b.paymentMethod === 'ziina' || b.paymentMethod === 'bank_transfer'), 'amountAed') +
-          sumField(bkgs.filter(b => b.paymentMethod === 'cash' && b.cashPaid), 'amountAed'),
-        revenuePendingCashAed: sumField(bkgs.filter(b => b.paymentMethod === 'cash' && !b.cashPaid), 'amountAed'),
+        revenueCollectedAed: sumField(bkgs.filter(isCollected), 'amountAed'),
+        revenuePendingCashAed: sumField(bkgs.filter(isUnpaidCash), 'amountAed'),
       }));
 
     return {
@@ -3779,8 +3780,8 @@ export class DatabaseStorage implements IStorage {
         confirmedBookings: confirmed.length,
         totalSpotsBooked: sumField(confirmed, 'spotsBooked'),
         revenueChargedAed: sumField(confirmed, 'amountAed'),
-        revenueCollectedAed: sumField(cardBookings, 'amountAed') + sumField(cashPaid, 'amountAed'),
-        revenuePendingCashAed: sumField(cashPending, 'amountAed'),
+        revenueCollectedAed: sumField(confirmed.filter(isCollected), 'amountAed'),
+        revenuePendingCashAed: sumField(confirmed.filter(isUnpaidCash), 'amountAed'),
         cancelledBookings: cancelled.length,
         lateFeesRetainedAed: sumField(cancelled.filter(b => b.lateFeeApplied), 'amountAed'),
         waitlistedBookings: waitlisted.length,
@@ -3796,6 +3797,11 @@ export class DatabaseStorage implements IStorage {
             amountAed: sumField(cashBookings, 'amountAed'),
             collectedAed: sumField(cashPaid, 'amountAed'),
             pendingAed: sumField(cashPending, 'amountAed'),
+          },
+          iqPass: {
+            bookings: iqPassBookings.length,
+            spotsBooked: sumField(iqPassBookings, 'spotsBooked'),
+            amountAed: sumField(iqPassBookings, 'amountAed'),
           },
         },
       },
@@ -3998,13 +4004,12 @@ export class DatabaseStorage implements IStorage {
     const isActive = (b: BRow) => ['confirmed', 'attended'].includes(b.status);
     const confirmed = bookingRows.filter(isActive);
     const cancelled = bookingRows.filter(b => b.status === 'cancelled');
-    const cardRows = confirmed.filter(b => b.paymentMethod === 'ziina');
-    const cashPaidRows = confirmed.filter(b => b.paymentMethod === 'cash' && b.cashPaid);
     const sumAed = (arr: BRow[]) => arr.reduce((s, b) => s + b.amountAed, 0);
 
     const chargedAed = sumAed(confirmed);
-    const collectedAed = sumAed(cardRows) + sumAed(cashPaidRows);
-    const pendingCashAed = sumAed(confirmed.filter(b => b.paymentMethod === 'cash' && !b.cashPaid));
+    // Shared classifier (server/revenueClassifier.ts): ziina, bank transfer, IQ Pass seats, paid cash.
+    const collectedAed = sumAed(confirmed.filter(isCollected));
+    const pendingCashAed = sumAed(confirmed.filter(isUnpaidCash));
     const lateFeesAed = sumAed(cancelled.filter(b => b.lateFeeApplied));
 
     // ── Expenses ──────────────────────────────────────────────────────────
@@ -4065,7 +4070,7 @@ export class DatabaseStorage implements IStorage {
     const revenueByMonth = new Map<string, number>();
     for (const b of confirmed) {
       const m = b.createdAt.toISOString().substring(0, 7);
-      const amt = b.paymentMethod === 'ziina' ? b.amountAed : (b.cashPaid ? b.amountAed : 0);
+      const amt = isCollected(b) ? b.amountAed : 0;
       revenueByMonth.set(m, (revenueByMonth.get(m) ?? 0) + amt);
     }
     const expensesByMonth = new Map<string, number>();

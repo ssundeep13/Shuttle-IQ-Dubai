@@ -11,8 +11,8 @@
 // The pure aggregate* functions take plain rows so tests can pin the bucketing and the
 // 25% zero-floor-per-session pay rule without a DB.
 
-import { bookableSessions, sessionCosts, sessionRunners, expenses } from "@shared/schema";
-import { eq, gte, sql } from "drizzle-orm";
+import { bookableSessions, sessionCosts, sessionRunners, expenses, packs } from "@shared/schema";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { computeSessionProfitsBatchFils } from "./sessionProfit";
 import { isoWeekOf } from "@shared/isoWeek";
 
@@ -146,6 +146,42 @@ export async function loadGeneralExpenseRows(): Promise<GeneralExpenseRow[]> {
     .from(expenses)
     .where(gte(expenses.date, new Date(`${PORTAL_EPOCH_ISO}T00:00:00Z`)));
   return rows.map((r) => ({ dateIso: r.dateIso, amountFils: r.amountAed * 100 }));
+}
+
+// ── IQ Pass sales (informational) ─────────────────────────────────────────────
+// A pass is attributed to the Dubai day it was PAID (purchase), by tier. It is
+// NOT added to net: every pass already sits inside collected revenue as its
+// seats' per-seat allocation on the session dates (revenueClassifier: iq_pass
+// is collected). Paid packs only (active | completed), from the portal epoch.
+export interface PackRevenueRow { paidDateIso: string; tier: string; priceFils: number }
+export type PackRevenueByMonth = Record<string, { totalFils: number; byTierFils: { club: number; club_plus: number; club_elite: number } }>;
+
+export async function loadPackRevenueRows(): Promise<PackRevenueRow[]> {
+  const { db } = await import("../db");
+  const rows = await db
+    .select({
+      paidDateIso: sql<string>`to_char(${packs.paidAt} at time zone 'Asia/Dubai', 'YYYY-MM-DD')`,
+      tier: packs.tier,
+      priceAed: packs.priceAed,
+    })
+    .from(packs)
+    .where(and(
+      sql`${packs.status} IN ('active', 'completed')`,
+      sql`${packs.paidAt} IS NOT NULL`,
+      sql`(${packs.paidAt} at time zone 'Asia/Dubai') >= ${PORTAL_EPOCH_ISO}::timestamp`,
+    ));
+  return rows.map((r) => ({ paidDateIso: r.paidDateIso, tier: r.tier, priceFils: r.priceAed * 100 }));
+}
+
+export function aggregatePackRevenueByMonth(rows: PackRevenueRow[]): PackRevenueByMonth {
+  const out: PackRevenueByMonth = {};
+  for (const r of rows) {
+    const key = r.paidDateIso.slice(0, 7);
+    const m = out[key] ?? (out[key] = { totalFils: 0, byTierFils: { club: 0, club_plus: 0, club_elite: 0 } });
+    m.totalFils += r.priceFils;
+    if (r.tier === 'club' || r.tier === 'club_plus' || r.tier === 'club_elite') m.byTierFils[r.tier] += r.priceFils;
+  }
+  return out;
 }
 
 // ── Pure aggregation (unit-tested) ────────────────────────────────────────────
