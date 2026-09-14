@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 2 — purchase hold, single Ziina payment, atomic confirm, hold expiry (server) · **Tests:** 1301/1301 · **Hard stop pending:** no · **Next action for Sandeep:** none yet (the staging-environment stop comes at the end of Gate 2)
+**Current gate:** 2 — code complete and committed, **staging verification pending** · **Tests:** 1355/1355 · tsc 28 · **Hard stop pending: YES — create the Railway staging environment (ruling E4a)** · **Next action for Sandeep:** the three steps under "HARD STOP 1" below, then reply "staging created"
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -41,6 +41,25 @@ Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherr
 - Commit `04d9d72` on `feature/iq-pass` (not deployed; prod still runs `9cd941d`).
 - **Migration `iq_pass_v1` — dry-run saved, then run for real on production** (ruling E1a pre-approved): registry was "not run", `packs` / `job_runs` absent, `payments.booking_id` nullable NO → all 11 statements ran in one transaction → COMMITTED; read-back shows `packs` (19 columns), `job_runs` (7), `bookings.pack_id` / `moved_from_booking_id` nullable YES, `payments.pack_id` YES, `payments.booking_id` **nullable YES**. Production health 200 afterwards; `/api/marketplace/sessions` 200; `/api/marketplace/config` 404 on the old code (as today). Full outputs: scratch `g1-migration-dry-run.txt` / `g1-migration-run.txt` (session temp), key lines reproduced here.
 - Flag-off proof: `/api/marketplace/config` answers the same JSON 404 as any unknown `/api` path (`server/index.ts:186-191`), so the route table is unchanged while off.
+
+### Gate 2 — purchase hold, single Ziina payment, atomic confirm, hold expiry — CODE DONE, VERIFICATION WAITING ON STAGING
+
+- RED: five files failed at import (`server/iqPass/{purchase,confirm,jobs,store}`, `server/iqPassEmail`), then 53/54 (one pin adjusted to `lastIndexOf` because the hold-gone branch records its payment before the seat-count check), then 54/54; two follow-ups after the full run (schema test needed the JWT env vars once `routes.ts` pulled in the auth middleware; a `Set` spread tripped the TS target) → full suite **1355/1355**, tsc **28**.
+- Code: `server/iqPass/store.ts` (calendar query bounded to the window, `createHold` with `FOR UPDATE` + `validatePicks` under the lock, `confirmTx` all-or-nothing with the RETURNING count check and ONE payments row `{pack_id, booking_id NULL}`, `cancelHold`, `expireHolds`, reconciliation candidates), `purchase.ts` (`buildCalendar`, `startPurchase`, jersey rule, 30-minute hold, intent-failure rollback), `confirm.ts` (hooks once, `iq_pass_active` notification, email), `jobs.ts` (hold expiry every 5 min + waitlist promotion; reconciliation every 10 min, 48 h look-back), `routes.ts` (`createIqPassRouter`: calendar / purchase / confirm poll, all JSON 404 while off), `server/iqPassEmail.ts` + `emailClient.sendIqPassConfirmationEmail` (opening line verbatim, key `iq-pass-confirm/<packId>`), `webhookHandler.ts` (booking → pack (flag on only) → guest), `scheduler.ts` (jobs under `isIqPassEnabled()`), `ziinaReturn.ts` (`pack_id` on every return URL), `marketplace-routes.ts` (router mounted with the private resume-token / deep-link helpers injected; six pack-seat guards: cancel, initiate-payment, cash-paid, payment-not-received, admin-confirm, admin-promote).
+- Commit `b75b272` on `feature/iq-pass` (pushed). Production still runs `9cd941d`; nothing pack-related is deployed there.
+- Flag-off proof: the pack store is never consulted by the webhook while off (test), the scheduler list is unchanged while off (pin), every pack route answers the standard JSON 404 (HTTP test), the return URLs are byte-identical without `packId` (test), and the six guards only fire on rows with `pack_id` (none exist).
+- **Staging verification (pending):** script ready at the session scratchpad `g2-staging-verify.mjs` (`config` → `purchase` → pay with a Ziina test card → `poll` → `verify` → `expiry` → `teardown`).
+
+## HARD STOP 1 — create the Railway staging environment (ruling E4a)
+
+Why now: Gate 2's exit criterion is a real purchase over HTTP with a Ziina **test-mode** intent, and the deployed app can only mint test-mode intents when `NODE_ENV !== 'production'` (`server/ziinaClient.ts:156`). Railway has one environment (production). I will not create a billable environment on your account.
+
+What you do (about five minutes in the Railway dashboard, project ShuttleIQ):
+1. **Environments → New environment → name `staging` → "Duplicate" from `production`.** This copies both services (`shuttleiq-app` + Postgres) with their variables. The new Postgres starts empty — I seed it from a production dump afterwards (Docker `postgres:18` `pg_dump` → `pg_restore`, read-only against production).
+2. In the **staging** `shuttleiq-app` service: **Settings → Source → branch `feature/iq-pass`**, and **Settings → Networking → Generate Domain** (any `*.up.railway.app` name is fine).
+3. Reply **"staging created"** (paste the generated staging domain if handy; nothing secret). I will then set the staging variables myself with the CLI (`NODE_ENV=staging`, `IQ_PASS_ENABLED=true`, `REPLIT_DOMAINS=<staging domain>`, everything else inherited), seed the database, run the Gate 2 verification with TEST PLAYER and a Ziina test card, tear down, and continue with Gate 3.
+
+Cost: one extra web service + one Postgres while it exists (usage-based, small); I will remind you to delete it after Gate 8.
 
 ## Found, not fixed
 
