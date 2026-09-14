@@ -24,7 +24,10 @@ import { formatDubaiTime, paymentDeadline } from '@shared/dubaiTime';
 import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
 import { IqPassMoveDialog } from '@/components/marketplace/IqPassMoveDialog';
 import { useIqPassEnabled } from '@/hooks/useIqPass';
-import { BookingsCalendar, IqPassStrip, PassSeatCard, PastLine, pickStripPack, todayDubai, ymdOf, type MyPackLite, type SeatInfo } from '@/components/marketplace/BookingsCalendar';
+import { NextGameCard, MonthStrip, AgendaWeek, AgendaRow, PlayedSection, EmptyUpcoming, buildStripDays, groupUpcomingByWeek, pickStripPack, playedOf, startOf, type MyPackLite, type SeatInfo } from '@/components/marketplace/MyGames';
+import { todayDubai } from '@/lib/iqPassDates';
+import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
+import { useViewportWidth } from '@/hooks/useViewportWidth';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
@@ -245,7 +248,7 @@ function GuestList({ booking, canManage, onCancelGuest, onEditGuest, isEditPendi
 }
 
 export default function MyBookings() {
-  usePageTitle('My Bookings');
+  usePageTitle('My games');
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const reduce = useReducedMotion();
@@ -275,12 +278,11 @@ export default function MyBookings() {
   const packLabelById = new Map((myPacks?.packs ?? []).map(p => [p.id, p.label] as const));
   const seatCanMove = new Set((myPacks?.packs ?? []).flatMap(p => p.seats.filter(s => s.canMove).map(s => s.bookingId)));
   const [moveTarget, setMoveTarget] = useState<{ bookingId: string; sessionId: string } | null>(null);
-  // Gate 10: the calendar is the default view, the list sits behind a toggle (remembered per device).
-  const [view, setView] = useState<'calendar' | 'list'>(() => { try { return localStorage.getItem('mb_view') === 'list' ? 'list' : 'calendar'; } catch { return 'calendar'; } });
-  const setBookingsView = (v: 'calendar' | 'list') => { setView(v); try { localStorage.setItem('mb_view', v); } catch { /* per-device convenience only */ } };
+  // Gate 13 (My games): the page is built around the next game; each agenda row opens the existing card on demand.
   const today = todayDubai();
-  const [month, setMonth] = useState<string>(today.slice(0, 7));
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
+  const width = useViewportWidth();
+  const wide = width >= 1024;
   const seatInfoById = new Map<string, SeatInfo>((myPacks?.packs ?? []).flatMap(p => p.seats.map(s => [s.bookingId, { label: p.label, canMove: s.canMove, canMoveUntil: s.canMoveUntil ?? null }] as [string, SeatInfo])));
   const stripPack = iqPassEnabled ? pickStripPack(myPacks?.packs ?? [], today) : null;
 
@@ -832,19 +834,13 @@ export default function MyBookings() {
     </div>
   );
 
-  // Gate 10: one renderer for the day panel and the list — past rows collapse to a line,
-  // pass seats get the compact card, drop-ins keep BookingCard exactly as before.
-  const isPastBooking = (b: BookingWithDetails) => b.status === 'cancelled' || sessionEndTime(b) < new Date();
-  const defaultDayFor = (m: string) => bookings.filter(b => b.status !== 'cancelled' && ymdOf(b.session.date).startsWith(m) && ymdOf(b.session.date) >= today).map(b => ymdOf(b.session.date)).sort()[0] ?? null;
-  const panelDay = selectedDay && selectedDay.startsWith(month) ? selectedDay : defaultDayFor(month);
-  const panelBookings = panelDay ? bookings.filter(b => ymdOf(b.session.date) === panelDay) : [];
-  const renderForDay = (b: BookingWithDetails) => isPastBooking(b)
-    ? <PastLine key={b.id} booking={b} />
-    : b.packId
-      ? <PassSeatCard key={b.id} booking={b} seat={seatInfoById.get(b.id) ?? null} onMove={() => setMoveTarget({ bookingId: b.id, sessionId: b.sessionId })}
-          onAddGuest={b.status === 'confirmed' ? () => { setAddGuestBooking(b); setAddGuest(EMPTY_GUEST); setAddGuestPaymentMethod('ziina'); } : undefined} />
-      : <BookingCard key={b.id} booking={b} />;
-
+  // Gate 13: the hero is the earliest game ahead (any live status); rows keep the same order.
+  const nextGame = [...upcoming].sort((a, b) => startOf(a) - startOf(b))[0] ?? null;
+  const passLine = stripPack ? { label: stripPack.label, played: playedOf(stripPack), total: stripPack.gamesTotal } : null;
+  const openGame = (id: string) => {
+    setOpenDetails((o) => ({ ...o, [id]: o[id] ?? false }));
+    document.getElementById(`game-${id}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  };
   return (
     <>
     {moveTarget && (
@@ -866,10 +862,7 @@ export default function MyBookings() {
         <Reveal>
           <div style={{ marginBottom: 28, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
             <div>
-              <h1 style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, 4vw, 40px)', color: MKT.navy, letterSpacing: '-0.03em', display: 'flex', alignItems: 'center', gap: 10 }} data-testid="text-page-title">
-                <Bookmark className="h-7 w-7" style={{ color: MKT.teal }} /> My Bookings
-              </h1>
-              <p style={{ color: MKT.inkSub, fontSize: 14, marginTop: 4 }}>Manage your session bookings</p>
+              <h1 style={{ margin: 0, fontFamily: IQP_FONT, fontWeight: 800, fontSize: 28, color: IQP.navy, letterSpacing: '-0.02em', lineHeight: 1.1 }} data-testid="text-page-title">My games</h1>
             </div>
             {/* #38/#65: the chip shell always renders — it used to mount when
                 /me/wallet resolved (0.046 CLS on slow networks), and a failed
@@ -921,87 +914,31 @@ export default function MyBookings() {
             />
           </Reveal>
         ) : bookings.length === 0 ? (
-          <Reveal>
-            <div style={{ ...cardStyle, padding: 32, textAlign: 'center' }}>
-              <Calendar className="h-12 w-12 mx-auto mb-3" style={{ color: MKT.inkMute }} />
-              <h3 style={{ fontFamily: FF_DISPLAY, fontWeight: 600, fontSize: 20, color: MKT.navy, marginBottom: 6 }}>No bookings yet</h3>
-              <p style={{ fontSize: 14, color: MKT.inkSub, marginBottom: 20 }}>Browse sessions and book your first game.</p>
-              <Link href="/marketplace/book" {...navyBtn('md')} data-testid="button-browse-sessions">
-                Browse Sessions <ArrowRight className="h-4 w-4" />
-              </Link>
-              {iqPassEnabled && (
-                <p style={{ marginTop: 14, fontSize: 14 }}>
-                  <Link href="/marketplace/iq-pass" data-testid="link-empty-iq-pass" style={{ color: MKT.tealText, fontWeight: 600 }}>Or pick a month of games with an IQ Pass</Link>
-                </p>
-              )}
-            </div>
-          </Reveal>
+          <EmptyUpcoming iqPassEnabled={iqPassEnabled} browseHref="/marketplace/book" />
         ) : (
-          <div className="space-y-6">
-            {stripPack && <Reveal><IqPassStrip pack={stripPack} /></Reveal>}
-            <div role="group" aria-label="Bookings view" style={{ display: 'flex', gap: 6 }}>
-              {(['calendar', 'list'] as const).map((v) => (
-                <button key={v} type="button" aria-pressed={view === v} onClick={() => setBookingsView(v)} data-testid={`button-view-${v}`} {...(view === v ? navyBtn('sm') : ghostBtn('sm'))}>
-                  {v === 'calendar' ? 'Calendar' : 'List'}
-                </button>
-              ))}
+          <div data-testid="my-games-layout" style={{ display: 'grid', gridTemplateColumns: wide ? '320px minmax(0, 1fr)' : '1fr', gap: 20, alignItems: 'start' }}>
+            <div style={{ display: 'grid', gap: 14 }}>
+              {nextGame ? (
+                <NextGameCard booking={nextGame} area={nextGame.venueArea ?? null} seat={seatInfoById.get(nextGame.id) ?? null} passLine={nextGame.packId ? passLine : null}
+                  onMove={() => setMoveTarget({ bookingId: nextGame.id, sessionId: nextGame.sessionId })} />
+              ) : (
+                <EmptyUpcoming iqPassEnabled={iqPassEnabled} browseHref="/marketplace/book" />
+              )}
+              <MonthStrip days={buildStripDays(upcoming, today)} today={today} vertical={wide} onPick={openGame} />
             </div>
-            {view === 'calendar' ? (
-              <BookingsCalendar bookings={bookings} month={month} onMonth={(m) => { setMonth(m); setSelectedDay(null); }} today={today} selectedDay={panelDay} onSelectDay={setSelectedDay}>
-                {panelBookings.map((b) => renderForDay(b))}
-              </BookingsCalendar>
-            ) : (
-          <div className="space-y-8">
-            {packSeats.length > 0 && (
-              <div>
-                <Reveal>{sectionHeader('IQ Pass', packSeats.length, <span style={{ width: 0 }} />, 'text-iqpass-title', pill(MKT.tealMist, MKT.tealD))}</Reveal>
-                <div className="space-y-3">
-                  {packSeats.map((b, i) => (
-                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}>{renderForDay(b)}</Reveal>
+            <div style={{ display: 'grid', gap: 16 }}>
+              {groupUpcomingByWeek(upcoming).map((w) => (
+                <AgendaWeek key={w.start} start={w.start} label={w.label}>
+                  {w.rows.map((b) => (
+                    <AgendaRow key={b.id} booking={b} area={b.venueArea ?? null} seat={seatInfoById.get(b.id) ?? null} open={!!openDetails[b.id]}
+                      onToggle={() => setOpenDetails((o) => ({ ...o, [b.id]: !o[b.id] }))} onMove={() => setMoveTarget({ bookingId: b.id, sessionId: b.sessionId })}>
+                      <BookingCard booking={b} />
+                    </AgendaRow>
                   ))}
-                </div>
-              </div>
-            )}
-            {pendingPayment.length > 0 && (
-              <div>
-                <Reveal>{sectionHeader('Payment Required', pendingPayment.length, <Timer className="h-5 w-5" style={{ color: AMBER }} />, 'text-pending-payment-title', pill('#F6E6CC', '#7A4A0E'))}</Reveal>
-                <div className="space-y-3">
-                  {pendingPayment.map((b, i) => (
-                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} /></Reveal>
-                  ))}
-                </div>
-              </div>
-            )}
-            {waitlisted.length > 0 && (
-              <div>
-                <Reveal>{sectionHeader('Waitlisted', waitlisted.length, <ListOrdered className="h-5 w-5" style={{ color: AMBER }} />, 'text-waitlist-title', pill('#F6E6CC', '#7A4A0E'))}</Reveal>
-                <div className="space-y-3">
-                  {waitlisted.map((b, i) => (
-                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} /></Reveal>
-                  ))}
-                </div>
-              </div>
-            )}
-            {active.length > 0 && (
-              <div>
-                <Reveal>{sectionHeader('Upcoming', active.length, <span style={{ width: 0 }} />, 'text-upcoming-title', pill(MKT.tealMist, MKT.tealD))}</Reveal>
-                <div className="space-y-3">
-                  {active.map((b, i) => (
-                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} /></Reveal>
-                  ))}
-                </div>
-              </div>
-            )}
-            {past.length > 0 && (
-              <div>
-                <Reveal>{sectionHeader('Past & Cancelled', past.length, <span style={{ width: 0 }} />, 'text-past-title', pill('rgba(0,30,70,0.06)', MKT.inkSub))}</Reveal>
-                <div className="space-y-2">
-                  {past.map((b) => <PastLine key={b.id} booking={b} />)}
-                </div>
-              </div>
-            )}
-          </div>
-            )}
+                </AgendaWeek>
+              ))}
+              {past.length > 0 && <PlayedSection bookings={past} />}
+            </div>
           </div>
         )}
       </div>

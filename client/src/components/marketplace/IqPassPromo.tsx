@@ -33,17 +33,18 @@ export function IqPassPromoCard({ tiers, href }: { tiers: IqPassTierPublic[]; hr
   );
 }
 
-export function IqPassProgressLine({ label, played, total, href, compact }: { label: string; played: number; total: number; href: string; compact?: boolean }) {
+export function IqPassProgressLine({ label, played, total, href, compact, onDark }: { label: string; played: number; total: number; href: string; compact?: boolean; onDark?: boolean }) {
   const safeTotal = Math.max(1, total);
   const pct = Math.max(0, Math.min(100, Math.round((played / safeTotal) * 100)));
+  const textColour = onDark ? IQP.cream : compact ? IQP.teal : IQP.inkSub;
   return (
     <Link href={href} data-testid="line-iq-pass-progress" aria-label={`IQ Pass ${label}, ${played} of ${total} played, open your pass`}
       style={{ display: 'block', textDecoration: 'none', color: IQP.ink, fontFamily: IQP_FONT, background: compact ? 'transparent' : IQP.white, border: compact ? 'none' : `1px solid ${IQP.line}`, borderRadius: compact ? 0 : 12, padding: compact ? '10px 0 0' : '12px 16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
         {!compact && <span style={{ fontWeight: 700, fontSize: 15, color: IQP.navy }}>IQ Pass</span>}
-        <span data-testid="text-iq-pass-progress" style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: compact ? IQP.teal : IQP.inkSub }}>{label} · {played} of {total} played</span>
+        <span data-testid="text-iq-pass-progress" style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: textColour }}>{label} · {played} of {total} played</span>
       </div>
-      <div aria-hidden="true" style={{ marginTop: 6, height: compact ? 3 : 6, borderRadius: 999, background: IQP.cream, overflow: 'hidden' }}>
+      <div aria-hidden="true" style={{ marginTop: 6, height: compact ? 3 : 6, borderRadius: 999, background: onDark ? 'rgba(255, 255, 255, 0.22)' : IQP.cream, overflow: 'hidden' }}>
         <span data-testid="bar-iq-pass-progress" style={{ display: 'block', width: `${pct}%`, height: '100%', backgroundColor: IQP.teal, borderRadius: 999 }} />
       </div>
     </Link>

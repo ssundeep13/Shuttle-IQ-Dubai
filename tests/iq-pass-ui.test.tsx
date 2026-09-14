@@ -182,7 +182,8 @@ describe('IqPassMoveDialog', () => {
 describe('source pins — bookings page, checkout returns, nav, banner, route', () => {
   const mb = read('client/src/pages/marketplace/MyBookings.tsx');
   it('My Bookings: pack seats get their own section, no cancel / pay-now, a tier label instead of an amount, and Move', () => {
-    expect(mb.includes("sectionHeader('IQ Pass'")).toBe(true);
+    expect(mb).toMatch(/from '@\/components\/marketplace\/MyGames'/); // Gate 13: pass seats are agenda rows with the IQ Pass chip
+    expect(read('client/src/components/marketplace/MyGames.tsx')).toMatch(/chip-iq-pass-\$\{booking\.id\}/);
     expect(mb.includes('const packSeats = upcoming.filter(b => !!b.packId')).toBe(true);
     expect(mb.includes("const active = upcoming.filter(b => b.status !== 'waitlisted' && b.status !== 'pending_payment' && !b.packId)")).toBe(true);
     expect(mb.includes("const pendingPayment = upcoming.filter(b => b.status === 'pending_payment' && !b.packId)")).toBe(true);
