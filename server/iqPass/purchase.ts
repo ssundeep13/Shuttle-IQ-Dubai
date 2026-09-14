@@ -21,7 +21,9 @@ export type PurchaseDeps = {
   getUser(userId: string): Promise<{ id: string; name: string; email: string } | undefined>;
   createHold(input: HoldInput): Promise<{ packId: string; bookingIds: string[] }>;
   attachIntent(packId: string, intentId: string): Promise<void>;
-  cancelHold(packId: string, reason: string): Promise<unknown>;
+  cancelHold(packId: string, reason: string): Promise<{ sessionIds: string[] } | null>;
+  /** Offer a freed seat to the waitlist (the sweep's helper). Optional so older fixtures keep working. */
+  promote?(sessionId: string, maxPromotions: number): Promise<number>;
   mintResumeParam(userId: string, bookingId: string): Promise<string>;
   createIntent(input: { amountAed: number; message: string; successUrl: string; cancelUrl: string; failureUrl: string }): Promise<{ id: string; redirect_url: string }>;
   allowedSchemes(): string[];
@@ -103,6 +105,22 @@ export async function startPurchase(
   const t = IQ_PASS_TIERS[tier];
 
   const all = await deps.getPacksForUser(input.userId);
+  const now = deps.now();
+  // A hold whose 30 minutes are up is superseded here instead of blocking until the sweep runs (Sandeep, 2026-09-14):
+  // cancel it with the sweep's own reason (seats freed) and let the new purchase go ahead. A live hold still blocks.
+  for (const p of all) {
+    if (p.status === 'pending_payment' && new Date(p.holdExpiresAt).getTime() < now.getTime()) {
+      const freed = await deps.cancelHold(p.id, 'hold_expired');
+      if (!freed) return err(409, 'hold_in_progress'); // it stopped being a hold a moment ago (paid or swept) — the caller reloads
+      p.status = 'cancelled';
+      // The freed seats go to the waitlist as the sweep's would — except the sessions this purchase is about to re-take.
+      for (const sid of freed.sessionIds) {
+        if (sessionIds.includes(sid) || !deps.promote) continue;
+        try { await deps.promote(sid, 1); }
+        catch (e) { console.error(`[IQ Pass] waitlist promotion after a superseded hold failed for session ${sid}:`, e instanceof Error ? e.message : e); }
+      }
+    }
+  }
   if (all.some((p) => p.status === 'pending_payment')) return err(409, 'hold_in_progress');
 
   // Jersey: first Club Elite purchase only; size is required then, ignored otherwise.
@@ -127,7 +145,6 @@ export async function startPurchase(
   const user = await deps.getUser(input.userId);
   if (!user) return err(400, 'user_not_found');
 
-  const now = deps.now();
   let hold: { packId: string; bookingIds: string[] };
   try {
     hold = await deps.createHold({

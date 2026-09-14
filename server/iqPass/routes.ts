@@ -30,7 +30,7 @@ export type IqPassRouterDeps = {
   purchase: PurchaseDeps;
   confirm: {
     getPack(id: string): Promise<Pack | undefined>;
-    retrieveIntent(intentId: string): Promise<{ status: string }>;
+    retrieveIntent(intentId: string): Promise<{ status: string; redirect_url?: string; success_url?: string }>;
     isSuccessful(status: string): boolean;
     confirm(intentId: string): Promise<{ confirmed: boolean; alreadyConfirmed?: boolean; error?: string }>;
   };
@@ -83,6 +83,33 @@ export function createIqPassRouter(deps: IqPassRouterDeps): Router {
       if (!deps.confirm.isSuccessful(intent.status)) return res.json({ confirmed: false, status: intent.status });
       return res.json(await deps.confirm.confirm(pack.ziinaPaymentIntentId));
     } catch (e) { return fail(res, 'confirm the IQ Pass', e); }
+  });
+
+  // "Complete payment" (Sandeep, 2026-09-14): reopen the SAME Ziina intent for a hold still awaiting payment.
+  // Owner-only and read-only — nothing is cancelled here (the sweep and the next purchase do that). A lapsed or
+  // swept hold answers 409 hold_expired; money Ziina already took is confirmed through the canonical path.
+  r.post("/api/marketplace/iq-pass/packs/:id/resume", gate, requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      const pack = await deps.confirm.getPack(req.params.id);
+      if (!pack || pack.userId !== req.user!.userId) return res.status(404).json({ error: "Pack not found" });
+      if (pack.status === 'active' || pack.status === 'completed') return res.json({ confirmed: true, alreadyConfirmed: true });
+      if (pack.status !== 'pending_payment') return res.status(409).json({ error: 'hold_expired' }); // swept — nothing to ask Ziina
+      if (!pack.ziinaPaymentIntentId) return res.status(400).json({ error: "No payment associated with this pack" });
+      // Ziina first, the clock second: money that landed after the 30 minutes but before the sweep is confirmed, never discarded.
+      const intent = await deps.confirm.retrieveIntent(pack.ziinaPaymentIntentId);
+      if (deps.confirm.isSuccessful(intent.status)) return res.json(await deps.confirm.confirm(pack.ziinaPaymentIntentId));
+      if (new Date(pack.holdExpiresAt).getTime() <= Date.now()) return res.status(409).json({ error: 'hold_expired' });
+      const dead = ['failed', 'canceled', 'cancelled', 'expired', 'declined', 'rejected'].includes(String(intent.status ?? '').toLowerCase());
+      if (dead || !intent.redirect_url) return res.status(409).json({ error: 'intent_unavailable' });
+      // The intent's return URLs were fixed at purchase for one platform (deep link on native, https on the web);
+      // the other platform cannot land the return, so it is refused rather than sent to a page it cannot come back from.
+      const returnScheme = (req.body ?? {}).returnScheme;
+      const callerNative = typeof returnScheme === 'string' && returnScheme.length > 0;
+      const intentNative = !!intent.success_url && !/^https?:/i.test(intent.success_url);
+      if (callerNative !== intentNative) return res.status(409).json({ error: 'platform_mismatch' });
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ redirectUrl: intent.redirect_url, holdExpiresAt: new Date(pack.holdExpiresAt).toISOString() });
+    } catch (e) { return fail(res, 'reopen the IQ Pass payment', e); }
   });
 
   // ── Gate 4: moves, re-picks, my packs ────────────────────────────────────

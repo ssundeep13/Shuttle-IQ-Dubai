@@ -2874,6 +2874,7 @@ export function registerMarketplaceRoutes(app: Express) {
       now: () => new Date(),
       mintResumeParam: mintPaymentResumeParam,
       createIntent: createZiinaPaymentIntent,
+      promote: promoteWaitlistForFreedSpots,
       allowedSchemes: getAllowedDeepLinkSchemes,
       baseUrl: () => (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 'http://localhost:5000'),
     },

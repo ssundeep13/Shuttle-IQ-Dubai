@@ -109,6 +109,7 @@ export type MyPacksView = {
     jerseyHandedOverAt: Date | null;
     paidAt: Date | null;
     holdExpiresAt: Date;
+    cancellationReason: string | null;
     lastGameDate: string | null;
     seats: Array<{
       bookingId: string;
@@ -656,6 +657,7 @@ export const iqPassStore = {
         jerseyHandedOverAt: p.jerseyHandedOverAt,
         paidAt: p.paidAt,
         holdExpiresAt: p.holdExpiresAt,
+        cancellationReason: p.cancellationReason,
         lastGameDate: last ? dateOnly(last) : null,
         seats: seatViews,
       });

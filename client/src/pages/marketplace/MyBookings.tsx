@@ -24,6 +24,9 @@ import { formatDubaiTime, paymentDeadline } from '@shared/dubaiTime';
 import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
 import { IqPassMoveDialog } from '@/components/marketplace/IqPassMoveDialog';
 import { useIqPassEnabled } from '@/hooks/useIqPass';
+import { useCompleteIqPassPayment } from '@/hooks/useIqPassPending';
+import { IqPassPendingSlot, PICK_AGAIN_HREF, PICK_AGAIN_COPY } from '@/components/marketplace/IqPassPending';
+import { pendingPassOf, holdExpiresLabel } from '@/lib/iqPassPending';
 import { NextGameCard, MonthStrip, AgendaWeek, AgendaRow, PlayedSection, EmptyUpcoming, buildStripDays, groupUpcomingByWeek, pickStripPack, playedOf, startOf, type MyPackLite, type SeatInfo } from '@/components/marketplace/MyGames';
 import { todayDubai } from '@/lib/iqPassDates';
 import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
@@ -282,6 +285,11 @@ export default function MyBookings() {
   const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
   const seatInfoById = new Map<string, SeatInfo>((myPacks?.packs ?? []).flatMap(p => p.seats.map(s => [s.bookingId, { label: p.label, canMove: s.canMove, canMoveUntil: s.canMoveUntil ?? null }] as [string, SeatInfo])));
   const stripPack = iqPassEnabled ? pickStripPack(myPacks?.packs ?? [], today) : null;
+  // A hold awaiting payment takes the hero slot (Complete payment + hold expiry; pick again once it lapses). Read at
+  // render time here; the slot component owns the minute tick, so this page — and the BookingCard declared inside it —
+  // never re-renders on a clock.
+  const pendingPass = iqPassEnabled ? pendingPassOf(myPacks?.packs ?? []) : null;
+  const resume = useCompleteIqPassPayment();
 
   const cancelMutation = useMutation({
     mutationFn: async ({ bookingId, refundMethod }: { bookingId: string; refundMethod?: 'wallet' | 'ziina' }) => {
@@ -601,11 +609,35 @@ export default function MyBookings() {
               </div>
             )}
 
+            {/* IQ Pass hold awaiting payment: the same intent + the hold's expiry; once it lapses, back to the picker */}
+            {isPendingPayment && booking.packId && (() => {
+              // The same page-level state as the hero slot — never recomputed from one pack alone.
+              const state = pendingPass && pendingPass.packId === booking.packId ? pendingPass : null;
+              if (!state) return null;
+              return state.kind === 'pending' ? (
+                <div className="mb-4 mt-3 flex items-center justify-between gap-3 rounded-xl p-3 flex-wrap" style={{ background: MKT.cream, border: `1px solid ${MKT.line}` }} data-testid={`banner-pass-hold-${booking.id}`}>
+                  <div className="min-w-0">
+                    <p style={{ fontSize: 14, fontWeight: 600, color: MKT.navy }}>Your IQ Pass is waiting for payment</p>
+                    <p style={{ fontSize: 12, marginTop: 2, color: MKT.inkSub, fontVariantNumeric: 'tabular-nums' }} data-testid={`text-hold-expires-${booking.id}`}>{holdExpiresLabel(state.holdExpiresAt)}</p>
+                  </div>
+                  <button type="button" onClick={() => { void resume.complete(state.packId); }} disabled={resume.busy} data-testid={`button-complete-pass-payment-${booking.id}`} {...withStyle(navyBtn('sm'), { flex: 'none' })}>
+                    {resume.busy ? 'Opening payment…' : 'Complete payment'}
+                  </button>
+                  {resume.error && <p data-testid={`text-pass-hold-error-${booking.id}`} style={{ width: '100%', fontSize: 12, fontWeight: 600, color: MKT.navy }}>{resume.error}</p>}
+                </div>
+              ) : (
+                <div className="mb-4 mt-3 rounded-xl p-3" style={{ background: MKT.cream, border: `1px solid ${MKT.line}` }} data-testid={`banner-pass-hold-${booking.id}`}>
+                  <p style={{ fontSize: 13, color: MKT.inkSub, marginBottom: 8 }}>The 30-minute hold lapsed before payment landed.</p>
+                  <Link href={PICK_AGAIN_HREF} data-testid={`link-pick-again-${booking.id}`} style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 14px', borderRadius: 10, background: MKT.navy, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>{PICK_AGAIN_COPY}</Link>
+                </div>
+              );
+            })()}
+
             <div className="flex items-center justify-between gap-2 pt-3 flex-wrap" style={{ borderTop: `1px solid ${MKT.line}` }}>
               <div className="flex items-center gap-3 flex-wrap">
                 {booking.packId && (
                   <span style={{ fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 16, color: MKT.navy, letterSpacing: '-0.01em' }} data-testid={`text-booking-iqpass-${booking.id}`}>
-                    IQ Pass{packLabelById.get(booking.packId) ? ` · ${packLabelById.get(booking.packId)}` : ''}{isPendingPayment ? ' — awaiting payment' : ''}
+                    IQ Pass{packLabelById.get(booking.packId) ? ` · ${packLabelById.get(booking.packId)}` : ''}{isPendingPayment ? (pendingPass && pendingPass.packId === booking.packId && pendingPass.kind === 'expired' ? ' — hold expired' : ' — awaiting payment') : ''}
                   </span>
                 )}
                 {!isWaitlisted && !isPendingPayment && !booking.packId && (
@@ -832,7 +864,9 @@ export default function MyBookings() {
   );
 
   // Gate 13: the hero is the earliest game ahead (any live status); rows keep the same order.
-  const nextGame = [...upcoming].sort((a, b) => startOf(a) - startOf(b))[0] ?? null;
+  // A held pass seat is not "your next game" until it is paid — but only while the pending card is there to take the
+  // hero slot; with the packs list unavailable the held seat stays the hero rather than "Nothing booked."
+  const nextGame = upcoming.filter((b) => !(pendingPass && b.packId === pendingPass.packId && b.status === 'pending_payment')).sort((a, b) => startOf(a) - startOf(b))[0] ?? null;
   const passLine = stripPack ? { label: stripPack.label, played: playedOf(stripPack), total: stripPack.gamesTotal } : null;
   const openGame = (id: string) => {
     setOpenDetails((o) => ({ ...o, [id]: o[id] ?? false }));
@@ -911,18 +945,23 @@ export default function MyBookings() {
             />
           </Reveal>
         ) : bookings.length === 0 ? (
-          <EmptyUpcoming iqPassEnabled={iqPassEnabled} browseHref="/marketplace/book" />
+          pendingPass
+            ? <IqPassPendingSlot onDark packs={myPacks?.packs ?? []} onComplete={(id) => { void resume.complete(id); }} busy={resume.busy} error={resume.error} />
+            : <EmptyUpcoming iqPassEnabled={iqPassEnabled} browseHref="/marketplace/book" />
         ) : (
           // One column at every width (2026-09-14): the hero or empty card spans the content width, the horizontal strip
           // sits beneath it, then the agenda and Played. No side-by-side split — the strip never has column content.
           <div data-testid="my-games-layout" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 20, alignItems: 'start' }}>
             <div style={{ display: 'grid', gap: 14 }}>
+              {pendingPass && (
+                <IqPassPendingSlot onDark={!nextGame} packs={myPacks?.packs ?? []} onComplete={(id) => { void resume.complete(id); }} busy={resume.busy} error={resume.error} />
+              )}
               {nextGame ? (
                 <NextGameCard booking={nextGame} area={nextGame.venueArea ?? null} seat={seatInfoById.get(nextGame.id) ?? null} passLine={nextGame.packId ? passLine : null}
                   onMove={() => setMoveTarget({ bookingId: nextGame.id, sessionId: nextGame.sessionId })} />
-              ) : (
+              ) : !pendingPass ? (
                 <EmptyUpcoming iqPassEnabled={iqPassEnabled} browseHref="/marketplace/book" />
-              )}
+              ) : null}
               <MonthStrip days={buildStripDays(upcoming, today)} today={today} onPick={openGame} />
             </div>
             <div style={{ display: 'grid', gap: 16 }}>

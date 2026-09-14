@@ -9,6 +9,10 @@ import { Link } from 'wouter';
 import { apiUrl, getMarketplaceAccessToken } from '@/lib/queryClient';
 import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
 import { useIqPassEnabled } from '@/hooks/useIqPass';
+import { useCompleteIqPassPayment } from '@/hooks/useIqPassPending';
+import { IqPassPendingCard } from '@/components/marketplace/IqPassPending';
+import { pendingPassOf } from '@/lib/iqPassPending';
+import { useMinuteNow } from '@/components/marketplace/MyGames';
 import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
 import { PACK_TIER_ORDER, type PackTier } from '@shared/iqPassTiers';
 import { IqPassMoveDialog, MOVE_ERROR_COPY, dubaiDayLabel, type IqPassCalendarSession } from '@/components/marketplace/IqPassMoveDialog';
@@ -26,7 +30,7 @@ type Calendar = {
 };
 type MyPack = {
   id: string; tier: string; label: string; status: string; gamesTotal: number; repickCredits: number;
-  jerseySize: string | null; jerseyHandedOverAt: string | null; paidAt: string | null; holdExpiresAt: string; lastGameDate: string | null;
+  jerseySize: string | null; jerseyHandedOverAt: string | null; paidAt: string | null; holdExpiresAt: string; cancellationReason: string | null; lastGameDate: string | null;
   seats: Array<{ bookingId: string; sessionId: string; status: string; session: { title: string; venueName: string; date: string; startTime: string; endTime: string }; canMoveUntil: string; canMove: boolean }>;
 };
 
@@ -62,7 +66,8 @@ export default function IqPass() {
   usePageTitle('IQ Pass');
   const enabled = useIqPassEnabled();
   const queryClient = useQueryClient();
-  const [step, setStep] = useState<'home' | 'tiers' | 'picks' | 'review'>('home');
+  // ?pick=1 (the "Hold expired — pick again" link) lands straight on the tier chooser.
+  const [step, setStep] = useState<'home' | 'tiers' | 'picks' | 'review'>(() => (new URLSearchParams(window.location.search).get('pick') === '1' ? 'tiers' : 'home'));
   const [tier, setTier] = useState<PackTier | null>(null);
   const [picks, setPicks] = useState<string[]>([]);
   const [jerseySize, setJerseySize] = useState<string>('');
@@ -88,14 +93,18 @@ export default function IqPass() {
 
   const packs = me.data?.packs ?? [];
   const activePacks = packs.filter((p) => p.status === 'active');
-  const pendingHold = packs.find((p) => p.status === 'pending_payment');
+  // A hold awaiting payment (live → Complete payment; lapsed or swept → pick again); ticks by the minute so it flips on its own.
+  const nowTick = useMinuteNow();
+  const pending = pendingPassOf(packs, nowTick);
+  const resume = useCompleteIqPassPayment();
   const tiers = cal.data?.tiers;
   const games = tier && tiers ? tiers[tier].games : 0;
   const jerseyNeeded = tier === 'club_elite' && !!cal.data?.jerseyEligibleForElite;
   const canContinue = !!tier && picks.length === games && (!jerseyNeeded || JERSEY_SIZES.includes(jerseySize));
   const pickedSessions = picks.map((id) => cal.data?.sessions.find((x) => x.id === id)).filter((x): x is IqPassCalendarSession => !!x);
 
-  const showTiers = step === 'tiers' || (step === 'home' && activePacks.length === 0 && !pendingHold);
+  // While a hold is live or has just lapsed the card stands alone; "pick again" opens the chooser.
+  const showTiers = step === 'tiers' || (step === 'home' && activePacks.length === 0 && pending == null);
 
   const togglePick = (id: string) => {
     setPicks((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length < games ? [...p, id] : p));
@@ -173,11 +182,10 @@ export default function IqPass() {
         )}
 
         {/* ── Passes I hold ── */}
-        {pendingHold && (
-          <div style={card} data-testid={`card-my-pass-${pendingHold.id}`}>
-            <h2 style={h2}>{pendingHold.label} · awaiting payment</h2>
-            <p style={sub}>Your picks are held for 30 minutes from checkout. If you closed the payment page, the hold lapses on its own and you can start again.</p>
-          </div>
+        {/* Only on the home step — never over the picker or the review. */}
+        {step === 'home' && pending && (
+          <IqPassPendingCard state={pending} onComplete={() => { void resume.complete(pending.packId); }} busy={resume.busy} error={resume.error}
+            onPickAgain={pending.kind === 'expired' ? () => { setStep('tiers'); setTier(null); setPicks([]); setError(null); } : undefined} />
         )}
         {activePacks.map((p) => {
           const today = ymdOf(new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString());

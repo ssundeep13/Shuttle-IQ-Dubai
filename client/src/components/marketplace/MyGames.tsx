@@ -19,6 +19,7 @@ import type { BookingWithDetails } from '@shared/schema';
 
 export type MyPackLite = {
   id: string; tier: string; label: string; status: string; gamesTotal: number; lastGameDate: string | null;
+  holdExpiresAt?: string; cancellationReason?: string | null;
   seats: Array<{ bookingId: string; sessionId: string; status: string; canMove: boolean; canMoveUntil?: string | null; session: { title: string; venueName: string; date: string; startTime: string; endTime: string } }>;
 };
 export type SeatInfo = { label: string; canMove: boolean; canMoveUntil: string | null };

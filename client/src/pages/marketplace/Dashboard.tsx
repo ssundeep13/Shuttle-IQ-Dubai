@@ -21,7 +21,10 @@ import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal, navyBtn, ghostBtn, withStyle
 import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 import CommunityFeed from './CommunityFeed';
 import { useIqPassConfig } from '@/hooks/useIqPass';
+import { useMyPacks, useCompleteIqPassPayment } from '@/hooks/useIqPassPending';
 import { IqPassPromoCard, IqPassProgressLine } from '@/components/marketplace/IqPassPromo';
+import { IqPassPendingSlot } from '@/components/marketplace/IqPassPending';
+import { pendingPassOf } from '@/lib/iqPassPending';
 
 // ── Shared styled primitives (look only) ─────────────────────────────────────
 const cardStyle: CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${MKT.navy}12` };
@@ -392,6 +395,10 @@ export default function Dashboard() {
   usePageTitle('Dashboard');
   const { user } = useMarketplaceAuth();
   const iqPass = useIqPassConfig(); // Gate 12: promo card or progress line under the greeting
+  // A hold awaiting payment shows first (Complete payment + hold expiry; pick again once it lapses).
+  const myPacks = useMyPacks();
+  const pendingPass = iqPass.enabled ? pendingPassOf(myPacks.data?.packs ?? []) : null;
+  const resume = useCompleteIqPassPayment();
   const linkedPlayerId = user?.linkedPlayerId;
   const { canInstall, install, showIOSHint } = useInstallPrompt();
   const { toast } = useToast();
@@ -739,7 +746,9 @@ export default function Dashboard() {
         {/* IQ Pass (Gate 12, flag-gated): the promo card while there is no active pass, the progress line while there is one */}
         {iqPass.enabled && (
           <Reveal style={{ marginBottom: 20 }}>
-            {user?.iqPass ? (
+            {pendingPass ? (
+              <IqPassPendingSlot packs={myPacks.data?.packs ?? []} onComplete={(id) => { void resume.complete(id); }} busy={resume.busy} error={resume.error} />
+            ) : user?.iqPass ? (
               <IqPassProgressLine label={user.iqPass.label} played={user.iqPass.gamesPlayed} total={user.iqPass.gamesTotal} href="/marketplace/iq-pass" />
             ) : (
               <IqPassPromoCard tiers={iqPass.tiers} href="/marketplace/iq-pass" />
