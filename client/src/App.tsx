@@ -30,6 +30,7 @@ import MarketplaceSignup from "@/pages/marketplace/MarketplaceSignup";
 import BookSessions from "@/pages/marketplace/BookSessions";
 import SessionDetails from "@/pages/marketplace/SessionDetails";
 import MyBookings from "@/pages/marketplace/MyBookings";
+import IqPass from '@/pages/marketplace/IqPass';
 import MyScores from "@/pages/marketplace/MyScores";
 import FeedScreen from "@/pages/marketplace/FeedScreen";
 import ReferralScreen from "@/pages/marketplace/ReferralScreen";
@@ -248,6 +249,9 @@ function Router() {
           <MarketplaceRoute component={GuestCancel} />
         </Route>
 
+        <Route path="/marketplace/iq-pass">
+          <MarketplaceAuthRoute component={IqPass} />
+        </Route>
         <Route path="/marketplace/my-bookings">
           <MarketplaceAuthRoute component={MyBookings} />
         </Route>

@@ -32,7 +32,15 @@ export type CalendarView = {
   window: { start: string; end: string };
   currentPass: { id: string; tier: PackTier; label: string; gamesTotal: number; lastGameDate: string | null } | null;
   jerseyEligibleForElite: boolean;
+  /** The player-facing tier table (label, games, pass price) — the UI never re-derives money. No allocation here. */
+  tiers: Record<PackTier, { label: string; games: number; priceAed: number }>;
   sessions: Array<CalendarRow & { packSeatsLeft: number; alreadyBooked: boolean }>;
+};
+
+const PUBLIC_TIERS: CalendarView['tiers'] = {
+  club: { label: IQ_PASS_TIERS.club.label, games: IQ_PASS_TIERS.club.games, priceAed: IQ_PASS_TIERS.club.priceAed },
+  club_plus: { label: IQ_PASS_TIERS.club_plus.label, games: IQ_PASS_TIERS.club_plus.games, priceAed: IQ_PASS_TIERS.club_plus.priceAed },
+  club_elite: { label: IQ_PASS_TIERS.club_elite.label, games: IQ_PASS_TIERS.club_elite.games, priceAed: IQ_PASS_TIERS.club_elite.priceAed },
 };
 
 export type PurchaseResult =
@@ -67,6 +75,7 @@ export async function buildCalendar(userId: string, deps: PurchaseDeps): Promise
     window,
     currentPass: current,
     jerseyEligibleForElite: jerseyEligible('club_elite', priorElitePacks(all)),
+    tiers: PUBLIC_TIERS,
     sessions: rows.map((r) => ({
       ...r,
       packSeatsLeft: Math.max(0, packSeatCap(r.capacity) - r.packSeats),
