@@ -4,21 +4,18 @@
 // Every number here is the locked product spec; players never see the
 // per-seat allocation (finance only).
 import { sessionStartEpochMs } from "@shared/sessionTime";
+import { IQ_PASS_TIER_LABELS, PACK_TIER_ORDER, isPackTier, type PackTier } from "@shared/iqPassTiers";
 
-export type PackTier = 'club' | 'club_plus' | 'club_elite';
-
-export const PACK_TIER_ORDER: readonly PackTier[] = ['club', 'club_plus', 'club_elite'] as const;
+export { PACK_TIER_ORDER, isPackTier };
+export type { PackTier };
 
 export const IQ_PASS_TIERS: Record<PackTier, { label: string; games: number; priceAed: number; allocationAed: number }> = {
   // allocationAed × games === priceAed exactly — no rounding drift into finance.
-  club:       { label: 'Club',       games: 4,  priceAed: 188, allocationAed: 47 },
-  club_plus:  { label: 'Club Plus',  games: 8,  priceAed: 360, allocationAed: 45 },
-  club_elite: { label: 'Club Elite', games: 12, priceAed: 516, allocationAed: 43 },
+  // Labels come from shared/iqPassTiers.ts (the client tag reads the same map).
+  club:       { label: IQ_PASS_TIER_LABELS.club,       games: 4,  priceAed: 188, allocationAed: 47 },
+  club_plus:  { label: IQ_PASS_TIER_LABELS.club_plus,  games: 8,  priceAed: 360, allocationAed: 45 },
+  club_elite: { label: IQ_PASS_TIER_LABELS.club_elite, games: 12, priceAed: 516, allocationAed: 43 },
 };
-
-export function isPackTier(x: unknown): x is PackTier {
-  return typeof x === 'string' && (PACK_TIER_ORDER as readonly string[]).includes(x);
-}
 
 /** Club Plus and Club Elite — priority waitlist. */
 export function isPlusOrAbove(tier: PackTier): boolean {

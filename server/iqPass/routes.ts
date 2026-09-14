@@ -29,6 +29,7 @@ export type IqPassRouterDeps = {
   };
   moves?: MoveDeps;
   me?: { getMyPacks(userId: string, now: Date): Promise<MyPacksView> };
+  tiers?: { getActiveTiersPublic(): Promise<Record<string, string>> };
 };
 
 /** All pack routes. The flag gate runs first so a flag-off app never reveals the routes exist. */
@@ -94,6 +95,17 @@ export function createIqPassRouter(deps: IqPassRouterDeps): Router {
       if (!result.ok) return res.status(result.status).json({ error: result.error });
       return res.json({ newBookingId: result.newBookingId });
     } catch (e) { return fail(res, 're-pick the game', e); }
+  });
+
+  // Gate 5: public overlay for Rankings — { playerId: tier } for every linked
+  // player with an active pass. No auth: player ids are already public on the
+  // Rankings projection; no names, no money. 404 while the flag is off.
+  r.get("/api/marketplace/iq-pass/tiers", gate, async (_req: Request, res) => {
+    try {
+      if (!deps.tiers) return fail(res, 'load IQ Pass tiers', new Error('tiers not configured'));
+      res.setHeader("Cache-Control", "no-store");
+      res.json(await deps.tiers.getActiveTiersPublic());
+    } catch (e) { return fail(res, 'load IQ Pass tiers', e); }
   });
 
   r.get("/api/marketplace/iq-pass/me", gate, requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {

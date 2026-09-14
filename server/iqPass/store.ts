@@ -7,9 +7,21 @@ import { randomUUID } from "crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
-import { packs, bookings, bookingGuests, bookableSessions, payments, marketplaceNotifications, type Pack, type Booking } from "@shared/schema";
-import { IQ_PASS_TIERS, MOVE_CUTOFF_MS, validatePicks, type CalendarSession, type PackTier } from "./rules";
+import { packs, bookings, bookingGuests, bookableSessions, payments, marketplaceNotifications, marketplaceUsers, type Pack, type Booking } from "@shared/schema";
+import { IQ_PASS_TIERS, MOVE_CUTOFF_MS, validatePicks, todayDubai, isPackTier, type CalendarSession, type PackTier } from "./rules";
+import { highestTier } from "@shared/iqPassTiers";
 import { sessionStartEpochMs } from "@shared/sessionTime";
+
+/** The player's own active pass, as /auth/me reports it (no prices). */
+export type IqPassSummary = {
+  packId: string;
+  tier: PackTier;
+  label: string;
+  gamesTotal: number;
+  gamesRemaining: number;
+  lastGameDate: string | null;
+  repickCredits: number;
+};
 
 /** Thrown inside createHold when the row-locked re-validation fails (or a unique index fires). */
 export class PickConflictError extends Error {
@@ -299,6 +311,54 @@ export const iqPassStore = {
       }
       return { sessionIds: seats.map((s) => s.sessionId) };
     });
+  },
+
+  // ── Gate 5: tier lookups for the tag ──────────────────────────────────────
+  /** playerId → highest ACTIVE tier, for a batch of linked players (Who's Playing, Play screens). */
+  async getActiveTierByPlayerIds(playerIds: string[]): Promise<Map<string, PackTier>> {
+    const out = new Map<string, PackTier>();
+    if (playerIds.length === 0) return out;
+    const rows = await db
+      .select({ playerId: marketplaceUsers.linkedPlayerId, tier: packs.tier })
+      .from(packs)
+      .innerJoin(marketplaceUsers, eq(marketplaceUsers.id, packs.userId))
+      .where(and(eq(packs.status, 'active'), inArray(marketplaceUsers.linkedPlayerId, playerIds)));
+    const byPlayer = new Map<string, string[]>();
+    for (const r of rows) { if (!r.playerId) continue; const l = byPlayer.get(r.playerId) ?? []; l.push(r.tier); byPlayer.set(r.playerId, l); }
+    for (const [pid, tiers] of Array.from(byPlayer.entries())) { const t = highestTier(tiers); if (t) out.set(pid, t); }
+    return out;
+  },
+
+  /** Every linked player with an ACTIVE pack → tier. Public overlay for Rankings (player ids are already public there). */
+  async getActiveTiersPublic(): Promise<Record<string, PackTier>> {
+    const rows = await db
+      .select({ playerId: marketplaceUsers.linkedPlayerId, tier: packs.tier })
+      .from(packs)
+      .innerJoin(marketplaceUsers, eq(marketplaceUsers.id, packs.userId))
+      .where(and(eq(packs.status, 'active'), sql`${marketplaceUsers.linkedPlayerId} IS NOT NULL`));
+    const byPlayer = new Map<string, string[]>();
+    for (const r of rows) { if (!r.playerId) continue; const l = byPlayer.get(r.playerId) ?? []; l.push(r.tier); byPlayer.set(r.playerId, l); }
+    const out: Record<string, PackTier> = {};
+    for (const [pid, tiers] of Array.from(byPlayer.entries())) { const t = highestTier(tiers); if (t) out[pid] = t; }
+    return out;
+  },
+
+  /** The player's own active pass summary for /auth/me (null when none). */
+  async getActiveTierForUser(userId: string): Promise<IqPassSummary | null> {
+    const active = (await iqPassStore.getPacksForUser(userId)).filter((p) => p.status === 'active');
+    if (active.length === 0) return null;
+    const today = todayDubai(new Date());
+    let best: IqPassSummary | null = null;
+    for (const p of active) {
+      const seats = await iqPassStore.getPackSeatSessions(p.id);
+      const remaining = seats.filter((s) => s.status === 'confirmed' && dateOnly(s.session.date) >= today).length;
+      const last = seats.length ? dateOnly(seats[seats.length - 1].session.date) : null;
+      const tier = isPackTier(p.tier) ? p.tier : 'club';
+      const view: IqPassSummary = { packId: p.id, tier, label: IQ_PASS_TIERS[tier].label, gamesTotal: p.gamesTotal, gamesRemaining: remaining, lastGameDate: last, repickCredits: p.repickCredits };
+      // several active packs (current + next): show the one whose games are still ahead
+      if (!best || (view.gamesRemaining > 0 && (best.gamesRemaining === 0 || (view.lastGameDate ?? '') < (best.lastGameDate ?? '')))) best = view;
+    }
+    return best;
   },
 
   /** A session as the move / re-pick rules see it (live spots). */

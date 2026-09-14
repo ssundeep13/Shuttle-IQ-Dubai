@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import FoundingMemberSeal from '@/components/FoundingMemberSeal';
+import { IqPassTag } from '@/components/marketplace/IqPassTag';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import {
   Calendar, MapPin, Clock, Users, CreditCard, ArrowLeft, AlertTriangle, Info,
@@ -43,6 +44,7 @@ interface SessionPlayer {
   linkedPlayerId: string | null;
   photoUrl: string | null;
   foundingMember?: boolean;
+  iqPassTier?: string | null;
 }
 
 
@@ -162,6 +164,7 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
                   ) : (
                     <span className="text-xs text-muted-foreground">Player</span>
                   )}
+                  <IqPassTag tier={player.iqPassTier} small testid={`tag-iqpass-player-${idx}`} />
                 </div>
               </>
             );

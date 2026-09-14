@@ -42,6 +42,7 @@ import { confirmZiinaBookingByIntentId, confirmGuestByIntentId, confirmPromotedB
 import { hasCompletedPayment } from "./paidBookingGuard";
 import { iqPassConfigHandler, createIqPassRouter } from "./iqPass/routes";
 import { iqPassStore } from "./iqPass/store";
+import { isIqPassEnabled } from "./iqPass/flag";
 import { confirmPackByIntentId } from "./iqPass/confirm";
 import { defaultMoveDeps } from "./iqPass/moves";
 import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
@@ -786,6 +787,17 @@ export function registerMarketplaceRoutes(app: Express) {
         console.error("[VenueAward] founding-member lookup failed:", err instanceof Error ? err.message : err);
       }
 
+      // IQ Pass (Gate 5): the active pass summary, flag on only — the key is
+      // ABSENT (not null) while the flag is off so the payload is unchanged.
+      let iqPass = null;
+      if (isIqPassEnabled()) {
+        try {
+          iqPass = await iqPassStore.getActiveTierForUser(user.id);
+        } catch (err) {
+          console.error("[IQ Pass] profile pass lookup failed:", err instanceof Error ? err.message : err);
+        }
+      }
+
       res.json({
         id: user.id,
         email: user.email,
@@ -807,6 +819,7 @@ export function registerMarketplaceRoutes(app: Express) {
         badgeProgress: badgeInfo?.progress ?? null,
         foundingCourtEarnedDate: badgeInfo?.foundingCourtEarnedDate,
         foundingMember,
+        ...(isIqPassEnabled() ? { iqPass } : {}),
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to get user" });
@@ -2872,6 +2885,7 @@ export function registerMarketplaceRoutes(app: Express) {
     },
     moves: defaultMoveDeps,
     me: { getMyPacks: (userId, now) => iqPassStore.getMyPacks(userId, now) },
+    tiers: { getActiveTiersPublic: () => iqPassStore.getActiveTiersPublic() },
   }));
 
   app.get("/api/marketplace/sessions", async (_req, res) => {
@@ -4671,6 +4685,15 @@ export function registerMarketplaceRoutes(app: Express) {
         } catch (err) {
           console.error('[VenueAward] suggestion seal lookup failed:', err instanceof Error ? err.message : err);
         }
+        // IQ Pass tier tag (Gate 5), flag on only.
+        let iqPassTiers = new Map<string, string>();
+        if (isIqPassEnabled()) {
+          try {
+            iqPassTiers = await iqPassStore.getActiveTierByPlayerIds(playerIds);
+          } catch (err) {
+            console.error('[IQ Pass] suggestion tier lookup failed:', err instanceof Error ? err.message : err);
+          }
+        }
 
         // Identify which team the requesting player is on so the frontend can
         // render "Your team" vs "Opponents" from the player's perspective.
@@ -4699,6 +4722,7 @@ export function registerMarketplaceRoutes(app: Express) {
               team: p.team,
               badge: badgeByPlayerId.get(p.playerId) ?? null,
               foundingMember: foundingSeals.has(p.playerId),
+              ...(isIqPassEnabled() ? { iqPassTier: iqPassTiers.get(p.playerId) ?? null } : {}),
             })),
           },
         });
@@ -5259,7 +5283,7 @@ export function registerMarketplaceRoutes(app: Express) {
       const sessionBookings = await storage.getSessionBookings(req.params.id);
       const confirmedBookings = sessionBookings.filter(b => b.status === 'confirmed' || b.status === 'attended');
 
-      const playerEntries: Array<{ name: string; level: string | null; skillScore: number | null; linkedPlayerId: string | null; photoUrl: string | null; isGuest?: boolean; foundingMember?: boolean }> = [];
+      const playerEntries: Array<{ name: string; level: string | null; skillScore: number | null; linkedPlayerId: string | null; photoUrl: string | null; isGuest?: boolean; foundingMember?: boolean; iqPassTier?: string | null }> = [];
 
       for (const booking of confirmedBookings) {
         let level: string | null = null;
@@ -5333,6 +5357,20 @@ export function registerMarketplaceRoutes(app: Express) {
         }
       } catch (err) {
         console.error('[VenueAward] whos-playing seal lookup failed:', err instanceof Error ? err.message : err);
+      }
+
+      // IQ Pass tier tag (Gate 5), flag on only, guarded like the seal lookup.
+      if (isIqPassEnabled()) {
+        try {
+          const tiers = await iqPassStore.getActiveTierByPlayerIds(
+            playerEntries.map(p => p.linkedPlayerId).filter((id): id is string => Boolean(id)),
+          );
+          for (const entry of playerEntries) {
+            entry.iqPassTier = entry.linkedPlayerId ? (tiers.get(entry.linkedPlayerId) ?? null) : null;
+          }
+        } catch (err) {
+          console.error('[IQ Pass] whos-playing tier lookup failed:', err instanceof Error ? err.message : err);
+        }
       }
 
       res.json(playerEntries);

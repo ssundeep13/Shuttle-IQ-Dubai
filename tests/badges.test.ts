@@ -132,7 +132,7 @@ describe('DB read path + wiring (tripwires)', () => {
 
   it('/auth/me carries the badge block, guarded so badge failure never breaks the profile', () => {
     const at = routes.indexOf('"/api/marketplace/auth/me"');
-    const handler = routes.slice(at, at + 2200);
+    const handler = routes.slice(at, at + 3200); // window widened for the IQ Pass block (Gate 5) — assertions unchanged
     expect(handler.includes('badgeInfo = await getBadgeForUser(user.id)')).toBe(true);
     expect(handler.includes('badge: badgeInfo?.badge ?? null')).toBe(true);
     expect(handler.includes('badgeProgress: badgeInfo?.progress ?? null')).toBe(true);

@@ -32,6 +32,16 @@ interface MarketplaceUser {
     awardedAt: string;
     seenAt: string | null;
   } | null;
+  // IQ Pass (Gate 5) — present only while the server flag is on; no prices.
+  iqPass?: {
+    packId: string;
+    tier: string;
+    label: string;
+    gamesTotal: number;
+    gamesRemaining: number;
+    lastGameDate: string | null;
+    repickCredits: number;
+  } | null;
 }
 
 interface MarketplaceAuthContextType {

@@ -23,6 +23,7 @@ import { apiRequest } from '@/lib/queryClient';
 import type { PlayerStats, OpponentStats, PartnerStats, ScoreDispute, PlayerTopTag } from '@shared/schema';
 import TagPlayersDialog from '@/components/TagPlayersDialog';
 import { ChallengesCard } from '@/components/ChallengesCard';
+import { IqPassTag } from '@/components/marketplace/IqPassTag';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
@@ -335,6 +336,7 @@ export default function MyScores() {
                     {stats.player.shuttleIqId}
                   </span>
                 )}
+                <IqPassTag tier={user?.iqPass?.tier} small testid="tag-scores-iqpass" />
                 <span style={{ color: MKT.inkSub, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {stats.player.gender === 'Male' ? 'M' : 'F'} &middot; {getTierDisplayName(stats.player.level)} ({stats.player.skillScore})
                 </span>
