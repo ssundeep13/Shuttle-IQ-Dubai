@@ -2822,7 +2822,7 @@ export class DatabaseStorage implements IStorage {
       .groupBy(payments.bookingId);
     const map: Record<string, number> = {};
     for (const row of rows) {
-      map[row.bookingId] = row.total;
+      if (row.bookingId) map[row.bookingId] = row.total; // IQ Pass: pack payment rows have no booking_id (filtered out above; type-only guard)
     }
     return map;
   }

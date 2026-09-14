@@ -40,6 +40,7 @@ import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId, confirmPromotedBookingIfPaid } from "./webhookHandler";
 import { hasCompletedPayment } from "./paidBookingGuard";
+import { iqPassConfigHandler } from "./iqPass/routes";
 import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
 import { isBirthdayDiscountAvailable } from "@shared/birthday";
@@ -2842,6 +2843,10 @@ export function registerMarketplaceRoutes(app: Express) {
   // ============================================================
   // BOOKABLE SESSIONS
   // ============================================================
+
+  // IQ Pass: the client learns the flag here. 404 while the flag is off — the
+  // same JSON 404 an unknown /api path already returns (server/index.ts).
+  app.get("/api/marketplace/config", iqPassConfigHandler);
 
   app.get("/api/marketplace/sessions", async (_req, res) => {
     try {

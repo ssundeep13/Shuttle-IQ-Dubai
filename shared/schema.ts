@@ -480,6 +480,10 @@ export const bookings = pgTable("bookings", {
   // idempotency guard that prevents a second refund of the same booking.
   refundMethod: text("refund_method"),
   walletRefundedAt: timestamp("wallet_refunded_at"),
+  // IQ Pass: set on every pack seat (packs.id); moved_from_booking_id is the
+  // audit trail for a move / re-pick (the cancelled seat it replaced).
+  packId: varchar("pack_id"),
+  movedFromBookingId: varchar("moved_from_booking_id"),
 }, (table) => [
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)
@@ -513,7 +517,11 @@ export type BookingGuest = typeof bookingGuests.$inferSelect;
 // Payments
 export const payments = pgTable("payments", {
   id: varchar("id").primaryKey(),
-  bookingId: varchar("booking_id").notNull(),
+  // IQ Pass (ruling E1a): NULL on the single pack payment row, which carries
+  // pack_id instead. Every per-booking reader filters by booking_id and so
+  // never sees pack money against one seat.
+  bookingId: varchar("booking_id"),
+  packId: varchar("pack_id"),
   ziinaPaymentIntentId: text("ziina_payment_intent_id"),
   amount: integer("amount").notNull(),
   currency: text("currency").notNull().default('aed'),
@@ -1223,3 +1231,53 @@ export const challenges = pgTable("challenges", {
     .where(sql`status IN ('pending', 'accepted')`),
 ]);
 export type Challenge = typeof challenges.$inferSelect;
+
+// ─── IQ Pass (Gate 1) ────────────────────────────────────────────────────────
+// One row per pass purchase. Lifecycle: pending_payment (30-minute hold, seats
+// reserved as pending_payment bookings with pack_id) → active (single Ziina
+// payment confirmed, seats confirmed atomically) → completed (last picked game
+// is past) | cancelled (hold expired / intent failed / admin). window_* are
+// Dubai calendar days as text, like session_series.origin_date. Timestamps are
+// timestamptz (house style for new tables since C1).
+export const packs = pgTable("packs", {
+  id: varchar("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  tier: text("tier").notNull(), // 'club' | 'club_plus' | 'club_elite'
+  gamesTotal: integer("games_total").notNull(),
+  priceAed: integer("price_aed").notNull(),
+  status: text("status").notNull().default('pending_payment'),
+  ziinaPaymentIntentId: text("ziina_payment_intent_id"),
+  windowStart: text("window_start").notNull(),
+  windowEnd: text("window_end").notNull(),
+  holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }).notNull(),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancellationReason: text("cancellation_reason"),
+  repickCredits: integer("repick_credits").notNull().default(0),
+  jerseySize: text("jersey_size"),
+  jerseyHandedOverAt: timestamp("jersey_handed_over_at", { withTimezone: true }),
+  renewalEmailSentAt: timestamp("renewal_email_sent_at", { withTimezone: true }),
+  followupEmailSentAt: timestamp("followup_email_sent_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('idx_packs_user_status').on(t.userId, t.status),
+  uniqueIndex('uq_packs_intent').on(t.ziinaPaymentIntentId).where(sql`ziina_payment_intent_id IS NOT NULL`),
+  uniqueIndex('uq_packs_one_hold').on(t.userId).where(sql`status = 'pending_payment'`),
+]);
+export type Pack = typeof packs.$inferSelect;
+export type InsertPack = typeof packs.$inferInsert;
+
+// Ledger for scheduled jobs (first user: the IQ Pass renewal job). One row per
+// run: running → ok | error, with counts in details.
+export const jobRuns = pgTable("job_runs", {
+  id: varchar("id").primaryKey(),
+  jobName: text("job_name").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  status: text("status").notNull().default('running'), // 'running' | 'ok' | 'error'
+  details: jsonb("details"),
+  error: text("error"),
+}, (t) => [
+  index('idx_job_runs_name_started').on(t.jobName, t.startedAt),
+]);
+export type JobRun = typeof jobRuns.$inferSelect;
