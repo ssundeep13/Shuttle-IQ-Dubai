@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 3 — finance (shared collected-revenue helper, portal line) while staging is sorted; Gate 2 staging verification still pending · **Tests:** 1358/1358 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown
+**Current gate:** 4 — moves, re-picks, session-cancel hook, priority waitlist (server); Gate 2 staging verification still pending · **Tests:** 1377/1377 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -61,6 +61,15 @@ What you do (about five minutes in the Railway dashboard, project ShuttleIQ):
 
 Cost: one extra web service + one Postgres while it exists (usage-based, small); I will remind you to delete it after Gate 8.
 
+### Gate 3 — finance: one classifier, IQ Pass sales line, reconcile — DONE (2026-09-14, feature branch; verified against production data)
+
+- RED: `tests/iq-pass-finance.test.ts` failed at import (`server/revenueClassifier` absent) → after the splice 64/66 (my call-site pins looked for `isCollected(` but the sites pass the function by reference) → 66/66. Two knock-ons: a double comma my import regex left in `portalRoutes.ts` (broke three portal test files at load), and `tests/bank-transfer-confirm.test.tsx:146` pinned the literal predicates the amendment replaces — re-pinned to the classifier (`COLLECTED_METHODS` / `CARD_METHODS` contain `bank_transfer`; both storage blocks use `isCollected`). Full suite **1377/1377**, tsc **28**.
+- Amendment 1 delivered: `server/revenueClassifier.ts` (`classifyRevenue`, `isCollected`, `isUnpaidCash`, `isCardTender`, `isIqPassTender`) is used at every site — `sessionProfit.ts` bucket switch + refund lookup, `getPublicAnalytics` per-session / monthly / totals / card bucket, `getFinanceSummary` collected / pending / monthly — and the test asserts no `'ziina'` literal survives in those slices. No pack code reads `amount_aed`.
+- Side effects worth knowing: the per-session public analytics block and the admin finance summary now count `bank_transfer` as collected (they had missed the BT1 update — a correction, not a behaviour change for any other method); the refund lookup in `sessionProfit` now also nets refunds on bank-transfer and pack seats.
+- Portal: `loadPackRevenueRows` (paid packs, Dubai day of `paid_at`, from the epoch) + `aggregatePackRevenueByMonth`; `/api/portal/finance/pnl` emits `iqPassRevenueAed` + `iqPassByTierAed` (informational, never in net — a pass is already inside collected revenue via its seats' allocation); `client/portal/pages.tsx` shows "IQ Pass sales (info)" with the tier split on hover and a footnote. Reconcile: pack payment rows match the pack price; a pack seat that took a guest charge compares against amount − allocation (`expectedCardFilsForBooking`); `loadReconcileInput` joins `packs` twice. Admin bookings panel badge reads "IQ Pass" for pack seats.
+- Commit `4e03bcd` on `feature/iq-pass`.
+- **Verification (production database, feature-branch code run locally, one TEST PLAYER row, deleted):** Smash 16 Sep (`f06f3e33`): public totals collected 98 → **145**, `byPaymentMethod.iqPass` 0 → **1 booking / AED 47**, per-session collected 98 → **145**, portal session profit revenue 9,800 → **14,500 fils**, admin finance summary (this month) collected 12,397 → **12,444**; `loadReconcileInput` (1,377 payments) and `loadPackRevenueRows` (0 paid packs) ran cleanly against the live schema. Teardown: 1 row deleted; 0 `iq_pass` rows remain on production.
+
 ## Staging check (2026-09-14, after "staging created")
 
 - **Not found.** `railway environment list --json` and a direct GraphQL query of project ShuttleIQ (`f6a94abd…`) both return exactly one environment, `production` (`895e5ecd…`, created 2026-05-24). The account's only other project (arthadao) also has only `production`. Nothing named `staging` exists as far as the CLI token (workspace "ssundeep13's Projects") can see, so no staging variable could be read and **the DATABASE_URL confirmation is still pending**. Likely causes: the duplicate dialog was not confirmed, or the environment was created in a different Railway account/workspace than the one the CLI is logged into. Nothing was created or changed by me (hard stop respected).
@@ -75,6 +84,7 @@ Cost: one extra web service + one Postgres while it exists (usage-based, small);
 
 ## Found, not fixed
 
+- **Admin bookings badge:** `client/src/pages/SessionsManagement.tsx` shows "Ziina" for every non-cash method, so a `bank_transfer` booking reads "Ziina" (pre-existing since BT1). Pack seats now read "IQ Pass"; the bank-transfer label was left as is.
 - **Brand drift (app-wide):** `MKT.navy` is `#002C84` and `MKT.cream` is `#F2ECE1` where the IQ Pass brief specifies `#003E8C` / `#F5EFE0`; `index.css --primary` is also `#002C84`. Every existing marketplace screen uses the drifted values and `tests/gate2-typography-brand.test.tsx:141-150` enforces them. Not changed (out of scope); IQ Pass screens use `IQP`.
 
 - Pre-fix data only: a booking whose `ziina_payment_intent_id` was overwritten by a second `initiate-payment` before this fix has a completed payments row under the first intent. `confirmPromotedBookingIfPaid` looks the booking up by that intent, misses, and returns false; `initiate-payment` now 409s, so the admin path (Confirm Payment) is the way through. No such rows exist today (Owais was repaired by hand on 3 Sep).
