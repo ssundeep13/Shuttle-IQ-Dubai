@@ -1,7 +1,7 @@
 import { Resend } from 'resend';
 import type { BookableSession } from '../shared/schema';
 import { buildChallengeReceivedEmail, challengeEmailIdempotencyKey, type ChallengeReceivedEmailInput } from './challengeEmail';
-import { buildIqPassConfirmationEmail, iqPassConfirmIdempotencyKey, type IqPassConfirmationEmailInput } from './iqPassEmail';
+import { buildIqPassConfirmationEmail, iqPassConfirmIdempotencyKey, buildIqPassRenewalEmail, buildIqPassFollowupEmail, iqPassRenewalIdempotencyKey, iqPassFollowupIdempotencyKey, type IqPassConfirmationEmailInput, type IqPassRenewalEmailInput } from './iqPassEmail';
 
 const FROM_ADDRESS = 'ShuttleIQ <noreply@shuttleiq.org>';
 
@@ -280,6 +280,29 @@ export async function sendIqPassConfirmationEmail(toEmail: string, input: IqPass
     console.log(`[Email] IQ Pass confirmation sent to ${toEmail} (pack ${input.packId}, resend ${id ?? 'n/a'})`);
   } catch (err) {
     console.error('[Email] sendIqPassConfirmationEmail failed:', err);
+  }
+}
+
+// ─── IQ Pass renewal + follow-up (Gate 7) ───────────────────────────────
+// One email per pack per kind (Resend idempotency keys). Never throws — the
+// daily job records the failure and retries on its next run.
+export async function sendIqPassRenewalEmail(toEmail: string, input: IqPassRenewalEmailInput): Promise<void> {
+  try {
+    const { subject, html } = buildIqPassRenewalEmail(input);
+    const id = await sendEmail(toEmail, subject, html, iqPassRenewalIdempotencyKey(input.packId));
+    console.log(`[Email] IQ Pass renewal sent to ${toEmail} (pack ${input.packId}, resend ${id ?? 'n/a'})`);
+  } catch (err) {
+    console.error('[Email] sendIqPassRenewalEmail failed:', err);
+  }
+}
+
+export async function sendIqPassFollowupEmail(toEmail: string, input: IqPassRenewalEmailInput): Promise<void> {
+  try {
+    const { subject, html } = buildIqPassFollowupEmail(input);
+    const id = await sendEmail(toEmail, subject, html, iqPassFollowupIdempotencyKey(input.packId));
+    console.log(`[Email] IQ Pass follow-up sent to ${toEmail} (pack ${input.packId}, resend ${id ?? 'n/a'})`);
+  } catch (err) {
+    console.error('[Email] sendIqPassFollowupEmail failed:', err);
   }
 }
 

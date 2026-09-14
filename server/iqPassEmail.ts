@@ -87,3 +87,81 @@ export function buildIqPassConfirmationEmail(input: IqPassConfirmationEmailInput
 </html>`;
   return { subject, html };
 }
+
+// ─── Renewal + follow-up (Gate 7) ───────────────────────────────────────────
+export const IQ_PASS_PAGE_LINK = 'https://shuttleiq.ai/marketplace/iq-pass';
+export const iqPassRenewalIdempotencyKey = (packId: string): string => `iq-pass-renewal/${packId}`;
+export const iqPassFollowupIdempotencyKey = (packId: string): string => `iq-pass-followup/${packId}`;
+
+export interface IqPassRenewalEmailInput {
+  packId: string;
+  name: string;
+  tierLabel: string;
+  lastGameDate: string; // 'YYYY-MM-DD' Dubai calendar day
+}
+
+/** "Wed 30 Sep" from a 'YYYY-MM-DD' Dubai day. */
+export function formatDubaiDay(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return `${WEEKDAYS[dt.getUTCDay()]} ${d} ${MONTHS[m - 1]}`;
+}
+
+function nudgeHtml(heading: string, lead: string, body: string, cta: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#F2ECE1;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#F2ECE1;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;">
+        <tr><td style="background-color:#002C84;padding:28px 40px;">
+          <p style="margin:0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">ShuttleIQ</p>
+          <p style="margin:4px 0 0;font-size:13px;color:#C7D2F0;">IQ Pass</p>
+        </td></tr>
+        <tr><td style="padding:32px 40px;">
+          <p style="margin:0 0 12px;font-size:17px;font-weight:600;color:#002C84;line-height:1.5;">${esc(heading)}</p>
+          <p style="margin:0 0 16px;font-size:15px;color:#5C6577;line-height:1.6;">${esc(lead)}</p>
+          <p style="margin:0 0 24px;font-size:15px;color:#1A1F2B;line-height:1.6;">${esc(body)}</p>
+          <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+            <tr><td style="background-color:#00766C;border-radius:6px;">
+              <a href="${IQ_PASS_PAGE_LINK}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">${esc(cta)}</a>
+            </td></tr>
+          </table>
+          <p style="margin:0;font-size:13px;color:#5C6577;line-height:1.6;">Games are picked up front from the next four weeks, any venue, one payment.</p>
+        </td></tr>
+        <tr><td style="padding:20px 40px;background-color:#F9F5EC;">
+          <p style="margin:0;font-size:12px;color:#626A7C;">ShuttleIQ · Dubai</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
+export function buildIqPassRenewalEmail(input: IqPassRenewalEmailInput): { subject: string; html: string } {
+  const day = formatDubaiDay(input.lastGameDate);
+  return {
+    subject: `Your IQ Pass wraps up on ${day} — lock your next month`,
+    html: nudgeHtml(
+      `Your ${input.tierLabel} pass plays its last game on ${day}.`,
+      `Hi ${input.name}, your next pass opens the day after that game.`,
+      'Pick your games now and keep your place on court — the calendar for your next four weeks is ready.',
+      'Pick my next month',
+    ),
+  };
+}
+
+export function buildIqPassFollowupEmail(input: IqPassRenewalEmailInput): { subject: string; html: string } {
+  const day = formatDubaiDay(input.lastGameDate);
+  return {
+    subject: 'Ready for another month on court?',
+    html: nudgeHtml(
+      `Your ${input.tierLabel} pass finished on ${day}.`,
+      `Hi ${input.name}, whenever you're ready, a new IQ Pass locks your next four weeks in one go.`,
+      'Pick the games you want, pay once, and your month is set.',
+      'See IQ Pass',
+    ),
+  };
+}

@@ -3,7 +3,7 @@
 // real auth middleware. With the flag off every handler answers the same JSON
 // 404 the app already returns for an unknown /api path (server/index.ts).
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { requireAuth, requireMarketplaceAuth, type AuthRequest } from "../auth/middleware";
+import { requireAuth, requireMarketplaceAuth, requireAdmin, type AuthRequest } from "../auth/middleware";
 import { isIqPassEnabled } from "./flag";
 import { buildCalendar, startPurchase, type PurchaseDeps } from "./purchase";
 import { moveSeat, repickSeat, type MoveDeps } from "./moves";
@@ -30,6 +30,10 @@ export type IqPassRouterDeps = {
   moves?: MoveDeps;
   me?: { getMyPacks(userId: string, now: Date): Promise<MyPacksView> };
   tiers?: { getActiveTiersPublic(): Promise<Record<string, string>> };
+  admin?: {
+    listPacks(): Promise<unknown[]>;
+    markJerseyHandedOver(packId: string, at: Date): Promise<{ id: string; jerseyHandedOverAt: Date | string | null } | null>;
+  };
 };
 
 /** All pack routes. The flag gate runs first so a flag-off app never reveals the routes exist. */
@@ -106,6 +110,24 @@ export function createIqPassRouter(deps: IqPassRouterDeps): Router {
       res.setHeader("Cache-Control", "no-store");
       res.json(await deps.tiers.getActiveTiersPublic());
     } catch (e) { return fail(res, 'load IQ Pass tiers', e); }
+  });
+
+  // Gate 7: admin — every pack with its buyer; mark a Club Elite jersey handed over.
+  r.get("/api/admin/iq-pass/packs", gate, requireAuth, requireAdmin, async (_req: AuthRequest, res) => {
+    try {
+      if (!deps.admin) return fail(res, 'list IQ Pass packs', new Error('admin not configured'));
+      res.setHeader("Cache-Control", "no-store");
+      res.json(await deps.admin.listPacks());
+    } catch (e) { return fail(res, 'list IQ Pass packs', e); }
+  });
+
+  r.post("/api/admin/iq-pass/packs/:id/jersey-handed-over", gate, requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!deps.admin) return fail(res, 'mark the jersey handed over', new Error('admin not configured'));
+      const out = await deps.admin.markJerseyHandedOver(req.params.id, new Date());
+      if (!out) return res.status(404).json({ error: "Pack not found" });
+      res.json(out);
+    } catch (e) { return fail(res, 'mark the jersey handed over', e); }
   });
 
   r.get("/api/marketplace/iq-pass/me", gate, requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {

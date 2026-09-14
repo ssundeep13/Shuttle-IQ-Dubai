@@ -22,6 +22,7 @@ import Home from "@/pages/Home";
 import NotFound from "@/pages/not-found";
 import Login from "@/pages/Login";
 import SessionsManagement from "@/pages/SessionsManagement";
+import IqPassAdmin from "@/pages/IqPassAdmin";
 import PlayerProfile from "@/pages/PlayerProfile";
 import PlayerRegistry from "@/pages/PlayerRegistry";
 import MarketplaceHome from "@/pages/marketplace/MarketplaceHome";
@@ -189,6 +190,11 @@ function Router() {
         <Route path="/admin/sessions">
           <ProtectedRoute>
             <SessionsManagement />
+          </ProtectedRoute>
+        </Route>
+        <Route path="/admin/iq-pass">
+          <ProtectedRoute>
+            <IqPassAdmin />
           </ProtectedRoute>
         </Route>
         <Route path="/admin/marketplace"><Redirect to="/admin" /></Route>

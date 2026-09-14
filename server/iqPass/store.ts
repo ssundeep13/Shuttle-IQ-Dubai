@@ -7,10 +7,30 @@ import { randomUUID } from "crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { storage } from "../storage";
-import { packs, bookings, bookingGuests, bookableSessions, payments, marketplaceNotifications, marketplaceUsers, type Pack, type Booking } from "@shared/schema";
+import { packs, bookings, bookingGuests, bookableSessions, payments, marketplaceNotifications, marketplaceUsers, jobRuns, type Pack, type Booking } from "@shared/schema";
 import { IQ_PASS_TIERS, MOVE_CUTOFF_MS, validatePicks, todayDubai, isPackTier, type CalendarSession, type PackTier } from "./rules";
 import { highestTier } from "@shared/iqPassTiers";
 import { sessionStartEpochMs } from "@shared/sessionTime";
+
+/** One row of the admin pack list. */
+export type AdminPackRow = {
+  id: string;
+  tier: string;
+  label: string;
+  status: string;
+  gamesTotal: number;
+  priceAed: number;
+  repickCredits: number;
+  jerseySize: string | null;
+  jerseyHandedOverAt: Date | null;
+  paidAt: Date | null;
+  createdAt: Date;
+  windowStart: string;
+  windowEnd: string;
+  userName: string;
+  userEmail: string;
+  seatsConfirmed: number;
+};
 
 /** The player's own active pass, as /auth/me reports it (no prices). */
 export type IqPassSummary = {
@@ -359,6 +379,85 @@ export const iqPassStore = {
       if (!best || (view.gamesRemaining > 0 && (best.gamesRemaining === 0 || (view.lastGameDate ?? '') < (best.lastGameDate ?? '')))) best = view;
     }
     return best;
+  },
+
+  // ── Gate 7: renewal job, job_runs ledger, admin ───────────────────────────
+  /** Packs the daily renewal job looks at: every active pack, plus completed packs still owed an email. */
+  async listRenewalCandidates(): Promise<Pack[]> {
+    return db
+      .select()
+      .from(packs)
+      .where(and(
+        sql`${packs.status} IN ('active', 'completed')`,
+        sql`(${packs.status} = 'active' OR ${packs.renewalEmailSentAt} IS NULL OR ${packs.followupEmailSentAt} IS NULL)`,
+      ))
+      .orderBy(asc(packs.createdAt));
+  },
+
+  /** A pass bought (or being bought) after this one — the follow-up nudge is skipped. */
+  async hasNewerPack(userId: string, packId: string): Promise<boolean> {
+    const [me] = await db.select({ createdAt: packs.createdAt }).from(packs).where(eq(packs.id, packId));
+    if (!me) return false;
+    const [r] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(packs)
+      .where(and(eq(packs.userId, userId), sql`${packs.id} <> ${packId}`, sql`${packs.status} IN ('active', 'pending_payment')`, sql`${packs.createdAt} > ${me.createdAt}`));
+    return (r?.n ?? 0) > 0;
+  },
+
+  async markRenewalSent(packId: string, at: Date): Promise<void> {
+    await db.update(packs).set({ renewalEmailSentAt: at }).where(eq(packs.id, packId));
+  },
+
+  async markFollowupSent(packId: string, at: Date): Promise<void> {
+    await db.update(packs).set({ followupEmailSentAt: at }).where(eq(packs.id, packId));
+  },
+
+  /** Last picked game is past → completed (unused games expire with the pass). */
+  async markCompleted(packId: string, _at: Date): Promise<void> {
+    await db.update(packs).set({ status: 'completed' }).where(and(eq(packs.id, packId), eq(packs.status, 'active')));
+  },
+
+  async startJobRun(jobName: string): Promise<string> {
+    const id = randomUUID();
+    await db.insert(jobRuns).values({ id, jobName, status: 'running' });
+    return id;
+  },
+
+  async finishJobRun(id: string, status: 'ok' | 'error', details: Record<string, number>, error?: string): Promise<void> {
+    await db.update(jobRuns).set({ status, finishedAt: new Date(), details, error: error ?? null }).where(eq(jobRuns.id, id));
+  },
+
+  /** Admin list: every pack with the buyer and a seat tally. */
+  async listPacksAdmin(): Promise<AdminPackRow[]> {
+    const rows = await db
+      .select({
+        id: packs.id,
+        tier: packs.tier,
+        status: packs.status,
+        gamesTotal: packs.gamesTotal,
+        priceAed: packs.priceAed,
+        repickCredits: packs.repickCredits,
+        jerseySize: packs.jerseySize,
+        jerseyHandedOverAt: packs.jerseyHandedOverAt,
+        paidAt: packs.paidAt,
+        createdAt: packs.createdAt,
+        windowStart: packs.windowStart,
+        windowEnd: packs.windowEnd,
+        userName: marketplaceUsers.name,
+        userEmail: marketplaceUsers.email,
+        seatsConfirmed: sql<number>`(SELECT count(*)::int FROM bookings b WHERE b.pack_id = ${packs.id} AND b.status IN ('confirmed', 'attended'))`,
+      })
+      .from(packs)
+      .innerJoin(marketplaceUsers, eq(marketplaceUsers.id, packs.userId))
+      .orderBy(desc(packs.createdAt))
+      .limit(500);
+    return rows.map((r) => ({ ...r, label: IQ_PASS_TIERS[r.tier as PackTier]?.label ?? r.tier }));
+  },
+
+  async markJerseyHandedOver(packId: string, at: Date): Promise<{ id: string; jerseyHandedOverAt: Date | null } | null> {
+    const [row] = await db.update(packs).set({ jerseyHandedOverAt: at }).where(eq(packs.id, packId)).returning({ id: packs.id, jerseyHandedOverAt: packs.jerseyHandedOverAt });
+    return row ?? null;
   },
 
   /** A session as the move / re-pick rules see it (live spots). */

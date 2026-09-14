@@ -11,6 +11,7 @@ import { players } from "@shared/schema";
 import { sql } from "drizzle-orm";
 import { isIqPassEnabled } from "./iqPass/flag";
 import { runPackHoldExpiryJob, runPackReconciliationJob, HOLD_EXPIRY_INTERVAL_MS } from "./iqPass/jobs";
+import { runIqPassRenewalJob, IQ_PASS_RENEWAL_UTC_HOUR } from "./iqPass/renewal";
 
 const REMINDER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -576,5 +577,7 @@ export function startScheduler(): void {
     runPackHoldExpiryJob();
     setInterval(runPackReconciliationJob, RECONCILE_INTERVAL_MS);
     runPackReconciliationJob();
+    // Renewal + follow-up emails, pack completion — daily at 09:00 Dubai, ledgered in job_runs.
+    scheduleDailyAtUtcHour(IQ_PASS_RENEWAL_UTC_HOUR, runIqPassRenewalJob);
   }
 }

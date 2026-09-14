@@ -2886,6 +2886,7 @@ export function registerMarketplaceRoutes(app: Express) {
     moves: defaultMoveDeps,
     me: { getMyPacks: (userId, now) => iqPassStore.getMyPacks(userId, now) },
     tiers: { getActiveTiersPublic: () => iqPassStore.getActiveTiersPublic() },
+    admin: { listPacks: () => iqPassStore.listPacksAdmin(), markJerseyHandedOver: (id, at) => iqPassStore.markJerseyHandedOver(id, at) },
   }));
 
   app.get("/api/marketplace/sessions", async (_req, res) => {
