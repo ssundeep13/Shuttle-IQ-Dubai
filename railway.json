@@ -10,5 +10,12 @@
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
+  },
+  "environments": {
+    "Staging": {
+      "deploy": {
+        "startCommand": "NODE_ENV=staging node dist/index.js"
+      }
+    }
   }
 }
