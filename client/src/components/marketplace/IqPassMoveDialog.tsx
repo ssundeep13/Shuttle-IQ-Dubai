@@ -12,6 +12,8 @@ export type IqPassCalendarSession = {
   id: string;
   title: string;
   venueName: string;
+  /** venues.area ("Al Barsha"); null/absent when unknown */
+  venueArea?: string | null;
   dateDubai: string;
   startTime: string;
   endTime: string;

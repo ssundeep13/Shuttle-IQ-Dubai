@@ -54,6 +54,8 @@ export type CalendarRow = CalendarSession & {
   title: string;
   venueName: string;
   venueLocation: string | null;
+  /** venues.area joined by name; null when the venue has no area (or is not in the venues table) */
+  venueArea: string | null;
   startTime: string;
   endTime: string;
   priceAed: number;
@@ -160,6 +162,7 @@ export const iqPassStore = {
         title: bookableSessions.title,
         venueName: bookableSessions.venueName,
         venueLocation: bookableSessions.venueLocation,
+        venueArea: sql<string | null>`(SELECT v.area FROM venues v WHERE v.name = ${bookableSessions.venueName} LIMIT 1)`,
         dateDubai: dateYmd,
         startTime: bookableSessions.startTime,
         endTime: bookableSessions.endTime,

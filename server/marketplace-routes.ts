@@ -4052,9 +4052,12 @@ export function registerMarketplaceRoutes(app: Express) {
       // for the amount shown on each booking card. bookings.amount_aed reflects the
       // initial booking amount and may lag when extra-guest payments are added.
       const paymentTotals = await storage.getPaymentTotalsByBookingIds(merged.map(b => b.id));
+      // IQ Pass Gate 11: the venue's area ("Al Barsha") for the My games hero and rows.
+      const venueAreas = await storage.getVenueAreasByNames(merged.map(b => b.session.venueName));
       const augmented = merged.map(b => ({
         ...b,
         totalPaidAed: paymentTotals[b.id] ?? b.amountAed,
+        venueArea: venueAreas[b.session.venueName] ?? null,
       }));
       res.json(augmented);
     } catch (error) {

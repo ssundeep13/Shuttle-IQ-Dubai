@@ -3875,6 +3875,16 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(venues).orderBy(asc(venues.name));
   }
 
+  /** IQ Pass Gate 11: venues.area for a set of venue names (sessions carry the name, not the id). */
+  async getVenueAreasByNames(names: string[]): Promise<Record<string, string | null>> {
+    const unique = Array.from(new Set(names.filter(Boolean)));
+    if (unique.length === 0) return {};
+    const rows = await db.select({ name: venues.name, area: venues.area }).from(venues).where(inArray(venues.name, unique));
+    const out: Record<string, string | null> = {};
+    for (const r of rows) out[r.name] = r.area ?? null;
+    return out;
+  }
+
   async getVenueByName(name: string): Promise<Venue | undefined> {
     const [row] = await db.select().from(venues).where(eq(venues.name, name));
     return row;

@@ -92,7 +92,7 @@ describe('route + review-screen link', () => {
     try {
       mount(<IqPass />);
       fireEvent.click(await screen.findByTestId('card-tier-club'));
-      for (const id of ['s0', 's1', 's2', 's3']) fireEvent.click(await screen.findByTestId(`chip-${id}`)); // Gate 9: calendar chips
+      for (const id of ['s0', 's1', 's2', 's3']) fireEvent.click(await screen.findByTestId(`card-session-${id}`)); // Gate 11: session cards
       fireEvent.click(screen.getByTestId('button-continue'));
       await screen.findByTestId('text-review-title');
       const link = screen.getByTestId('link-iq-pass-terms') as HTMLAnchorElement;

@@ -11,6 +11,10 @@ export const IQP = {
   teal: '#006B5F',
   cream: '#F5EFE0',
   white: '#FFFFFF',
+  // Gate 11: the two muted derivatives of the brand pair, for venue rails and tiles.
+  // Both keep white text above 4.5:1 (navyMuted 6.0:1, tealMuted 4.7:1 on white text).
+  navyMuted: '#4F6A9A',
+  tealMuted: '#3E7F76',
   // ink scale shared with the rest of the marketplace (no new drift)
   ink: '#1A1F2B',
   inkSub: '#5C6577',
@@ -21,16 +25,8 @@ export const IQP = {
 export const IQP_FONT = 'var(--font-sans)';
 
 /**
- * Venue dots on the bookings calendar (Gate 10). Brand navy and teal first, then
- * four muted companions picked to read apart from each other on cream at 10 px.
- * Assigned per venue by a stable hash (IqPassCalendar.venueColour), so a venue
- * keeps its colour across visits.
+ * The four venue colours (Gate 11): brand navy and teal plus their two muted
+ * derivatives. Every IQ Pass surface reads a venue's colour from the shared map in
+ * client/src/lib/venueColours.ts, never from here directly.
  */
-export const IQP_VENUE_PALETTE: readonly string[] = [
-  IQP.navy,
-  IQP.teal,
-  '#8A6A1B', // ochre
-  '#6E2F5B', // plum
-  '#3F5F7F', // slate
-  '#9A4A2A', // rust
-] as const;
+export const IQP_VENUE_PALETTE: readonly string[] = [IQP.navy, IQP.teal, IQP.navyMuted, IQP.tealMuted] as const;

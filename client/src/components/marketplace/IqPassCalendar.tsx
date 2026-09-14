@@ -7,7 +7,8 @@
 // Wide (>= 640 px): a Mon–Sun grid, one labelled row per week. Narrow: a week strip,
 // one week at a time, swipe or arrows. IQ Pass tokens only, Inter, no icons, no emoji.
 import { useEffect, useMemo, useState } from 'react';
-import { IQP, IQP_FONT, IQP_VENUE_PALETTE } from '@/lib/iqPassTokens';
+import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
+import { venueColour as sharedVenueColour } from '@/lib/venueColours';
 
 export type CalendarItemState = 'pickable' | 'picked' | 'blocked';
 export type CalendarItem = {
@@ -67,11 +68,9 @@ export function shortVenue(name: string): string {
   return out.length > 16 ? `${out.slice(0, 15).trimEnd()}…` : out;
 }
 
-/** Stable per-venue colour from the token palette. */
+/** The shared venue-colour map (client/src/lib/venueColours.ts); kept here for the read-mode callers. */
 export function venueColour(name: string): string {
-  let h = 0;
-  for (const ch of String(name ?? '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return IQP_VENUE_PALETTE[h % IQP_VENUE_PALETTE.length];
+  return sharedVenueColour(name);
 }
 
 /** Live viewport width (jsdom: window.innerWidth, default 1024). */

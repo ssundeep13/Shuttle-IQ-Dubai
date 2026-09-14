@@ -73,16 +73,15 @@ describe('IqPass page — purchase flow', () => {
     });
     mount(<IqPass />);
     fireEvent.click(await screen.findByTestId('card-tier-club_plus'));
-    fireEvent.click(await screen.findByTestId('button-view-list')); // Gate 9: the rows live behind the List toggle
-    await screen.findByTestId('row-session-s0');
-    expect(screen.getByTestId('text-pick-count').textContent).toMatch(/0 of 8/);
-    expect((screen.getByTestId('row-session-s11') as HTMLButtonElement).disabled).toBe(true); // already booked
-    expect((screen.getByTestId('row-session-s12') as HTMLButtonElement).disabled).toBe(true); // pack seats capped
-    expect((screen.getByTestId('row-session-s13') as HTMLButtonElement).disabled).toBe(true); // session full
-    expect(screen.queryByTestId('button-continue')).toBeNull(); // Gate 9: Review appears only once every game is picked
-    for (let i = 0; i < 8; i++) fireEvent.click(screen.getByTestId(`row-session-s${i}`));
-    expect(screen.getByTestId('text-pick-count').textContent).toMatch(/8 of 8/);
-    expect((screen.getByTestId('row-session-s8') as HTMLButtonElement).disabled).toBe(true); // a ninth pick is not allowed
+    await screen.findByTestId('card-session-s0');
+    expect(screen.getAllByTestId(/^slot-\d+$/).length).toBe(8); // Gate 11: eight empty slots, no counter
+    expect((screen.getByTestId('card-session-s11') as HTMLButtonElement).disabled).toBe(true); // already booked
+    expect((screen.getByTestId('card-session-s12') as HTMLButtonElement).disabled).toBe(true); // pack seats capped
+    expect((screen.getByTestId('card-session-s13') as HTMLButtonElement).disabled).toBe(true); // session full
+    expect(screen.queryByTestId('button-continue')).toBeNull(); // Gate 11: Review appears only once every slot is filled
+    for (let i = 0; i < 8; i++) fireEvent.click(screen.getByTestId(`card-session-s${i}`));
+    expect(screen.getAllByTestId(/^slot-\d+$/).filter((el) => el.getAttribute('data-filled') === 'true').length).toBe(8);
+    expect((screen.getByTestId('card-session-s8') as HTMLButtonElement).disabled).toBe(true); // a ninth pick is not allowed
     fireEvent.click(screen.getByTestId('button-continue'));
     expect((await screen.findByTestId('text-review-title')).textContent).toBe('Your month is locked');
     expect(screen.getByTestId('button-pay').textContent).toMatch(/Pay AED 360/);
@@ -102,16 +101,15 @@ describe('IqPass page — purchase flow', () => {
     });
     mount(<IqPass />);
     fireEvent.click(await screen.findByTestId('card-tier-club_elite'));
-    fireEvent.click(await screen.findByTestId('button-view-list')); // Gate 9: the rows live behind the List toggle
-    await screen.findByTestId('row-session-s0');
+    await screen.findByTestId('card-session-s0');
     const select = screen.getByTestId('select-jersey-size') as HTMLSelectElement;
     expect(Array.from(select.options).map((o) => o.value)).toEqual(['', 'S', 'M', 'L', 'XL', 'XXL']);
-    for (const i of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) fireEvent.click(screen.getByTestId(`row-session-s${i}`));
+    for (const i of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) fireEvent.click(screen.getByTestId(`card-session-s${i}`));
     // 11 of 12 — continue disabled; the 12th pickable row is s12? no (capped) → none left but s11 (booked) / s13 (full)
     expect(screen.queryByTestId('button-continue')).toBeNull(); // Gate 9: Review appears only once every game is picked
     // free one more row for the test: the fixture leaves exactly 11 pickable rows, so widen it
-    fireEvent.click(screen.getByTestId('row-session-s10')); // unpick
-    expect(screen.getByTestId('text-pick-count').textContent).toMatch(/10 of 12/);
+    fireEvent.click(screen.getByTestId('card-session-s10')); // unpick
+    expect(screen.getAllByTestId(/^slot-\d+$/).filter((el) => el.getAttribute('data-filled') === 'true').length).toBe(10);
   });
 
   it('server-side pick conflicts surface as a message, not a crash', async () => {
@@ -122,9 +120,8 @@ describe('IqPass page — purchase flow', () => {
     fetchMock.mockImplementationOnce(async () => ({ ok: true, status: 200, json: async () => ({ packs: [] }) }));
     mount(<IqPass />);
     fireEvent.click(await screen.findByTestId('card-tier-club'));
-    fireEvent.click(await screen.findByTestId('button-view-list')); // Gate 9: the rows live behind the List toggle
-    await screen.findByTestId('row-session-s0');
-    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByTestId(`row-session-s${i}`));
+    await screen.findByTestId('card-session-s0');
+    for (let i = 0; i < 4; i++) fireEvent.click(screen.getByTestId(`card-session-s${i}`));
     fireEvent.click(screen.getByTestId('button-continue'));
     await screen.findByTestId('text-review-title');
     const original = fetchMock.getMockImplementation()!;

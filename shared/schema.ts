@@ -641,6 +641,8 @@ export interface BookingWithDetails extends Booking {
   isGuestBooking?: boolean;
   bookedByName?: string;
   myGuestId?: string;
+  /** venues.area for the session's venue, attached by /api/marketplace/bookings/mine (IQ Pass Gate 11). */
+  venueArea?: string | null;
   /** Sum of all completed payments rows for this booking. Populated by
    *  /api/marketplace/bookings/mine. Falls back to amountAed when absent. */
   totalPaidAed?: number;
@@ -752,6 +754,7 @@ export const venues = pgTable("venues", {
   courtRateFilsPerHour: integer("court_rate_fils_per_hour").notNull().default(0),
   location: text("location"),      // saved venue location; auto-fills the session's venueLocation
   mapUrl: text("map_url"),          // saved Google Maps link; auto-fills the session's venueMapUrl
+  area: text("area"),              // district as players say it ("Al Barsha"); one-shot venues_area_v1, IQ Pass Gate 11
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
