@@ -20,6 +20,8 @@ import { primarySlotActive } from '@shared/utils/slotUtils';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal, navyBtn, ghostBtn, withStyle } from './LandingComponents';
 import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 import CommunityFeed from './CommunityFeed';
+import { useIqPassConfig } from '@/hooks/useIqPass';
+import { IqPassPromoCard, IqPassProgressLine } from '@/components/marketplace/IqPassPromo';
 
 // ── Shared styled primitives (look only) ─────────────────────────────────────
 const cardStyle: CSSProperties = { background: '#fff', borderRadius: 14, border: `1px solid ${MKT.navy}12` };
@@ -389,6 +391,7 @@ function UnifiedSessionCard({
 export default function Dashboard() {
   usePageTitle('Dashboard');
   const { user } = useMarketplaceAuth();
+  const iqPass = useIqPassConfig(); // Gate 12: promo card or progress line under the greeting
   const linkedPlayerId = user?.linkedPlayerId;
   const { canInstall, install, showIOSHint } = useInstallPrompt();
   const { toast } = useToast();
@@ -732,6 +735,17 @@ export default function Dashboard() {
             </div>
           </div>
         </Reveal>
+
+        {/* IQ Pass (Gate 12, flag-gated): the promo card while there is no active pass, the progress line while there is one */}
+        {iqPass.enabled && (
+          <Reveal style={{ marginBottom: 20 }}>
+            {user?.iqPass ? (
+              <IqPassProgressLine label={user.iqPass.label} played={Math.max(0, user.iqPass.gamesTotal - user.iqPass.gamesRemaining)} total={user.iqPass.gamesTotal} href="/marketplace/iq-pass" />
+            ) : (
+              <IqPassPromoCard tiers={iqPass.tiers} href="/marketplace/iq-pass" />
+            )}
+          </Reveal>
+        )}
 
         {/* Getting Started — full width, contextual */}
         {user && (

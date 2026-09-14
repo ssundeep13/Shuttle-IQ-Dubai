@@ -6,6 +6,8 @@ import { format } from 'date-fns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
+import { useIqPassConfig } from '@/hooks/useIqPass';
+import { IqPassLandingSection } from '@/components/marketplace/IqPassPromo';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import type { CommunitySpotlightEntry, BookableSessionWithAvailability } from '@shared/schema';
 import BrandAvatar from '@/components/BrandAvatar';
@@ -75,6 +77,7 @@ function btnStyle(kind: BtnKind, size: 'md' | 'lg' | 'xl' = 'lg'): CSSProperties
 export default function MarketplaceHome() {
   usePageTitle('ShuttleIQ — Book Badminton Sessions in UAE', true);
   const { isAuthenticated } = useMarketplaceAuth();
+  const iqPass = useIqPassConfig(); // Gate 12: the IQ Pass section below the hero, flag-gated
   const reduce = useReducedMotion();
 
   // The footer's community icon deep-links to the WhatsApp groups block from
@@ -175,6 +178,11 @@ export default function MarketplaceHome() {
           </motion.div>
         </div>
       </section>
+
+      {/* ───────────────────── IQ PASS (Gate 12, flag-gated) ───────────────────── */}
+      {iqPass.enabled && (
+        <IqPassLandingSection tiers={iqPass.tiers} href={isAuthenticated ? '/marketplace/iq-pass' : '/marketplace/login?from=%2Fmarketplace%2Fiq-pass'} />
+      )}
 
       {/* ───────────────────── REFERRAL PROMO (AED 15 each) ───────────────────── */}
       {!isAuthenticated && (

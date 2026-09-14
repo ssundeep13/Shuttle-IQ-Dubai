@@ -5,6 +5,8 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { requireAuth, requireMarketplaceAuth, requireAdmin, type AuthRequest } from "../auth/middleware";
 import { isIqPassEnabled } from "./flag";
+import { IQ_PASS_TIERS } from "./rules";
+import { PACK_TIER_ORDER } from "@shared/iqPassTiers";
 import { buildCalendar, startPurchase, type PurchaseDeps } from "./purchase";
 import { moveSeat, repickSeat, type MoveDeps } from "./moves";
 import type { MyPacksView } from "./store";
@@ -16,7 +18,12 @@ const notFound = (res: Response) => res.status(404).json({ error: "Not found" })
 export function iqPassConfigHandler(_req: Request, res: Response) {
   if (!isIqPassEnabled()) return notFound(res);
   res.setHeader("Cache-Control", "no-store");
-  return res.json({ iqPassEnabled: true });
+  // Gate 12: the player-facing tier table (label, games, pass price) — public, so the landing page can
+  // show prices before sign-in. No allocation, no per-game maths.
+  return res.json({
+    iqPassEnabled: true,
+    iqPassTiers: PACK_TIER_ORDER.map((tier) => ({ tier, label: IQ_PASS_TIERS[tier].label, games: IQ_PASS_TIERS[tier].games, priceAed: IQ_PASS_TIERS[tier].priceAed })),
+  });
 }
 
 export type IqPassRouterDeps = {

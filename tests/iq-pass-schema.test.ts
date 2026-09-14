@@ -117,7 +117,9 @@ describe('GET /api/marketplace/config — over HTTP', () => {
     process.env.IQ_PASS_ENABLED = 'true';
     const res = await fetch(`${base}/api/marketplace/config`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ iqPassEnabled: true });
+    const body = await res.json();
+    expect(body).toMatchObject({ iqPassEnabled: true }); // Gate 12: the body also carries the public tier table
+    expect(body.iqPassTiers.map((t: { tier: string }) => t.tier)).toEqual(["club", "club_plus", "club_elite"]);
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
 
