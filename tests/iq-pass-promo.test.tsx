@@ -58,7 +58,7 @@ describe('IqPassPromoCard (Dashboard, no active pass)', () => {
   it('headline, sub, the three tiers with prices on one line, navy "Get your IQ Pass" button', () => {
     render(<IqPassPromoCard tiers={[...tiers]} href="/marketplace/iq-pass" />);
     const card = screen.getByTestId('card-iq-pass-promo');
-    expect(within(card).getByRole('heading').textContent).toBe('Pick your month.');
+    expect(within(card).getByRole('heading').textContent).toBe('Pick your day. Lock your spot.');
     expect(within(card).getByTestId('text-iq-pass-promo-sub').textContent).toBe('4, 8 or 12 games. Seats locked.');
     expect(within(card).getByTestId('text-iq-pass-tier-line').textContent).toBe('Club AED 188 · Club Plus AED 360 · Club Elite AED 516');
     const btn = within(card).getByTestId('button-get-iq-pass') as HTMLAnchorElement;
@@ -83,7 +83,7 @@ describe('IqPassLandingSection (landing page, below the hero)', () => {
   it('headline, sub, three tier cards (games, price, one-line perk), one CTA; logged-out CTA goes through sign-in', () => {
     render(<IqPassLandingSection tiers={[...tiers]} href="/marketplace/login?from=%2Fmarketplace%2Fiq-pass" />);
     const sec = screen.getByTestId('section-iq-pass');
-    expect(within(sec).getByRole('heading', { level: 2 }).textContent).toBe('Pick your month.');
+    expect(within(sec).getByRole('heading', { level: 2 }).textContent).toBe('Pick your day. Lock your spot.');
     expect(within(sec).getByTestId('text-landing-iq-pass-sub').textContent).toBe('4, 8 or 12 games. Seats locked.');
     for (const t of tiers) {
       const card = within(sec).getByTestId(`card-landing-tier-${t.tier}`);

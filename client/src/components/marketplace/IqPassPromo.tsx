@@ -1,5 +1,5 @@
 // IQ Pass promotion (Gate 12) — three small pieces, IQ Pass tokens only, Inter, no icons:
-//   IqPassPromoCard      Dashboard, no active pass: "Pick your month." + tiers with prices + navy CTA.
+//   IqPassPromoCard      Dashboard, no active pass: "Pick your day. Lock your spot." + tiers with prices + navy CTA.
 //   IqPassProgressLine   Dashboard with a pass, and the My games hero: "Club · 1 of 4 played" + teal bar.
 //   IqPassLandingSection Landing page below the hero: headline, sub, three tier cards, one CTA.
 // Prices arrive from the server's public config and are shown as pass prices only, never split or compared.
@@ -25,7 +25,7 @@ export function IqPassPromoCard({ tiers, href }: { tiers: IqPassTierPublic[]; hr
   return (
     <div data-testid="card-iq-pass-promo" style={{ background: IQP.white, border: `1px solid ${IQP.line}`, borderRadius: 12, padding: '18px 20px', fontFamily: IQP_FONT, color: IQP.ink, display: 'grid', gap: 10 }}>
       <p style={eyebrow}>IQ Pass</p>
-      <h2 style={{ margin: 0, fontFamily: IQP_FONT, fontSize: 22, fontWeight: 800, color: IQP.navy, letterSpacing: '-0.02em', lineHeight: 1.1 }}>Pick your month.</h2>
+      <h2 style={{ margin: 0, fontFamily: IQP_FONT, fontSize: 22, fontWeight: 800, color: IQP.navy, letterSpacing: '-0.02em', lineHeight: 1.1 }}>Pick your day. Lock your spot.</h2>
       <p data-testid="text-iq-pass-promo-sub" style={{ margin: 0, fontSize: 14, color: IQP.inkSub }}>4, 8 or 12 games. Seats locked.</p>
       <p data-testid="text-iq-pass-tier-line" style={{ margin: 0, fontSize: 13, fontWeight: 600, color: IQP.ink }}>{tiers.map((t) => `${t.label} AED ${t.priceAed}`).join(' · ')}</p>
       <Link href={href} data-testid="button-get-iq-pass" style={navyBtn}>Get your IQ Pass</Link>
@@ -58,7 +58,7 @@ export function IqPassLandingSection({ tiers, href }: { tiers: IqPassTierPublic[
       <div style={{ maxWidth: 1120, margin: '0 auto', display: 'grid', gap: 24 }}>
         <div style={{ maxWidth: 640 }}>
           <p style={{ ...eyebrow, color: IQP.cream, opacity: 0.8 }}>IQ Pass</p>
-          <h2 id="iq-pass-landing-title" style={{ margin: '6px 0 0', fontFamily: IQP_FONT, fontSize: 'clamp(30px, 4vw, 44px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.05, color: IQP.cream }}>Pick your month.</h2>
+          <h2 id="iq-pass-landing-title" style={{ margin: '6px 0 0', fontFamily: IQP_FONT, fontSize: 'clamp(30px, 4vw, 44px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.05, color: IQP.cream }}>Pick your day. Lock your spot.</h2>
           <p data-testid="text-landing-iq-pass-sub" style={{ margin: '10px 0 0', fontSize: 'clamp(15px, 1.6vw, 18px)', color: IQP.cream, opacity: 0.85 }}>4, 8 or 12 games. Seats locked.</p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
