@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 6 — purchase UI and My Bookings; Gates 2, 4, 5 staging verification still pending · **Tests:** 1418/1418 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown
+**Current gate:** 7 — renewal job, job_runs ledger, admin jersey handover; Gates 2, 4, 5, 6 staging verification still pending · **Tests:** 1430/1430 · tsc 28 · **Hard stop pending: YES — Railway's API shows NO `staging` environment on the account (see "Staging check")** · **Next action for Sandeep:** open railway.app → project ShuttleIQ → environment switcher; confirm `staging` exists there and which workspace/account it is in, then reply with the environment name shown
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -87,6 +87,13 @@ Cost: one extra web service + one Postgres while it exists (usage-based, small);
 - Commit `6dee3d6` on `feature/iq-pass`. Ruling E5a honoured: `PUBLIC_PLAYER_KEYS` untouched (pinned).
 - Flag-off proof: config 404 → hook reports off → no overlay request (jsdom test); server payload keys are spread in only under the flag (pinned); the tag renders nothing without a tier.
 
+### Gate 6 — purchase page, move dialog, pack-aware My Bookings, checkout returns, nav — CODE DONE (2026-09-14, feature branch; staging screen check pending)
+
+- RED: `tests/iq-pass-ui.test.tsx` failed at import → 25/31 after the splice (the fixture lacked the new `tiers` block the page reads; a banner pin scanned the whole Sessions page, which already contains "saving" copy; my page header comment said "savings") → **31/31** with the purchase file. Full suite **1430/1430**, tsc **28**.
+- Code: `client/src/pages/marketplace/IqPass.tsx` (tiers → picks → "Your month is locked" → one purchase POST → Ziina; pass management with Move / free re-pick / "Buy your next pass"; flag off renders a plain "not available" notice and requests nothing), `client/src/components/marketplace/IqPassMoveDialog.tsx` (shared calendar picker + move POST, copy per server error code), `MyBookings.tsx` (own "IQ Pass" section, no cancel / pay-now / amount on pack seats, tier label, Move when the server says the seat can move, holds shown as "awaiting payment"), `CheckoutSuccess.tsx` (`pack_id` → pack confirm route, refreshes the pass; heading "Your IQ Pass is active"), `CheckoutCancel.tsx` (never cancels a seat on a pack return; explains the 30-minute hold), `MarketplaceNav.tsx` (dropdown entry under the flag), `MobileBottomNav.tsx` (Sessions tab carries `/marketplace/iq-pass`), `App.tsx` (auth route), `BookSessions.tsx` (one banner under the flag), `server/iqPass/purchase.ts` (calendar payload now carries the player-facing tier table: label, games, pass price — the UI never re-derives money; no allocation).
+- Commit `72003bc` on `feature/iq-pass`.
+- Copy rule held: jsdom asserts the rendered page never contains "per game", "save/saving" or a per-seat amount; the pass price is the only money shown.
+
 ## Staging check (2026-09-14, after "staging created")
 
 - **Not found.** `railway environment list --json` and a direct GraphQL query of project ShuttleIQ (`f6a94abd…`) both return exactly one environment, `production` (`895e5ecd…`, created 2026-05-24). The account's only other project (arthadao) also has only `production`. Nothing named `staging` exists as far as the CLI token (workspace "ssundeep13's Projects") can see, so no staging variable could be read and **the DATABASE_URL confirmation is still pending**. Likely causes: the duplicate dialog was not confirmed, or the environment was created in a different Railway account/workspace than the one the CLI is logged into. Nothing was created or changed by me (hard stop respected).
@@ -101,6 +108,8 @@ Cost: one extra web service + one Postgres while it exists (usage-based, small);
 
 ## Found, not fixed
 
+- **Cancelled pack checkout keeps the hold for 30 minutes:** per the plan, a player who backs out of the Ziina page keeps their picks held until the hold lapses (the seats are then offered to the waitlist). A tiny owner-only "release my hold" route would free them immediately; not built (not in the brief).
+- **`client/src/pages/marketplace/Checkout.tsx` is orphaned** (no in-app link reaches `/marketplace/checkout/:id`; the live path is the inline panel on the session page). Untouched.
 - **Admin bookings badge:** `client/src/pages/SessionsManagement.tsx` shows "Ziina" for every non-cash method, so a `bank_transfer` booking reads "Ziina" (pre-existing since BT1). Pack seats now read "IQ Pass"; the bank-transfer label was left as is.
 - **Brand drift (app-wide):** `MKT.navy` is `#002C84` and `MKT.cream` is `#F2ECE1` where the IQ Pass brief specifies `#003E8C` / `#F5EFE0`; `index.css --primary` is also `#002C84`. Every existing marketplace screen uses the drifted values and `tests/gate2-typography-brand.test.tsx:141-150` enforces them. Not changed (out of scope); IQ Pass screens use `IQP`.
 
