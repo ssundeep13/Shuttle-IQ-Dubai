@@ -24,6 +24,7 @@ import { formatDubaiTime, paymentDeadline } from '@shared/dubaiTime';
 import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
 import { IqPassMoveDialog } from '@/components/marketplace/IqPassMoveDialog';
 import { useIqPassEnabled } from '@/hooks/useIqPass';
+import { BookingsCalendar, IqPassStrip, PassSeatCard, PastLine, pickStripPack, todayDubai, ymdOf, type MyPackLite, type SeatInfo } from '@/components/marketplace/BookingsCalendar';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import {
@@ -266,7 +267,7 @@ export default function MyBookings() {
   // IQ Pass (Gate 6): pass labels + which seats may still move. Only requested
   // while the flag is on; pack seats render as ordinary bookings otherwise.
   const iqPassEnabled = useIqPassEnabled();
-  const { data: myPacks } = useQuery<{ packs: Array<{ id: string; label: string; status: string; seats: Array<{ bookingId: string; canMove: boolean }> }> }>({
+  const { data: myPacks } = useQuery<{ packs: MyPackLite[] }>({
     queryKey: ['/api/marketplace/iq-pass/me'],
     enabled: iqPassEnabled,
     staleTime: 0,
@@ -274,6 +275,14 @@ export default function MyBookings() {
   const packLabelById = new Map((myPacks?.packs ?? []).map(p => [p.id, p.label] as const));
   const seatCanMove = new Set((myPacks?.packs ?? []).flatMap(p => p.seats.filter(s => s.canMove).map(s => s.bookingId)));
   const [moveTarget, setMoveTarget] = useState<{ bookingId: string; sessionId: string } | null>(null);
+  // Gate 10: the calendar is the default view, the list sits behind a toggle (remembered per device).
+  const [view, setView] = useState<'calendar' | 'list'>(() => { try { return localStorage.getItem('mb_view') === 'list' ? 'list' : 'calendar'; } catch { return 'calendar'; } });
+  const setBookingsView = (v: 'calendar' | 'list') => { setView(v); try { localStorage.setItem('mb_view', v); } catch { /* per-device convenience only */ } };
+  const today = todayDubai();
+  const [month, setMonth] = useState<string>(today.slice(0, 7));
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const seatInfoById = new Map<string, SeatInfo>((myPacks?.packs ?? []).flatMap(p => p.seats.map(s => [s.bookingId, { label: p.label, canMove: s.canMove, canMoveUntil: s.canMoveUntil ?? null }] as [string, SeatInfo])));
+  const stripPack = iqPassEnabled ? pickStripPack(myPacks?.packs ?? [], today) : null;
 
   const cancelMutation = useMutation({
     mutationFn: async ({ bookingId, refundMethod }: { bookingId: string; refundMethod?: 'wallet' | 'ziina' }) => {
@@ -823,6 +832,19 @@ export default function MyBookings() {
     </div>
   );
 
+  // Gate 10: one renderer for the day panel and the list — past rows collapse to a line,
+  // pass seats get the compact card, drop-ins keep BookingCard exactly as before.
+  const isPastBooking = (b: BookingWithDetails) => b.status === 'cancelled' || sessionEndTime(b) < new Date();
+  const defaultDayFor = (m: string) => bookings.filter(b => b.status !== 'cancelled' && ymdOf(b.session.date).startsWith(m) && ymdOf(b.session.date) >= today).map(b => ymdOf(b.session.date)).sort()[0] ?? null;
+  const panelDay = selectedDay && selectedDay.startsWith(month) ? selectedDay : defaultDayFor(month);
+  const panelBookings = panelDay ? bookings.filter(b => ymdOf(b.session.date) === panelDay) : [];
+  const renderForDay = (b: BookingWithDetails) => isPastBooking(b)
+    ? <PastLine key={b.id} booking={b} />
+    : b.packId
+      ? <PassSeatCard key={b.id} booking={b} seat={seatInfoById.get(b.id) ?? null} onMove={() => setMoveTarget({ bookingId: b.id, sessionId: b.sessionId })}
+          onAddGuest={b.status === 'confirmed' ? () => { setAddGuestBooking(b); setAddGuest(EMPTY_GUEST); setAddGuestPaymentMethod('ziina'); } : undefined} />
+      : <BookingCard key={b.id} booking={b} />;
+
   return (
     <>
     {moveTarget && (
@@ -907,16 +929,35 @@ export default function MyBookings() {
               <Link href="/marketplace/book" {...navyBtn('md')} data-testid="button-browse-sessions">
                 Browse Sessions <ArrowRight className="h-4 w-4" />
               </Link>
+              {iqPassEnabled && (
+                <p style={{ marginTop: 14, fontSize: 14 }}>
+                  <Link href="/marketplace/iq-pass" data-testid="link-empty-iq-pass" style={{ color: MKT.tealText, fontWeight: 600 }}>Or pick a month of games with an IQ Pass</Link>
+                </p>
+              )}
             </div>
           </Reveal>
         ) : (
+          <div className="space-y-6">
+            {stripPack && <Reveal><IqPassStrip pack={stripPack} /></Reveal>}
+            <div role="group" aria-label="Bookings view" style={{ display: 'flex', gap: 6 }}>
+              {(['calendar', 'list'] as const).map((v) => (
+                <button key={v} type="button" aria-pressed={view === v} onClick={() => setBookingsView(v)} data-testid={`button-view-${v}`} {...(view === v ? navyBtn('sm') : ghostBtn('sm'))}>
+                  {v === 'calendar' ? 'Calendar' : 'List'}
+                </button>
+              ))}
+            </div>
+            {view === 'calendar' ? (
+              <BookingsCalendar bookings={bookings} month={month} onMonth={(m) => { setMonth(m); setSelectedDay(null); }} today={today} selectedDay={panelDay} onSelectDay={setSelectedDay}>
+                {panelBookings.map((b) => renderForDay(b))}
+              </BookingsCalendar>
+            ) : (
           <div className="space-y-8">
             {packSeats.length > 0 && (
               <div>
                 <Reveal>{sectionHeader('IQ Pass', packSeats.length, <span style={{ width: 0 }} />, 'text-iqpass-title', pill(MKT.tealMist, MKT.tealD))}</Reveal>
                 <div className="space-y-3">
                   {packSeats.map((b, i) => (
-                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} /></Reveal>
+                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}>{renderForDay(b)}</Reveal>
                   ))}
                 </div>
               </div>
@@ -954,12 +995,12 @@ export default function MyBookings() {
             {past.length > 0 && (
               <div>
                 <Reveal>{sectionHeader('Past & Cancelled', past.length, <span style={{ width: 0 }} />, 'text-past-title', pill('rgba(0,30,70,0.06)', MKT.inkSub))}</Reveal>
-                <div className="space-y-3">
-                  {past.map((b, i) => (
-                    <Reveal key={b.id} delay={reduce ? 0 : Math.min(i * 0.05, 0.3)}><BookingCard booking={b} isPast /></Reveal>
-                  ))}
+                <div className="space-y-2">
+                  {past.map((b) => <PastLine key={b.id} booking={b} />)}
                 </div>
               </div>
+            )}
+          </div>
             )}
           </div>
         )}
