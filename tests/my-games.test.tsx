@@ -201,6 +201,12 @@ describe('My games', () => {
     // "Played" floating alone on the right. Now: one column — card, then the horizontal strip, then Played.
     const layout = screen.getByTestId('my-games-layout') as HTMLElement;
     expect(layout.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+    // The inner stacks are grids too. An implicit `auto` track grows to a child's min-content — the unwrappable
+    // Played row at 375 (419 px) — and drags every sibling section with it (seen in production 2026-09-15 after the
+    // layout fix alone). Every stack caps its track the same way.
+    const stacks = Array.from(layout.children).filter((c) => (c as HTMLElement).style.display === 'grid') as HTMLElement[];
+    expect(stacks.length).toBeGreaterThan(0);
+    expect(stacks.map((s) => s.style.gridTemplateColumns)).toEqual(stacks.map(() => 'minmax(0, 1fr)'));
     const strip = screen.getByTestId('strip-days');
     expect(strip.getAttribute('data-orientation')).toBe('horizontal');
     expect(empty.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -215,6 +221,12 @@ describe('My games', () => {
     // minmax(0, 1fr), not 1fr: a bare 1fr column is minmax(auto, 1fr) and grows to the min-content of its widest child —
     // an open "Played" row with a long venue name pushed the page to 435 px on a 375 px phone (found 2026-09-14).
     expect(layout.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+    // The inner stacks are grids too. An implicit `auto` track grows to a child's min-content — the unwrappable
+    // Played row at 375 (419 px) — and drags every sibling section with it (seen in production 2026-09-15 after the
+    // layout fix alone). Every stack caps its track the same way.
+    const stacks = Array.from(layout.children).filter((c) => (c as HTMLElement).style.display === 'grid') as HTMLElement[];
+    expect(stacks.length).toBeGreaterThan(0);
+    expect(stacks.map((s) => s.style.gridTemplateColumns)).toEqual(stacks.map(() => 'minmax(0, 1fr)'));
     const strip = screen.getByTestId('strip-days') as HTMLElement;
     expect(strip.getAttribute('data-orientation')).toBe('horizontal');
     expect(strip.style.overflowX).toBe('auto');

@@ -952,7 +952,9 @@ export default function MyBookings() {
           // One column at every width (2026-09-14): the hero or empty card spans the content width, the horizontal strip
           // sits beneath it, then the agenda and Played. No side-by-side split — the strip never has column content.
           <div data-testid="my-games-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
-            <div style={{ display: 'grid', gap: 14 }}>
+            {/* Both stacks cap their track too: an implicit `auto` track grows to a child's min-content (an unwrappable
+                Played row at 375) and drags every sibling section past the viewport. */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 14 }}>
               {pendingPass && (
                 <IqPassPendingSlot onDark={!nextGame} packs={myPacks?.packs ?? []} onComplete={(id) => { void resume.complete(id); }} busy={resume.busy} error={resume.error} />
               )}
@@ -964,7 +966,7 @@ export default function MyBookings() {
               ) : null}
               <MonthStrip days={buildStripDays(upcoming, today)} today={today} onPick={openGame} />
             </div>
-            <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>
               {groupUpcomingByWeek(upcoming).map((w) => (
                 <AgendaWeek key={w.start} start={w.start} label={w.label}>
                   {w.rows.map((b) => (
