@@ -301,14 +301,14 @@ async function runExpiredPaymentJob(): Promise<void> {
               type: 'waitlist_promoted',
               title: 'Spot available — complete payment!',
               // Explicit Asia/Dubai deadline (server clock is UTC).
-              message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
+              message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot — open My games and tap Pay.`,
               relatedBookingId: next.id,
             });
 
             try {
               const nextUser = await storage.getMarketplaceUser(next.userId);
               if (nextUser) {
-                const checkoutUrl = `${baseUrl}/marketplace/my-bookings`;
+                const checkoutUrl = `${baseUrl}/marketplace/my-bookings?pay=${next.id}`;
                 sendWaitlistPromotionEmail(nextUser.email, nextUser.name, bookableSession, checkoutUrl).catch(() => {});
               }
             } catch (emailErr) {

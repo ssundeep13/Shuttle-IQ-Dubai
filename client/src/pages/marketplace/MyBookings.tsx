@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,7 +27,7 @@ import { useIqPassEnabled } from '@/hooks/useIqPass';
 import { useCompleteIqPassPayment } from '@/hooks/useIqPassPending';
 import { IqPassPendingSlot, PICK_AGAIN_HREF, PICK_AGAIN_COPY } from '@/components/marketplace/IqPassPending';
 import { pendingPassOf, holdExpiresLabel } from '@/lib/iqPassPending';
-import { NextGameCard, MonthStrip, AgendaWeek, AgendaRow, PlayedSection, EmptyUpcoming, buildStripDays, groupUpcomingByWeek, pickStripPack, playedOf, startOf, type MyPackLite, type SeatInfo } from '@/components/marketplace/MyGames';
+import { isPayableDropIn, NextGameCard, MonthStrip, AgendaWeek, AgendaRow, PlayedSection, EmptyUpcoming, buildStripDays, groupUpcomingByWeek, pickStripPack, playedOf, startOf, type MyPackLite, type SeatInfo } from '@/components/marketplace/MyGames';
 import { todayDubai } from '@/lib/iqPassDates';
 import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
 import { Calendar, MapPin, Clock, XCircle, Banknote, CreditCard, Bookmark, AlertTriangle, ArrowRight, ListOrdered, Users, Timer, UserCheck, Pencil, Check, X, UserPlus, Wallet } from 'lucide-react';
@@ -410,6 +410,22 @@ export default function MyBookings() {
   });
 
   const sessionEndTime = (b: BookingWithDetails) => new Date(`${String(b.session.date).slice(0, 10)}T${b.session.endTime || '23:59'}`);
+  // ?pay=<bookingId> (the promotion email / notification link): open that booking and start its payment once, as
+  // soon as the bookings are known.
+  const autoPayFired = useRef(false);
+  useEffect(() => {
+    if (autoPayFired.current) return;
+    const id = new URLSearchParams(window.location.search).get('pay');
+    if (!id) return;
+    const target = bookings.find((b) => b.id === id);
+    if (!target) return;
+    autoPayFired.current = true;
+    if (isPayableDropIn(target)) {
+      setOpenDetails((o) => ({ ...o, [id]: true }));
+      initiatePaymentMutation.mutate(id);
+    }
+  }, [bookings]);
+
   const upcoming = bookings.filter(b => b.status !== 'cancelled' && sessionEndTime(b) >= new Date());
   const waitlisted = upcoming.filter(b => b.status === 'waitlisted');
   const pendingPayment = upcoming.filter(b => b.status === 'pending_payment' && !b.packId);
@@ -423,6 +439,8 @@ export default function MyBookings() {
     const tone = statusTone[booking.status] || { strip: 'rgba(0,30,70,0.2)', badgeBg: 'rgba(0,30,70,0.06)', badgeFg: MKT.inkSub };
     const isWaitlisted = booking.status === 'waitlisted';
     const isPendingPayment = booking.status === 'pending_payment';
+    // Payable here: a promotion awaiting payment, or an unpaid pending drop-in (its live intent is reused server-side).
+    const isPayable = !booking.packId && booking.paymentMethod === 'ziina' && (isPendingPayment || booking.status === 'pending');
     const countdown = usePaymentCountdown(isPendingPayment ? booking.promotedAt : null);
     const isLinkedGuest = booking.isGuestBooking && !!booking.myGuestId;
     const canCancel = !booking.packId && !booking.isGuestBooking && (booking.status === 'confirmed' || booking.status === 'waitlisted' || booking.status === 'pending_payment') && sessionEndTime(booking) >= new Date();
@@ -565,8 +583,8 @@ export default function MyBookings() {
               </button>
             )}
 
-            {/* Pending payment banner (never for an IQ Pass hold — that is paid as a pass) */}
-            {isPendingPayment && !booking.packId && (
+            {/* Pending payment banner (never for an IQ Pass hold — that is paid as a pass); an unpaid pending drop-in pays here too */}
+            {isPayable && (
               <div
                 className="mb-4 mt-3 flex items-start gap-3 rounded-xl p-3"
                 style={countdown.expired
@@ -579,9 +597,11 @@ export default function MyBookings() {
                   <p style={{ fontSize: 14, fontWeight: 600, color: countdown.expired ? MKT.inkSub : '#7A4A0E' }}>
                     {countdown.expired ? 'Payment window expired — spot will be released shortly' : 'Payment required to secure your spot'}
                   </p>
-                  <p style={{ fontFamily: FF_MONO, fontSize: 12, marginTop: 2, fontVariantNumeric: 'tabular-nums', color: countdown.expired ? MKT.inkSub : AMBER }}>
-                    {countdown.expired ? 'Expired' : `Time remaining: ${countdown.label}`}
-                  </p>
+                  {booking.promotedAt && (
+                    <p style={{ fontFamily: FF_MONO, fontSize: 12, marginTop: 2, fontVariantNumeric: 'tabular-nums', color: countdown.expired ? MKT.inkSub : AMBER }}>
+                      {countdown.expired ? 'Expired' : `Time remaining: ${countdown.label}`}
+                    </p>
+                  )}
                   {/* Absolute deadline in Dubai time — the countdown answers
                       "how long", this answers "by when" (Gate H1). */}
                   {booking.promotedAt && !countdown.expired && (
@@ -603,7 +623,7 @@ export default function MyBookings() {
                     data-testid={`button-complete-payment-${booking.id}`}
                     {...withStyle(navyBtn('sm'), { flex: 'none' })}
                   >
-                    {initiatePaymentMutation.isPending && initiatePaymentMutation.variables === booking.id ? 'Loading...' : 'Pay Now'}
+                    {initiatePaymentMutation.isPending && initiatePaymentMutation.variables === booking.id ? 'Loading...' : `Pay AED ${booking.amountAed}`}
                   </button>
                 )}
               </div>
@@ -960,7 +980,8 @@ export default function MyBookings() {
               )}
               {nextGame ? (
                 <NextGameCard booking={nextGame} area={nextGame.venueArea ?? null} seat={seatInfoById.get(nextGame.id) ?? null} passLine={nextGame.packId ? passLine : null}
-                  onMove={() => setMoveTarget({ bookingId: nextGame.id, sessionId: nextGame.sessionId })} />
+                  onMove={() => setMoveTarget({ bookingId: nextGame.id, sessionId: nextGame.sessionId })}
+                  onPay={() => initiatePaymentMutation.mutate(nextGame.id)} payBusy={initiatePaymentMutation.isPending && initiatePaymentMutation.variables === nextGame.id} />
               ) : !pendingPass ? (
                 <EmptyUpcoming iqPassEnabled={iqPassEnabled} browseHref="/marketplace/book" />
               ) : null}
@@ -971,7 +992,8 @@ export default function MyBookings() {
                 <AgendaWeek key={w.start} start={w.start} label={w.label}>
                   {w.rows.map((b) => (
                     <AgendaRow key={b.id} booking={b} area={b.venueArea ?? null} seat={seatInfoById.get(b.id) ?? null} open={!!openDetails[b.id]}
-                      onToggle={() => setOpenDetails((o) => ({ ...o, [b.id]: !o[b.id] }))} onMove={() => setMoveTarget({ bookingId: b.id, sessionId: b.sessionId })}>
+                      onToggle={() => setOpenDetails((o) => ({ ...o, [b.id]: !o[b.id] }))} onMove={() => setMoveTarget({ bookingId: b.id, sessionId: b.sessionId })}
+                      onPay={() => initiatePaymentMutation.mutate(b.id)} payBusy={initiatePaymentMutation.isPending && initiatePaymentMutation.variables === b.id}>
                       <BookingCard booking={b} />
                     </AgendaRow>
                   ))}

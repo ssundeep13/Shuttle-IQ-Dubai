@@ -15,6 +15,7 @@ import { venueColour, VENUE_TILE_TEXT } from '@/lib/venueColours';
 import { IqPassProgressLine } from '@/components/marketplace/IqPassPromo';
 import { addDays, countdownLabel, dayLetter, dayNumber, mondayOf, monthShort, weekLabel, weekdayOf, ymdOf } from '@/lib/iqPassDates';
 import { sessionStartEpochMs } from '@shared/sessionTime';
+import { formatDubaiTime, paymentDeadline } from '@shared/dubaiTime';
 import type { BookingWithDetails } from '@shared/schema';
 
 export type MyPackLite = {
@@ -71,9 +72,21 @@ const ghostOnNavy: React.CSSProperties = { minHeight: 40, padding: '0 14px', bor
 const ghost: React.CSSProperties = { minHeight: 40, padding: '0 12px', borderRadius: 6, border: `1px solid ${IQP.line}`, background: IQP.white, color: IQP.navy, fontFamily: IQP_FONT, fontWeight: 600, fontSize: 13, cursor: 'pointer' };
 const caption: React.CSSProperties = { fontSize: 12, color: IQP.inkSub };
 
-export function NextGameCard({ booking, area, seat, passLine, onMove, now: nowProp }: {
+/** A drop-in the player still has to pay: a waitlist promotion awaiting payment, or an unpaid pending booking (its live
+ *  intent is reused). Never an IQ Pass hold — that is paid as a pass — and never a cash booking. */
+export function isPayableDropIn(b: Pick<BookingWithDetails, 'status' | 'packId' | 'paymentMethod'>): boolean {
+  return !b.packId && b.paymentMethod === 'ziina' && (b.status === 'pending_payment' || b.status === 'pending');
+}
+/** "Pay by HH:mm" (Dubai) for a promotion's 4-hour window; an unpaid pending drop-in has no deadline. */
+export function payByLabel(b: Pick<BookingWithDetails, 'status' | 'promotedAt'>): string | null {
+  return b.status === 'pending_payment' && b.promotedAt ? `Pay by ${formatDubaiTime(paymentDeadline(b.promotedAt))}` : null;
+}
+const payOnNavy: React.CSSProperties = { minHeight: 40, padding: '0 16px', borderRadius: 6, border: 'none', background: IQP.cream, color: IQP.navy, fontFamily: IQP_FONT, fontWeight: 700, fontSize: 14, cursor: 'pointer' };
+const payNavy: React.CSSProperties = { minHeight: 40, padding: '0 14px', borderRadius: 6, border: 'none', background: IQP.navy, color: IQP.cream, fontFamily: IQP_FONT, fontWeight: 700, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' };
+
+export function NextGameCard({ booking, area, seat, passLine, onMove, onPay, payBusy, now: nowProp }: {
   booking: BookingWithDetails; area: string | null; seat: SeatInfo | null;
-  passLine: { label: string; played: number; total: number } | null; onMove: () => void; now?: number;
+  passLine: { label: string; played: number; total: number } | null; onMove: () => void; onPay?: () => void; payBusy?: boolean; now?: number;
 }) {
   const tick = useMinuteNow();
   const now = nowProp ?? tick;
@@ -91,6 +104,14 @@ export function NextGameCard({ booking, area, seat, passLine, onMove, now: nowPr
       <span data-testid="text-next-time" style={{ fontSize: 14, fontWeight: 500 }}>{booking.session.startTime}–{booking.session.endTime}</span>
       <span data-testid="text-next-venue" style={{ fontSize: 14, fontWeight: 600 }}>{booking.session.venueName}{area ? ` · ${area}` : ''}</span>
       {status ? <span data-testid="text-next-status" style={{ fontSize: 12, fontWeight: 700, opacity: 0.9 }}>{status}</span> : null}
+      {isPayableDropIn(booking) && onPay && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+          <button type="button" className="siq-press" data-testid={`button-pay-hero-${booking.id}`} onClick={onPay} disabled={!!payBusy} style={payOnNavy}>
+            {payBusy ? 'Opening payment…' : `Pay AED ${booking.amountAed}`}
+          </button>
+          {payByLabel(booking) && <span data-testid={`text-pay-deadline-${booking.id}`} style={{ fontSize: 12, opacity: 0.9 }}>{payByLabel(booking)}</span>}
+        </div>
+      )}
       {seat && booking.status === 'confirmed' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
           {seat.canMove && <button type="button" data-testid={`button-move-${booking.id}`} onClick={onMove} style={ghostOnNavy}>Move</button>}
@@ -165,8 +186,8 @@ export function AgendaWeek({ start, label, children }: { start: string; label: s
   );
 }
 
-export function AgendaRow({ booking, area, seat, open, onToggle, onMove, children }: {
-  booking: BookingWithDetails; area: string | null; seat: SeatInfo | null; open: boolean; onToggle: () => void; onMove: () => void; children: ReactNode;
+export function AgendaRow({ booking, area, seat, open, onToggle, onMove, onPay, payBusy, children }: {
+  booking: BookingWithDetails; area: string | null; seat: SeatInfo | null; open: boolean; onToggle: () => void; onMove: () => void; onPay?: () => void; payBusy?: boolean; children: ReactNode;
 }) {
   const ymd = ymdOf(booking.session.date);
   const status = STATUS_CAPTION[booking.status];
@@ -182,8 +203,14 @@ export function AgendaRow({ booking, area, seat, open, onToggle, onMove, childre
             {status ? <span data-testid={`chip-status-${booking.id}`} style={{ ...caption, fontWeight: 700 }}>{status}</span> : null}
           </div>
           <span style={{ fontSize: 14, fontWeight: 500, overflowWrap: 'anywhere' }}>{booking.session.venueName}{area ? <span style={caption}> · {area}</span> : null}</span>
+          {payByLabel(booking) && <span data-testid={`text-pay-deadline-${booking.id}`} style={{ ...caption, fontWeight: 700, color: IQP.navy }}>{payByLabel(booking)}</span>}
         </div>
         <div style={{ display: 'flex', gap: 6, padding: '0 10px', alignItems: 'center' }}>
+          {isPayableDropIn(booking) && onPay && (
+            <button type="button" className="siq-press" data-testid={`button-pay-${booking.id}`} onClick={onPay} disabled={!!payBusy} style={payNavy}>
+              {payBusy ? 'Opening…' : `Pay AED ${booking.amountAed}`}
+            </button>
+          )}
           {seat?.canMove && booking.status === 'confirmed' && <button type="button" data-testid={`button-move-${booking.id}`} onClick={onMove} style={ghost}>Move</button>}
           <button type="button" data-testid={`button-details-${booking.id}`} aria-expanded={open} aria-controls={`details-${booking.id}`} onClick={onToggle} style={ghost}>{open ? 'Hide' : 'Details'}</button>
         </div>

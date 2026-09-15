@@ -42,6 +42,7 @@ import { confirmZiinaBookingByIntentId, confirmGuestByIntentId, confirmPromotedB
 import { hasCompletedPayment } from "./paidBookingGuard";
 import { decideRebook, guestKeyOf, applyPendingSupersede, REBOOK_SUPERSEDED_REASON } from "./rebookGuard";
 import { decideAbandon, CHECKOUT_ABANDONED_REASON } from "./checkoutAbandon";
+import { decideIntentReuse } from "./payPending";
 import { iqPassConfigHandler, createIqPassRouter } from "./iqPass/routes";
 import { iqPassStore } from "./iqPass/store";
 import { isIqPassEnabled } from "./iqPass/flag";
@@ -3528,23 +3529,33 @@ export function registerMarketplaceRoutes(app: Express) {
       if (!booking) return res.status(404).json({ error: "Booking not found" });
       if (booking.packId) return res.status(400).json({ error: "iq_pass_seat", message: "IQ Pass games are managed from the IQ Pass page — they can be moved, not cancelled or re-paid." });
       if (booking.userId !== req.user.userId) return res.status(403).json({ error: "Not authorized" });
-      if (booking.status !== 'pending_payment') {
+      // A waitlist promotion awaiting payment (4-hour window) or an unpaid pending drop-in (no window; its intent stays live).
+      if (booking.status !== 'pending_payment' && booking.status !== 'pending') {
         return res.status(400).json({ error: "Booking is not awaiting payment" });
       }
       if (booking.paymentMethod !== 'ziina') {
         return res.status(400).json({ error: "This booking does not require online payment" });
       }
-      if (!booking.promotedAt) {
-        return res.status(400).json({ error: "Booking has no payment window set" });
-      }
-      const paymentDeadline = new Date(booking.promotedAt).getTime() + 4 * 60 * 60 * 1000;
-      if (Date.now() > paymentDeadline) {
-        return res.status(410).json({ error: "Payment window has expired. Your spot has been released." });
+      if (booking.status === 'pending_payment') {
+        if (!booking.promotedAt) {
+          return res.status(400).json({ error: "Booking has no payment window set" });
+        }
+        const paymentDeadline = new Date(booking.promotedAt).getTime() + 4 * 60 * 60 * 1000;
+        if (Date.now() > paymentDeadline) {
+          return res.status(410).json({ error: "Payment window has expired. Your spot has been released." });
+        }
       }
       // Gate 0: never mint a second intent over a paid one — that orphans the money.
       if (hasCompletedPayment(await storage.getPaymentsByBookingId(booking.id))) {
         return res.status(409).json({ error: "already_paid", message: "This booking is already paid — no further payment is needed." });
       }
+      // Reuse the booking's live intent (the Ziina page the player may already have open); mint only when there is none.
+      const reuse = await decideIntentReuse(booking.ziinaPaymentIntentId, retrieveZiinaPaymentIntent);
+      if (reuse.kind === 'paid') {
+        await confirmZiinaBookingByIntentId(reuse.intentId, reuse.intentStatus).catch(() => {});
+        return res.status(409).json({ error: "already_paid", message: "This booking is already paid — no further payment is needed." });
+      }
+      if (reuse.kind === 'reuse') return res.json({ redirectUrl: reuse.redirectUrl, reused: true });
 
       const bookableSession = await storage.getBookableSession(booking.sessionId);
       if (!bookableSession) return res.status(404).json({ error: "Session not found" });
@@ -4299,7 +4310,7 @@ export function registerMarketplaceRoutes(app: Express) {
                 type: 'waitlist_promoted',
                 title: 'Spot available — complete payment!',
                 // Explicit Asia/Dubai deadline (server clock is UTC).
-                message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
+                message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot — open My games and tap Pay.`,
                 relatedBookingId: first.id,
               });
 
@@ -4307,7 +4318,7 @@ export function registerMarketplaceRoutes(app: Express) {
               try {
                 const promotedUser = await storage.getMarketplaceUser(first.userId);
                 if (promotedUser) {
-                  const checkoutUrl = `${promotionBaseUrl}/marketplace/my-bookings`;
+                  const checkoutUrl = `${promotionBaseUrl}/marketplace/my-bookings?pay=${first.id}`;
                   sendWaitlistPromotionEmail(promotedUser.email, promotedUser.name, bookableSession, checkoutUrl).catch(() => {});
                 }
               } catch (emailErr) { console.error('[Email] waitlist promotion lookup failed:', emailErr); }

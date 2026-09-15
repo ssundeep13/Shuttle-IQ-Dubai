@@ -114,7 +114,7 @@ describe('promotion notifications carry the explicit Dubai deadline (all three s
   for (const f of ['server/guestSlotRefund.ts', 'server/scheduler.ts', 'server/marketplace-routes.ts']) {
     it(`${f.split('/').pop()} states a wall-clock deadline, not "4 hours"`, () => {
       const src = read(f);
-      expect(src.includes('Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.')).toBe(true);
+      expect(src.includes('Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot — open My games and tap Pay.')).toBe(true);
       expect(src.includes('You have 4 hours to complete payment')).toBe(false);
     });
   }

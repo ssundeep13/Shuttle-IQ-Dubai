@@ -293,7 +293,7 @@ export async function promoteFirstFittingWaitlisted(
       title: "Spot available — complete payment!",
       // Explicit Asia/Dubai deadline — the server clock is UTC, so a locally
       // formatted time would state an hour the player never sees.
-      message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot.`,
+      message: `A spot opened up for "${bookableSession.title}" on ${dateLabel} at ${bookableSession.venueName}. Complete payment by ${formatDubaiDeadline(paymentDeadline(promotedAt))} to secure your spot — open My games and tap Pay.`,
       relatedBookingId: first.id,
     });
 
@@ -307,7 +307,7 @@ export async function promoteFirstFittingWaitlisted(
           promotedUser.email,
           promotedUser.name,
           bookableSession,
-          `${baseUrl}/marketplace/my-bookings`,
+          `${baseUrl}/marketplace/my-bookings?pay=${first.id}`,
         ).catch(() => {});
       }
     } catch (emailErr) {
