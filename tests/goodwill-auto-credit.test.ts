@@ -358,7 +358,7 @@ describe('wiring — every confirm transition fires the hook', () => {
 
   it('ziina booking confirm', () => {
     const fn = webhook.slice(webhook.indexOf('export async function confirmZiinaBookingByIntentId'));
-    expect(fn).toContain('await storage.updateBooking(booking.id, { status: "confirmed" })');
+    expect(fn).toContain('await storage.claimBookingConfirmed(booking.id)');
     expect(fn).toContain("fireGoodwillCredit(booking.id, 'ziina-confirm')");
   });
 

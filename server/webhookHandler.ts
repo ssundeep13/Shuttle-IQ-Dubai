@@ -9,6 +9,7 @@ import { applyDubailandPromo } from "./dubailandPromo";
 import { fireGoodwillCredit } from "./goodwillCredit";
 import { hasCompletedPayment } from "./paidBookingGuard";
 import { REBOOK_SUPERSEDED_REASON, REBOOK_REFUND_PENDING_REASON } from "./rebookGuard";
+import { CHECKOUT_ABANDONED_REASON } from "./checkoutAbandon";
 import { isIqPassEnabled } from "./iqPass/flag";
 import { iqPassStore } from "./iqPass/store";
 import { confirmPackByIntentId } from "./iqPass/confirm";
@@ -156,7 +157,8 @@ export async function confirmGuestByIntentId(
 // ID and confirms it idempotently if the payment is successful.
 export async function confirmZiinaBookingByIntentId(
   intentId: string,
-  intentStatus: string
+  intentStatus: string,
+  reentered = false
 ): Promise<{ confirmed: boolean; waitlisted?: boolean; alreadyConfirmed?: boolean; paid?: boolean; restored?: boolean; flagged?: boolean; error?: string }> {
   if (!isZiinaPaymentSuccessful(intentStatus)) {
     return { confirmed: false };
@@ -184,7 +186,8 @@ export async function confirmZiinaBookingByIntentId(
   if (booking.cancelledAt) {
     // A flagged row is terminal: the money is recorded and admin holds the refund flag — answer, write nothing.
     if (booking.cancellationReason === REBOOK_REFUND_PENDING_REASON) return { confirmed: false, paid: true, flagged: true };
-    if (booking.cancellationReason !== REBOOK_SUPERSEDED_REASON) {
+    // 'checkout_abandoned' (the Ziina cancel return, verified unpaid at the time) is honoured the same way.
+    if (booking.cancellationReason !== REBOOK_SUPERSEDED_REASON && booking.cancellationReason !== CHECKOUT_ABANDONED_REASON) {
       console.log(`[Reconcile] Skipped ${booking.id} — player-cancelled, not resurrecting`);
       return { confirmed: false };
     }
@@ -229,7 +232,12 @@ export async function confirmZiinaBookingByIntentId(
     }
   }
 
-  await storage.updateBooking(booking.id, { status: "confirmed" });
+  // Status-guarded: an abandon or a re-book supersede that cancelled the row meanwhile wins the race — re-enter ONCE
+  // so the restore-or-flag path handles the (now cancelled, restorable) row instead of confirming over it.
+  if (!(await storage.claimBookingConfirmed(booking.id))) {
+    if (reentered) { console.warn(`[Ziina Webhook] ${booking.id} cancelled while confirming, twice — giving up (intent ${intentId})`); return { confirmed: false }; }
+    return confirmZiinaBookingByIntentId(intentId, intentStatus, true);
+  }
 
   // Founding Member (venue badge): payment success is the qualifying moment,
   // and this path carries BOTH a normal booking and a waitlist promotion that
@@ -343,7 +351,8 @@ export async function restoreSupersededBooking(booking: Booking, intentId: strin
   const capturedFils = typeof intent?.amount === 'number' ? intent.amount : Math.max(0, booking.amountAed * 100 - (booking.walletAmountUsed ?? 0));
   const capturedAed = Math.round(capturedFils / 100);
   const flag = async (title: string, detail: string) => {
-    const message = `AED ${capturedAed} was paid on booking ${booking.id} after a re-book superseded it${detail} (intent ${intentId}).`;
+    const how = booking.cancellationReason === CHECKOUT_ABANDONED_REASON ? 'after the player left checkout and it was abandoned' : 'after a re-book superseded it';
+    const message = `AED ${capturedAed} was paid on booking ${booking.id} ${how}${detail} (intent ${intentId}).`;
     const existing = await storage.getPaymentsByBookingId(booking.id);
     if (!existing.some((p) => p.ziinaPaymentIntentId === intentId)) {
       await storage.createPayment({ bookingId: booking.id, ziinaPaymentIntentId: intentId, amount: capturedAed, currency: "aed", status: "completed", completedAt: new Date() });

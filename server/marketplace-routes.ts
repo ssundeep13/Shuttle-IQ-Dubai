@@ -40,7 +40,8 @@ import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId, confirmPromotedBookingIfPaid } from "./webhookHandler";
 import { hasCompletedPayment } from "./paidBookingGuard";
-import { decideRebook, guestKeyOf, REBOOK_SUPERSEDED_REASON } from "./rebookGuard";
+import { decideRebook, guestKeyOf, applyPendingSupersede, REBOOK_SUPERSEDED_REASON } from "./rebookGuard";
+import { decideAbandon, CHECKOUT_ABANDONED_REASON } from "./checkoutAbandon";
 import { iqPassConfigHandler, createIqPassRouter } from "./iqPass/routes";
 import { iqPassStore } from "./iqPass/store";
 import { isIqPassEnabled } from "./iqPass/flag";
@@ -179,21 +180,39 @@ function fireDubailandPromoReversal(userId: string, site: string): void {
     .catch(err => console.error(`[DubailandPromo] reversal failed at ${site}:`, err instanceof Error ? err.message : err));
 }
 
-async function refundBookingWalletCredit(booking: { id: string; walletAmountUsed: number | null; userId: string }) {
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+async function refundBookingWalletCredit(booking: { id: string; walletAmountUsed: number | null; userId: string }, tx?: Tx) {
   if (!booking.walletAmountUsed || booking.walletAmountUsed <= 0) return;
   const user = await storage.getMarketplaceUser(booking.userId);
   if (!user?.linkedPlayerId) return;
-  // Ledger site #1 (booking_credit_return): balance + ledger row atomically.
-  await db.transaction(async (tx) => {
-    await applyWalletDelta(tx, {
-      playerId: user.linkedPlayerId!,
-      deltaFils: booking.walletAmountUsed!,
-      type: 'booking_credit_return',
-      relatedBookingId: booking.id,
-      description: 'Wallet credit returned — booking cancelled or payment failed',
-      createdBy: 'system',
-    });
+  // Ledger site #1 (booking_credit_return): balance + ledger row atomically — inside the caller's transaction when given.
+  const run = (t: Tx) => applyWalletDelta(t, {
+    playerId: user.linkedPlayerId!,
+    deltaFils: booking.walletAmountUsed!,
+    type: 'booking_credit_return',
+    relatedBookingId: booking.id,
+    description: 'Wallet credit returned — booking cancelled or payment failed',
+    createdBy: 'system',
   });
+  if (tx) await run(tx);
+  else await db.transaction(async (t) => { await run(t); });
+}
+
+// Supersede (re-book replace) or abandon (checkout return) a PENDING booking: the status-guarded claim and the wallet
+// share back run in ONE transaction through the pure applyPendingSupersede (claim first; a lost claim returns
+// nothing). False = another request (a concurrent replace, abandon or confirm) already took the row.
+async function supersedePendingBooking(stale: { id: string; walletAmountUsed: number | null; userId: string }, reason: string): Promise<boolean> {
+  return db.transaction(async (tx) => applyPendingSupersede(stale, reason, {
+    claimPending: async (id, r) => {
+      const [row] = await tx
+        .update(bookings)
+        .set({ status: 'cancelled', cancelledAt: new Date(), cancellationReason: r, walletAmountUsed: 0 })
+        .where(and(eq(bookings.id, id), sql`${bookings.status} = 'pending'`))
+        .returning({ id: bookings.id });
+      return !!row;
+    },
+    refundWallet: (b) => refundBookingWalletCredit(b, tx),
+  }));
 }
 
 async function deductWalletForBooking(
@@ -3060,7 +3079,7 @@ export function registerMarketplaceRoutes(app: Express) {
   app.post("/api/marketplace/bookings", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "Not authenticated" });
-      const { sessionId, paymentMethod, guests: guestList, applyWallet } = req.body;
+      const { sessionId, paymentMethod, guests: guestList, applyWallet, replacePending } = req.body;
       if (!sessionId) return res.status(400).json({ error: "Session ID required" });
 
       // Cash was retired platform-wide (player UI removed 2026-06-05, Ziina-only
@@ -3090,7 +3109,7 @@ export function registerMarketplaceRoutes(app: Express) {
       // booking and its intent (identical request → the same redirect; a different one → 409 pending_booking_exists);
       // a booking whose intent is younger than the window is never cancelled; an old, verified-unpaid one is superseded
       // with cancellation_reason 'rebook_superseded' so a payment that still lands on it is honoured, not lost.
-      const decision = await decideRebook(existingBooking ?? null, { spotsBooked, applyWallet: !!applyWallet, guestKey: guestKeyOf(guests) }, {
+      const decision = await decideRebook(existingBooking ?? null, { spotsBooked, applyWallet: !!applyWallet, guestKey: guestKeyOf(guests), replace: replacePending === true }, {
         now: () => new Date(),
         getPayments: (id) => storage.getPaymentsByBookingId(id),
         retrieveIntent: (id) => retrieveZiinaPaymentIntent(id),
@@ -3106,7 +3125,7 @@ export function registerMarketplaceRoutes(app: Express) {
         }
         case 'blocked': {
           if (decision.error === 'pending_booking_exists') {
-            return res.status(409).json({ error: 'pending_booking_exists', message: 'You already have a booking awaiting payment for this session. Book the same spots and guests again to continue that payment.', bookingId: decision.booking?.id ?? null, redirectUrl: decision.redirectUrl ?? null });
+            return res.status(409).json({ error: 'pending_booking_exists', message: 'You already have a booking awaiting payment for this session. Continue that payment, or change the booking to replace it.', bookingId: decision.booking?.id ?? null, redirectUrl: decision.redirectUrl ?? null });
           }
           return res.status(decision.status).json({ error: decision.error });
         }
@@ -3123,8 +3142,11 @@ export function registerMarketplaceRoutes(app: Express) {
         }
         case 'supersede': {
           const stale = decision.booking;
-          await refundBookingWalletCredit(stale);
-          await storage.updateBooking(stale.id, { status: 'cancelled', cancelledAt: new Date(), cancellationReason: REBOOK_SUPERSEDED_REASON, walletAmountUsed: 0 });
+          // Claim first, wallet share second, in one transaction: a concurrent replace / abandon / confirm that
+          // already took the row wins and the wallet is left alone.
+          if (!(await supersedePendingBooking(stale, REBOOK_SUPERSEDED_REASON))) {
+            return res.status(409).json({ error: 'booking_changed', message: 'Your booking just changed — please refresh and try again.' });
+          }
           console.log(`[Rebook] superseded ${stale.id} (intent ${stale.ziinaPaymentIntentId ?? 'none'}) for user ${req.user.userId} on session ${sessionId}${decision.flagPossiblyPaid ? ' — flagged possibly paid' : ''}`);
           // Ghost-charge safety: flag for review only if the intent could still be paid (idempotent helper).
           if (decision.flagPossiblyPaid) await maybeCreateRefundNotification(stale.id);
@@ -4048,6 +4070,43 @@ export function registerMarketplaceRoutes(app: Express) {
       res.json(augmented);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bookings" });
+    }
+  });
+
+  // Ziina cancel return (CheckoutCancel.tsx, 2026-09-15): abandon an UNPAID pending drop-in — and nothing else. The
+  // full player-cancel used to run here for any status (a late-window confirmed seat or a promoted pending_payment
+  // seat would have been cancelled with no refund choice, and a reload re-fired it). server/checkoutAbandon.ts decides.
+  app.post("/api/marketplace/bookings/:id/abandon", requireAuth, requireMarketplaceAuth, async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+      const booking = await storage.getBooking(req.params.id);
+      const decision = await decideAbandon(booking, req.user.userId, {
+        getPayments: (id) => storage.getPaymentsByBookingId(id),
+        retrieveIntent: (id) => retrieveZiinaPaymentIntent(id),
+      });
+      switch (decision.kind) {
+        case 'not_found': return res.status(404).json({ error: "Booking not found" });
+        case 'forbidden': return res.status(403).json({ error: "Not authorized" });
+        case 'already_cancelled': return res.json({ abandoned: false, status: 'cancelled' });
+        case 'not_pending': return res.status(409).json({ abandoned: false, status: decision.status });
+        case 'unavailable': return res.status(503).json({ abandoned: false, error: 'ziina_unavailable' });
+        case 'in_flight': return res.status(409).json({ abandoned: false, status: 'in_flight' });
+        case 'paid': {
+          // Paid after all — confirm through the canonical path; never cancel.
+          await confirmZiinaBookingByIntentId(decision.intentId, decision.intentStatus).catch(() => {});
+          return res.status(409).json({ abandoned: false, status: 'paid' });
+        }
+        case 'abandon': {
+          const stale = decision.booking;
+          // Claim first, wallet share second, in one transaction (a concurrent confirm / replace wins).
+          if (!(await supersedePendingBooking(stale, CHECKOUT_ABANDONED_REASON))) return res.json({ abandoned: false, status: 'changed' });
+          console.log(`[Abandon] ${stale.id} (intent ${stale.ziinaPaymentIntentId ?? 'none'}) — player left Ziina without paying`);
+          return res.json({ abandoned: true });
+        }
+      }
+    } catch (error) {
+      console.error("Abandon booking error:", error);
+      res.status(500).json({ error: "Failed to abandon booking" });
     }
   });
 

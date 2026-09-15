@@ -22,6 +22,7 @@ const storageMock = vi.hoisted(() => ({
   getPaymentsByBookingId: vi.fn(),
   createPayment: vi.fn(),
   updateBooking: vi.fn(),
+  claimBookingConfirmed: vi.fn(),
   getBookingGuestByPendingPaymentIntentId: vi.fn(),
   getBooking: vi.fn(),
   getMarketplaceUser: vi.fn(),
@@ -59,6 +60,7 @@ beforeEach(() => {
   storageMock.getMarketplaceUser.mockResolvedValue(undefined);
   storageMock.getBookableSession.mockResolvedValue(undefined);
   storageMock.updateBooking.mockResolvedValue(undefined);
+  storageMock.claimBookingConfirmed.mockResolvedValue(true);
   storageMock.createPayment.mockResolvedValue(undefined);
 });
 
@@ -80,6 +82,7 @@ describe('confirmZiinaBookingByIntentId — paid booking loses the capacity race
     expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-1', { status: 'waitlisted', waitlistPosition: 4 });
     // Never confirmed in this branch.
     expect(storageMock.updateBooking).not.toHaveBeenCalledWith('bk-1', { status: 'confirmed' });
+    expect(storageMock.claimBookingConfirmed).not.toHaveBeenCalled();
   });
 
   it('is idempotent on webhook retry — a payment row already tied to the intent is not duplicated', async () => {
@@ -102,7 +105,7 @@ describe('confirmZiinaBookingByIntentId — paid booking loses the capacity race
     const result = await confirmZiinaBookingByIntentId(INTENT, 'completed');
 
     expect(result).toEqual({ confirmed: true });
-    expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-1', { status: 'confirmed' });
+    expect(storageMock.claimBookingConfirmed).toHaveBeenCalledWith('bk-1');
     expect(storageMock.createPayment).toHaveBeenCalledTimes(1);
   });
 });
@@ -123,7 +126,7 @@ describe('confirmPromotedBookingIfPaid — promotion honours a recorded payment'
     expect(await confirmPromotedBookingIfPaid(held as any)).toBe(true);
     // pending_payment skips the capacity re-check (the spot is already reserved).
     expect(storageMock.getBookableSessionWithAvailability).not.toHaveBeenCalled();
-    expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-1', { status: 'confirmed' });
+    expect(storageMock.claimBookingConfirmed).toHaveBeenCalledWith('bk-1');
     // The payment is already on file — no second row.
     expect(storageMock.createPayment).not.toHaveBeenCalled();
   });

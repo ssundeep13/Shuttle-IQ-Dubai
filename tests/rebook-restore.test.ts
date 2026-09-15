@@ -24,6 +24,7 @@ const storageMock = vi.hoisted(() => ({
   getWaitlistCountForSession: vi.fn(),
   getRefundNotificationByBooking: vi.fn(),
   updateBooking: vi.fn(),
+  claimBookingConfirmed: vi.fn(),
   createPayment: vi.fn(),
   createMarketplaceNotification: vi.fn(),
   getBookingGuests: vi.fn(),
@@ -72,6 +73,7 @@ beforeEach(() => {
   storageMock.getWaitlistCountForSession.mockResolvedValue(0);
   storageMock.getRefundNotificationByBooking.mockResolvedValue(undefined);
   storageMock.updateBooking.mockResolvedValue(undefined);
+  storageMock.claimBookingConfirmed.mockResolvedValue(true);
   storageMock.createPayment.mockResolvedValue(undefined);
   storageMock.createMarketplaceNotification.mockResolvedValue(undefined);
   storageMock.getBookingGuests.mockResolvedValue([]);
@@ -84,7 +86,8 @@ describe('confirmZiinaBookingByIntentId on a guard-superseded booking', () => {
     const r = await confirmZiinaBookingByIntentId(INTENT, 'completed');
     expect(r).toMatchObject({ confirmed: true, restored: true });
     expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-paid', expect.objectContaining({ status: 'pending', cancelledAt: null, cancellationReason: null }));
-    expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-paid', { status: 'confirmed' });
+    expect(storageMock.claimBookingConfirmed).toHaveBeenCalledWith('bk-paid');
+    expect(storageMock.updateBooking).not.toHaveBeenCalledWith('bk-paid', { status: 'confirmed' });
     expect(storageMock.createPayment).toHaveBeenCalledTimes(1);
     expect(storageMock.createPayment).toHaveBeenCalledWith(expect.objectContaining({ bookingId: 'bk-paid', ziinaPaymentIntentId: INTENT, amount: 49, status: 'completed' }));
     expect(storageMock.createMarketplaceNotification).not.toHaveBeenCalled();
@@ -97,7 +100,8 @@ describe('confirmZiinaBookingByIntentId on a guard-superseded booking', () => {
     expect(r).toMatchObject({ confirmed: true, restored: true });
     expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-dup', expect.objectContaining({ status: 'cancelled', cancellationReason: REBOOK_SUPERSEDED_REASON }));
     expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-paid', expect.objectContaining({ status: 'pending', cancelledAt: null, cancellationReason: null }));
-    expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-paid', { status: 'confirmed' });
+    expect(storageMock.claimBookingConfirmed).toHaveBeenCalledWith('bk-paid');
+    expect(storageMock.updateBooking).not.toHaveBeenCalledWith('bk-paid', { status: 'confirmed' });
   });
 
   it('a PAID sibling (the player paid twice) → no restore; the money is recorded on the superseded row and flagged "paid twice" for admin; the flag is terminal', async () => {
@@ -184,6 +188,44 @@ describe('confirmZiinaBookingByIntentId on a guard-superseded booking', () => {
     expect(storageMock.updateBooking).not.toHaveBeenCalled();
     expect(storageMock.createPayment).not.toHaveBeenCalled();
     expect(storageMock.createMarketplaceNotification).not.toHaveBeenCalled();
+  });
+
+  it('a booking abandoned from the Ziina cancel return (checkout_abandoned) whose intent was paid after all is restored the same way', async () => {
+    storageMock.getBookingByZiinaPaymentIntentId.mockResolvedValue(superseded({ cancellationReason: 'checkout_abandoned' }));
+    const r = await confirmZiinaBookingByIntentId(INTENT, 'completed');
+    expect(r).toMatchObject({ confirmed: true, restored: true });
+    expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-paid', expect.objectContaining({ status: 'pending', cancelledAt: null, cancellationReason: null }));
+  });
+
+  it('an abandoned row whose seat is gone → the money is flagged, and the admin message says it was ABANDONED at checkout, not re-book superseded', async () => {
+    storageMock.getBookingByZiinaPaymentIntentId.mockResolvedValue(superseded({ cancellationReason: 'checkout_abandoned' }));
+    storageMock.getBookableSessionWithAvailability.mockResolvedValue({ id: 's-1', status: 'upcoming', spotsRemaining: 0, priceAed: 49 });
+    const r = await confirmZiinaBookingByIntentId(INTENT, 'completed');
+    expect(r).toMatchObject({ confirmed: false, paid: true, flagged: true });
+    expect(storageMock.createMarketplaceNotification).toHaveBeenCalledWith(expect.objectContaining({ type: 'refund_required', message: expect.stringMatching(/abandoned/i), refundAmountFils: 4900 }));
+    expect(storageMock.createMarketplaceNotification).not.toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/re-book superseded/i) }));
+    expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-paid', { cancellationReason: REBOOK_REFUND_PENDING_REASON });
+  });
+
+  it('RACE: the row was abandoned between the read and the confirm write → the guarded claim misses, the confirm re-enters once and restores the (now cancelled, restorable) row instead of confirming over it', async () => {
+    const live = { ...superseded(), status: 'pending', cancelledAt: null, cancellationReason: null };
+    const abandoned = superseded({ cancellationReason: 'checkout_abandoned' });
+    storageMock.getBookingByZiinaPaymentIntentId.mockResolvedValueOnce(live).mockResolvedValueOnce(abandoned);
+    storageMock.claimBookingConfirmed.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const r = await confirmZiinaBookingByIntentId(INTENT, 'completed');
+    expect(r).toMatchObject({ confirmed: true, restored: true });
+    expect(storageMock.claimBookingConfirmed).toHaveBeenCalledTimes(2);
+    expect(storageMock.updateBooking).toHaveBeenCalledWith('bk-paid', expect.objectContaining({ status: 'pending', cancelledAt: null, cancellationReason: null }));
+    expect(storageMock.updateBooking).not.toHaveBeenCalledWith('bk-paid', { status: 'confirmed' });
+  });
+
+  it('RACE, second miss: a re-entered confirm that still cannot claim the row gives up without writing a confirmed status', async () => {
+    const live = { ...superseded(), status: 'pending', cancelledAt: null, cancellationReason: null };
+    storageMock.getBookingByZiinaPaymentIntentId.mockResolvedValue(live);
+    storageMock.claimBookingConfirmed.mockResolvedValue(false);
+    expect(await confirmZiinaBookingByIntentId(INTENT, 'completed')).toEqual({ confirmed: false });
+    expect(storageMock.claimBookingConfirmed).toHaveBeenCalledTimes(2);
+    expect(storageMock.updateBooking).not.toHaveBeenCalledWith('bk-paid', { status: 'confirmed' });
   });
 
   it('a booking the PLAYER cancelled (no guard reason) is still never resurrected and writes nothing', async () => {

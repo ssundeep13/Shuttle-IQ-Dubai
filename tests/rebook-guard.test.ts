@@ -97,6 +97,20 @@ describe('decideRebook — a pending booking younger than the payment window (th
     const different = await decideRebook(booking({ spotsBooked: 2 }), { ...request, spotsBooked: 2, guestKey: guestKeyOf([{ name: 'Arjun' }]) }, d);
     expect(different).toMatchObject({ kind: 'blocked', status: 409, error: 'pending_booking_exists' });
   });
+  it('an explicit "change my booking" (replace) inside the window supersedes the unpaid young booking on purpose — never a paid one, never one still attaching its intent', async () => {
+    // Different request + replace → supersede with the guard reason (a late payment on it is still honoured); requires_payment_instrument is not flagged.
+    const r = await decideRebook(booking(), { ...request, spotsBooked: 2, replace: true }, deps());
+    expect(r).toMatchObject({ kind: 'supersede', reason: REBOOK_SUPERSEDED_REASON, flagPossiblyPaid: false });
+    // An in-flight status (the player may be mid-payment in another tab) → supersede but flagged possibly paid.
+    const inflight = await decideRebook(booking(), { ...request, spotsBooked: 2, replace: true }, deps({ retrieveIntent: vi.fn().mockResolvedValue({ status: 'pending', redirect_url: 'x' }) }));
+    expect(inflight).toMatchObject({ kind: 'supersede', flagPossiblyPaid: true });
+    // The same request + replace → just reuse (nothing to replace).
+    expect(await decideRebook(booking(), { ...request, replace: true }, deps())).toMatchObject({ kind: 'reuse' });
+    // Paid → already_paid regardless of replace.
+    expect(await decideRebook(booking(), { ...request, spotsBooked: 2, replace: true }, deps({ retrieveIntent: vi.fn().mockResolvedValue({ status: 'completed' }) }))).toMatchObject({ kind: 'already_paid' });
+    // No intent yet (still attaching) → 409 even with replace.
+    expect(await decideRebook(booking({ ziinaPaymentIntentId: null }), { ...request, spotsBooked: 2, replace: true }, deps())).toMatchObject({ kind: 'blocked', status: 409 });
+  });
   it('the young intent is already paid at Ziina → already_paid (the caller confirms through the canonical path)', async () => {
     const r = await decideRebook(booking(), request, deps({ retrieveIntent: vi.fn().mockResolvedValue({ status: 'completed', redirect_url: 'x' }) }));
     expect(r).toMatchObject({ kind: 'already_paid', intentId: 'pi_old', intentStatus: 'completed' });
@@ -159,8 +173,15 @@ describe('source pins — the route, the confirm path and the sweep honour the s
     expect(route.includes('await decideRebook(')).toBe(true);
     expect(route.includes('applyWallet: !!applyWallet')).toBe(true);
     expect(route.includes('guestKey: guestKeyOf(guests)')).toBe(true);
+    expect(route.includes('replace: replacePending === true')).toBe(true);
     expect(route.includes('walletFils')).toBe(false);
-    expect(route.includes("cancellationReason: REBOOK_SUPERSEDED_REASON")).toBe(true);
+    // The supersede claims the row (status-guarded, in one transaction with the wallet return) through the shared
+    // helper — never refund-then-unguarded-update; a lost claim answers 409 booking_changed.
+    const sup = route.slice(route.indexOf("case 'supersede'"), route.indexOf('break;', route.indexOf("case 'supersede'")));
+    expect(sup.includes('await supersedePendingBooking(stale, REBOOK_SUPERSEDED_REASON)')).toBe(true);
+    expect(sup.includes('storage.updateBooking(stale.id')).toBe(false);
+    expect(sup.includes('refundBookingWalletCredit(')).toBe(false);
+    expect(sup.includes("error: 'booking_changed'")).toBe(true);
     expect(route.includes("case 'reuse'")).toBe(true);
     expect(route.includes("case 'already_paid'")).toBe(true);
     expect(route.includes('isZiinaPaymentTerminalUnpaid(')).toBe(false); // the decision lives in the seam now

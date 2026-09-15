@@ -365,6 +365,7 @@ export interface IStorage {
     cashRefundCount: number;
   }>;
   updateBooking(id: string, updates: Partial<Booking>): Promise<Booking | undefined>;
+  claimBookingConfirmed(id: string): Promise<boolean>;
   getBookingCountForSession(sessionId: string): Promise<number>;
   getWaitlistedBookingsForSession(sessionId: string): Promise<Booking[]>;
   getWaitlistCountForSession(sessionId: string): Promise<number>;
@@ -2799,6 +2800,17 @@ export class DatabaseStorage implements IStorage {
   // OR no completed payment row exists. The reconciliation sweep re-checks each
   // against Ziina and rescues any that were actually paid but never recorded
   // (e.g. a missed webhook). Window-bounded to keep the sweep cheap.
+  /** Status-guarded confirm: flips the row to 'confirmed' only if it was not cancelled meanwhile (an abandon or a
+   *  re-book supersede racing the webhook). False = the claim missed. */
+  async claimBookingConfirmed(id: string): Promise<boolean> {
+    const [row] = await db
+      .update(bookings)
+      .set({ status: 'confirmed' })
+      .where(and(eq(bookings.id, id), sql`${bookings.status} <> 'cancelled'`))
+      .returning({ id: bookings.id });
+    return !!row;
+  }
+
   async getBookingsPendingZiinaReconciliation(withinMs: number): Promise<Booking[]> {
     const cutoff = new Date(Date.now() - withinMs);
     return db
@@ -2811,9 +2823,9 @@ export class DatabaseStorage implements IStorage {
         // touch cancelled/waitlisted rows — they must not be resurrected.
         // A row the RE-BOOK GUARD superseded (cancellation_reason 'rebook_superseded') stays a candidate: money can land
         // on it after the cancel and must be rescued (restored or flagged). Player cancels are still excluded.
-        sql`(${bookings.cancelledAt} IS NULL OR ${bookings.cancellationReason} = 'rebook_superseded')`,
+        sql`(${bookings.cancelledAt} IS NULL OR ${bookings.cancellationReason} = 'rebook_superseded' OR ${bookings.cancellationReason} = 'checkout_abandoned')`,
         sql`${bookings.status} <> 'waitlisted'`,
-        sql`(${bookings.status} <> 'cancelled' OR ${bookings.cancellationReason} = 'rebook_superseded')`,
+        sql`(${bookings.status} <> 'cancelled' OR ${bookings.cancellationReason} = 'rebook_superseded' OR ${bookings.cancellationReason} = 'checkout_abandoned')`,
         // A refunded payment no longer counts as a healthy completed payment
         // worth rescuing (refund_status IS NULL added to the inner check).
         sql`(${bookings.status} <> 'confirmed' OR NOT EXISTS (

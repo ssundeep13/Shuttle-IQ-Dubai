@@ -28,15 +28,20 @@ const SUCCESS_STATUSES = ['completed', 'paid', 'succeeded', 'success', 'authoriz
 export function ziinaIntentIsDead(status: string | null | undefined): boolean {
   return DEAD_STATUSES.includes(String(status ?? '').toLowerCase());
 }
-const isPaid = (status: string | null | undefined) => SUCCESS_STATUSES.includes(String(status ?? '').toLowerCase());
+export function ziinaIntentIsPaid(status: string | null | undefined): boolean {
+  return SUCCESS_STATUSES.includes(String(status ?? '').toLowerCase());
+}
+const isPaid = ziinaIntentIsPaid;
 
 /** The guest set as one comparable string: order-insensitive, case/space-normalised name|email pairs. */
 export function guestKeyOf(guests: Array<{ name: string; email?: string | null }>): string {
   return guests.map((g) => `${g.name.trim().toLowerCase()}|${(g.email ?? '').trim().toLowerCase()}`).sort().join(';');
 }
 
-/** The request carries only the wallet INTENT (the server computes the amount) and the guest key (guestKeyOf). */
-export type RebookRequest = { spotsBooked: number; applyWallet: boolean; guestKey: string };
+/** The request carries only the wallet INTENT (the server computes the amount) and the guest key (guestKeyOf).
+ *  `replace` is the player's explicit "change my booking": a differently-shaped request inside the window then
+ *  supersedes the unpaid young booking on purpose instead of answering 409. */
+export type RebookRequest = { spotsBooked: number; applyWallet: boolean; guestKey: string; replace?: boolean };
 export type RebookDeps = {
   now(): Date;
   getPayments(bookingId: string): Promise<Array<Pick<Payment, 'status' | 'ziinaPaymentIntentId'>>>;
@@ -90,6 +95,9 @@ export async function decideRebook(existing: Booking | null | undefined, request
       && request.applyWallet === ((existing.walletAmountUsed ?? 0) > 0)
       && request.guestKey === await deps.getGuestKey(existing.id);
     if (same) return { kind: 'reuse', booking: existing, redirectUrl };
+    // An explicit replace: supersede the unpaid young booking on purpose. The guard reason keeps a late payment on
+    // it restorable, and an in-flight status (the player may be mid-payment in another tab) is flagged possibly paid.
+    if (request.replace) return { kind: 'supersede', booking: existing, reason: REBOOK_SUPERSEDED_REASON, flagPossiblyPaid: !(ziinaIntentIsDead(intent.status) || isRequiresInstrument(intent.status)) };
     return ALREADY(409, 'pending_booking_exists', { booking: existing, redirectUrl });
   }
 
@@ -108,6 +116,19 @@ export async function decideRebook(existing: Booking | null | undefined, request
   return { kind: 'supersede', booking: existing, reason: REBOOK_SUPERSEDED_REASON, flagPossiblyPaid: !terminallyUnpaid };
 }
 
-function isRequiresInstrument(status: string | null | undefined): boolean {
+export function isRequiresInstrument(status: string | null | undefined): boolean {
   return String(status ?? '').toLowerCase() === 'requires_payment_instrument';
+}
+
+/** How a PENDING booking is superseded (re-book replace) or abandoned (checkout return): claim FIRST — a
+ *  status-guarded update, so only the request that flips the row from 'pending' wins — and only then return the
+ *  wallet share of the pre-claim row, exactly once. The route runs both inside one transaction. */
+export type SupersedeDeps = {
+  claimPending(bookingId: string, reason: string): Promise<boolean>;
+  refundWallet(booking: { id: string; userId: string; walletAmountUsed: number | null }): Promise<void>;
+};
+export async function applyPendingSupersede(booking: { id: string; userId: string; walletAmountUsed: number | null }, reason: string, deps: SupersedeDeps): Promise<boolean> {
+  if (!(await deps.claimPending(booking.id, reason))) return false;
+  await deps.refundWallet(booking);
+  return true;
 }

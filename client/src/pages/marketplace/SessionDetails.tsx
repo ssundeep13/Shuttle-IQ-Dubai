@@ -20,6 +20,7 @@ import { format } from 'date-fns';
 import { useReducedMotion } from 'framer-motion';
 import { apiRequest, getMarketplaceAccessToken } from '@/lib/queryClient';
 import { openCheckoutRedirect, onCheckoutDismissed, nativeReturnFields } from '@/lib/nativeAuth';
+import { pendingConflictOf, type PendingConflict } from '@/lib/pendingConflict';
 import { useToast } from '@/hooks/use-toast';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -192,7 +193,7 @@ function WhosPlaying({ sessionId }: { sessionId: string }) {
   );
 }
 
-function InlineBookingPanel({
+export function InlineBookingPanel({
   session,
   onBooked,
 }: {
@@ -208,6 +209,9 @@ function InlineBookingPanel({
   // the first booking and mint a second intent while the player was already paying the first one.
   const submitInFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // A young pending booking with a different shape (409 pending_booking_exists): the player continues that payment
+  // or replaces the booking on purpose — `retry` is the request to re-send with replacePending.
+  const [pendingConflict, setPendingConflict] = useState<(PendingConflict & { retry: { method: 'cash' | 'ziina' } }) | null>(null);
   const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number; paidByWallet?: boolean } | null>(null);
   // Opt-OUT default (Layer 2a): wallet credit applies unless the player turns
   // it off. null = untouched → derived ON when credit exists (the balance
@@ -253,7 +257,7 @@ function InlineBookingPanel({
     return null;
   };
 
-  const makeBooking = async (method: 'cash' | 'ziina', applyWallet = false) => {
+  const makeBooking = async (method: 'cash' | 'ziina', applyWallet = false, opts: { replace?: boolean } = {}) => {
     const guestError = validateGuests();
     if (guestError) { setError(guestError); return; }
 
@@ -261,6 +265,7 @@ function InlineBookingPanel({
     submitInFlight.current = true;
     setProcessing(true);
     setError(null);
+    setPendingConflict(null);
 
     const token = getMarketplaceAccessToken();
     if (!token) {
@@ -284,11 +289,19 @@ function InlineBookingPanel({
             siqPlayerId: g.siqPlayerId ?? null,
           })),
           ...(applyWallet ? { applyWallet: true } : {}),
+          ...(opts.replace ? { replacePending: true } : {}),
           ...nativeReturnFields(),
         }),
       });
       const data = await res.json();
-      // 409 pending_booking_exists carries its human copy in `message`; every other error keeps it in `error`.
+      const conflict = pendingConflictOf(res.status, data);
+      if (conflict) {
+        setPendingConflict({ ...conflict, retry: { method } });
+        submitInFlight.current = false;
+        setProcessing(false);
+        return;
+      }
+      // Every other error keeps its human copy in `error` (`message` first for the few that send one).
       if (!res.ok) throw new Error(data.message || data.error || 'Booking failed');
 
       if (data.waitlisted) {
@@ -483,6 +496,46 @@ function InlineBookingPanel({
         </div>
       )}
 
+      {/* A young pending booking with a different shape: continue its payment, or replace it on purpose */}
+      {pendingConflict && (
+        <div className="space-y-3 text-sm" style={{ padding: 12, borderRadius: 10, border: `1px solid ${MKT.navy}22`, background: '#fff' }} data-testid="panel-pending-conflict">
+          <p style={{ margin: 0, color: MKT.ink, lineHeight: 1.5 }}>{pendingConflict.message}</p>
+          {pendingConflict.redirectUrl ? (
+            <div className="flex gap-2 flex-wrap">
+              <button
+                type="button"
+                className="siq-press"
+                disabled={processing}
+                style={navyBtnStyle('md')}
+                onClick={() => { void openCheckoutRedirect(pendingConflict.redirectUrl!); }}
+                data-testid="button-continue-payment"
+              >
+                Continue payment
+              </button>
+              {/* Re-sends the CURRENT form (live wallet toggle, live guests) with replacePending. */}
+              <button
+                type="button"
+                className="siq-press"
+                disabled={processing}
+                style={ghostBtnStyle('md')}
+                onClick={() => makeBooking(pendingConflict.retry.method, useWallet, { replace: true })}
+                data-testid="button-change-booking"
+              >
+                Change booking
+              </button>
+            </div>
+          ) : (
+            // No redirect yet: the first request is still attaching its intent — nothing to continue or replace.
+            <div className="flex gap-2 flex-wrap items-center">
+              <span style={{ color: MKT.inkSub }}>Your earlier booking is still being set up.</span>
+              <button type="button" className="siq-press" style={ghostBtnStyle('md')} onClick={() => window.location.reload()} data-testid="button-refresh-page">
+                Refresh
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Payment method buttons */}
       {walletCoversAll ? (
         <div className="space-y-2">
@@ -534,7 +587,7 @@ function InlineBookingPanel({
 
       <button
         type="button"
-        onClick={() => { setOpen(false); setGuests([]); setError(null); }}
+        onClick={() => { setOpen(false); setGuests([]); setError(null); setPendingConflict(null); }}
         data-testid="button-cancel-booking"
         style={{ fontFamily: FF_BODY, fontWeight: 600, fontSize: 13, color: MKT.inkSub, background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px 0' }}
       >

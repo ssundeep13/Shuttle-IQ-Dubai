@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { apiUrl } from '@/lib/queryClient';
 import { XCircle } from 'lucide-react';
 import { Link } from 'wouter';
@@ -26,7 +26,13 @@ function ghostBtnStyle(): CSSProperties {
 
 export default function CheckoutCancel() {
   usePageTitle('Checkout Cancelled');
+  // Once per mount: StrictMode's double effect or a re-render must not send a second request.
+  const fired = useRef(false);
+  // What the abandon answered: only an abandoned booking is told "no charge was made".
+  const [outcome, setOutcome] = useState<'abandoned' | 'paid' | 'in_flight' | 'kept' | null>(null);
   useEffect(() => {
+    if (fired.current) return;
+    fired.current = true;
     const params = new URLSearchParams(window.location.search);
     const bookingId = params.get('booking_id');
     const packId = params.get('pack_id');
@@ -35,13 +41,20 @@ export default function CheckoutCancel() {
     if (bookingId && !packId) {
       const token = getMarketplaceAccessToken();
       if (token) {
-        fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/cancel`), {
+        // Abandon, not cancel: only an UNPAID pending drop-in is touched (the server asks Ziina first); a confirmed or
+        // promoted seat, or a reload after the payment went through, is a no-op.
+        fetch(apiUrl(`/api/marketplace/bookings/${bookingId}/abandon`), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
-        }).catch(() => {});
+        })
+          .then(async (r) => {
+            const d = (await r.json().catch(() => ({}))) as { abandoned?: boolean; status?: string };
+            setOutcome(d.abandoned ? 'abandoned' : d.status === 'paid' ? 'paid' : d.status === 'in_flight' ? 'in_flight' : r.status === 409 ? 'kept' : 'abandoned');
+          })
+          .catch(() => {});
       }
     }
   }, []);
@@ -60,8 +73,14 @@ export default function CheckoutCancel() {
                 <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 26, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-checkout-cancelled">Payment Cancelled</h1>
               </div>
               <div className="text-center space-y-5" style={{ padding: '8px 28px 32px' }}>
-                <p style={{ color: MKT.inkSub, lineHeight: 1.55 }}>
-                  Your payment was cancelled and no charge was made. You can try booking again whenever you're ready.
+                <p style={{ color: MKT.inkSub, lineHeight: 1.55 }} data-testid="text-cancel-outcome">
+                  {outcome === 'paid'
+                    ? 'Your payment went through, so this booking is confirmed — nothing was cancelled. You will find it in My games.'
+                    : outcome === 'in_flight'
+                      ? 'Your payment may still be processing, so nothing was cancelled. Check My games in a moment.'
+                      : outcome === 'kept'
+                        ? 'This booking is already confirmed and was not cancelled.'
+                        : "Your payment was cancelled and no charge was made. You can try booking again whenever you're ready."}
                   {new URLSearchParams(window.location.search).get('pack_id') ? ' Your picked games stay held for 30 minutes, then release on their own — start again from IQ Pass any time.' : ''}
                 </p>
                 <div className="flex gap-3 justify-center flex-wrap pt-1">

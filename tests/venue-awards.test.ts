@@ -164,9 +164,9 @@ describe('live hook wiring', () => {
   it('AWARD ON CONFIRMATION: the Ziina payment-success path syncs', () => {
     const wh = read('server/webhookHandler.ts');
     expect(wh.includes('syncFoundingMemberForUser')).toBe(true);
-    const confirmIdx = wh.indexOf('await storage.updateBooking(booking.id, { status: "confirmed" });');
+    const confirmIdx = wh.indexOf('await storage.claimBookingConfirmed(booking.id)');
     expect(confirmIdx).toBeGreaterThan(-1);
-    expect(wh.slice(confirmIdx, confirmIdx + 500).includes('syncFoundingMemberForUser')).toBe(true);
+    expect(wh.slice(confirmIdx, confirmIdx + 800).includes('syncFoundingMemberForUser')).toBe(true); // 800: the status-guarded claim + one re-entry sit between the confirm and the sync (2026-09-15)
   });
 
   it('AWARD ON WAITLIST PROMOTION to a confirmed spot', () => {
