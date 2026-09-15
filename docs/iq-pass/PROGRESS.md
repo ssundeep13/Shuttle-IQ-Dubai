@@ -1,6 +1,6 @@
 # IQ Pass — progress
 
-**Current gate:** 17 — every drop-in still to be paid (a waitlist promotion awaiting payment, or an unpaid pending booking) shows "Pay AED <amount>" on the My games hero, the agenda row and the detail card, reusing the booking's live Ziina intent (`6573d5c`, Railway `62f5233e…` SUCCESS); the promotion email links straight to it (?pay=); Gate 16 + the refund closure earlier today; Gate 0 of Automated Refunds diagnosed (`docs/refunds/PLAN.md`, uncommitted, awaiting approval); IQ Pass selling; 48 h monitor to 2026-09-16 ~14:30Z · **Tests:** 1623/1623 (133 files) · tsc 28 · **Hard stop pending: none** · **Next action for Sandeep:** Shannon messages the three players with unpaid pending drop-ins (list in the Gate 17 entry); approve or amend the refunds plan
+**Current gate:** 17 — every drop-in still to be paid (a waitlist promotion awaiting payment, or an unpaid pending booking) shows "Pay AED <amount>" on the My games hero, the agenda row and the detail card, reusing the booking's live Ziina intent (`6573d5c`, Railway `62f5233e…` SUCCESS); the promotion email links straight to it (?pay=); Gate 16 + the refund closure earlier today; Gate 0 of Automated Refunds diagnosed (`docs/refunds/PLAN.md`, uncommitted, awaiting approval); IQ Pass selling; 48 h monitor to 2026-09-16 ~14:30Z · **Tests:** 1623/1623 (133 files) · tsc 28 · **Hard stop pending: none** · **Next action for Sandeep:** Shannon messages the three players with unpaid pending drop-ins (list in the Gate 17 entry); the Automated Refunds plan is parked — blocked on Ziina's answer
 
 Branch `feature/iq-pass` (from `railway-migration` @ `73e44b2`). Gate 0 is cherry-picked to `railway-migration` and deployed on its own; everything else stays on the feature branch until Gate 8.
 
@@ -16,8 +16,15 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-15 10:06Z — before pushing the Gate 16 log + screenshots: CLEAR — no session in progress or starting within 30 minutes (14:06 Dubai)
 - 2026-09-15 13:56Z — before pushing `6573d5c` (Pay a pending drop-in from My games): CLEAR — no session in progress or starting within 30 minutes (17:56 Dubai)
 - 2026-09-15 14:02Z — before pushing the Gate 17 log + screenshots: CLEAR — no session in progress or starting within 30 minutes (18:02 Dubai)
+- 2026-09-15 14:14Z — before pushing the PROGRESS note parking the refunds plan: CLEAR — no session in progress or starting within 30 minutes (18:14 Dubai)
 
 ## Next session
+
+### Blocked on Ziina (Sandeep, 2026-09-15)
+
+- **Automated Refunds via Ziina — Gate 0 done, PARKED.** The read-only diagnosis (nine areas, every finding verified at its file:line) and the plan live in `docs/refunds/PLAN.md`, deliberately UNCOMMITTED and untouched until Ziina responds: the existing client posts `{ id: <intent>, currency_code, amount }` while the documented refund API wants `{ id: <client UUID>, payment_intent_id, amount, currency_code, test }`, and the token's refund permission is unconfirmed (`docs/PROJECT-REFERENCE.md:175`). Nothing starts — no Gate 1, no migration, no commit of the plan — until Sandeep says Ziina has answered. The plan's five approval questions are listed at its end.
+
+### Everything else
 
 - ~~Ten refund decisions~~ **CLOSED 2026-09-15:** Sandeep refunded all ten manually outside the app — no refund action in the app. Each of the ten cancelled rows now carries the admin note `2026-09-15: refunded manually outside the app` (scratch `refund-notes.mjs`: dry-run first — every row still cancelled with its scan intent and no prior note — then a status- and intent-guarded update, read back). The guard fix is what production serves (Railway `a54a6cc8…` = `127de29`, bundle carries the new client strings; live TEST PLAYER check on the serving build: two identical POSTs → `reused: true`, same booking and intent; a different request → 409 `pending_booking_exists`; rows torn down).
 - ~~CheckoutCancel auto-cancel on mount~~ and ~~no "change my booking" path for a young pending drop-in~~ — **DONE in Gate 16 (2026-09-15).**
