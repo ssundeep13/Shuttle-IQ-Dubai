@@ -2809,8 +2809,11 @@ export class DatabaseStorage implements IStorage {
         gte(bookings.createdAt, cutoff),
         // Never reconcile a booking the player deliberately cancelled, and never
         // touch cancelled/waitlisted rows — they must not be resurrected.
-        isNull(bookings.cancelledAt),
-        sql`${bookings.status} NOT IN ('cancelled', 'waitlisted')`,
+        // A row the RE-BOOK GUARD superseded (cancellation_reason 'rebook_superseded') stays a candidate: money can land
+        // on it after the cancel and must be rescued (restored or flagged). Player cancels are still excluded.
+        sql`(${bookings.cancelledAt} IS NULL OR ${bookings.cancellationReason} = 'rebook_superseded')`,
+        sql`${bookings.status} <> 'waitlisted'`,
+        sql`(${bookings.status} <> 'cancelled' OR ${bookings.cancellationReason} = 'rebook_superseded')`,
         // A refunded payment no longer counts as a healthy completed payment
         // worth rescuing (refund_status IS NULL added to the inner check).
         sql`(${bookings.status} <> 'confirmed' OR NOT EXISTS (

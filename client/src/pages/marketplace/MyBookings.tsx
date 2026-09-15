@@ -951,7 +951,7 @@ export default function MyBookings() {
         ) : (
           // One column at every width (2026-09-14): the hero or empty card spans the content width, the horizontal strip
           // sits beneath it, then the agenda and Played. No side-by-side split — the strip never has column content.
-          <div data-testid="my-games-layout" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 20, alignItems: 'start' }}>
+          <div data-testid="my-games-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
             <div style={{ display: 'grid', gap: 14 }}>
               {pendingPass && (
                 <IqPassPendingSlot onDark={!nextGame} packs={myPacks?.packs ?? []} onComplete={(id) => { void resume.complete(id); }} busy={resume.busy} error={resume.error} />

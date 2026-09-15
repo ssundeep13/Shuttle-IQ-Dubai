@@ -42,6 +42,20 @@ export async function openCheckoutRedirect(url: string): Promise<void> {
   window.location.href = url;
 }
 
+// Native only: run `cb` once when the player dismisses the checkout sheet
+// (Done / back / swipe-out — no deep link fires, so nothing else can release the
+// caller's in-flight lock). No-op on web, where the page navigates away.
+export async function onCheckoutDismissed(cb: () => void): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  let fired = false;
+  const handle = await Browser.addListener('browserFinished', () => {
+    if (fired) return;
+    fired = true;
+    void handle.remove();
+    cb();
+  });
+}
+
 // Native return marker to merge into a booking/payment request body so the
 // server emits deep-link return URLs. Empty object on web (spreads to nothing →
 // request body byte-for-byte unchanged).

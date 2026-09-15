@@ -83,8 +83,10 @@ describe('payment-vs-cancel race backstops (tripwires)', () => {
   it('the reconciliation sweep excludes cancelled rows at the QUERY, before any Ziina check', () => {
     const s = read('server/storage.ts');
     const q = s.slice(s.indexOf('async getBookingsPendingZiinaReconciliation'), s.indexOf('async getBookingsPendingZiinaReconciliation') + 1400);
-    expect(q.includes('isNull(bookings.cancelledAt)')).toBe(true);
-    expect(q.includes("NOT IN ('cancelled', 'waitlisted')")).toBe(true);
+    // 2026-09-15: player cancels stay excluded; a row the re-book guard superseded is the one cancelled shape kept.
+    expect(q.includes("cancelledAt} IS NULL OR")).toBe(true);
+    expect(q.includes("cancellationReason} = 'rebook_superseded'")).toBe(true);
+    expect(q.includes("<> 'waitlisted'")).toBe(true);
   });
 });
 

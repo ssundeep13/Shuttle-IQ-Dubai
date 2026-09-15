@@ -40,6 +40,7 @@ import { buildZiinaReturnUrls } from "./ziinaReturn";
 import { randomBytes } from "crypto";
 import { confirmZiinaBookingByIntentId, confirmGuestByIntentId, confirmPromotedBookingIfPaid } from "./webhookHandler";
 import { hasCompletedPayment } from "./paidBookingGuard";
+import { decideRebook, guestKeyOf, REBOOK_SUPERSEDED_REASON } from "./rebookGuard";
 import { iqPassConfigHandler, createIqPassRouter } from "./iqPass/routes";
 import { iqPassStore } from "./iqPass/store";
 import { isIqPassEnabled } from "./iqPass/flag";
@@ -3085,70 +3086,49 @@ export function registerMarketplaceRoutes(app: Express) {
       const spotsBooked = 1 + guests.length; // booker + guests
 
       const existingBooking = await storage.getUserBookingForSession(req.user.userId, sessionId);
-      if (existingBooking) {
-        if (existingBooking.status === 'pending') {
-          // MONEY-SAFETY: a paid booking must NEVER be cancelled by a re-book.
-          // (1) Ledger guard — if a completed payment row already exists, it's paid.
-          //     Restore/confirm it (idempotent) instead of cancelling.
-          const existingPayments = await storage.getPaymentsByBookingId(existingBooking.id);
-          if (existingPayments.some((p) => p.status === 'completed')) {
-            if (existingBooking.ziinaPaymentIntentId) {
-              await confirmZiinaBookingByIntentId(existingBooking.ziinaPaymentIntentId, 'completed').catch(() => {});
-            }
-            return res.status(400).json({ error: "You already have a paid booking for this session. Please refresh to see it." });
+      // Re-book guard (server/rebookGuard.ts, 2026-09-15): a repeat inside the payment window REUSES the existing pending
+      // booking and its intent (identical request → the same redirect; a different one → 409 pending_booking_exists);
+      // a booking whose intent is younger than the window is never cancelled; an old, verified-unpaid one is superseded
+      // with cancellation_reason 'rebook_superseded' so a payment that still lands on it is honoured, not lost.
+      const decision = await decideRebook(existingBooking ?? null, { spotsBooked, applyWallet: !!applyWallet, guestKey: guestKeyOf(guests) }, {
+        now: () => new Date(),
+        getPayments: (id) => storage.getPaymentsByBookingId(id),
+        retrieveIntent: (id) => retrieveZiinaPaymentIntent(id),
+        getGuestKey: async (id) => guestKeyOf((await storage.getBookingGuests(id)).filter((g) => !g.isPrimary)),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      });
+      switch (decision.kind) {
+        case 'none':
+          break;
+        case 'already_paid': {
+          await confirmZiinaBookingByIntentId(decision.intentId, decision.intentStatus).catch(() => {});
+          return res.status(400).json({ error: "You already have a paid booking for this session. Please refresh to see it." });
+        }
+        case 'blocked': {
+          if (decision.error === 'pending_booking_exists') {
+            return res.status(409).json({ error: 'pending_booking_exists', message: 'You already have a booking awaiting payment for this session. Book the same spots and guests again to continue that payment.', bookingId: decision.booking?.id ?? null, redirectUrl: decision.redirectUrl ?? null });
           }
-          // (2) Live Ziina check — FAIL CLOSED. If we cannot verify the status,
-          //     never cancel on uncertainty: ask the user to refresh and retry.
-          let flagPossiblyPaid = false;
-          if (existingBooking.ziinaPaymentIntentId) {
-            let ziinaStatus;
-            try {
-              ziinaStatus = await retrieveZiinaPaymentIntent(existingBooking.ziinaPaymentIntentId);
-            } catch (_err) {
-              return res.status(503).json({ error: "Your payment may be processing. Please refresh in a moment before trying again." });
-            }
-            if (isZiinaPaymentSuccessful(ziinaStatus.status)) {
-              // Paid at Ziina — confirm (restore) the booking rather than cancel it.
-              await confirmZiinaBookingByIntentId(existingBooking.ziinaPaymentIntentId, ziinaStatus.status).catch(() => {});
-              return res.status(400).json({ error: "Your payment is being processed. Please wait a moment and refresh." });
-            }
-
-            // Layer 1 (double-charge fix) — an "in-flight" status (not successful,
-            // not terminally unpaid) can be the pay->status propagation lag: a
-            // single read may race the capture and wrongly conclude unpaid. Wait
-            // 1s and re-check ONCE before cancelling and re-charging.
-            if (!isZiinaPaymentTerminalUnpaid(ziinaStatus.status)) {
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-              let recheck;
-              try {
-                recheck = await retrieveZiinaPaymentIntent(existingBooking.ziinaPaymentIntentId);
-              } catch (_err) {
-                // Fail closed — never cancel/re-charge when we cannot verify.
-                return res.status(503).json({ error: "Your payment may still be processing. Please wait a moment before trying again." });
-              }
-              if (isZiinaPaymentSuccessful(recheck.status)) {
-                await confirmZiinaBookingByIntentId(existingBooking.ziinaPaymentIntentId, recheck.status).catch(() => {});
-                return res.status(400).json({ error: "Your payment was received — your booking is confirmed. Please refresh to see it." });
-              }
-              ziinaStatus = recheck; // decide cancel/flag on the freshest status
-            }
-
-            // Layer 2 — about to cancel as unpaid. If the intent is not terminally
-            // unpaid it could still be captured later; flag it so any ghost charge
-            // surfaces in Pending Refunds.
-            flagPossiblyPaid = !isZiinaPaymentTerminalUnpaid(ziinaStatus.status);
-          }
-          // (3) Verified unpaid — safe to cancel the stale pending booking and allow retry.
-          await refundBookingWalletCredit(existingBooking);
-          await storage.updateBooking(existingBooking.id, { status: 'cancelled', cancelledAt: new Date(), walletAmountUsed: 0 });
-          // Ghost-charge safety: flag for review only if the intent could still be
-          // paid (Gate 3B helper — idempotent, no-ops unless a completed payment
-          // actually exists for the booking).
-          if (flagPossiblyPaid) {
-            await maybeCreateRefundNotification(existingBooking.id);
-          }
-        } else if (existingBooking.status !== 'cancelled') {
-          return res.status(400).json({ error: "You already have a booking for this session" });
+          return res.status(decision.status).json({ error: decision.error });
+        }
+        case 'reuse': {
+          const b = decision.booking;
+          console.log(`[Rebook] reuse ${b.id} for user ${req.user.userId} on session ${sessionId} (intent ${b.ziinaPaymentIntentId})`);
+          const s = await storage.getBookableSession(sessionId);
+          const walletApplied = b.walletAmountUsed ?? 0;
+          return res.json({
+            bookingId: b.id, paymentMethod: "ziina", paymentIntentId: b.ziinaPaymentIntentId, redirectUrl: decision.redirectUrl,
+            amount: b.amountAed, walletApplied, ziinaAmount: Math.max(0, b.amountAed - Math.round(walletApplied / 100)), birthdayDiscountApplied: !!b.birthdayDiscountApplied, spotsBooked: b.spotsBooked ?? 1, reused: true,
+            session: s ? { title: s.title, venueName: s.venueName, date: s.date, startTime: s.startTime, endTime: s.endTime } : undefined,
+          });
+        }
+        case 'supersede': {
+          const stale = decision.booking;
+          await refundBookingWalletCredit(stale);
+          await storage.updateBooking(stale.id, { status: 'cancelled', cancelledAt: new Date(), cancellationReason: REBOOK_SUPERSEDED_REASON, walletAmountUsed: 0 });
+          console.log(`[Rebook] superseded ${stale.id} (intent ${stale.ziinaPaymentIntentId ?? 'none'}) for user ${req.user.userId} on session ${sessionId}${decision.flagPossiblyPaid ? ' — flagged possibly paid' : ''}`);
+          // Ghost-charge safety: flag for review only if the intent could still be paid (idempotent helper).
+          if (decision.flagPossiblyPaid) await maybeCreateRefundNotification(stale.id);
+          break;
         }
       }
 
@@ -3441,6 +3421,11 @@ export function registerMarketplaceRoutes(app: Express) {
         if (result.waitlisted) {
           const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
           return res.json({ confirmed: false, waitlisted: true, booking: bookingWithDetails, status: 'session_full' });
+        }
+        if (!result.confirmed) {
+          // Refused (a player-cancelled row) or recorded-and-flagged (a guard-superseded row whose seat is gone):
+          // never tell the player "confirmed" for a row that is not.
+          return res.json({ confirmed: false, status: result.flagged ? 'paid_flagged' : 'not_confirmed', paid: !!result.paid });
         }
 
         const bookingWithDetails = await storage.getBookingWithDetails(booking.id);

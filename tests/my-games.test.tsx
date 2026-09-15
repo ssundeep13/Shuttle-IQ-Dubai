@@ -200,7 +200,7 @@ describe('My games', () => {
     // Bug (2026-09-14): at 1280 the empty card sat in a narrow left column with the strip as a vertical list and
     // "Played" floating alone on the right. Now: one column — card, then the horizontal strip, then Played.
     const layout = screen.getByTestId('my-games-layout') as HTMLElement;
-    expect(layout.style.gridTemplateColumns === '' || layout.style.gridTemplateColumns === '1fr').toBe(true);
+    expect(layout.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
     const strip = screen.getByTestId('strip-days');
     expect(strip.getAttribute('data-orientation')).toBe('horizontal');
     expect(empty.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -212,7 +212,9 @@ describe('My games', () => {
     mount();
     const hero = await screen.findByTestId('card-next-game');
     const layout = screen.getByTestId('my-games-layout') as HTMLElement;
-    expect(layout.style.gridTemplateColumns === '' || layout.style.gridTemplateColumns === '1fr').toBe(true);
+    // minmax(0, 1fr), not 1fr: a bare 1fr column is minmax(auto, 1fr) and grows to the min-content of its widest child —
+    // an open "Played" row with a long venue name pushed the page to 435 px on a 375 px phone (found 2026-09-14).
+    expect(layout.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
     const strip = screen.getByTestId('strip-days') as HTMLElement;
     expect(strip.getAttribute('data-orientation')).toBe('horizontal');
     expect(strip.style.overflowX).toBe('auto');

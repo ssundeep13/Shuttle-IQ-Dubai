@@ -2,12 +2,13 @@ import crypto from "crypto";
 import type { Express } from "express";
 import express from "express";
 import { storage } from "./storage";
-import { isZiinaPaymentSuccessful, isZiinaRefundSuccessful } from "./ziinaClient";
+import { isZiinaPaymentSuccessful, isZiinaRefundSuccessful, retrieveZiinaPaymentIntent } from "./ziinaClient";
 import { fireReferralOnPayment } from "./referrals";
 import { syncFoundingMemberForUser } from "./venueAwards";
 import { applyDubailandPromo } from "./dubailandPromo";
 import { fireGoodwillCredit } from "./goodwillCredit";
 import { hasCompletedPayment } from "./paidBookingGuard";
+import { REBOOK_SUPERSEDED_REASON, REBOOK_REFUND_PENDING_REASON } from "./rebookGuard";
 import { isIqPassEnabled } from "./iqPass/flag";
 import { iqPassStore } from "./iqPass/store";
 import { confirmPackByIntentId } from "./iqPass/confirm";
@@ -156,12 +157,13 @@ export async function confirmGuestByIntentId(
 export async function confirmZiinaBookingByIntentId(
   intentId: string,
   intentStatus: string
-): Promise<{ confirmed: boolean; waitlisted?: boolean; alreadyConfirmed?: boolean; paid?: boolean; error?: string }> {
+): Promise<{ confirmed: boolean; waitlisted?: boolean; alreadyConfirmed?: boolean; paid?: boolean; restored?: boolean; flagged?: boolean; error?: string }> {
   if (!isZiinaPaymentSuccessful(intentStatus)) {
     return { confirmed: false };
   }
 
-  const booking = await storage.getBookingByZiinaPaymentIntentId(intentId);
+  let booking = await storage.getBookingByZiinaPaymentIntentId(intentId);
+  let restored = false;
 
   // No booking found — an IQ Pass payment (flag on only: the pack lookup never
   // runs while the flag is off, so that path is byte-identical to before), else
@@ -175,11 +177,21 @@ export async function confirmZiinaBookingByIntentId(
   }
 
   // Defence in depth: never resurrect a booking the player deliberately
-  // cancelled. The reconciliation sweep must not re-confirm/re-waitlist or email
-  // a cancelled booking just because its Ziina intent reads "completed".
+  // cancelled. A booking the RE-BOOK GUARD superseded (cancellation_reason
+  // 'rebook_superseded', 2026-09-15) is different: money that lands on it is
+  // honoured — restored when the player's seat is still free, otherwise recorded
+  // and flagged for admin — instead of going invisible.
   if (booking.cancelledAt) {
-    console.log(`[Reconcile] Skipped ${booking.id} — player-cancelled, not resurrecting`);
-    return { confirmed: false };
+    // A flagged row is terminal: the money is recorded and admin holds the refund flag — answer, write nothing.
+    if (booking.cancellationReason === REBOOK_REFUND_PENDING_REASON) return { confirmed: false, paid: true, flagged: true };
+    if (booking.cancellationReason !== REBOOK_SUPERSEDED_REASON) {
+      console.log(`[Reconcile] Skipped ${booking.id} — player-cancelled, not resurrecting`);
+      return { confirmed: false };
+    }
+    const outcome = await restoreSupersededBooking(booking, intentId);
+    if (!outcome.ok) return outcome.result;
+    booking = outcome.booking;
+    restored = true;
   }
 
   if (booking.status === "confirmed") {
@@ -303,7 +315,7 @@ export async function confirmZiinaBookingByIntentId(
   // to 'confirmed', and a guest with a pending slot does not yet qualify.
   fireGoodwillCredit(booking.id, 'ziina-confirm');
 
-  return { confirmed: true };
+  return restored ? { confirmed: true, restored: true } : { confirmed: true };
 }
 
 /**
@@ -314,6 +326,61 @@ export async function confirmZiinaBookingByIntentId(
  * "complete payment" notification + email. The booking is already
  * pending_payment (spot reserved), so the capacity re-check is skipped.
  */
+/**
+ * A guard-superseded booking (cancellation_reason 'rebook_superseded') whose intent was paid after all.
+ *   • the player's live booking on the session is paid (paid twice) or carries wallet credit, the session was cancelled
+ *     by admin, or the seat is gone → record the CAPTURED money on the superseded row, raise a refund_required flag for
+ *     admin, and mark the row 'rebook_refund_pending' (terminal — the sweep and the confirm path never re-decide it)
+ *   • otherwise restore it to 'pending', re-priced to the captured cash (the wallet share was returned at supersede),
+ *     superseding an UNPAID duplicate sibling first if that is what holds the seat; the caller then confirms it like
+ *     any paid booking. The sibling is touched only once the restore is certain — never two cancelled rows.
+ * The payment row and the notification are each idempotent on their own, so a failed insert is retried next pass.
+ */
+export async function restoreSupersededBooking(booking: Booking, intentId: string): Promise<{ ok: true; booking: Booking } | { ok: false; result: { confirmed: false; paid: true; flagged: true } }> {
+  // What Ziina actually captured. amountAed is the GROSS and the guard zeroed walletAmountUsed when it returned the
+  // wallet share, so the row no longer knows the cash — ask the intent; fall back to gross minus the share it still shows.
+  const intent = await retrieveZiinaPaymentIntent(intentId).catch(() => null);
+  const capturedFils = typeof intent?.amount === 'number' ? intent.amount : Math.max(0, booking.amountAed * 100 - (booking.walletAmountUsed ?? 0));
+  const capturedAed = Math.round(capturedFils / 100);
+  const flag = async (title: string, detail: string) => {
+    const message = `AED ${capturedAed} was paid on booking ${booking.id} after a re-book superseded it${detail} (intent ${intentId}).`;
+    const existing = await storage.getPaymentsByBookingId(booking.id);
+    if (!existing.some((p) => p.ziinaPaymentIntentId === intentId)) {
+      await storage.createPayment({ bookingId: booking.id, ziinaPaymentIntentId: intentId, amount: capturedAed, currency: "aed", status: "completed", completedAt: new Date() });
+    }
+    // Keyed on its own existence, not on the payment row: a notification insert that failed is retried next pass.
+    if (!(await storage.getRefundNotificationByBooking(booking.id))) {
+      await storage.createMarketplaceNotification({ userId: booking.userId, type: "refund_required", title, message, relatedBookingId: booking.id, refundAmountFils: capturedFils, refundPreference: "bank" });
+      console.warn(`[Rebook] ${title}: booking ${booking.id} (intent ${intentId}) — payment recorded, flagged for admin`);
+    }
+    if (booking.cancellationReason !== REBOOK_REFUND_PENDING_REASON) await storage.updateBooking(booking.id, { cancellationReason: REBOOK_REFUND_PENDING_REASON });
+    return { ok: false as const, result: { confirmed: false as const, paid: true as const, flagged: true as const } };
+  };
+  const live = await storage.getUserBookingForSession(booking.userId, booking.sessionId);
+  let duplicate: Booking | undefined;
+  if (live && live.id !== booking.id) {
+    const livePayments = await storage.getPaymentsByBookingId(live.id);
+    const livePaid = hasCompletedPayment(livePayments) || live.status === 'confirmed' || live.status === 'attended';
+    if (livePaid) return flag("Refund needed — paid twice for one session", `, and the player's other booking ${live.id} on the same session is paid too`);
+    if ((live.walletAmountUsed ?? 0) > 0) return flag("Refund needed — paid on a superseded booking", `; the player's live booking ${live.id} carries wallet credit and was left in place`);
+    duplicate = live;
+  }
+  const session = await storage.getBookableSessionWithAvailability(booking.sessionId);
+  if (!session || session.status === 'cancelled') return flag("Refund needed — paid on a cancelled session", `, and the session has since been cancelled`);
+  // A seat-holding duplicate (pending_payment, promoted from the waitlist) gives its spots back when superseded.
+  const freed = duplicate && duplicate.status === 'pending_payment' ? (duplicate.spotsBooked ?? 1) : 0;
+  if (session.spotsRemaining + freed < (booking.spotsBooked ?? 1)) return flag("Refund needed — paid after the seat was released", `, and the session no longer has a seat for it`);
+  // The restore is certain from here — only now touch the duplicate.
+  if (duplicate) {
+    await storage.updateBooking(duplicate.id, { status: 'cancelled', cancelledAt: new Date(), cancellationReason: REBOOK_SUPERSEDED_REASON, walletAmountUsed: 0 });
+    console.log(`[Rebook] superseded unpaid duplicate ${duplicate.id} so paid booking ${booking.id} can be restored (intent ${intentId})`);
+  }
+  const restored = { status: 'pending' as const, cancelledAt: null, cancellationReason: null, amountAed: capturedAed };
+  await storage.updateBooking(booking.id, restored);
+  console.log(`[Rebook] restored superseded booking ${booking.id} — paid AED ${capturedAed} at Ziina (intent ${intentId})`);
+  return { ok: true, booking: { ...booking, ...restored } };
+}
+
 export async function confirmPromotedBookingIfPaid(booking: Booking): Promise<boolean> {
   const payments = await storage.getPaymentsByBookingId(booking.id);
   if (!hasCompletedPayment(payments)) return false;

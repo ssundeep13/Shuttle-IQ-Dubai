@@ -10,7 +10,7 @@ import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Calendar, MapPin, Clock, CreditCard, CheckCircle, AlertCircle, Loader2, ArrowLeft, ShieldCheck, Banknote, Info, ListOrdered, UserPlus, X, Users, Wallet } from 'lucide-react';
 import { queryClient, getMarketplaceAccessToken } from '@/lib/queryClient';
-import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
+import { openCheckoutRedirect, onCheckoutDismissed, nativeReturnFields } from '@/lib/nativeAuth';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 import { isBirthdayDiscountAvailable } from '@shared/birthday';
@@ -333,7 +333,8 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Booking failed');
+      // 409 pending_booking_exists carries its human copy in `message`; every other error keeps it in `error`.
+      if (!res.ok) throw new Error(data.message || data.error || 'Booking failed');
 
       if (data.waitlisted) {
         setWaitlisted({ position: data.waitlistPosition });
@@ -352,6 +353,8 @@ function ZiinaPaymentForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
       }
 
       await openCheckoutRedirect(data.redirectUrl);
+      // Native only: the Ziina sheet can be dismissed without the return deep link ever firing — re-arm then.
+      void onCheckoutDismissed(() => setProcessing(false));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Payment failed. Please try again.';
       setError(message);
@@ -558,7 +561,7 @@ function CashCheckoutForm({ sessionId, pricePerSpot, sessionInfo, availableSpots
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Booking failed');
+      if (!res.ok) throw new Error(data.message || data.error || 'Booking failed');
 
       toast({ title: 'Booking confirmed', description: 'Please pay in cash when you arrive at the venue.' });
       onSuccess(data);

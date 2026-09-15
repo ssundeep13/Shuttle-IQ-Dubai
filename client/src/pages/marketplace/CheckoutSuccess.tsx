@@ -47,7 +47,9 @@ function IconCircle({ tone, ring, children }: { tone: string; ring: string; chil
 
 export default function CheckoutSuccess() {
   usePageTitle('Booking Confirmed');
-  const [status, setStatus] = useState<'verifying' | 'success' | 'waitlisted' | 'error'>('verifying');
+  const [status, setStatus] = useState<'verifying' | 'success' | 'waitlisted' | 'paid_review' | 'error'>('verifying');
+  // The booking id quoted back to the player when their payment landed but the seat could not be attached.
+  const [paidReference, setPaidReference] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [booking, setBooking] = useState<BookingWithDetails | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -177,6 +179,15 @@ export default function CheckoutSuccess() {
             return;
           }
 
+          // Paid, but the seat could not be attached (a re-book superseded this row and the seat is gone or
+          // already paid for). Terminal: the money is recorded and admin already holds a refund flag — say so
+          // at once, never show the internal status token, never wait out the retries.
+          if (data.paid) {
+            setStatus('paid_review');
+            setPaidReference(bookingId ?? '');
+            return;
+          }
+
           // If it's the last attempt, surface the error
           if (i === MAX_ATTEMPTS - 1) {
             setStatus('error');
@@ -270,6 +281,14 @@ export default function CheckoutSuccess() {
                 <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 26, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-waitlisted-title">Added to Waitlist</h1>
               </>
             )}
+            {status === 'paid_review' && (
+              <>
+                <IconCircle tone={MKT.amber} ring="#F6E6CC">
+                  <AlertCircle className="h-9 w-9" />
+                </IconCircle>
+                <h1 style={{ margin: 0, fontFamily: FF_DISPLAY, fontWeight: 700, fontSize: 26, color: MKT.navy, letterSpacing: '-0.02em' }} data-testid="text-paid-review-title">Payment received</h1>
+              </>
+            )}
             {status === 'error' && (
               <>
                 <IconCircle tone={MKT.red} ring="#F1D7D2">
@@ -322,6 +341,11 @@ export default function CheckoutSuccess() {
             {status === 'waitlisted' && (
               <p style={{ color: MKT.inkSub, lineHeight: 1.55 }} data-testid="text-waitlisted-message">
                 Your payment went through, but the session filled up just as you completed it. You have been added to the waitlist and will be confirmed if a spot opens up.
+              </p>
+            )}
+            {status === 'paid_review' && (
+              <p style={{ color: MKT.inkSub, lineHeight: 1.55 }} data-testid="text-paid-review-message">
+                We received your payment, but could not confirm this booking. Our team has been notified and will sort it out. Reference: {paidReference}
               </p>
             )}
             {status === 'error' && (

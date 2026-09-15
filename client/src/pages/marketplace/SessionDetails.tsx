@@ -19,7 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { format } from 'date-fns';
 import { useReducedMotion } from 'framer-motion';
 import { apiRequest, getMarketplaceAccessToken } from '@/lib/queryClient';
-import { openCheckoutRedirect, nativeReturnFields } from '@/lib/nativeAuth';
+import { openCheckoutRedirect, onCheckoutDismissed, nativeReturnFields } from '@/lib/nativeAuth';
 import { useToast } from '@/hooks/use-toast';
 import type { BookableSessionWithAvailability, BookingWithDetails } from '@shared/schema';
 import { getTierDisplayName } from '@shared/utils/skillUtils';
@@ -204,6 +204,9 @@ function InlineBookingPanel({
   const [open, setOpen] = useState(false);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [processing, setProcessing] = useState(false);
+  // In-flight lock (2026-09-15): a double tap must never send two booking requests — the second POST used to cancel
+  // the first booking and mint a second intent while the player was already paying the first one.
+  const submitInFlight = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [cashConfirmed, setCashConfirmed] = useState<{ spots: number; total: number; paidByWallet?: boolean } | null>(null);
   // Opt-OUT default (Layer 2a): wallet credit applies unless the player turns
@@ -254,12 +257,15 @@ function InlineBookingPanel({
     const guestError = validateGuests();
     if (guestError) { setError(guestError); return; }
 
+    if (submitInFlight.current) return;
+    submitInFlight.current = true;
     setProcessing(true);
     setError(null);
 
     const token = getMarketplaceAccessToken();
     if (!token) {
       setError('Not authenticated. Please log in again.');
+      submitInFlight.current = false;
       setProcessing(false);
       return;
     }
@@ -282,7 +288,8 @@ function InlineBookingPanel({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Booking failed');
+      // 409 pending_booking_exists carries its human copy in `message`; every other error keeps it in `error`.
+      if (!res.ok) throw new Error(data.message || data.error || 'Booking failed');
 
       if (data.waitlisted) {
         toast({
@@ -290,6 +297,8 @@ function InlineBookingPanel({
           description: `You are #${data.waitlistPosition} on the waitlist. We'll notify you if a spot opens up.`,
         });
         onBooked();
+        submitInFlight.current = false;
+        setProcessing(false);
         return;
       }
 
@@ -306,17 +315,23 @@ function InlineBookingPanel({
       if (method === 'ziina') {
         if (!data.redirectUrl) throw new Error('No payment URL received. Please try again.');
         await openCheckoutRedirect(data.redirectUrl);
+        // Native only: the Ziina sheet can be dismissed without the return deep link ever firing — re-arm then.
+        void onCheckoutDismissed(() => { submitInFlight.current = false; setProcessing(false); });
         return;
       }
 
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
       setCashConfirmed({ spots: spotsBooked, total: totalAmount });
       onBooked();
+      submitInFlight.current = false;
+      setProcessing(false);
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.');
-    } finally {
+      submitInFlight.current = false;
       setProcessing(false);
     }
+    // No finally: after a successful redirect the lock and the spinner outlive this task on purpose — the page is
+    // navigating to Ziina (on native it stays mounted under the browser sheet), so the button must not re-arm.
   };
 
   if (cashConfirmed) {
@@ -497,7 +512,8 @@ function InlineBookingPanel({
           <div className="grid grid-cols-1 gap-3">
             <button
               type="button"
-              className="text-left"
+              className="siq-press text-left"
+              disabled={processing}
               style={{ background: '#fff', border: `1px solid ${MKT.navy}1F`, borderRadius: 12, padding: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: processing ? 'wait' : 'pointer' }}
               onClick={() => !processing && makeBooking('ziina', useWallet)}
               data-testid="button-pay-card"
