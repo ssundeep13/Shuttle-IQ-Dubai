@@ -82,7 +82,7 @@ export function NextGameCard({ booking, area, seat, passLine, onMove, now: nowPr
   const cutoff = seat?.canMoveUntil ? new Date(seat.canMoveUntil).getTime() : start - 5 * H;
   const status = STATUS_CAPTION[booking.status];
   return (
-    <section data-testid="card-next-game" aria-label="Next game" style={{ background: IQP.navy, color: IQP.cream, borderRadius: 12, padding: '18px 20px', fontFamily: IQP_FONT, display: 'grid', gap: 8 }}>
+    <section data-testid="card-next-game" aria-label="Next game" style={{ background: IQP.navy, color: IQP.cream, borderRadius: 12, padding: '18px 20px', fontFamily: IQP_FONT, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
       <p style={{ margin: 0, fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: IQP.cream, opacity: 0.8 }}>Next game</p>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
         <span data-testid="text-next-day" style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.1 }}>{dayDateLabel(ymd)}</span>
@@ -160,7 +160,7 @@ export function AgendaWeek({ start, label, children }: { start: string; label: s
   return (
     <section data-testid={`agenda-week-${start}`} style={{ borderTopWidth: 2, borderTopStyle: 'solid', borderTopColor: IQP.teal, paddingTop: 8, fontFamily: IQP_FONT }}>
       <div data-testid={`text-agenda-week-${start}`} style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: IQP.teal, marginBottom: 8 }}>{label}</div>
-      <div style={{ display: 'grid', gap: 8 }}>{children}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>{children}</div>
     </section>
   );
 }
@@ -174,7 +174,7 @@ export function AgendaRow({ booking, area, seat, open, onToggle, onMove, childre
     <div id={`game-${booking.id}`} data-testid={`row-game-${booking.id}`} style={{ background: IQP.white, border: `1px solid ${IQP.line}`, borderRadius: 8, overflow: 'hidden', fontFamily: IQP_FONT, color: IQP.ink }}>
       <div style={{ display: 'grid', gridTemplateColumns: '4px minmax(0, 1fr) auto', alignItems: 'center' }}>
         <span aria-hidden="true" style={{ alignSelf: 'stretch', background: venueColour(booking.session.venueName) }} />
-        <div style={{ padding: '10px 12px', display: 'grid', gap: 2, minWidth: 0 }}>
+        <div style={{ padding: '10px 12px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 2, minWidth: 0 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: IQP.navy }}>{weekdayOf(ymd)} {dayNumber(ymd)}</span>
             <span style={{ fontSize: 14, fontWeight: 500 }}>{booking.session.startTime}–{booking.session.endTime}</span>
@@ -226,13 +226,13 @@ export function PlayedSection({ bookings }: { bookings: BookingWithDetails[] }) 
       {played.length > 0 && (
         <details data-testid="section-played" style={{ fontFamily: IQP_FONT }}>
           <summary data-testid="summary-played" style={summaryStyle}>Played ({played.length})</summary>
-          <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>{played.map((b) => <PastLine key={b.id} booking={b} />)}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, marginTop: 4 }}>{played.map((b) => <PastLine key={b.id} booking={b} />)}</div>
         </details>
       )}
       {notPlayed.length > 0 && (
         <details data-testid="section-not-played" style={{ fontFamily: IQP_FONT }}>
           <summary data-testid="summary-not-played" style={summaryStyle}>Not played ({notPlayed.length})</summary>
-          <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>{notPlayed.map((b) => <PastLine key={b.id} booking={b} />)}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, marginTop: 4 }}>{notPlayed.map((b) => <PastLine key={b.id} booking={b} />)}</div>
         </details>
       )}
     </>
@@ -244,7 +244,7 @@ const emptyBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'cen
 // One action only: with IQ Pass on it is the pass (flag off falls back to the session list).
 export function EmptyUpcoming({ iqPassEnabled, browseHref }: { iqPassEnabled: boolean; browseHref: string }) {
   return (
-    <div data-testid="empty-upcoming" style={{ background: IQP.white, border: `1px solid ${IQP.line}`, borderRadius: 12, padding: '20px', fontFamily: IQP_FONT, display: 'grid', gap: 10 }}>
+    <div data-testid="empty-upcoming" style={{ background: IQP.white, border: `1px solid ${IQP.line}`, borderRadius: 12, padding: '20px', fontFamily: IQP_FONT, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
       <p data-testid="text-nothing-booked" style={{ margin: 0, fontSize: 18, fontWeight: 800, color: IQP.navy, letterSpacing: '-0.01em' }}>Nothing booked.</p>
       {iqPassEnabled
         ? <Link href="/marketplace/iq-pass" data-testid="button-get-iq-pass" style={emptyBtn}>Get your IQ Pass</Link>
