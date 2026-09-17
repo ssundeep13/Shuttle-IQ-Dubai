@@ -18,7 +18,7 @@ function fmtMonth(ym: string): string {
 }
 
 // "2026-06-02" → "Tue 2 Jun"
-function fmtDay(iso: string): string {
+export function fmtDay(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 }
@@ -30,7 +30,7 @@ interface FetchState<T> {
 }
 
 // Authenticated GET against /api/portal/*; a 401 bubbles up as a logout.
-function usePortalGet<T>(path: string, token: string, onAuthFail: () => void): FetchState<T> {
+export function usePortalGet<T>(path: string, token: string, onAuthFail: () => void): FetchState<T> {
   const [state, setState] = useState<FetchState<T>>({ data: null, loading: true, error: null });
   useEffect(() => {
     let alive = true;
@@ -51,10 +51,10 @@ function usePortalGet<T>(path: string, token: string, onAuthFail: () => void): F
   return state;
 }
 
-function Loading() {
+export function Loading() {
   return <div className="skeleton wide" />;
 }
-function LoadError({ message }: { message: string }) {
+export function LoadError({ message }: { message: string }) {
   return <div className="error">{message}</div>;
 }
 

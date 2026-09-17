@@ -3,15 +3,17 @@ import { PnlPage, WeeklyPage, SessionsPage, RunnerPayPage, SocialMediaPayPage } 
 import { ReconcilePage } from "./ReconcilePage";
 import { GrowthPage } from "./GrowthPage";
 import { ExpensesPage } from "./ExpensesPage";
+import { IqPassPage } from "./IqPassPage";
 
 const TOKEN_KEY = "siq_portal_token";
 
-type PageKey = "pnl" | "weekly" | "sessions" | "pay" | "socialpay" | "reconcile" | "growth" | "expenses";
+type PageKey = "pnl" | "weekly" | "sessions" | "iqpass" | "pay" | "socialpay" | "reconcile" | "growth" | "expenses";
 
 const NAV: Array<{ key: PageKey; title: string }> = [
   { key: "pnl", title: "P&L" },
   { key: "weekly", title: "Weekly" },
   { key: "sessions", title: "Sessions" },
+  { key: "iqpass", title: "IQ Pass" },
   { key: "pay", title: "Runner Pay" },
   { key: "socialpay", title: "Social Media Pay" },
   { key: "reconcile", title: "Reconciliation" },
@@ -82,7 +84,7 @@ function Wordmark() {
   return (
     <div>
       <div className="wordmark">
-        Shuttle<span className="iq">IQ</span>
+        <span className="mark">Shuttle<span className="iq">IQ</span></span>
       </div>
       <div className="wordmark-sub">Finance</div>
     </div>
@@ -190,7 +192,8 @@ export function PortalApp() {
     <div className="app-shell">
       <header className="topbar">
         <div className="wordmark small">
-          Shuttle<span className="iq">IQ</span>
+          {/* One word: the flex gap separates the mark from "Finance", never "Shuttle" from "IQ". */}
+          <span className="mark">Shuttle<span className="iq">IQ</span></span>
           <span className="topbar-sub">Finance</span>
         </div>
         <nav className="tabs">
@@ -211,7 +214,7 @@ export function PortalApp() {
           Sign out
         </button>
       </header>
-      <main className={page === "pnl" || page === "sessions" ? "content full" : "content"}>
+      <main className={page === "pnl" || page === "sessions" || page === "iqpass" ? "content full" : "content"}>
         {showPassword && (
           <PasswordPanel
             token={token}
@@ -222,6 +225,7 @@ export function PortalApp() {
         {page === "pnl" && <PnlPage token={token} onAuthFail={logout} />}
         {page === "weekly" && <WeeklyPage token={token} onAuthFail={logout} />}
         {page === "sessions" && <SessionsPage token={token} onAuthFail={logout} />}
+        {page === "iqpass" && <IqPassPage token={token} onAuthFail={logout} />}
         {page === "pay" && <RunnerPayPage token={token} onAuthFail={logout} />}
         {page === "socialpay" && <SocialMediaPayPage token={token} onAuthFail={logout} />}
         {page === "reconcile" && <ReconcilePage token={token} onAuthFail={logout} />}

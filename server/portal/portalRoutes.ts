@@ -20,6 +20,7 @@ import {
 } from "./portalFinance";
 import { reconcileZiinaCsv, loadReconcileInput } from "./portalReconcile";
 import { buildGrowthReport } from "./portalGrowth";
+import { buildIqPassReport, loadIqPassInput } from "./portalIqPass";
 import { registerPortalExpenseRoutes } from "./portalExpenses";
 
 // fils → AED at the API edge (integer fils, so /100 is exact to 2dp).
@@ -246,6 +247,17 @@ export function registerPortalRoutes(app: Express): void {
     } catch (err: unknown) {
       console.error("[Portal] sessions error:", err instanceof Error ? err.message : err);
       res.status(500).json({ error: "Failed to load sessions." });
+    }
+  });
+
+  // IQ Pass tab — every pack with its picked seats (summary strip, paid packs, holds).
+  // READ-ONLY (two SELECTs + a pure report); owner-only like the P&L.
+  app.get("/api/portal/iq-pass", requirePortalAuth, requirePortalOwner, async (_req: Request, res: Response) => {
+    try {
+      res.json(buildIqPassReport(await loadIqPassInput(), new Date()));
+    } catch (err: unknown) {
+      console.error("[Portal] iq-pass error:", err instanceof Error ? err.message : err);
+      res.status(500).json({ error: "Failed to load the IQ Pass report." });
     }
   });
 

@@ -110,7 +110,7 @@ describe('TableWrap — persistent scroll cue on every scrolling table', () => {
   });
 
   it('every table in the portal pages goes through TableWrap (no bare tablewrap div left)', () => {
-    for (const f of ['client/portal/pages.tsx', 'client/portal/ReconcilePage.tsx', 'client/portal/ExpensesPage.tsx', 'client/portal/GrowthPage.tsx']) {
+    for (const f of ['client/portal/pages.tsx', 'client/portal/ReconcilePage.tsx', 'client/portal/ExpensesPage.tsx', 'client/portal/GrowthPage.tsx', 'client/portal/IqPassPage.tsx']) {
       expect(read(f), f).not.toMatch(/<div className="tablewrap">/); // TableWrap's own inner div carries a ref, never bare
     }
   });
