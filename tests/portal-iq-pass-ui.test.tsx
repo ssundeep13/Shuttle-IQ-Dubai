@@ -89,6 +89,13 @@ describe('nav and wordmark', () => {
     expect(css).toMatch(/\.tabs\s*\{[^}]*flex-wrap:\s*wrap/);
   });
 
+  it('the Ziina reference cell wraps (production refs are 36-char UUIDs) so the ten columns still fit at 1280', () => {
+    const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'client/portal/portal.css'), 'utf8');
+    expect(css).toMatch(/td\.mono\s*\{[^}]*white-space:\s*normal/);
+    expect(css).toMatch(/td\.mono\s*\{[^}]*word-break:\s*break-all/);
+    expect(css).toMatch(/td\.mono\s*\{[^}]*max-width:\s*\d+px/);
+  });
+
   it('the IQ Pass tab renders in the full-width main', async () => {
     localStorage.setItem('siq_portal_token', 'owner-token');
     mockFetch({ '/api/portal/auth/me': { role: 'owner' }, '/api/portal/finance/pnl': { months: [] }, '/api/portal/iq-pass': REPORT });

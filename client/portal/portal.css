@@ -460,6 +460,9 @@ table.seats td {
 td.mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+  white-space: normal; /* Ziina refs are 36-char UUIDs: wrap so ten columns fit at 1280 */
+  word-break: break-all;
+  max-width: 190px;
 }
 .pill {
   display: inline-block;
