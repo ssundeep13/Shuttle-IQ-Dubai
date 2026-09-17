@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fmtAed } from "./pages";
+import { fmtAed, TableWrap } from "./pages";
 
 // Phase 5 — growth reports. One fetch, eight sub-tabs. Every metric states its own
 // date-range/definition line so the numbers are self-explanatory.
@@ -90,24 +90,24 @@ export function GrowthPage({ token, onAuthFail }: { token: string; onAuthFail: (
             {" "}≥3: {r.repeatRate.ge3} ({r.repeatRate.pct3}%) ·
             {" "}≥5: {r.repeatRate.ge5} ({r.repeatRate.pct5}%)
           </p>
-          <div className="tablewrap"><table>
+          <TableWrap><table>
             <thead><tr><th className="num">Sessions attended</th><th className="num">Players</th></tr></thead>
             <tbody>{r.repeatRate.distribution.map((d) => (
               <tr key={d.sessions}><td className="num">{d.sessions}</td><td className="num">{d.players}</td></tr>
             ))}</tbody>
-          </table></div>
+          </table></TableWrap>
         </>
       )}
 
       {sub === "retention" && (
         <>
           <p className="note">{ATT_DEF}. Cohort = month of a player's FIRST attended session; reached 3rd = attended ≥3 sessions to date. Young cohorts can still improve.</p>
-          <div className="tablewrap"><table>
+          <TableWrap><table>
             <thead><tr><th>First-session month</th><th className="num">Cohort</th><th className="num">Reached 3rd</th><th className="num">%</th></tr></thead>
             <tbody>{r.retention.map((c) => (
               <tr key={c.month}><td>{c.month}</td><td className="num">{c.cohortSize}</td><td className="num">{c.reached3}</td><td className="num strong">{c.pct}%</td></tr>
             ))}</tbody>
-          </table></div>
+          </table></TableWrap>
         </>
       )}
 
@@ -120,12 +120,12 @@ export function GrowthPage({ token, onAuthFail }: { token: string; onAuthFail: (
             </select>{" "}days.
           </p>
           <p className="formula">{r.lapsed.players.length} lapsed players (cutoff {r.lapsed.days} days)</p>
-          <div className="tablewrap"><table>
+          <TableWrap><table>
             <thead><tr><th>Player</th><th>Last session</th><th className="num">Lifetime sessions</th></tr></thead>
             <tbody>{r.lapsed.players.map((p, i) => (
               <tr key={i}><td>{p.name}</td><td>{p.lastSessionDate}</td><td className="num">{p.lifetimeSessions}</td></tr>
             ))}</tbody>
-          </table></div>
+          </table></TableWrap>
         </>
       )}
 
@@ -133,21 +133,21 @@ export function GrowthPage({ token, onAuthFail }: { token: string; onAuthFail: (
         <>
           <p className="note">Since June 2026. Signups = new marketplace accounts (created date); bookings = confirmed/attended bookings by booking date. {r.growth.preJuneSignups} accounts predate June and are excluded.</p>
           <div className="growth-cols">
-            <div className="tablewrap"><table>
+            <TableWrap><table>
               <thead><tr><th>Month</th><th className="num">Signups</th><th className="num">Bookings</th></tr></thead>
               <tbody>{r.growth.signups.monthly.map((m) => (
                 <tr key={m.month}><td>{m.month}</td><td className="num">{m.count}</td>
                   <td className="num">{r.growth.bookings.monthly.find((b) => b.month === m.month)?.count ?? 0}</td></tr>
               ))}</tbody>
-            </table></div>
-            <div className="tablewrap"><table>
+            </table></TableWrap>
+            <TableWrap><table>
               <thead><tr><th>ISO week</th><th className="num">Signups</th><th className="num">Bookings</th></tr></thead>
               <tbody>{r.growth.bookings.weekly.map((w) => (
                 <tr key={w.label}><td>{w.label}</td>
                   <td className="num">{r.growth.signups.weekly.find((s) => s.label === w.label)?.count ?? 0}</td>
                   <td className="num">{w.count}</td></tr>
               ))}</tbody>
-            </table></div>
+            </table></TableWrap>
           </div>
         </>
       )}
@@ -156,25 +156,25 @@ export function GrowthPage({ token, onAuthFail }: { token: string; onAuthFail: (
         <>
           <p className="note">Completed referrals by completion month, June 2026 onward ({r.referrals.preJuneCompleted} completed pre-June, excluded from the trend). Totals cover all time.</p>
           <p className="formula">{r.referrals.totals.map((t) => `${t.status}: ${t.count}`).join(" · ")}</p>
-          <div className="tablewrap"><table>
+          <TableWrap><table>
             <thead><tr><th>Month</th><th className="num">Completed referrals</th></tr></thead>
             <tbody>{r.referrals.completedMonthly.map((m) => (
               <tr key={m.month}><td>{m.month}</td><td className="num">{m.count}</td></tr>
             ))}</tbody>
-          </table></div>
+          </table></TableWrap>
         </>
       )}
 
       {sub === "womens" && (
         <>
           <p className="note">{ATT_DEF}. Gender via the player profile linked to each account{r.womens.unknownGenderPlayers > 0 ? ` (${r.womens.unknownGenderPlayers} attendee(s) have no linked profile and are excluded from the player %)` : " (all attendees have linked profiles)"}. Attendances count booked seats incl. guests.</p>
-          <div className="tablewrap"><table>
+          <TableWrap><table>
             <thead><tr><th>Month</th><th className="num">Players</th><th className="num">Women</th><th className="num">% players</th><th className="num">Attendances</th><th className="num">By women</th><th className="num">% attendances</th></tr></thead>
             <tbody>{r.womens.monthly.map((m) => (
               <tr key={m.month}><td>{m.month}</td><td className="num">{m.uniquePlayers}</td><td className="num">{m.femalePlayers}</td><td className="num strong">{m.pctPlayers}%</td>
                 <td className="num">{m.attendances}</td><td className="num">{m.femaleAttendances}</td><td className="num strong">{m.pctAttendances}%</td></tr>
             ))}</tbody>
-          </table></div>
+          </table></TableWrap>
         </>
       )}
 
@@ -182,18 +182,18 @@ export function GrowthPage({ token, onAuthFail }: { token: string; onAuthFail: (
         <>
           <p className="note">Since June 2026, PAST sessions only (upcoming ones are still selling). Fill = booked seats (confirmed/attended bookings) ÷ capacity.{r.fillRate.excludedNullCapacity > 0 ? ` ${r.fillRate.excludedNullCapacity} session(s) without capacity excluded.` : " No sessions lack capacity."}</p>
           <div className="growth-cols">
-            <div className="tablewrap"><table>
+            <TableWrap><table>
               <thead><tr><th>Month</th><th className="num">Sessions</th><th className="num">Booked</th><th className="num">Capacity</th><th className="num">Fill</th></tr></thead>
               <tbody>{r.fillRate.monthly.map((m) => (
                 <tr key={m.month}><td>{m.month}</td><td className="num">{m.sessions}</td><td className="num">{m.booked}</td><td className="num">{m.capacity}</td><td className="num strong">{m.pct}%</td></tr>
               ))}</tbody>
-            </table></div>
-            <div className="tablewrap"><table>
+            </table></TableWrap>
+            <TableWrap><table>
               <thead><tr><th>Session</th><th className="num">Booked</th><th className="num">Capacity</th><th className="num">Fill</th></tr></thead>
               <tbody>{r.fillRate.perSession.map((s) => (
                 <tr key={s.date}><td>{s.date}</td><td className="num">{s.booked}</td><td className="num">{s.capacity}</td><td className="num">{s.pct}%</td></tr>
               ))}</tbody>
-            </table></div>
+            </table></TableWrap>
           </div>
         </>
       )}
@@ -201,12 +201,12 @@ export function GrowthPage({ token, onAuthFail }: { token: string; onAuthFail: (
       {sub === "ltv" && (
         <>
           <p className="note">Since June 2026 · based on paid bookings (confirmed, incl. wallet-paid) — attendance plays no role. LTV = Σ over a player's booked sessions of (session value-profit ÷ total booked seats) × their booked seats — guest seats attributed to the booker. Profit reuses the locked per-session definition (collected + wallet − refunds − costs, zero-floored).</p>
-          <div className="tablewrap"><table>
+          <TableWrap><table>
             <thead><tr><th>Player</th><th className="num">Sessions</th><th className="num">Profit LTV (AED)</th></tr></thead>
             <tbody>{r.ltv.players.map((p, i) => (
               <tr key={i}><td>{p.name}</td><td className="num">{p.sessions}</td><td className="num strong">{fmtAed(Math.round(p.ltvFils) / 100)}</td></tr>
             ))}</tbody>
-          </table></div>
+          </table></TableWrap>
         </>
       )}
     </div>

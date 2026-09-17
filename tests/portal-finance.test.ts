@@ -35,6 +35,8 @@ const row = (over: Partial<SessionFinanceRow>): SessionFinanceRow => ({
   valueFils: 0,
   valueProfitFils: 0,
   unpaidCashFils: 0,
+  iqPassSeats: 0,
+  iqPassFils: 0,
   ...over,
 });
 
@@ -82,7 +84,7 @@ describe('computeRevenueBasesFils — collected vs value bases from one classifi
 
   it('unknown payment methods stay excluded everywhere (unchanged behaviour)', () => {
     const bases = computeRevenueBasesFils([booking({ id: 'x', paymentMethod: 'comp' })], new Map());
-    expect(bases).toEqual({ revenueFils: 0, walletPaidFils: 0, valueFils: 0, unpaidCashFils: 0 });
+    expect(bases).toEqual({ revenueFils: 0, walletPaidFils: 0, valueFils: 0, unpaidCashFils: 0, iqPassSeats: 0, iqPassFils: 0 });
   });
 });
 

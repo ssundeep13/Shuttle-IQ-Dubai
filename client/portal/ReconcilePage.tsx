@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fmtAed } from "./pages";
+import { fmtAed, TableWrap } from "./pages";
 
 // Phase 4 — Ziina CSV reconciliation (fully stateless). Upload → server matches in
 // memory → buckets render here. Nothing is stored anywhere — not server-side, not in
@@ -32,7 +32,7 @@ interface ReconcileResult {
 function RowsTable({ rows }: { rows: BucketRow[] }) {
   if (!rows.length) return <p className="note">No rows.</p>;
   return (
-    <div className="tablewrap">
+    <TableWrap>
       <table>
         <thead><tr><th>Date</th><th className="num">AED</th><th>Customer</th><th>Detail</th></tr></thead>
         <tbody>
@@ -46,7 +46,7 @@ function RowsTable({ rows }: { rows: BucketRow[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableWrap>
   );
 }
 
@@ -205,7 +205,7 @@ export function ReconcilePage({ token }: { token: string; onAuthFail: () => void
                 <p className="note"><strong>Refund-gap backfill proposals (READ-ONLY)</strong> — our rows with refundStatus
                   'completed' but no recorded amount, and the CSV refund that likely fills each. Applying any of these is a
                   separate hand-run fix; nothing is changed here.</p>
-                <div className="tablewrap">
+                <TableWrap>
                   <table>
                     <thead><tr><th>Our gap row</th><th>Session</th><th className="num">Payment AED</th><th>Proposed CSV refund</th></tr></thead>
                     <tbody>
@@ -219,7 +219,7 @@ export function ReconcilePage({ token }: { token: string; onAuthFail: () => void
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </TableWrap>
               </>
             )}
           </Section>

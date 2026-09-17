@@ -211,7 +211,7 @@ export function PortalApp() {
           Sign out
         </button>
       </header>
-      <main className="content">
+      <main className={page === "pnl" || page === "sessions" ? "content full" : "content"}>
         {showPassword && (
           <PasswordPanel
             token={token}

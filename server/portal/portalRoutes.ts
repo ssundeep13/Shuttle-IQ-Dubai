@@ -239,6 +239,8 @@ export function registerPortalRoutes(app: Express): void {
           shuttleAed: filsToAed(r.shuttleCostFils),
           waterAed: filsToAed(r.waterCostFils),
           profitAed: filsToAed(r.profitFils),
+          iqPassSeats: r.iqPassSeats, // IQ Pass card — seats a pass paid for (inside collected)
+          iqPassAed: filsToAed(r.iqPassFils), // their per-seat allocation
         })),
       });
     } catch (err: unknown) {

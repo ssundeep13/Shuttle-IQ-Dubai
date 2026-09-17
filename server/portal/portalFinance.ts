@@ -72,6 +72,8 @@ export interface SessionFinanceRow {
   valueFils: number;       // collected + wallet — runner pay's revenue basis
   valueProfitFils: number; // max(0, value − costs) — what runner pay is 25% of
   unpaidCashFils: number;  // excluded from BOTH bases; surfaced so exclusions are visible
+  iqPassSeats: number;     // IQ Pass card: seats a pass paid for in this session (inside collected)
+  iqPassFils: number;      // their per-seat allocation, refund-netted (inside revenueFils)
 }
 
 export interface GeneralExpenseRow {
@@ -132,6 +134,8 @@ export async function loadSessionFinanceRows(): Promise<SessionFinanceRow[]> {
       valueFils: p.valueFils,
       valueProfitFils: p.valueProfitFils,
       unpaidCashFils: p.unpaidCashFils,
+      iqPassSeats: p.iqPassSeats,
+      iqPassFils: p.iqPassFils,
     };
   });
 }

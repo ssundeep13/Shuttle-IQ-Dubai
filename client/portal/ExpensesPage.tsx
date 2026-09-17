@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, FormEvent } from "react";
-import { fmtAed } from "./pages";
+import { fmtAed, TableWrap } from "./pages";
 
 // Phase 6 — expense entry moved here from the main app (full extraction). Owner-only;
 // the server 403s a runner. Three sub-tabs: Expenses (CRUD + filters), Categories,
@@ -158,7 +158,7 @@ export function ExpensesPage({ token, onAuthFail }: { token: string; onAuthFail:
             </form>
           )}
 
-          <div className="tablewrap"><table>
+          <TableWrap><table>
             <thead><tr><th>Date</th><th>Category</th><th>Description</th><th className="num">AED</th><th>Paid by</th><th></th></tr></thead>
             <tbody>{expenses.map((x) => (
               <tr key={x.id}>
@@ -182,7 +182,7 @@ export function ExpensesPage({ token, onAuthFail }: { token: string; onAuthFail:
               </tr>
             ))}</tbody>
             <tfoot><tr><td colSpan={3}>Total ({expenses.length})</td><td className="num">{fmtAed(expenses.reduce((s, x) => s + x.amountAed, 0))}</td><td colSpan={2}></td></tr></tfoot>
-          </table></div>
+          </table></TableWrap>
         </>
       )}
 
@@ -206,7 +206,7 @@ export function ExpensesPage({ token, onAuthFail }: { token: string; onAuthFail:
               </div>
             </form>
           )}
-          <div className="tablewrap"><table>
+          <TableWrap><table>
             <thead><tr><th>Category</th><th>Icon</th><th>Colour</th><th></th></tr></thead>
             <tbody>{cats.map((c) => (
               <tr key={c.id}>
@@ -223,7 +223,7 @@ export function ExpensesPage({ token, onAuthFail }: { token: string; onAuthFail:
                 </td>
               </tr>
             ))}</tbody>
-          </table></div>
+          </table></TableWrap>
         </>
       )}
 
@@ -234,7 +234,7 @@ export function ExpensesPage({ token, onAuthFail }: { token: string; onAuthFail:
           {pending.months.map((m) => (
             <div className="payweek" key={m.month}>
               <h3>{m.month}<span className="sub">{m.count} booking(s) · AED {fmtAed(m.totalAed)}</span></h3>
-              <div className="tablewrap"><table>
+              <TableWrap><table>
                 <thead><tr><th>Player</th><th>Session</th><th className="num">Spots</th><th className="num">AED</th><th></th></tr></thead>
                 <tbody>{m.bookings.map((b) => (
                   <tr key={b.bookingId}>
@@ -250,7 +250,7 @@ export function ExpensesPage({ token, onAuthFail }: { token: string; onAuthFail:
                     }}>Mark paid</button></td>
                   </tr>
                 ))}</tbody>
-              </table></div>
+              </table></TableWrap>
             </div>
           ))}
           {pending.months.length === 0 && <p className="note">Nothing pending — all cash collected.</p>}

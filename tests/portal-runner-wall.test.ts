@@ -15,6 +15,7 @@ const row = (over: Partial<SessionFinanceRow>): SessionFinanceRow => ({
   captainId: 'shannon-id', captainName: 'Shannon',
   revenueFils: 0, courtCostFils: 0, shuttleCostFils: 0, waterCostFils: 0,
   profitFils: 0, walletPaidFils: 0, valueFils: 0, valueProfitFils: 0, unpaidCashFils: 0,
+  iqPassSeats: 0, iqPassFils: 0,
   ...over,
 });
 

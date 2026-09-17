@@ -13,9 +13,11 @@
 // purpose: server/db.ts throws if DATABASE_URL is unset and opens a pool, so a
 // top-level import would make the pure function un-importable in a DB-less test.
 
-import { bookings, payments, sessionCosts } from "@shared/schema";
-import { and, inArray, sql } from "drizzle-orm";
-import { classifyRevenue } from "../revenueClassifier";
+import { bookings, packs, payments, sessionCosts } from "@shared/schema";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { classifyRevenue, isIqPassTender } from "../revenueClassifier";
+import { isPackTier } from "@shared/iqPassTiers";
+import { IQ_PASS_TIERS } from "../iqPass/rules";
 
 export interface ProfitInputsFils {
   revenueFils: number;
@@ -35,6 +37,11 @@ export interface ProfitBreakdownFils extends ProfitInputsFils {
   valueFils: number;        // revenueFils + walletPaidFils
   valueProfitFils: number;  // max(0, valueFils − costs), zero-floored per session
   unpaidCashFils: number;   // confirmed/attended cash with cashPaid=false (gross flag)
+  // IQ Pass card (Sessions tab): the seats a pass paid for and their per-seat
+  // allocation. Both are INSIDE revenueFils (a pass seat is collected) — shown so
+  // runner pay, which is 25% of value profit, is explainable per session.
+  iqPassSeats: number;
+  iqPassFils: number;
 }
 
 // ── Revenue bases (pure) ─────────────────────────────────────────────────────
@@ -48,6 +55,9 @@ export interface BookingForRevenueFils {
   amountAed: number; // whole AED (×100 bridge happens here)
   paymentMethod: string;
   cashPaid: boolean;
+  // IQ Pass seat only: the tier's per-seat allocation (whole AED). amountAed also
+  // carries any guest added to the seat, so the allocation is read from the pack.
+  packAllocationAed?: number;
 }
 
 export interface RevenueBasesFils {
@@ -55,13 +65,23 @@ export interface RevenueBasesFils {
   walletPaidFils: number;  // wallet, refund-netted
   valueFils: number;       // collected + wallet
   unpaidCashFils: number;  // cash not yet marked paid (gross; excluded from both bases)
+  iqPassSeats: number;     // pass seats (payment_method iq_pass) — a subset of collected
+  iqPassFils: number;      // their per-seat allocation, refund-netted — inside revenueFils
+}
+
+// An IQ Pass seat's per-seat allocation: the tier table (allocation × games === price
+// exactly), price ÷ games for an unknown tier, nothing when there is no pack row.
+export function seatAllocationAed(tier: string | null | undefined, priceAed: number | null | undefined, gamesTotal: number | null | undefined): number | undefined {
+  if (isPackTier(tier)) return IQ_PASS_TIERS[tier].allocationAed;
+  if (priceAed && gamesTotal) return Math.round(priceAed / gamesTotal);
+  return undefined;
 }
 
 export function computeRevenueBasesFils(
   bookings: BookingForRevenueFils[],
   refundedFilsByBookingId: Map<string, number>, // non-failed refunds only
 ): RevenueBasesFils {
-  let collected = 0, wallet = 0, unpaidCash = 0;
+  let collected = 0, wallet = 0, unpaidCash = 0, iqPassSeats = 0, iqPassFils = 0;
   for (const b of bookings) {
     const grossFils = b.amountAed * 100;
     const refundedFils = refundedFilsByBookingId.get(b.id) ?? 0;
@@ -70,6 +90,8 @@ export function computeRevenueBasesFils(
     const bucket = classifyRevenue(b);
     if (bucket === 'collected') {
       collected += grossFils - refundedFils;
+      // One booking = one pass seat, at the TIER allocation, gross: a refund on a pass seat is a guest refund.
+      if (isIqPassTender(b)) { iqPassSeats += 1; iqPassFils += (b.packAllocationAed ?? b.amountAed) * 100; }
     } else if (bucket === 'wallet') {
       wallet += grossFils - refundedFils;
     } else if (bucket === 'unpaid_cash') {
@@ -82,6 +104,8 @@ export function computeRevenueBasesFils(
     walletPaidFils: wallet,
     valueFils: collected + wallet,
     unpaidCashFils: unpaidCash,
+    iqPassSeats,
+    iqPassFils,
   };
 }
 
@@ -145,7 +169,7 @@ export async function computeSessionProfitsBatchFils(
   for (const id of sessionIds) {
     result.set(id, {
       revenueFils: 0, courtCostFils: 0, shuttleCostFils: 0, waterCostFils: 0, profitFils: 0,
-      walletPaidFils: 0, valueFils: 0, valueProfitFils: 0, unpaidCashFils: 0,
+      walletPaidFils: 0, valueFils: 0, valueProfitFils: 0, unpaidCashFils: 0, iqPassSeats: 0, iqPassFils: 0,
     });
   }
   if (sessionIds.length === 0) return result;
@@ -158,8 +182,12 @@ export async function computeSessionProfitsBatchFils(
       amountAed: bookings.amountAed,
       paymentMethod: bookings.paymentMethod,
       cashPaid: bookings.cashPaid,
+      packTier: packs.tier,
+      packPriceAed: packs.priceAed,
+      packGamesTotal: packs.gamesTotal,
     })
     .from(bookings)
+    .leftJoin(packs, eq(packs.id, bookings.packId))
     .where(and(
       inArray(bookings.sessionId, sessionIds),
       inArray(bookings.status, ['confirmed', 'attended']),
@@ -172,7 +200,10 @@ export async function computeSessionProfitsBatchFils(
   for (const b of bookingRows) {
     let list = bookingsBySession.get(b.sessionId);
     if (!list) { list = []; bookingsBySession.set(b.sessionId, list); }
-    list.push({ id: b.id, amountAed: b.amountAed, paymentMethod: b.paymentMethod, cashPaid: b.cashPaid });
+    list.push({
+      id: b.id, amountAed: b.amountAed, paymentMethod: b.paymentMethod, cashPaid: b.cashPaid,
+      packAllocationAed: seatAllocationAed(b.packTier, b.packPriceAed, b.packGamesTotal),
+    });
     const bucket = classifyRevenue(b);
     if (bucket === 'collected' || bucket === 'wallet') {
       refundLookupIds.push(b.id);
@@ -233,6 +264,8 @@ export async function computeSessionProfitsBatchFils(
       valueFils: bases.valueFils,
       valueProfitFils,
       unpaidCashFils: bases.unpaidCashFils,
+      iqPassSeats: bases.iqPassSeats,
+      iqPassFils: bases.iqPassFils,
     });
   }
 

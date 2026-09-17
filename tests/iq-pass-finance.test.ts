@@ -47,12 +47,12 @@ describe('computeRevenueBasesFils through the classifier', () => {
       [{ id: 's1', amountAed: 47, paymentMethod: 'iq_pass', cashPaid: false }, { id: 's2', amountAed: 96, paymentMethod: 'iq_pass', cashPaid: false }],
       new Map([['s2', 4_900]]), // the seat's extra guest was refunded
     );
-    expect(bases).toEqual({ revenueFils: 4_700 + 4_700, walletPaidFils: 0, valueFils: 9_400, unpaidCashFils: 0 });
+    expect(bases).toEqual({ revenueFils: 4_700 + 4_700, walletPaidFils: 0, valueFils: 9_400, unpaidCashFils: 0, iqPassSeats: 2, iqPassFils: 4_700 + 9_600 /* no pack allocation on these rows → the seat amount, gross */ });
   });
 
   it('bank_transfer and unknown methods behave as before (collected / excluded)', () => {
     expect(computeRevenueBasesFils([{ id: 'x', amountAed: 49, paymentMethod: 'bank_transfer', cashPaid: false }], new Map()).revenueFils).toBe(4_900);
-    expect(computeRevenueBasesFils([{ id: 'x', amountAed: 49, paymentMethod: 'comp', cashPaid: false }], new Map())).toEqual({ revenueFils: 0, walletPaidFils: 0, valueFils: 0, unpaidCashFils: 0 });
+    expect(computeRevenueBasesFils([{ id: 'x', amountAed: 49, paymentMethod: 'comp', cashPaid: false }], new Map())).toEqual({ revenueFils: 0, walletPaidFils: 0, valueFils: 0, unpaidCashFils: 0, iqPassSeats: 0, iqPassFils: 0 });
   });
 });
 
@@ -137,7 +137,8 @@ describe('portal wiring (tripwires)', () => {
   it('the portal P&L page shows the info column and explains it', () => {
     const pages = read('client/portal/pages.tsx');
     expect(pages.includes('iqPassRevenueAed?: number;')).toBe(true);
-    expect(pages.includes('IQ Pass sales (info)')).toBe(true);
+    expect(pages.includes('IQ Pass (info)')).toBe(true); // header shortened so the ten P&L columns fit at 1280
+    expect(pages).toMatch(/text-iqpass-tiers-/);           // the split by tier is a caption row, not a hover tooltip
     expect(pages).toMatch(/IQ Pass sales are informational/);
   });
 

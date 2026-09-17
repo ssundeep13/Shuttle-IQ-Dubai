@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 // AED display: thousands separators; decimals only when there are nonzero fils.
 export function fmtAed(n: number): string {
@@ -57,6 +57,36 @@ function Loading() {
 function LoadError({ message }: { message: string }) {
   return <div className="error">{message}</div>;
 }
+
+// Every scrolling table goes through here: the scrollbar stays visible (portal.css)
+// and a fade marks whichever edge still hides columns — measured, so a table that
+// fits shows nothing at all.
+export function TableWrap({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [clip, setClip] = useState({ left: false, right: false });
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    const left = el.scrollLeft > 1;
+    setClip((c) => (c.left === left && c.right === right ? c : { left, right }));
+  }, []);
+  useEffect(() => {
+    measure();
+    const el = ref.current;
+    if (!el) return;
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    if (el.firstElementChild) ro?.observe(el.firstElementChild);
+    window.addEventListener("resize", measure);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", measure); };
+  }, [measure]);
+  return (
+    <div className={`tablewrap-shell${clip.right ? " clip-right" : ""}${clip.left ? " clip-left" : ""}`}>
+      <div className="tablewrap" ref={ref} onScroll={measure}>{children}</div>
+    </div>
+  );
+}
 function Amount({ value }: { value: number }) {
   return <span className={value < 0 ? "amt neg" : "amt"}>{fmtAed(value)}</span>;
 }
@@ -87,46 +117,55 @@ export function PnlPage({ token, onAuthFail }: { token: string; onAuthFail: () =
     <div className="report">
       <p className="formula">Collected revenue − Session costs − General expenses = Net profit − Runner pay − Social media = Management profit</p>
       <p className="note">June 2026 onwards. Revenue is attributed to the session's date and netted of refunds.</p>
-      <div className="tablewrap">
-        <table>
+      <TableWrap>
+        <table className="pnl">
           <thead>
             <tr>
               <th>Month</th>
-              <th className="num">Collected revenue</th>
+              <th className="num">Collected</th>
               <th className="num">Session costs</th>
-              <th className="num">General expenses</th>
-              <th className="num">Net profit (before runner pay)</th>
-              <th className="num">− Runner pay</th>
-              <th className="num">− Social media (15%)</th>
+              <th className="num">Expenses</th>
+              <th className="num">Net profit</th>
+              <th className="num">−&nbsp;Runner pay</th>
+              <th className="num">−&nbsp;Social 15%</th>
               <th className="num">Management profit</th>
-              <th className="num">Wallet-paid (info)</th>
-              <th className="num">IQ Pass sales (info)</th>
+              <th className="num">Wallet (info)</th>
+              <th className="num">IQ Pass (info)</th>
             </tr>
           </thead>
           <tbody>
-            {data.months.map((m) => (
-              <tr key={m.month}>
-                <td>{fmtMonth(m.month)}</td>
-                <td className="num"><Amount value={m.collectedRevenueAed} /></td>
-                <td className="num"><Amount value={m.sessionCostsAed} /></td>
-                <td className="num"><Amount value={m.generalExpensesAed} /></td>
-                <td className="num"><Amount value={m.netProfitAed} /></td>
-                <td className="num"><Amount value={m.runnerPayAed ?? 0} /></td>
-                <td className="num"><Amount value={m.socialMediaPayAed ?? 0} /></td>
-                <td className="num strong"><Amount value={m.managementProfitAed ?? m.netProfitAed} /></td>
-                <td className="num"><Amount value={m.walletPaidAed ?? 0} /></td>
-                <td className="num" title={m.iqPassByTierAed ? `Club ${fmtAed(m.iqPassByTierAed.club)} · Club Plus ${fmtAed(m.iqPassByTierAed.club_plus)} · Club Elite ${fmtAed(m.iqPassByTierAed.club_elite)}` : undefined}>
-                  <Amount value={m.iqPassRevenueAed ?? 0} />
-                </td>
-              </tr>
-            ))}
+            {data.months.map((m) => {
+              const tiers = m.iqPassByTierAed ?? { club: 0, club_plus: 0, club_elite: 0 };
+              return (
+                <Fragment key={m.month}>
+                  <tr className="has-caption">
+                    <td>{fmtMonth(m.month)}</td>
+                    <td className="num"><Amount value={m.collectedRevenueAed} /></td>
+                    <td className="num"><Amount value={m.sessionCostsAed} /></td>
+                    <td className="num"><Amount value={m.generalExpensesAed} /></td>
+                    <td className="num"><Amount value={m.netProfitAed} /></td>
+                    <td className="num"><Amount value={m.runnerPayAed ?? 0} /></td>
+                    <td className="num"><Amount value={m.socialMediaPayAed ?? 0} /></td>
+                    <td className="num strong"><Amount value={m.managementProfitAed ?? m.netProfitAed} /></td>
+                    <td className="num"><Amount value={m.walletPaidAed ?? 0} /></td>
+                    <td className="num" data-testid={`cell-iqpass-${m.month}`}><Amount value={m.iqPassRevenueAed ?? 0} /></td>
+                  </tr>
+                  {/* The IQ Pass split by tier, as text the eye can read on any device (was a hover tooltip). */}
+                  <tr className="caption-row">
+                    <td colSpan={10} className="num caption" data-testid={`text-iqpass-tiers-${m.month}`}>
+                      Club {fmtAed(tiers.club)} · Plus {fmtAed(tiers.club_plus)} · Elite {fmtAed(tiers.club_elite)}
+                    </td>
+                  </tr>
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
-      </div>
+      </TableWrap>
       <p className="note footnote">
         {WALLET_FOOTNOTE} Wallet-paid amounts are informational and not part of the net formula.
         IQ Pass sales are informational too: each pass is already inside Collected revenue as its
-        games' per-seat share on the session dates (hover the figure for the split by tier).
+        games' per-seat share on the session dates (the split by tier sits under each month).
         Runner pay is ACCRUED (owed, 25% of session-value profit) for assigned runners only —
         sessions without a captain pay nobody and their profit stays with management.
       </p>
@@ -144,7 +183,7 @@ export function WeeklyPage({ token, onAuthFail }: { token: string; onAuthFail: (
   return (
     <div className="report">
       <p className="note">ISO weeks (Monday–Sunday), June 2026 onwards.</p>
-      <div className="tablewrap">
+      <TableWrap>
         <table>
           <thead>
             <tr>
@@ -170,7 +209,7 @@ export function WeeklyPage({ token, onAuthFail }: { token: string; onAuthFail: (
             ))}
           </tbody>
         </table>
-      </div>
+      </TableWrap>
     </div>
   );
 }
@@ -187,6 +226,8 @@ interface SessionRow {
   shuttleAed: number;
   waterAed: number;
   profitAed: number;
+  iqPassSeats: number; // IQ Pass card: seats a pass paid for (inside Collected)
+  iqPassAed: number;   // their per-seat allocation
 }
 
 export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail: () => void }) {
@@ -203,7 +244,7 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
   return (
     <div className="report">
       <p className="note">Per-session collected revenue, costs and profit, June 2026 onwards. Profit is zero-floored per session.</p>
-      <div className="tablewrap">
+      <TableWrap>
         <table>
           <thead>
             <tr>
@@ -216,6 +257,7 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
               <th>Captain</th>
               <th className="num">Collected</th>
               <th className="num">Wallet-paid</th>
+              <th className="num">IQ Pass</th>
               <th className="num">Court</th>
               <th className="num">Shuttle</th>
               <th className="num">Water</th>
@@ -230,6 +272,14 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
                 <td>{r.captain}</td>
                 <td className="num"><Amount value={r.collectedAed} /></td>
                 <td className="num"><Amount value={r.walletPaidAed} /></td>
+                <td className="num" data-testid={`iqpass-session-${r.sessionId}`}>
+                  {r.iqPassSeats > 0 ? (
+                    <span className="iqcard">
+                      <span>{r.iqPassSeats} {r.iqPassSeats === 1 ? "seat" : "seats"}</span>
+                      <span className="sub">AED {fmtAed(r.iqPassAed)}</span>
+                    </span>
+                  ) : "—"}
+                </td>
                 <td className="num"><Amount value={r.courtAed} /></td>
                 <td className="num"><Amount value={r.shuttleAed} /></td>
                 <td className="num"><Amount value={r.waterAed} /></td>
@@ -242,6 +292,10 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
               <td colSpan={3}>Total ({rows.length} sessions)</td>
               <td className="num"><Amount value={sum((r) => r.collectedAed)} /></td>
               <td className="num"><Amount value={sum((r) => r.walletPaidAed)} /></td>
+              <td className="num" data-testid="iqpass-total">
+                {sum((r) => r.iqPassSeats)} seats
+                <span className="sub">AED {fmtAed(sum((r) => r.iqPassAed))}</span>
+              </td>
               <td className="num"><Amount value={sum((r) => r.courtAed)} /></td>
               <td className="num"><Amount value={sum((r) => r.shuttleAed)} /></td>
               <td className="num"><Amount value={sum((r) => r.waterAed)} /></td>
@@ -249,8 +303,11 @@ export function SessionsPage({ token, onAuthFail }: { token: string; onAuthFail:
             </tr>
           </tfoot>
         </table>
-      </div>
-      <p className="note footnote">{WALLET_FOOTNOTE} Profit stays on the collected basis.</p>
+      </TableWrap>
+      <p className="note footnote">
+        {WALLET_FOOTNOTE} Profit stays on the collected basis. IQ Pass shows the seats a pass paid
+        for and their per-seat allocation — that money is inside Collected, which is why runner pay counts it.
+      </p>
     </div>
   );
 }
@@ -284,7 +341,7 @@ export function SocialMediaPayPage({ token, onAuthFail }: { token: string; onAut
             {w.label}
             <span className="sub">{fmtDay(w.weekStart)} – {fmtDay(w.weekEnd)}</span>
           </h3>
-          <div className="tablewrap">
+          <TableWrap>
             <table>
               <thead>
                 <tr>
@@ -299,7 +356,7 @@ export function SocialMediaPayPage({ token, onAuthFail }: { token: string; onAut
                 </tr>
               </tbody>
             </table>
-          </div>
+          </TableWrap>
         </div>
       ))}
     </div>
@@ -352,7 +409,7 @@ export function RunnerPayPage({ token, onAuthFail }: { token: string; onAuthFail
                 <span>{r.runnerName}</span>
                 <span className="runner-total">AED <Amount value={r.totalPayAed} /></span>
               </summary>
-              <div className="tablewrap">
+              <TableWrap>
                 <table>
                   <thead>
                     <tr>
@@ -382,7 +439,7 @@ export function RunnerPayPage({ token, onAuthFail }: { token: string; onAuthFail
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableWrap>
             </details>
           ))}
         </div>
