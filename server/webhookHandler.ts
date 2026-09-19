@@ -152,6 +152,21 @@ export async function confirmGuestByIntentId(
   return { confirmed: true };
 }
 
+// Statuses getBookingCountForSession already counts toward the session total — such a booking holds its seat(s).
+const SEAT_COUNTED_STATUSES = ["confirmed", "attended", "pending_payment"];
+
+/** Pure capacity re-check for the confirm path. spotsRemaining INCLUDES this booking's own seat(s) when its status is
+ *  already counted, so those seats are added back before comparing — a counted booking never loses to itself. For an
+ *  uncounted status ('pending') this is exactly the old `!(spotsRemaining < neededSpots)`. */
+export function capacityAllowsConfirm(
+  booking: { status: string; spotsBooked: number | null },
+  spotsRemaining: number,
+): boolean {
+  const needed = booking.spotsBooked ?? 1;
+  const ownCounted = SEAT_COUNTED_STATUSES.includes(booking.status) ? needed : 0;
+  return spotsRemaining + ownCounted >= needed;
+}
+
 // Shared confirmation logic — called by both the webhook handler and the
 // admin-triggered /confirm endpoint. Finds the booking by Ziina payment intent
 // ID and confirms it idempotently if the payment is successful.
@@ -197,7 +212,9 @@ export async function confirmZiinaBookingByIntentId(
     restored = true;
   }
 
-  if (booking.status === "confirmed") {
+  // 'attended' is a confirmed booking that has checked in — same answer, write nothing. (2026-09-19: the sweep
+  // sent a paid, checked-in player through the capacity re-check on a full session and demoted them to the waitlist.)
+  if (booking.status === "confirmed" || booking.status === "attended") {
     return { confirmed: true, alreadyConfirmed: true };
   }
 
@@ -205,8 +222,9 @@ export async function confirmZiinaBookingByIntentId(
   // already has a reserved spot from waitlist promotion).
   if (booking.status !== "pending_payment") {
     const sessionForCapacity = await storage.getBookableSessionWithAvailability(booking.sessionId);
-    const neededSpots = booking.spotsBooked ?? 1;
-    if (sessionForCapacity && sessionForCapacity.spotsRemaining < neededSpots) {
+    // Own-seat aware: the bare "spotsRemaining < neededSpots" let a booking that already counts toward the
+    // session total lose the check to its own seat. Identical to that comparison for an uncounted status.
+    if (sessionForCapacity && !capacityAllowsConfirm(booking, sessionForCapacity.spotsRemaining)) {
       // Gate 0: the money is already captured at Ziina. Record it NOW so the
       // paid fact survives the waitlist round-trip — every promotion site
       // checks for it (confirmPromotedBookingIfPaid) and confirms without

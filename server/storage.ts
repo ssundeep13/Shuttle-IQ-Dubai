@@ -2825,6 +2825,8 @@ export class DatabaseStorage implements IStorage {
         // on it after the cancel and must be rescued (restored or flagged). Player cancels are still excluded.
         sql`(${bookings.cancelledAt} IS NULL OR ${bookings.cancellationReason} = 'rebook_superseded' OR ${bookings.cancellationReason} = 'checkout_abandoned')`,
         sql`${bookings.status} <> 'waitlisted'`,
+        // 'attended' = confirmed + checked in: nothing to rescue, and re-confirming it demoted a paid player (2026-09-19).
+        sql`${bookings.status} <> 'attended'`,
         sql`(${bookings.status} <> 'cancelled' OR ${bookings.cancellationReason} = 'rebook_superseded' OR ${bookings.cancellationReason} = 'checkout_abandoned')`,
         // A refunded payment no longer counts as a healthy completed payment
         // worth rescuing (refund_status IS NULL added to the inner check).

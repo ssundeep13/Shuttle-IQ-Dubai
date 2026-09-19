@@ -209,7 +209,7 @@ describe('promotion sites + initiate-payment wiring (tripwires)', () => {
   it('the race branch itself records the payment before re-waitlisting', () => {
     const wh = read('server/webhookHandler.ts');
     const fn = wh.slice(wh.indexOf('export async function confirmZiinaBookingByIntentId'), wh.indexOf('export function registerZiinaWebhookRoute'));
-    const raceCheck = fn.indexOf('spotsRemaining < neededSpots');
+    const raceCheck = fn.indexOf('!capacityAllowsConfirm(booking, sessionForCapacity.spotsRemaining)'); // the own-seat-aware re-check (hotfix 2026-09-19)
     const record = fn.indexOf('await storage.createPayment(', raceCheck);
     const waitlist = fn.indexOf('status: "waitlisted"', raceCheck);
     expect(raceCheck).toBeGreaterThan(-1);
