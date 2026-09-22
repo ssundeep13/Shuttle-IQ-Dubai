@@ -24,12 +24,18 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-17 08:26Z — before pushing the Gate 19 log commit (PROGRESS.md + screenshots): CLEAR — no session in progress or starting within 30 minutes (12:26 Dubai)
 - 2026-09-19 05:44Z — before pushing hotfix `10bbb24` (attended booking never demoted by the sweep): CLEAR — no session in progress or starting within 30 minutes (09:44 Dubai)
 - 2026-09-19 06:20Z — before pushing the Gate 20 log commit (PROGRESS.md + CLAUDE.md): CLEAR — no session in progress or starting within 30 minutes (10:20 Dubai)
+- 2026-09-22 07:20Z — before pushing the backlog log commit (PROGRESS.md: signup claim-first + self-link security gate): CLEAR — no session in progress or starting within 30 minutes (11:20 Dubai)
 
 ## Next session
 
 ### Blocked on Ziina (Sandeep, 2026-09-15)
 
 - **Automated Refunds via Ziina — Gate 0 done, PARKED.** The read-only diagnosis (nine areas, every finding verified at its file:line) and the plan live in `docs/refunds/PLAN.md`, deliberately UNCOMMITTED and untouched until Ziina responds: the existing client posts `{ id: <intent>, currency_code, amount }` while the documented refund API wants `{ id: <client UUID>, payment_intent_id, amount, currency_code, test }`, and the token's refund permission is unconfirmed (`docs/PROJECT-REFERENCE.md:175`). Nothing starts — no Gate 1, no migration, no commit of the plan — until Sandeep says Ziina has answered. The plan's five approval questions are listed at its end.
+
+### Backlog (Sandeep, 2026-09-22) — from the Antony A duplicate-account case
+
+- **(a) Signup claim-first.** Before creating a player at signup (email+password and Google → complete-profile), show the likely UNLINKED matches — name candidates via `shared/utils/playerMatching.ts` (the P1 matcher already used by captain add and guest check-in), phone last-9 when present, recent play — and let the player claim one instead of minting a new SIQ number. The captain walk-in form captures a phone so a walk-in row is matchable later. Unique indexes: partial unique on `players.email` (no duplicate groups today) and unique on `marketplace_users.linked_player_id` (no account pair shares a player today). Root cause seen 18 Sep: a captain walk-in ("Antony", SIQ-00690, name only) played 8 games; 37 minutes later he signed up himself and got SIQ-00691 — signup checks only `marketplace_users.email` and always inserts a new player (`POST /api/marketplace/auth/signup`, `storage.signupMarketplaceUserWithPlayer`). Happens to every returning walk-in who self-registers.
+- **(b) Security gate — self-service player link.** The contact-change / link flow (marketplace-routes.ts ~2242-2433) lets any authenticated account attach an email it controls to any UNCLAIMED player row and then link to it, and the link endpoints do not require the caller's own `linked_player_id` to be NULL. That is a claim-takeover surface for name-only walk-in rows (and orphans the caller's current player). Fix: a link must be confirmed from a contact ALREADY on the player row (or by admin), and an account that already has a player may not self-link a second one.
 
 ### Everything else
 
