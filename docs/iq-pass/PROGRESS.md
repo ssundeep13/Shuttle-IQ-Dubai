@@ -25,6 +25,7 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-19 05:44Z — before pushing hotfix `10bbb24` (attended booking never demoted by the sweep): CLEAR — no session in progress or starting within 30 minutes (09:44 Dubai)
 - 2026-09-19 06:20Z — before pushing the Gate 20 log commit (PROGRESS.md + CLAUDE.md): CLEAR — no session in progress or starting within 30 minutes (10:20 Dubai)
 - 2026-09-22 07:20Z — before pushing the backlog log commit (PROGRESS.md: signup claim-first + self-link security gate): CLEAR — no session in progress or starting within 30 minutes (11:20 Dubai)
+- 2026-09-22 07:28Z — before pushing the Gate-log line for the Antony A merge: CLEAR — no session in progress or starting within 30 minutes (11:28 Dubai)
 
 ## Next session
 
@@ -61,6 +62,8 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - **DECISION (brand hex):** the brief lists `#003E8C` / `#F5EFE0`, but the existing suite bans exactly those two values in the customer layer (`tests/gate2-typography-brand.test.tsx:141-150`, "zero drifted brand hex") and only allows `#006B5F` on the `tealText` token line. The standing rule says the full suite must be green and flag-off behaviour is proven by the existing suite, so new UI uses the app's brand tokens from `client/src/pages/marketplace/LandingComponents.tsx` (`MKT.navy #002C84`, `MKT.tealText #006B5F`, `MKT.cream #F2ECE1`, `FF_BODY` = Inter). Same family, no drifted literals, no pin loosened. Say the word if you want the tokens themselves changed — that is a separate design gate.
 
 ## Gate log
+
+- **2026-09-22 — Antony A duplicate merged (data fix, no code):** survivor SIQ-00690 `86fc78c5…` (captain walk-in 18 Sep, name only, 8 games / 5 wins / 90) absorbed SIQ-00691 `c906a9b9…` (his own signup 37 min after his last game, 0 games, the only account). Merge log `02002d87…`, applied via the ENDPOINT path on Sandeep's go — `GET /api/admin/players/merge-preview` (read-only receipts, matched the Gate 0 picture) then `POST /api/admin/players/:survivorId/merge/:absorbedId` with a 15-minute admin token minted for Sandeep's own admin row (deleted after); the admin-UI attempt on 19 Sep never reached the server (no log row, no log line, rows untouched). All 13 re-points 0, wallet 0 both sides, account link moved, recompute left 8/5/90 unchanged; then one guarded UPDATE (1 row) copied name "Antony A", email and phone onto the survivor. Root cause and the two backlog items are under Next session → Backlog (2026-09-22).
 
 ### Gate 0 — webhook capacity-race fix — DONE (2026-09-14, deployed)
 
