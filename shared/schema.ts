@@ -522,6 +522,9 @@ export const payments = pgTable("payments", {
   // never sees pack money against one seat.
   bookingId: varchar("booking_id"),
   packId: varchar("pack_id"),
+  // Tournament Gate 1 (Q2): set on the single payments row of a tournament
+  // entry, which has booking_id and pack_id NULL.
+  tournamentRegistrationId: varchar("tournament_registration_id"),
   ziinaPaymentIntentId: text("ziina_payment_intent_id"),
   amount: integer("amount").notNull(),
   currency: text("currency").notNull().default('aed'),
@@ -537,7 +540,9 @@ export const payments = pgTable("payments", {
   refundedAmount: integer("refunded_amount"),
   refundedAt: timestamp("refunded_at"),
   refundStatus: text("refund_status"),
-});
+}, (t) => [
+  index('idx_payments_tournament_reg').on(t.tournamentRegistrationId).where(sql`tournament_registration_id IS NOT NULL`),
+]);
 
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
@@ -1284,3 +1289,84 @@ export const jobRuns = pgTable("job_runs", {
   index('idx_job_runs_name_started').on(t.jobName, t.startedAt),
 ]);
 export type JobRun = typeof jobRuns.$inferSelect;
+
+// ─── Tournament registration (Tournament Gate 1, one-shot tournament_v1) ───
+// One tournaments row per event (seeded by one-shot, no admin create UI).
+// Every deadline is an EXCLUSIVE instant: registration is open while
+// now < registration_closes_at. Two-stage open: Club Plus + Elite members from
+// registration_opens_at_members, everyone from registration_opens_at.
+// Timestamps are timestamptz (house style for new tables). No foreign keys.
+export const tournaments = pgTable("tournaments", {
+  id: varchar("id").primaryKey(),
+  slug: text("slug").notNull(),
+  name: text("name").notNull(),
+  status: text("status").notNull().default('draft'), // 'draft' | 'published' | 'completed' | 'cancelled'
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  venueName: text("venue_name").notNull(),
+  venueLocation: text("venue_location"),
+  venueMapUrl: text("venue_map_url"),
+  entryFeeAed: integer("entry_fee_aed").notNull(), // whole AED, like packs.price_aed
+  tierCaps: jsonb("tier_caps").$type<Record<string, number>>().notNull(), // { Professional, Competitive, Intermediate, Beginner }
+  waitlistCapPerTier: integer("waitlist_cap_per_tier").notNull().default(2),
+  holdMinutes: integer("hold_minutes").notNull().default(1440),
+  registrationOpensAtMembers: timestamp("registration_opens_at_members", { withTimezone: true }),
+  registrationOpensAt: timestamp("registration_opens_at", { withTimezone: true }).notNull(),
+  registrationClosesAt: timestamp("registration_closes_at", { withTimezone: true }).notNull(),
+  withdrawDeadlineAt: timestamp("withdraw_deadline_at", { withTimezone: true }).notNull(),
+  draftCutoffAt: timestamp("draft_cutoff_at", { withTimezone: true }).notNull(), // no promotions or withdrawals from here
+  deckUrl: text("deck_url"),
+  membersOpenNotifiedAt: timestamp("members_open_notified_at", { withTimezone: true }),
+  openNotifiedAt: timestamp("open_notified_at", { withTimezone: true }),
+  threeDaysNotifiedAt: timestamp("three_days_notified_at", { withTimezone: true }),
+  oneDayNotifiedAt: timestamp("one_day_notified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('uq_tournaments_slug').on(t.slug),
+]);
+export type Tournament = typeof tournaments.$inferSelect;
+
+// One row per player entry. The waitlist is a STATUS ordered by created_at
+// (no position column: positions drift). Lifecycle: pending_payment (hold) →
+// confirmed | expired; waitlisted → pending_payment on promotion; active →
+// withdrawn; any → cancelled (admin). tier / level / score are FROZEN at
+// registration and never recomputed from players.level.
+export const tournamentRegistrations = pgTable("tournament_registrations", {
+  id: varchar("id").primaryKey(),
+  tournamentId: varchar("tournament_id").notNull(),
+  userId: varchar("user_id").notNull(), // marketplace_users.id
+  playerId: varchar("player_id").notNull(), // linked player at registration
+  tier: text("tier").notNull(), // 'Professional' | 'Competitive' | 'Intermediate' | 'Beginner' (shared/tournamentTiers.ts)
+  levelAtRegistration: text("level_at_registration").notNull(), // raw players.level (audit)
+  skillScoreAtRegistration: integer("skill_score_at_registration").notNull(), // audit
+  status: text("status").notNull().default('pending_payment'), // 'pending_payment' | 'confirmed' | 'waitlisted' | 'withdrawn' | 'expired' | 'cancelled'
+  amountAed: integer("amount_aed").notNull(), // whole AED
+  ziinaPaymentIntentId: text("ziina_payment_intent_id"),
+  paymentMethod: text("payment_method"), // 'ziina' | 'bank_transfer' | 'cash' once paid
+  holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }), // NULL while waitlisted
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  promotedAt: timestamp("promoted_at", { withTimezone: true }),
+  withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  cancellationReason: text("cancellation_reason"), // 'hold_expired' | 'admin' | …
+  refundStatus: text("refund_status"), // NULL | 'pending' | 'completed' | 'not_due' — the app records it; refunds are done in the Ziina dashboard
+  refundedAt: timestamp("refunded_at", { withTimezone: true }),
+  tShirtSize: text("t_shirt_size").notNull(), // 'S' | 'M' | 'L' | 'XL' | 'XXL'
+  company: text("company"),
+  shareWithSponsors: boolean("share_with_sponsors").notNull().default(false),
+  sponsorInterest: boolean("sponsor_interest").notNull().default(false),
+  sponsorInterestEmailedAt: timestamp("sponsor_interest_emailed_at", { withTimezone: true }), // the ONE sponsor email
+  confirmationEmailSentAt: timestamp("confirmation_email_sent_at", { withTimezone: true }),
+  promotionNotifiedAt: timestamp("promotion_notified_at", { withTimezone: true }),
+  adminNote: text("admin_note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('uq_tournament_regs_active').on(t.tournamentId, t.userId).where(sql`status IN ('pending_payment', 'confirmed', 'waitlisted')`),
+  uniqueIndex('uq_tournament_regs_active_player').on(t.tournamentId, t.playerId).where(sql`status IN ('pending_payment', 'confirmed', 'waitlisted')`),
+  uniqueIndex('uq_tournament_regs_intent').on(t.ziinaPaymentIntentId).where(sql`ziina_payment_intent_id IS NOT NULL`),
+  index('idx_tournament_regs_tier_status').on(t.tournamentId, t.tier, t.status),
+  index('idx_tournament_regs_user_status').on(t.userId, t.status),
+  index('idx_tournament_regs_hold').on(t.holdExpiresAt).where(sql`status = 'pending_payment'`),
+]);
+export type TournamentRegistration = typeof tournamentRegistrations.$inferSelect;
+export type InsertTournamentRegistration = typeof tournamentRegistrations.$inferInsert;

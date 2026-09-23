@@ -26,8 +26,15 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-19 06:20Z — before pushing the Gate 20 log commit (PROGRESS.md + CLAUDE.md): CLEAR — no session in progress or starting within 30 minutes (10:20 Dubai)
 - 2026-09-22 07:20Z — before pushing the backlog log commit (PROGRESS.md: signup claim-first + self-link security gate): CLEAR — no session in progress or starting within 30 minutes (11:20 Dubai)
 - 2026-09-22 07:28Z — before pushing the Gate-log line for the Antony A merge: CLEAR — no session in progress or starting within 30 minutes (11:28 Dubai)
+- 2026-09-23 06:14Z — before pushing Tournament Gate 1 (schema + flag off + tier map + rules + config read; migration and seed already applied): CLEAR — no session in progress or starting within 30 minutes (10:14 Dubai)
 
 ## Next session
+
+### Tournament registration (Sandeep, 2026-09-23)
+
+- Gate 2 (registration core, Ziina test-mode proof) awaits Sandeep's go on its change list; target deploy Thu 24 Sep morning. Gate 3 (player UI, corrected deck, return pages) + flag on Fri 25 Sep morning; go/no-go Fri 11:00 Dubai; members open 12:00, everyone 18:00.
+- **Manual no-deploy windows:** Sat 17 Oct 17:30–22:30 Dubai (tournament night — `session-window-check.mjs` cannot see it) and Thu 8 Oct 19:30–00:30 Dubai (registration close).
+- Do not ship the current sponsorship deck; the corrected one (slide 4 venue = Baseline DIP) arrives before Gate 3.
 
 ### Blocked on Ziina (Sandeep, 2026-09-15)
 
@@ -216,6 +223,15 @@ Cost: one extra web service + one Postgres while it exists (usage-based, small);
 - **Gate 13 My games, 375 px:** one H1 "My games" 28/800, no subtitle, no month grid, no arrows, no view buttons, wallet chip present; hero "Next game · Fri 18 Sep · in 4d · 20:00–22:00 · Smash Sports Academy · Dubailand · Move · Moves close in 94h · Club · 1 of 4 played" (→ pass page); the horizontal strip with today (14 Sep) underlined in teal and three tiles — 18 Sep "20:00" navy, 19 Sep "18:00" navy-muted, 21 Sep "20:00" navy — none for the past or cancelled games; agenda weeks "14–20 Sep" and "21–27 Sep" under teal overlines with rows "Fri 18 · 20:00–22:00 · IQ Pass · Smash Sports Academy · Dubailand · Move · Details", "Sat 19 … IQ Pass … Move", "Mon 21 … Details" (no chip, no Move on the drop-in); Details on the drop-in opened the existing card with Cancel, Add Guest and "AED 49"; a strip tile tap scrolled the agenda; "Played (1)" collapsed with "Sat 12 Sep · 18:00 · Fire Rallies Sports Academy LLC · Attended"; no overflow. **1280 px:** two columns (`320px` hero + vertical strip beside the agenda), no overflow.
 - **Gate 11 picker, 1280 px (Buy your next pass → Club):** the only H1 "Club — pick your 4 games" 28/800 under the "IQ Pass" eyebrow; four empty slots in the sticky bar (top 56 px); four week blocks "21–27 Sep … 12–18 Oct" with six cards each under teal overlines; a card reads "22 · Tue · Bright Riders School Dubai · Green Community · 20:00–22:00 · 24 spots left" with a teal 4 px rail; the drop-in's day shows "Booked" at 40 %; no `title` anywhere, no counter, no view toggle. Four taps → navy cards with cream text and the tick, four venue-coloured tiles ("Tue 22 · 20:00" …), the bar complete with one "Review" button, 19 remaining cards locked; a tile tap removed its pick; Review → the only H1 "Your month is locked", four tiles on a five-week mini month, the terms link, "Pay AED 188" in the fixed bar — no payment made. **375 px:** full-width cards (343 px), the bar sticky at 56 px, no strip, Review full width inside the bar, the Pay bar at `bottom: 64px` with its edge on the bottom nav.
 - **Teardown:** the fixture pack and four bookings deleted; TEST PLAYER on production: 0 live bookings, 0 packs. No real player row was touched.
+
+### Tournament Gate 1 — schema, `TOURNAMENT_ENABLED` flag (off), strict tier map, pure rules, config read; `tournament_v1` migration + seed — DONE (2026-09-23, `railway-migration`)
+
+Plan of record `docs/tournament/PLAN.md` (section G = Sandeep's sign-off, 2026-09-23). RED first: `tests/tournament-rules.test.ts` and `tests/tournament-schema.test.ts` failed on the missing modules, then 38/38 green; full suite 1714/1714 (140 files), tsc 28 (baseline).
+- **Schema:** `tournaments` (24 columns) and `tournament_registrations` (28 columns), timestamptz, no FKs; 8 indexes incl. one active entry per account AND per player, one row per Ziina intent; nullable `payments.tournament_registration_id` + partial index. The mirror test compares every Drizzle column (name, type, NOT NULL) and index with the one-shot DDL.
+- **Migration** `scripts/one-shot/2026-09-23-tournament-v1.mts`: dry-run → rehearsal inside BEGIN/ROLLBACK (2/2 tables, 1/1 column, 8/8 indexes, then 0 after rollback) → executed 2026-09-23 06:12:47Z, before the deploy. Payments 1522 rows before and after, none touched.
+- **Seed** `scripts/one-shot/2026-09-23-tournament-seed-premier-league.mts`: 1 row `9426fbe2…`, slug `premier-league-2026`, venue BASELINE SPORTS ACADEMY DIP, members open 2026-09-25T08:00Z, open 2026-09-25T14:00Z, close 2026-10-08T20:00Z (exclusive), draft cut-off 2026-10-10T20:00Z, event 2026-10-17T14:00Z–18:00Z. Registry keys `tournament_v1`, `tournament_seed_premier_league_2026`.
+- **Code:** `shared/tournamentTiers.ts` (Novice → Beginner, Advanced → Professional, unknown → null instead of the silent Intermediate default), `server/tournament/flag.ts`, `server/tournament/rules.ts`, `server/tournament/routes.ts` (`GET /api/marketplace/tournament/config`, JSON 404 while off), one mount line after the IQ Pass router. No Railway variable change: the flag stays unset.
+- **Found, not fixed:** Git Bash on this machine ignores `TZ=Asia/Dubai` (prints UTC); read the Dubai clock from the database (`now() at time zone 'Asia/Dubai'`) instead.
 
 ### Gate 20 — HOTFIX: a checked-in booking is never demoted by the reconciliation sweep — DONE (2026-09-19, `railway-migration` `10bbb24`, Railway `725b7bbf…` SUCCESS; shipped 09:47 Dubai, session-window check CLEAR, tonight's Baseline session at 18:00)
 

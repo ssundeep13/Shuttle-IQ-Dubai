@@ -46,6 +46,7 @@ import { decideIntentReuse } from "./payPending";
 import { iqPassConfigHandler, createIqPassRouter } from "./iqPass/routes";
 import { iqPassStore } from "./iqPass/store";
 import { isIqPassEnabled } from "./iqPass/flag";
+import { tournamentConfigHandler } from "./tournament/routes";
 import { confirmPackByIntentId } from "./iqPass/confirm";
 import { defaultMoveDeps } from "./iqPass/moves";
 import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
@@ -2910,6 +2911,9 @@ export function registerMarketplaceRoutes(app: Express) {
     tiers: { getActiveTiersPublic: () => iqPassStore.getActiveTiersPublic() },
     admin: { listPacks: () => iqPassStore.listPacksAdmin(), markJerseyHandedOver: (id, at) => iqPassStore.markJerseyHandedOver(id, at) },
   }));
+  // Tournament registration: the client learns TOURNAMENT_ENABLED here, and only
+  // here. 404 while the flag is off (same JSON as an unknown /api path).
+  app.get("/api/marketplace/tournament/config", tournamentConfigHandler);
 
   app.get("/api/marketplace/sessions", async (_req, res) => {
     try {
