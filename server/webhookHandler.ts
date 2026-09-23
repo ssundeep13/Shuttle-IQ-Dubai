@@ -13,6 +13,9 @@ import { CHECKOUT_ABANDONED_REASON } from "./checkoutAbandon";
 import { isIqPassEnabled } from "./iqPass/flag";
 import { iqPassStore } from "./iqPass/store";
 import { confirmPackByIntentId } from "./iqPass/confirm";
+import { isTournamentEnabled } from "./tournament/flag";
+import { tournamentStore } from "./tournament/store";
+import { confirmRegistrationByIntentId } from "./tournament/confirm";
 import type { Booking } from "@shared/schema";
 import {
   sendBookingConfirmationEmail,
@@ -189,6 +192,11 @@ export async function confirmZiinaBookingByIntentId(
     if (isIqPassEnabled()) {
       const pack = await iqPassStore.getPackByIntent(intentId);
       if (pack) return confirmPackByIntentId(intentId);
+    }
+    // Tournament entry (flag on only — same byte-identical off-path rule).
+    if (isTournamentEnabled()) {
+      const registration = await tournamentStore.getRegistrationByIntent(intentId);
+      if (registration) return confirmRegistrationByIntentId(intentId);
     }
     return confirmGuestByIntentId(intentId);
   }

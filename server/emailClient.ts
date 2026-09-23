@@ -96,6 +96,13 @@ async function sendEmail(to: string, subject: string, html: string, idempotencyK
   return data?.id ?? null;
 }
 
+// Tournament Gate 2: the one exported send. It RETHROWS on any failure (no key,
+// Resend error), so a caller writes its "*_sent_at" stamp only after a send that
+// actually went out — unlike the IQ Pass and birthday wrappers, which swallow.
+export async function sendTransactionalEmail(to: string, subject: string, html: string, idempotencyKey: string): Promise<string | null> {
+  return sendEmail(to, subject, html, idempotencyKey);
+}
+
 // ─── Password Reset ────────────────────────────────────────────────────────
 
 export async function sendPasswordResetEmail(toEmail: string, resetUrl: string): Promise<void> {

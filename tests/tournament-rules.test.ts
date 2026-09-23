@@ -158,3 +158,35 @@ describe('withdrawOutcome — refund before close, seat-only until the cut-off, 
     }
   });
 });
+
+describe('accessFor — Gate 2: members, the preview list, everyone', () => {
+  it('a preview account sees the page and may register before the open (Sandeep’s pre-open AED 100 test)', async () => {
+    const { accessFor } = await import('../server/tournament/rules');
+    expect(accessFor('before_open', { isMember: false, isPreview: true })).toEqual({ visible: true, canRegister: true });
+    expect(accessFor('members_only', { isMember: false, isPreview: true })).toEqual({ visible: true, canRegister: true });
+    expect(accessFor('closed', { isMember: false, isPreview: true })).toEqual({ visible: true, canRegister: false });
+  });
+
+  it('members get the members stage; everyone else waits for the open', async () => {
+    const { accessFor } = await import('../server/tournament/rules');
+    expect(accessFor('before_open', { isMember: true, isPreview: false })).toEqual({ visible: false, canRegister: false });
+    expect(accessFor('members_only', { isMember: true, isPreview: false })).toEqual({ visible: true, canRegister: true });
+    expect(accessFor('members_only', { isMember: false, isPreview: false })).toEqual({ visible: false, canRegister: false });
+    expect(accessFor('open', { isMember: false, isPreview: false })).toEqual({ visible: true, canRegister: true });
+    expect(accessFor('closed', { isMember: false, isPreview: false })).toEqual({ visible: true, canRegister: false });
+  });
+});
+
+describe('isMemberFromPacks — Gate 2: any ACTIVE IQ Pass of any type (Sandeep, 2026-09-23)', () => {
+  it('counts club, club_plus and club_elite alike, and only while active', async () => {
+    const { isMemberFromPacks } = await import('../server/tournament/rules');
+    expect(isMemberFromPacks([{ tier: 'club', status: 'active' }])).toBe(true);
+    expect(isMemberFromPacks([{ tier: 'club_plus', status: 'active' }])).toBe(true);
+    expect(isMemberFromPacks([{ tier: 'club_elite', status: 'active' }])).toBe(true);
+    expect(isMemberFromPacks([{ tier: 'some_future_pass', status: 'active' }])).toBe(true);
+    for (const status of ['pending_payment', 'completed', 'cancelled']) {
+      expect(isMemberFromPacks([{ tier: 'club_elite', status }]), status).toBe(false);
+    }
+    expect(isMemberFromPacks([])).toBe(false);
+  });
+});

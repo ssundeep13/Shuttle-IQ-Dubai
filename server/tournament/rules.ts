@@ -76,3 +76,21 @@ export function withdrawOutcome(
   if (!reg.paid) return { allowed: true, refund: null };
   return { allowed: true, refund: now.getTime() < t.withdrawDeadlineAt.getTime() ? 'pending' : 'not_due' };
 }
+
+/**
+ * Gate 2: what the caller may do in a phase. Members (any ACTIVE IQ Pass) get the
+ * members stage. Accounts on TOURNAMENT_PREVIEW_USER_IDS see the page and may
+ * register before the open (Sandeep's pre-open AED 100 test), never after the close.
+ */
+export function accessFor(
+  phase: RegistrationPhase,
+  who: { isMember: boolean; isPreview: boolean },
+): { visible: boolean; canRegister: boolean } {
+  if (who.isPreview && phase !== 'closed') return { visible: true, canRegister: true };
+  return { visible: isVisibleTo(phase, who.isMember), canRegister: canRegister(phase, who.isMember) };
+}
+
+/** Member = holds an ACTIVE IQ Pass of any type (Sandeep, 2026-09-23). */
+export function isMemberFromPacks(packs: Array<{ tier: string; status: string }>): boolean {
+  return packs.some((p) => p.status === 'active');
+}

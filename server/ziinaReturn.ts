@@ -43,3 +43,23 @@ export function buildZiinaReturnUrls(input: {
     failureUrl: `${prefix}cancel?booking_id=${input.bookingId}${pack}&failed=1`,
   };
 }
+
+// Tournament Gate 2: the same checkout pages, keyed by registration_id instead
+// of booking_id. The booking builder above is untouched.
+export function buildTournamentReturnUrls(input: {
+  baseUrl: string;
+  registrationId: string;
+  returnScheme?: string;  // client-supplied; honoured only if allowlisted
+  allowedSchemes: string[];
+}): { successUrl: string; cancelUrl: string; failureUrl: string } {
+  const nativeScheme = resolveNativeScheme(input.returnScheme, input.allowedSchemes);
+  const prefix = nativeScheme
+    ? `${nativeScheme}://checkout/`
+    : `${input.baseUrl}/marketplace/checkout/`;
+  const id = encodeURIComponent(input.registrationId);
+  return {
+    successUrl: `${prefix}success?registration_id=${id}`,
+    cancelUrl: `${prefix}cancel?registration_id=${id}`,
+    failureUrl: `${prefix}cancel?registration_id=${id}&failed=1`,
+  };
+}

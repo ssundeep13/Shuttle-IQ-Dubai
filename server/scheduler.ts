@@ -12,6 +12,11 @@ import { sql } from "drizzle-orm";
 import { isIqPassEnabled } from "./iqPass/flag";
 import { runPackHoldExpiryJob, runPackReconciliationJob, HOLD_EXPIRY_INTERVAL_MS } from "./iqPass/jobs";
 import { runIqPassRenewalJob, IQ_PASS_RENEWAL_UTC_HOUR } from "./iqPass/renewal";
+import { isTournamentEnabled } from "./tournament/flag";
+import {
+  runTournamentHoldExpiryJob, runTournamentReconciliationJob, runTournamentOpenNotificationsJob,
+  TOURNAMENT_HOLD_EXPIRY_INTERVAL_MS, TOURNAMENT_RECONCILE_INTERVAL_MS, TOURNAMENT_OPEN_NOTIFY_INTERVAL_MS,
+} from "./tournament/jobs";
 
 const REMINDER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -579,5 +584,17 @@ export function startScheduler(): void {
     runPackReconciliationJob();
     // Renewal + follow-up emails, pack completion — daily at 09:00 Dubai, ledgered in job_runs.
     scheduleDailyAtUtcHour(IQ_PASS_RENEWAL_UTC_HOUR, runIqPassRenewalJob);
+  }
+
+  // Tournament jobs exist only while TOURNAMENT_ENABLED is on — the flag-off
+  // scheduler is exactly the list above. Each run that does work is ledgered in job_runs.
+  if (isTournamentEnabled()) {
+    console.log('[Scheduler] Tournament jobs started (hold expiry every 5 min, reconciliation every 10 min, open notices every 5 min)');
+    setInterval(() => { runTournamentHoldExpiryJob(); }, TOURNAMENT_HOLD_EXPIRY_INTERVAL_MS);
+    runTournamentHoldExpiryJob();
+    setInterval(() => { runTournamentReconciliationJob(); }, TOURNAMENT_RECONCILE_INTERVAL_MS);
+    runTournamentReconciliationJob();
+    setInterval(() => { runTournamentOpenNotificationsJob(); }, TOURNAMENT_OPEN_NOTIFY_INTERVAL_MS);
+    runTournamentOpenNotificationsJob();
   }
 }

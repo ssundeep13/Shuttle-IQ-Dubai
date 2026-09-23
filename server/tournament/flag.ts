@@ -5,3 +5,11 @@
 export function isTournamentEnabled(): boolean {
   return process.env.TOURNAMENT_ENABLED === 'true';
 }
+
+/**
+ * TOURNAMENT_PREVIEW_USER_IDS — comma-separated marketplace user ids that may see
+ * and register before the open (the pre-open real-money test). Unset → nobody.
+ */
+export function previewUserIds(): Set<string> {
+  return new Set((process.env.TOURNAMENT_PREVIEW_USER_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+}

@@ -12,6 +12,8 @@ import { getTableColumns } from 'drizzle-orm';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 
 process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/dummy';
+process.env.JWT_SECRET ??= 'test-main-secret';          // routes.ts pulls in the auth middleware (Gate 2)
+process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret';
 
 const { tournaments, tournamentRegistrations, payments } = await import('../shared/schema');
 const { isTournamentEnabled } = await import('../server/tournament/flag');
@@ -235,7 +237,7 @@ describe('GET /api/marketplace/tournament/config — over HTTP', () => {
 
   it('is its own route, mounted after the IQ Pass router — the IQ Pass config read is untouched (tripwire)', () => {
     const routes = read('server/marketplace-routes.ts');
-    expect(routes).toMatch(/import \{ tournamentConfigHandler \} from "\.\/tournament\/routes";/);
+    expect(routes).toMatch(/import \{ tournamentConfigHandler(?:, createTournamentRouter)? \} from "\.\/tournament\/routes";/);
     const mount = routes.indexOf('app.get("/api/marketplace/tournament/config", tournamentConfigHandler);');
     expect(mount).toBeGreaterThan(routes.indexOf('app.use(createIqPassRouter({'));
     expect(routes.split('tournamentConfigHandler').length - 1).toBe(2); // the import and the mount, nothing else
