@@ -12,6 +12,7 @@ import type { BookableSessionWithAvailability, BookingWithDetails } from '@share
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useIqPassEnabled } from '@/hooks/useIqPass';
+import { TournamentSessionsRow } from '@/components/marketplace/TournamentSessionsRow';
 import { MKT, FF_DISPLAY, FF_BODY, FF_MONO, Reveal } from './LandingComponents';
 
 function isoDate(dateStr: string): string {
@@ -693,6 +694,9 @@ export default function BookSessions() {
             <div style={{ fontSize: 13, color: MKT.inkSub, letterSpacing: '-0.005em' }}>Sorted by date, earliest first.</div>
           </div>
         </Reveal>
+
+        {/* Premier League pinned row (Tournament Gate 3): above the results, so it shows while loading and when a filter empties the list */}
+        <TournamentSessionsRow />
 
         {/* Results */}
         {isLoading ? (

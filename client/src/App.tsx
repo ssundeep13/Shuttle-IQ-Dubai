@@ -33,6 +33,7 @@ import SessionDetails from "@/pages/marketplace/SessionDetails";
 import MyBookings from "@/pages/marketplace/MyBookings";
 import IqPass from '@/pages/marketplace/IqPass';
 import IqPassTerms from '@/pages/marketplace/IqPassTerms';
+import Tournament from '@/pages/marketplace/Tournament';
 import MyScores from "@/pages/marketplace/MyScores";
 import FeedScreen from "@/pages/marketplace/FeedScreen";
 import ReferralScreen from "@/pages/marketplace/ReferralScreen";
@@ -261,6 +262,9 @@ function Router() {
         </Route>
         <Route path="/iq-pass/terms">
           <MarketplaceRoute component={IqPassTerms} />
+        </Route>
+        <Route path="/marketplace/tournament">
+          <MarketplaceRoute component={Tournament} />
         </Route>
         <Route path="/marketplace/my-bookings">
           <MarketplaceAuthRoute component={MyBookings} />

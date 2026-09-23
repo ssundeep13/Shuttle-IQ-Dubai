@@ -9,6 +9,7 @@ import { InstallAppBar } from '@/components/InstallAppBar';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { MKT, FF_DISPLAY, FF_BODY } from './LandingComponents';
+import { TournamentCheckoutResult } from '@/components/marketplace/TournamentCheckoutResult';
 
 const MAX_ATTEMPTS = 10;
 const RETRY_DELAY_MS = 3000;
@@ -45,7 +46,17 @@ function IconCircle({ tone, ring, children }: { tone: string; ring: string; chil
   );
 }
 
+/**
+ * Tournament Gate 3: a Ziina return for a tournament entry (?registration_id=…) renders the tournament
+ * result; every booking and IQ Pass return renders exactly as before.
+ */
 export default function CheckoutSuccess() {
+  const registrationId = new URLSearchParams(window.location.search).get('registration_id');
+  if (registrationId) return <TournamentCheckoutResult mode="success" registrationId={registrationId} />;
+  return <BookingCheckoutSuccess />;
+}
+
+function BookingCheckoutSuccess() {
   usePageTitle('Booking Confirmed');
   const [status, setStatus] = useState<'verifying' | 'success' | 'waitlisted' | 'paid_review' | 'error'>('verifying');
   // The booking id quoted back to the player when their payment landed but the seat could not be attached.

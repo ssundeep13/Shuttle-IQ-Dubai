@@ -26,6 +26,7 @@ import { IqPassMoveDialog } from '@/components/marketplace/IqPassMoveDialog';
 import { useIqPassEnabled } from '@/hooks/useIqPass';
 import { useCompleteIqPassPayment } from '@/hooks/useIqPassPending';
 import { IqPassPendingSlot, PICK_AGAIN_HREF, PICK_AGAIN_COPY } from '@/components/marketplace/IqPassPending';
+import { TournamentEntryCard } from '@/components/marketplace/TournamentEntryCard';
 import { pendingPassOf, holdExpiresLabel } from '@/lib/iqPassPending';
 import { isPayableDropIn, NextGameCard, MonthStrip, AgendaWeek, AgendaRow, PlayedSection, EmptyUpcoming, buildStripDays, groupUpcomingByWeek, pickStripPack, playedOf, startOf, type MyPackLite, type SeatInfo } from '@/components/marketplace/MyGames';
 import { todayDubai } from '@/lib/iqPassDates';
@@ -951,6 +952,9 @@ export default function MyBookings() {
             </div>
           </div>
         </Reveal>
+
+        {/* Premier League entry (Tournament Gate 3): self-contained, nothing without an active entry */}
+        <TournamentEntryCard spacedBelow />
 
         {isLoading ? (
           <div className="space-y-4">

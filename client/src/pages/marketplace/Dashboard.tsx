@@ -24,6 +24,7 @@ import { useIqPassConfig } from '@/hooks/useIqPass';
 import { useMyPacks, useCompleteIqPassPayment } from '@/hooks/useIqPassPending';
 import { IqPassPromoCard, IqPassProgressLine } from '@/components/marketplace/IqPassPromo';
 import { IqPassPendingSlot } from '@/components/marketplace/IqPassPending';
+import { TournamentBanner } from '@/components/marketplace/TournamentBanner';
 import { pendingPassOf } from '@/lib/iqPassPending';
 
 // ── Shared styled primitives (look only) ─────────────────────────────────────
@@ -755,6 +756,9 @@ export default function Dashboard() {
             )}
           </Reveal>
         )}
+
+        {/* Premier League (Tournament Gate 3): self-contained, nothing while the flag is off or before the open */}
+        <TournamentBanner variant="dashboard" />
 
         {/* Getting Started — full width, contextual */}
         {user && (

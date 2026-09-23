@@ -6,6 +6,7 @@ import { InstallAppBar } from '@/components/InstallAppBar';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { getMarketplaceAccessToken } from '@/lib/queryClient';
 import { MKT, FF_DISPLAY, FF_BODY, Reveal } from './LandingComponents';
+import { TournamentCheckoutResult } from '@/components/marketplace/TournamentCheckoutResult';
 
 function navyBtnStyle(): CSSProperties {
   return {
@@ -24,7 +25,17 @@ function ghostBtnStyle(): CSSProperties {
   };
 }
 
+/**
+ * Tournament Gate 3: a Ziina return for a tournament entry (?registration_id=…) renders the tournament
+ * result; every booking and IQ Pass return renders exactly as before.
+ */
 export default function CheckoutCancel() {
+  const registrationId = new URLSearchParams(window.location.search).get('registration_id');
+  if (registrationId) return <TournamentCheckoutResult mode="cancel" registrationId={registrationId} />;
+  return <BookingCheckoutCancel />;
+}
+
+function BookingCheckoutCancel() {
   usePageTitle('Checkout Cancelled');
   // Once per mount: StrictMode's double effect or a re-render must not send a second request.
   const fired = useRef(false);

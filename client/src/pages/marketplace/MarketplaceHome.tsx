@@ -8,6 +8,7 @@ import { QueryErrorCard } from '@/components/marketplace/QueryErrorCard';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { useIqPassConfig } from '@/hooks/useIqPass';
 import { IqPassLandingSection } from '@/components/marketplace/IqPassPromo';
+import { TournamentBanner } from '@/components/marketplace/TournamentBanner';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import type { CommunitySpotlightEntry, BookableSessionWithAvailability } from '@shared/schema';
 import BrandAvatar from '@/components/BrandAvatar';
@@ -183,6 +184,9 @@ export default function MarketplaceHome() {
       {iqPass.enabled && (
         <IqPassLandingSection tiers={iqPass.tiers} href={isAuthenticated ? '/marketplace/iq-pass' : '/marketplace/login?from=%2Fmarketplace%2Fiq-pass'} />
       )}
+
+      {/* Premier League (Tournament Gate 3): self-contained, nothing while the flag is off or before the open */}
+      <TournamentBanner variant="home" />
 
       {/* ───────────────────── REFERRAL PROMO (AED 15 each) ───────────────────── */}
       {!isAuthenticated && (

@@ -39,7 +39,7 @@ export function MobileBottomNav() {
       return location === '/marketplace/dashboard' || location.startsWith('/marketplace/profile') || location.startsWith('/marketplace/referrals');
     }
     if (href === '/marketplace/book') {
-      return location === '/marketplace/book' || location.startsWith('/marketplace/sessions/') || location.startsWith('/marketplace/checkout/') || location.startsWith('/marketplace/iq-pass');
+      return location === '/marketplace/book' || location.startsWith('/marketplace/sessions/') || location.startsWith('/marketplace/checkout/') || location.startsWith('/marketplace/iq-pass') || location.startsWith('/marketplace/tournament');
     }
     if (href === '/marketplace/my-scores') {
       return location === '/marketplace/my-scores' || location === '/marketplace/game-history';
