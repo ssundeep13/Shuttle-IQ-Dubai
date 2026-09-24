@@ -36,6 +36,7 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-24 09:30Z — before pushing the banner redesign + PROGRESS record of 24 Sep deploys + deck footer fix (one push, before 15:30 on Sandeep's instruction): CLEAR — no session in progress or starting within 30 minutes (13:30 Dubai)
 - 2026-09-24 14:15Z — before pushing the Ziina description change (Sandeep's override, after the 18:00 notice): CLEAR — no session in progress or starting within 30 minutes (18:15 Dubai)
 - 2026-09-24 14:19Z — before pushing the banner copy change ("entry" under AED 100; Sandeep's instruction, after the Ziina push passed): CLEAR — no session in progress or starting within 30 minutes (18:19 Dubai)
+- 2026-09-24 14:46Z — before pushing the reversed-wordmark change (UI only; Sandeep's instruction, before 19:30): CLEAR — no session in progress or starting within 30 minutes (18:46 Dubai)
 
 ## Next session
 
