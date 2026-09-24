@@ -34,6 +34,7 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-24 07:46Z — before pushing a Railway variable change: TOURNAMENT_ENABLED=true + TOURNAMENT_PREVIEW_USER_IDS (Sandeep's account), pre-approved 2026-09-24: CLEAR — no session in progress or starting within 30 minutes (11:46 Dubai)
 - 2026-09-24 08:04Z — before pushing the ShuttleIQ League sponsorship deck (PDF + link, one push; Sandeep 2026-09-24): CLEAR — no session in progress or starting within 30 minutes (12:04 Dubai)
 - 2026-09-24 09:30Z — before pushing the banner redesign + PROGRESS record of 24 Sep deploys + deck footer fix (one push, before 15:30 on Sandeep's instruction): CLEAR — no session in progress or starting within 30 minutes (13:30 Dubai)
+- 2026-09-24 14:15Z — before pushing the Ziina description change (Sandeep's override, after the 18:00 notice): CLEAR — no session in progress or starting within 30 minutes (18:15 Dubai)
 
 ## Next session
 
