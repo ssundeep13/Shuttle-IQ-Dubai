@@ -1,4 +1,4 @@
-// ShuttleIQ Premier League — every player-facing string of the tournament screens.
+// ShuttleIQ League — every player-facing string of the tournament screens.
 // Brand voice (Sandeep, 2026-09-23): direct, no emoji, tier display names only
 // (Professional, Competitive, Intermediate, Beginner). Times are Asia/Dubai.
 import { formatDubaiDeadline, formatDubaiTime } from '@shared/dubaiTime';
@@ -18,8 +18,8 @@ export const SPONSOR_DECK_LABEL = 'View sponsorship deck';
 export const SPONSOR_TICK = 'My company may sponsor a team';
 export const SHARE_TICK = 'Share my details with sponsors';
 
-export const PAGE_UNAVAILABLE = 'The Premier League is not open right now.';
-export const PAGE_NOT_OPEN_YET = 'Premier League registration is not open yet.';
+export const PAGE_UNAVAILABLE = 'The ShuttleIQ League is not open right now.';
+export const PAGE_NOT_OPEN_YET = 'ShuttleIQ League registration is not open yet.';
 export const SIGN_IN_LABEL = 'Sign in to register';
 export const COMPLETE_PROFILE_LABEL = 'Finish your player profile to register';
 
@@ -82,7 +82,7 @@ export function statusLine(r: { status: string; tier: string; holdExpiresAt: str
 export function withdrawDialogCopy(input: { withdrawDeadlineAt: string; paid: boolean; now: Date; amountAed?: number }): { title: string; body: string; confirm: string } {
   const label = refundDeadlineLabel(input.withdrawDeadlineAt);
   const amount = input.amountAed ?? 100;
-  const title = 'Withdraw from the Premier League?';
+  const title = 'Withdraw from the ShuttleIQ League?';
   if (!input.paid) {
     return { title, body: 'You have not paid, so there is nothing to refund. Your spot goes to the next player on the waitlist.', confirm: 'Withdraw' };
   }

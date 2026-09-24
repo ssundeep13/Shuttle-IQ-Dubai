@@ -2,7 +2,7 @@
 // voice: direct, no emoji, tier display names only). Every screen reads its copy
 // from client/src/lib/tournamentCopy.ts, so this file is the copy review.
 import { describe, it, expect } from 'vitest';
-import { existsSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 const copy = await import('../client/src/lib/tournamentCopy');
@@ -41,7 +41,7 @@ describe('withdraw dialog — refund before Thu 8 Oct 23:59, none after, manual 
   it('states the rule with the Dubai wall-clock deadline', () => {
     expect(copy.refundDeadlineLabel(deadline)).toBe('Thu 8 Oct 23:59');
     const paid = copy.withdrawDialogCopy({ withdrawDeadlineAt: deadline, paid: true, now: new Date('2026-10-01T10:00:00Z') });
-    expect(paid.title).toBe('Withdraw from the Premier League?');
+    expect(paid.title).toBe('Withdraw from the ShuttleIQ League?');
     expect(paid.body).toContain('Withdraw before Thu 8 Oct 23:59 for a full refund of AED 100.');
     expect(paid.body).toContain('After that your spot is released with no refund.');
     expect(paid.body).toContain('Refunds are handled manually via Ziina within 5 working days.');
@@ -81,5 +81,20 @@ describe('event line, status lines, errors', () => {
     }
     const all = JSON.stringify(copy);
     expect(all).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
+  });
+});
+
+describe('ShuttleIQ League rename (Sandeep, 2026-09-24)', () => {
+  it('"Premier League" appears nowhere in the app code (client, server, shared)', () => {
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== 'node_modules') walk(p); }
+        else if (/\.(ts|tsx|html)$/.test(e.name) && readFileSync(p, 'utf8').includes('Premier League')) hits.push(p);
+      }
+    };
+    for (const d of ['client/src', 'server', 'shared']) walk(join(__dirname, '..', d));
+    expect(hits).toEqual([]);
   });
 });

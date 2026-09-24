@@ -56,8 +56,8 @@ export async function notifyPromotedRegistrations(promoted: TournamentRegistrati
       await deps.notify({
         userId: r.userId,
         type: 'tournament_promoted',
-        title: 'A Premier League spot opened up',
-        message: `A ${r.tier} spot in the ShuttleIQ Premier League is yours if you pay AED ${r.amountAed} by ${payBy}. Open the Premier League page to pay.`,
+        title: 'A ShuttleIQ League spot opened up',
+        message: `A ${r.tier} spot in the ShuttleIQ League is yours if you pay AED ${r.amountAed} by ${payBy}. Open the ShuttleIQ League page to pay.`,
       });
     } catch (e) { console.error(`[Tournament] promotion notification failed for ${r.id}:`, errMsg(e)); }
     try {
@@ -128,8 +128,8 @@ export async function runTournamentHoldExpiryJob(deps: HoldExpiryDeps = defaultH
           await deps.notify({
             userId: h.userId,
             type: 'tournament_hold_expired',
-            title: 'Premier League spot released',
-            message: 'Your Premier League spot was released because payment was not completed within 24 hours. You can register again while spots remain.',
+            title: 'ShuttleIQ League spot released',
+            message: 'Your ShuttleIQ League spot was released because payment was not completed within 24 hours. You can register again while spots remain.',
           });
         } catch (e) { console.error(`[Tournament] hold-expired notification failed for ${h.id}:`, errMsg(e)); }
         if (r.promoted.length > 0) {
@@ -209,12 +209,12 @@ export function openNotificationCopy(t: CopyFields, stage: 'members' | 'everyone
   const caps = t.tierCaps && typeof t.tierCaps === 'object' ? Object.values(t.tierCaps as Record<string, number>).reduce((a, b) => a + Number(b || 0), 0) : 48;
   if (stage === 'members') {
     return {
-      title: 'Premier League: early access is open',
+      title: 'ShuttleIQ League: early access is open',
       message: `As an IQ Pass member you can register now, before registration opens to everyone at ${formatDubaiDeadline(t.registrationOpensAt)}. ${event}. AED ${t.entryFeeAed} entry.`,
     };
   }
   return {
-    title: 'Premier League registration is open',
+    title: 'ShuttleIQ League registration is open',
     message: `Register for the ${event}. ${caps} spots across four tiers, AED ${t.entryFeeAed} entry.`,
   };
 }

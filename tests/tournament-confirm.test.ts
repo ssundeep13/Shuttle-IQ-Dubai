@@ -18,7 +18,7 @@ const Z = (iso: string) => new Date(iso);
 const NOW = Z('2026-09-26T10:00:00Z');
 
 const T = {
-  id: 't-1', name: 'ShuttleIQ Premier League', startsAt: Z('2026-10-17T14:00:00Z'), endsAt: Z('2026-10-17T18:00:00Z'),
+  id: 't-1', name: 'ShuttleIQ League', startsAt: Z('2026-10-17T14:00:00Z'), endsAt: Z('2026-10-17T18:00:00Z'),
   venueName: 'BASELINE SPORTS ACADEMY DIP', venueLocation: 'Dubai Investment Park Second - Dubai', venueMapUrl: 'https://maps.app.goo.gl/KQCTd2N4HeE2FpQm9',
   entryFeeAed: 100, withdrawDeadlineAt: Z('2026-10-08T20:00:00Z'), draftCutoffAt: Z('2026-10-10T20:00:00Z'),
 };
@@ -60,7 +60,7 @@ describe('confirmRegistrationByIntentId', () => {
     expect(d.confirmTx).toHaveBeenCalledWith('pi_1', NOW);
     expect(d.notify).toHaveBeenCalledTimes(1);
     expect(d.notify.mock.calls[0][0]).toMatchObject({ userId: 'u-1', type: 'tournament_confirmed' });
-    expect(d.notify.mock.calls[0][0].title).toMatch(/Premier League/);
+    expect(d.notify.mock.calls[0][0].title).toBe("You're in the ShuttleIQ League");
     expect(d.sendConfirmationEmail).toHaveBeenCalledTimes(1);
     expect(d.markConfirmationEmailed).toHaveBeenCalledWith('r-1', NOW);
   });
@@ -100,7 +100,7 @@ describe('emails', () => {
 
   it('confirmation: tier, date and time in Dubai, venue, shirt size, the withdraw rule; HTML-escaped', () => {
     const { subject, html } = buildTournamentConfirmationEmail({ registration: reg() as any, name: account.name, tournament: T as any });
-    expect(subject).toBe("You're in: ShuttleIQ Premier League");
+    expect(subject).toBe("You're in: ShuttleIQ League");
     expect(html).toContain('Competitive');
     expect(html).toContain('Sat 17 Oct');
     expect(html).toContain('6:00 pm');
@@ -115,7 +115,7 @@ describe('emails', () => {
 
   it('promotion: the pay-by time in Dubai and a pay link to the tournament page', () => {
     const { subject, html } = buildTournamentPromotionEmail({ registration: reg({ status: 'pending_payment' }) as any, name: 'Test Player', tournament: T as any });
-    expect(subject).toBe('A Premier League spot opened up for you');
+    expect(subject).toBe('A ShuttleIQ League spot opened up for you');
     expect(html).toContain('https://shuttleiq.ai/marketplace/tournament?pay=r-1');
     expect(html).toContain('2:00 pm on Sun 27 Sept'); // shared/dubaiTime formatDubaiDeadline, the player-facing standard
     expect(html).toContain('AED 100');

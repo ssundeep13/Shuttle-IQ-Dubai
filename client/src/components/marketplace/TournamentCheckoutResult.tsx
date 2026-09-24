@@ -1,7 +1,7 @@
-// ShuttleIQ Premier League — the Ziina return for a tournament entry (?registration_id=…), rendered by the
+// ShuttleIQ League — the Ziina return for a tournament entry (?registration_id=…), rendered by the
 // checkout success / cancel pages in place of the booking flow. Success polls the no-auth confirm route
 // (the registration UUID is the secret) until Ziina says paid; cancel changes nothing — the hold stays
-// until its pay-by time and the player can pay again from the Premier League page or My games.
+// until its pay-by time and the player can pay again from the ShuttleIQ League page or My games.
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { apiUrl } from '@/lib/queryClient';
@@ -53,9 +53,9 @@ export function TournamentCheckoutResult({ mode, registrationId }: { mode: 'succ
     return (
       <Shell>
         <h1 data-testid="text-tournament-cancelled" style={h1}>Payment not completed</h1>
-        <p style={tSub}>Nothing was charged. Your spot stays held until your pay-by time. Pay from the Premier League page or My games.</p>
+        <p style={tSub}>Nothing was charged. Your spot stays held until your pay-by time. Pay from the ShuttleIQ League page or My games.</p>
         <div style={actions}>
-          <Link href="/marketplace/tournament" data-testid="link-tournament-back" style={tNavyBtn()}>Back to the Premier League</Link>
+          <Link href="/marketplace/tournament" data-testid="link-tournament-back" style={tNavyBtn()}>Back to the ShuttleIQ League</Link>
           <Link href="/marketplace/my-bookings" style={tGhostBtn}>My games</Link>
         </div>
       </Shell>
@@ -67,11 +67,11 @@ export function TournamentCheckoutResult({ mode, registrationId }: { mode: 'succ
   if (state === 'confirmed') {
     return (
       <Shell>
-        <h1 data-testid="text-tournament-confirmed" style={h1}>You're in the Premier League</h1>
+        <h1 data-testid="text-tournament-confirmed" style={h1}>You're in the ShuttleIQ League</h1>
         <p style={tSub}>Your spot is confirmed. Teams are drafted on Sun 11 Oct.</p>
         <div style={actions}>
           <Link href="/marketplace/my-bookings" data-testid="link-tournament-entry" style={tNavyBtn()}>See your entry</Link>
-          <Link href="/marketplace/tournament" style={tGhostBtn}>Back to the Premier League</Link>
+          <Link href="/marketplace/tournament" style={tGhostBtn}>Back to the ShuttleIQ League</Link>
         </div>
       </Shell>
     );
@@ -81,7 +81,7 @@ export function TournamentCheckoutResult({ mode, registrationId }: { mode: 'succ
       <Shell>
         <h1 style={h1}>Payment received</h1>
         <p data-testid="text-tournament-refund-owed" style={tSub}>Your payment arrived after your spot was released and your tier is now full, so we could not give you a place. Your AED 100 will be refunded manually via Ziina within 5 working days.</p>
-        <div style={actions}><Link href="/marketplace/tournament" style={tNavyBtn()}>Back to the Premier League</Link></div>
+        <div style={actions}><Link href="/marketplace/tournament" style={tNavyBtn()}>Back to the ShuttleIQ League</Link></div>
       </Shell>
     );
   }
@@ -97,7 +97,7 @@ export function TournamentCheckoutResult({ mode, registrationId }: { mode: 'succ
   return (
     <Shell>
       <h1 style={h1}>We could not find that entry</h1>
-      <div style={actions}><Link href="/marketplace/tournament" style={tNavyBtn()}>Back to the Premier League</Link></div>
+      <div style={actions}><Link href="/marketplace/tournament" style={tNavyBtn()}>Back to the ShuttleIQ League</Link></div>
     </Shell>
   );
 }

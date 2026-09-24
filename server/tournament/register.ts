@@ -18,7 +18,8 @@ import { sendSponsorInterestEmail } from "./email";
 
 export const TSHIRT_SIZES = ['S', 'M', 'L', 'XL', 'XXL'] as const;
 /** Ziina receipt line (50-byte cap): fixed, no name, no tier. */
-export const TOURNAMENT_ZIINA_MESSAGE = 'ShuttleIQ Premier League entry';
+/** The Ziina checkout description, e.g. "ShuttleIQ League entry, AED 100.00" (Sandeep, 2026-09-24). */
+export const tournamentZiinaMessage = (amountAed: number): string => `ShuttleIQ League entry, AED ${amountAed.toFixed(2)}`;
 const COMPANY_MAX = 100;
 
 export type TournamentDeps = {
@@ -141,7 +142,7 @@ async function startOrResumePayment(
   const urls = buildTournamentReturnUrls({ baseUrl: deps.baseUrl(), registrationId: reg.id, returnScheme: opts.returnScheme, allowedSchemes: deps.allowedSchemes() });
   let intent: { id: string; redirect_url: string };
   try {
-    intent = await deps.createIntent({ amountAed: reg.amountAed ?? t.entryFeeAed, message: TOURNAMENT_ZIINA_MESSAGE, ...urls });
+    intent = await deps.createIntent({ amountAed: reg.amountAed ?? t.entryFeeAed, message: tournamentZiinaMessage(reg.amountAed ?? t.entryFeeAed), ...urls });
   } catch (e) {
     console.error('[Tournament] intent creation failed', { registrationId: reg.id, error: e instanceof Error ? e.message : e });
     if (opts.isNewHold) {

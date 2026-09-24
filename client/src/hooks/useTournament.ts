@@ -1,4 +1,4 @@
-// ShuttleIQ Premier League — client data.
+// ShuttleIQ League — client data.
 //  • useTournamentEnabled: GET /api/marketplace/tournament/config. 404 while TOURNAMENT_ENABLED is off (the
 //    same JSON 404 as an unknown /api path) → anything but a 200 { tournamentEnabled: true } means off.
 //  • useTournamentView: the public read (banner, pinned Sessions row, counter). Sends the token when there is

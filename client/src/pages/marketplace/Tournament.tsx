@@ -1,4 +1,4 @@
-// ShuttleIQ Premier League — the tournament page (public route; registering needs a signed-in player).
+// ShuttleIQ League — the tournament page (public route; registering needs a signed-in player).
 // The event, the live per-tier counter, and one of: sign in / finish your profile / the registration form
 // (T-shirt size, company, share-with-sponsors, then the sponsorship card, then Pay AED 100) / my entry
 // (status, Pay for a hold, Withdraw, the sponsor tick). ?pay=<registrationId> — the promotion email's link —
@@ -33,7 +33,7 @@ function Page({ children }: { children: React.ReactNode }) {
 }
 
 export default function Tournament() {
-  usePageTitle('Premier League');
+  usePageTitle('ShuttleIQ League', true);
   const enabled = useTournamentEnabled();
   const { isAuthenticated } = useMarketplaceAuth();
   const { data: view } = useTournamentView();
@@ -62,7 +62,7 @@ export default function Tournament() {
     return <Page><div style={tCard}><p data-testid="text-tournament-unavailable" style={{ ...tSub, color: IQP.inkSub }}>{PAGE_UNAVAILABLE}</p></div></Page>;
   }
   if (!view) {
-    return <Page><div style={tCard}><p style={tSub}>Loading the Premier League.</p></div></Page>;
+    return <Page><div style={tCard}><p style={tSub}>Loading the ShuttleIQ League.</p></div></Page>;
   }
   if (!view.visible) {
     return <Page><div style={tCard}><p data-testid="text-tournament-unavailable" style={{ ...tSub, color: IQP.inkSub }}>{PAGE_NOT_OPEN_YET}</p></div></Page>;
@@ -136,7 +136,7 @@ export default function Tournament() {
   return (
     <Page>
       <div>
-        <p style={tEyebrow}>Premier League</p>
+        <p style={tEyebrow}>Tournament</p>
         <h1 style={{ margin: '4px 0 0', fontFamily: IQP_FONT, fontWeight: 700, fontSize: 28, color: IQP.navy, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{t.name}</h1>
         <p data-testid="text-tournament-event" style={{ ...tSub, marginTop: 6, color: IQP.ink }}>{eventLine(t)}</p>
         <p style={{ ...tSub, marginTop: 4 }}>48 players · six teams of eight · AED {t.entryFeeAed} entry{t.venueMapUrl ? ' · ' : ''}

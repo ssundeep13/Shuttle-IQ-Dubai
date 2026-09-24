@@ -8,7 +8,7 @@ process.env.DATABASE_URL ??= 'postgres://test:test@localhost:5432/dummy';
 
 const {
   registerForTournament, payRegistration, getPublicView, getMyEntry, setSponsorInterest,
-  TSHIRT_SIZES, TOURNAMENT_ZIINA_MESSAGE,
+  TSHIRT_SIZES, tournamentZiinaMessage,
 } = await import('../server/tournament/register');
 const { previewUserIds } = await import('../server/tournament/flag');
 const { buildTournamentReturnUrls, buildZiinaReturnUrls } = await import('../server/ziinaReturn');
@@ -20,7 +20,7 @@ const BEFORE = Z('2026-09-25T07:00:00Z');        // Fri 25 Sep 11:00 Dubai — n
 const CLOSED = Z('2026-10-08T20:00:00Z');        // exclusive close instant
 
 const T = {
-  id: 't-1', slug: 'premier-league-2026', name: 'ShuttleIQ Premier League', status: 'published',
+  id: 't-1', slug: 'premier-league-2026', name: 'ShuttleIQ League', status: 'published',
   startsAt: Z('2026-10-17T14:00:00Z'), endsAt: Z('2026-10-17T18:00:00Z'),
   venueName: 'BASELINE SPORTS ACADEMY DIP', venueLocation: 'Dubai Investment Park Second - Dubai', venueMapUrl: 'https://maps.app.goo.gl/KQCTd2N4HeE2FpQm9',
   entryFeeAed: 100, tierCaps: { Professional: 6, Competitive: 18, Intermediate: 18, Beginner: 6 }, waitlistCapPerTier: 2, holdMinutes: 1440,
@@ -151,12 +151,13 @@ describe('registerForTournament — hold, waitlist, full, payment', () => {
     expect(d.createIntent).toHaveBeenCalledTimes(1);
     expect(d.createIntent.mock.calls[0][0]).toEqual({
       amountAed: 100,
-      message: TOURNAMENT_ZIINA_MESSAGE,
+      message: 'ShuttleIQ League entry, AED 100.00',
       successUrl: 'https://shuttleiq.ai/marketplace/checkout/success?registration_id=r-1',
       cancelUrl: 'https://shuttleiq.ai/marketplace/checkout/cancel?registration_id=r-1',
       failureUrl: 'https://shuttleiq.ai/marketplace/checkout/cancel?registration_id=r-1&failed=1',
     });
-    expect(Buffer.byteLength(TOURNAMENT_ZIINA_MESSAGE, 'utf8')).toBeLessThanOrEqual(50);
+    expect(tournamentZiinaMessage(100)).toBe('ShuttleIQ League entry, AED 100.00');
+    expect(Buffer.byteLength(tournamentZiinaMessage(100), 'utf8')).toBeLessThanOrEqual(50);
     expect(d.attachIntent).toHaveBeenCalledWith('r-1', 'pi_new', null);
   });
 
@@ -269,7 +270,7 @@ describe('getPublicView — the banner, the pinned row and the counter', () => {
     expect(out.status).toBe(200);
     const b = out.body as any;
     expect(b).toMatchObject({ visible: true, phase: 'open', canRegister: true });
-    expect(b.tournament).toMatchObject({ id: 't-1', name: 'ShuttleIQ Premier League', entryFeeAed: 100, venueName: 'BASELINE SPORTS ACADEMY DIP', startsAt: '2026-10-17T14:00:00.000Z', registrationClosesAt: '2026-10-08T20:00:00.000Z', deckUrl: T.deckUrl });
+    expect(b.tournament).toMatchObject({ id: 't-1', name: 'ShuttleIQ League', entryFeeAed: 100, venueName: 'BASELINE SPORTS ACADEMY DIP', startsAt: '2026-10-17T14:00:00.000Z', registrationClosesAt: '2026-10-08T20:00:00.000Z', deckUrl: T.deckUrl });
     expect(b.tiers).toEqual([
       { tier: 'Professional', cap: 6, held: 6, waitlisted: 1, waitlistCap: 2, state: 'waitlist' },
       { tier: 'Competitive', cap: 18, held: 17, waitlisted: 0, waitlistCap: 2, state: 'open' },

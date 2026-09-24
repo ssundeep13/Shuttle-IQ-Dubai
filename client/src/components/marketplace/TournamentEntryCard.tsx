@@ -1,4 +1,4 @@
-// ShuttleIQ Premier League — my entry on My games. Self-contained: renders nothing while the flag is off
+// ShuttleIQ League — my entry on My games. Self-contained: renders nothing while the flag is off
 // or when I have no active entry, so My games needs one line.
 import { useMyTournamentEntry, useTournamentActions, useTournamentEnabled } from '@/hooks/useTournament';
 import { TournamentEntryView } from './TournamentParts';

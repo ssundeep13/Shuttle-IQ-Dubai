@@ -47,8 +47,8 @@ export async function confirmRegistrationByIntentId(intentId: string, deps: Conf
     await deps.notify({
       userId: reg.userId,
       type: 'tournament_confirmed',
-      title: "You're in the Premier League",
-      message: `Your ${reg.tier} spot in the ShuttleIQ Premier League is confirmed.${when} Teams are drafted on Sun 11 Oct.`,
+      title: "You're in the ShuttleIQ League",
+      message: `Your ${reg.tier} spot in the ShuttleIQ League is confirmed.${when} Teams are drafted on Sun 11 Oct.`,
     });
   } catch (e) { console.error('[Tournament] confirmation notification failed:', e instanceof Error ? e.message : e); }
 

@@ -37,7 +37,7 @@ const read = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8').repla
 const wrap = (ui: React.ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 
 const T = {
-  id: 't-1', name: 'ShuttleIQ Premier League', startsAt: '2026-10-17T14:00:00.000Z', endsAt: '2026-10-17T18:00:00.000Z',
+  id: 't-1', name: 'ShuttleIQ League', startsAt: '2026-10-17T14:00:00.000Z', endsAt: '2026-10-17T18:00:00.000Z',
   venueName: 'BASELINE SPORTS ACADEMY DIP', venueLocation: 'Dubai Investment Park Second - Dubai', venueMapUrl: 'https://maps.app.goo.gl/KQCTd2N4HeE2FpQm9',
   entryFeeAed: 100, registrationOpensAtMembers: '2026-09-25T08:00:00.000Z', registrationOpensAt: '2026-09-25T14:00:00.000Z',
   registrationClosesAt: '2026-10-08T20:00:00.000Z', withdrawDeadlineAt: '2026-10-08T20:00:00.000Z', draftCutoffAt: '2026-10-10T20:00:00.000Z', deckUrl: null,
@@ -67,14 +67,14 @@ describe('Tournament page', () => {
   it('flag off → one plain line, no form', () => {
     state.enabled = false;
     wrap(<Tournament />);
-    expect(screen.getByTestId('text-tournament-unavailable').textContent).toBe('The Premier League is not open right now.');
+    expect(screen.getByTestId('text-tournament-unavailable').textContent).toBe('The ShuttleIQ League is not open right now.');
     expect(screen.queryByTestId('form-tournament-register')).toBeNull();
   });
 
   it('hidden before the open (or to non-members in the members stage) → "not open yet"', () => {
     state.view = { visible: false };
     wrap(<Tournament />);
-    expect(screen.getByTestId('text-tournament-unavailable').textContent).toBe('Premier League registration is not open yet.');
+    expect(screen.getByTestId('text-tournament-unavailable').textContent).toBe('ShuttleIQ League registration is not open yet.');
   });
 
   it('the event, the per-tier counter in the brand format', () => {
@@ -178,7 +178,7 @@ describe('withdraw dialog', () => {
     wrap(<Tournament />);
     fireEvent.click(screen.getByTestId('button-tournament-withdraw'));
     const dialog = await screen.findByRole('alertdialog');
-    expect(within(dialog).getByText('Withdraw from the Premier League?')).toBeTruthy();
+    expect(within(dialog).getByText('Withdraw from the ShuttleIQ League?')).toBeTruthy();
     expect(dialog.textContent).toContain('Withdraw before Thu 8 Oct 23:59 for a full refund of AED 100.');
     expect(dialog.textContent).toContain('Refunds are handled manually via Ziina within 5 working days.');
     fireEvent.click(within(dialog).getByTestId('button-confirm-withdraw'));
@@ -219,7 +219,8 @@ describe('banner, pinned row, My games entry — render nothing unless visible',
     state.view = view();
     wrap(<TournamentBanner variant="dashboard" />);
     const b = screen.getByTestId('banner-tournament');
-    expect(b.textContent).toContain('ShuttleIQ Premier League');
+    expect(b.textContent).toContain('ShuttleIQ League');
+    expect(b.textContent).toContain('Tournament');
     expect(b.textContent).toContain('Competitive · 12 of 18 filled');
     expect(within(b).getByTestId('link-tournament').getAttribute('href')).toBe('/marketplace/tournament');
   });
@@ -254,7 +255,7 @@ describe('checkout return', () => {
   it('success: polls the no-auth confirm and says you are in', async () => {
     const f = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ confirmed: true }), { status: 200 }));
     render(<TournamentCheckoutResult mode="success" registrationId="r-1" />);
-    expect(await screen.findByTestId('text-tournament-confirmed')).toHaveProperty('textContent', "You're in the Premier League");
+    expect(await screen.findByTestId('text-tournament-confirmed')).toHaveProperty('textContent', "You're in the ShuttleIQ League");
     expect(String(f.mock.calls[0][0])).toContain('/api/marketplace/tournament/registrations/r-1/confirm');
     f.mockRestore();
   });
@@ -317,12 +318,13 @@ describe('entry on the tournament page — no repeated event header', () => {
   it('the page shows "Your entry" instead of repeating the title and date; My games keeps them', () => {
     state.entry = entry({ registration: reg() });
     const page = wrap(<Tournament />);
+    expect(document.title).toBe('ShuttleIQ League');
     const card = screen.getByTestId('card-tournament-entry');
     expect(within(card).getByTestId('text-entry-heading').textContent).toBe('Your entry');
-    expect(within(card).queryByText('ShuttleIQ Premier League')).toBeNull();
+    expect(within(card).queryByText('ShuttleIQ League')).toBeNull();
     page.unmount();
     wrap(<TournamentEntryCard />);
     const mine = screen.getByTestId('card-tournament-entry');
-    expect(within(mine).getByText('ShuttleIQ Premier League')).toBeTruthy();
+    expect(within(mine).getByText('ShuttleIQ League')).toBeTruthy();
   });
 });

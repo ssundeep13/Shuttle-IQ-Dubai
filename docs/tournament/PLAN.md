@@ -356,3 +356,10 @@ Automated Ziina refunds (parked, `docs/refunds/PLAN.md`), team draft tooling, ma
 - `tournament_registrations` gained `payment_method`, `admin_note`, a second active-row unique index on `(tournament_id, player_id)` (one entry per player even across two accounts), and `t_shirt_size NOT NULL`. The separate waitlist index was dropped as redundant.
 - Seeded row: `9426fbe2-aa3e-4c79-9d39-37ac4c15278c`, slug `premier-league-2026`, status `published` (still invisible while `TOURNAMENT_ENABLED` is unset).
 - Pure rules in `server/tournament/rules.ts`: `decideRegistration` (a freed seat belongs to the waitlist: a newcomer is seated only while held + waitlisted < cap), `registrationPhase` / `canRegister` / `isVisibleTo` (two-stage open), `holdExpiresAt` / `canPromote` (Q3), `withdrawOutcome` (Q4).
+
+### G.2 Decisions (Sandeep, 2026-09-24) — override the timeline above
+
+- **Name:** the event is "ShuttleIQ League", not "Premier League", everywhere player-facing: `tournaments.name`, page, banner, pinned row, My games, emails, notifications and the Ziina checkout description `ShuttleIQ League entry, AED 100.00`. The small label above the event name reads "Tournament". The slug `premier-league-2026` stays (internal).
+- **Open moved to today, Thu 24 Sep 2026:** members (any active IQ Pass) from `2026-09-24T12:00:00Z` (16:00 Dubai), everyone from `2026-09-24T14:00:00Z` (18:00 Dubai). Close `2026-10-08T20:00:00Z`, draft cut-off `2026-10-10T20:00:00Z` and the event are unchanged. Go/no-go 15:30 Dubai; on any failure both open instants return to `2026-09-25T08:00:00Z` / `2026-09-25T14:00:00Z`.
+- **Deck:** not shipped today; a renamed deck comes later, the PDF and the link in one push on Sandeep's go. Slide 8's "opt-in player contact list collected at registration" stays: the form's "Share my details with sponsors" tick writes `share_with_sponsors`, and the Gate 4 admin CSV must carry that column.
+- **Sandeep's own AED 100 entry** is a real entry (account `e1066a42…`, Intermediate); Sandeep decides after the test whether to withdraw.

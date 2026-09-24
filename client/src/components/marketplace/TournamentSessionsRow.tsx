@@ -1,4 +1,4 @@
-// ShuttleIQ Premier League — the pinned "Tournament" row at the top of the Sessions list. Self-contained:
+// ShuttleIQ League — the pinned "Tournament" row at the top of the Sessions list. Self-contained:
 // renders nothing while the flag is off or before the open. Sits above the results, so it also shows
 // while the list is loading or a filter leaves no sessions.
 import { Link } from 'wouter';

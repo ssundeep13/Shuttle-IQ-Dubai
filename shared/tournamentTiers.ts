@@ -1,4 +1,4 @@
-// Tournament tiers — the four draft buckets of the ShuttleIQ Premier League.
+// Tournament tiers — the four draft buckets of the ShuttleIQ League.
 // A registration freezes the player's CONFIRMED level (players.level) into one
 // of these at the moment they register; nothing re-buckets it later.
 //

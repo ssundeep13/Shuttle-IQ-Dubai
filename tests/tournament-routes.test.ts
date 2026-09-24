@@ -15,7 +15,7 @@ const { createTournamentRouter, tournamentConfigHandler } = await import('../ser
 const Z = (iso: string) => new Date(iso);
 const OPEN = Z('2026-09-26T10:00:00Z');
 const T = {
-  id: 't-1', name: 'ShuttleIQ Premier League', status: 'published', startsAt: Z('2026-10-17T14:00:00Z'), endsAt: Z('2026-10-17T18:00:00Z'),
+  id: 't-1', name: 'ShuttleIQ League', status: 'published', startsAt: Z('2026-10-17T14:00:00Z'), endsAt: Z('2026-10-17T18:00:00Z'),
   venueName: 'BASELINE SPORTS ACADEMY DIP', venueLocation: 'x', venueMapUrl: 'y', entryFeeAed: 100,
   tierCaps: { Professional: 6, Competitive: 18, Intermediate: 18, Beginner: 6 }, waitlistCapPerTier: 2, holdMinutes: 1440,
   registrationOpensAtMembers: Z('2026-09-25T08:00:00Z'), registrationOpensAt: Z('2026-09-25T14:00:00Z'),

@@ -1,4 +1,4 @@
-// ShuttleIQ Premier League — shared pieces of the tournament screens (IQ Pass tokens, Inter, no icons):
+// ShuttleIQ League — shared pieces of the tournament screens (IQ Pass tokens, Inter, no icons):
 //   TournamentTierCounter   "Competitive · 12 of 18 filled" per tier, with a thin bar.
 //   TournamentWithdrawDialog  the refund rule in plain words before a withdrawal.
 //   TournamentEntryView     my entry: status, Pay for a hold, Withdraw, the sponsor tick.
@@ -75,7 +75,7 @@ type EntryActions = { pay(id: string): Promise<void>; withdraw(id: string): Prom
 
 export function TournamentEntryView({ registration: r, tournament: t, actions, showPageLink, compactHeader }: {
   registration: TournamentRegistrationView; tournament: TournamentPublic | null; actions: EntryActions; showPageLink?: boolean;
-  /** On the Premier League page the event is already in the page header: show "Your entry" instead of repeating it. */
+  /** On the ShuttleIQ League page the event is already in the page header: show "Your entry" instead of repeating it. */
   compactHeader?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -87,8 +87,8 @@ export function TournamentEntryView({ registration: r, tournament: t, actions, s
         <p data-testid="text-entry-heading" style={tH2}>Your entry</p>
       ) : (
         <>
-          <p style={tEyebrow}>Premier League</p>
-          <p style={{ ...tH2, fontSize: 20 }}>{t?.name ?? 'ShuttleIQ Premier League'}</p>
+          <p style={tEyebrow}>Tournament</p>
+          <p style={{ ...tH2, fontSize: 20 }}>{t?.name ?? 'ShuttleIQ League'}</p>
           {t && <p style={tSub}>{eventLine(t)}</p>}
         </>
       )}
@@ -107,7 +107,7 @@ export function TournamentEntryView({ registration: r, tournament: t, actions, s
         {active && beforeCutoff && (
           <button type="button" data-testid="button-tournament-withdraw" onClick={() => setConfirming(true)} style={tGhostBtn}>Withdraw</button>
         )}
-        {showPageLink && <Link href="/marketplace/tournament" data-testid="link-tournament-page" style={tGhostBtn}>Premier League page</Link>}
+        {showPageLink && <Link href="/marketplace/tournament" data-testid="link-tournament-page" style={tGhostBtn}>ShuttleIQ League page</Link>}
       </div>
       {t && (
         <TournamentWithdrawDialog open={confirming} onOpenChange={setConfirming} withdrawDeadlineAt={t.withdrawDeadlineAt} paid={!!r.paidAt} amountAed={r.amountAed}

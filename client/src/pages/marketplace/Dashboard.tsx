@@ -757,7 +757,7 @@ export default function Dashboard() {
           </Reveal>
         )}
 
-        {/* Premier League (Tournament Gate 3): self-contained, nothing while the flag is off or before the open */}
+        {/* ShuttleIQ League (Tournament Gate 3): self-contained, nothing while the flag is off or before the open */}
         <TournamentBanner variant="dashboard" />
 
         {/* Getting Started — full width, contextual */}

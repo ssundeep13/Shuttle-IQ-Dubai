@@ -57,7 +57,7 @@ function shell(heading: string, rows: string, cta: { href: string; label: string
       <table width="560" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;">
         <tr><td style="background-color:#002C84;padding:28px 40px;">
           <p style="margin:0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">ShuttleIQ</p>
-          <p style="margin:4px 0 0;font-size:13px;color:#C7D2F0;">Premier League</p>
+          <p style="margin:4px 0 0;font-size:13px;color:#C7D2F0;">Tournament</p>
         </td></tr>
         <tr><td style="padding:32px 40px;">
           <p style="margin:0 0 20px;font-size:17px;font-weight:600;color:#002C84;line-height:1.5;">${esc(heading)}</p>
@@ -120,7 +120,7 @@ export function buildTournamentPromotionEmail(input: {
     row(`Pay AED ${r.amountAed} by ${esc(payBy)}`),
   ].join('');
   return {
-    subject: 'A Premier League spot opened up for you',
+    subject: 'A ShuttleIQ League spot opened up for you',
     html: shell(
       `A spot opened up in the ${t.name}. It is yours if you pay by ${payBy}.`,
       rows,
@@ -139,7 +139,7 @@ export function buildSponsorInterestEmail(input: { name: string; company: string
   ].join('');
   return {
     subject: `Sponsor interest: ${input.name}${company ? ` (${company})` : ''}`,
-    html: shell('A player ticked "my company may sponsor a team" while registering for the Premier League.', rows, null, 'Sent once per registration.'),
+    html: shell('A player ticked "my company may sponsor a team" while registering for the ShuttleIQ League.', rows, null, 'Sent once per registration.'),
   };
 }
 

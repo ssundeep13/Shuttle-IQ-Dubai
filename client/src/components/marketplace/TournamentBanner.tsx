@@ -1,4 +1,4 @@
-// ShuttleIQ Premier League — the home banner with the live per-tier counter. Self-contained: renders nothing
+// ShuttleIQ League — the home banner with the live per-tier counter. Self-contained: renders nothing
 // while the flag is off or before the open (members see it from their early-access time), so the logged-out
 // home and the Dashboard each need one line.
 import { Link } from 'wouter';
@@ -14,13 +14,13 @@ export function TournamentBanner({ variant }: { variant: 'home' | 'dashboard' })
   const t = view.tournament;
   const card = (
     <div data-testid="banner-tournament" style={{ background: IQP.white, border: `1px solid ${IQP.line}`, borderRadius: 12, padding: '18px 20px', fontFamily: IQP_FONT, color: IQP.ink, display: 'grid', gap: 10 }}>
-      <p style={tEyebrow}>Premier League</p>
+      <p style={tEyebrow}>Tournament</p>
       <h2 style={{ margin: 0, fontFamily: IQP_FONT, fontSize: 22, fontWeight: 700, color: IQP.navy, letterSpacing: '-0.02em', lineHeight: 1.15 }}>{t.name}</h2>
       <p style={tSub}>{eventLine(t)} · AED {t.entryFeeAed} entry</p>
       {view.phase === 'members_only' && <p style={{ ...tSub, fontSize: 13, color: IQP.teal, fontWeight: 600 }}>{earlyAccessLine(t.registrationOpensAt)}</p>}
       <TournamentTierCounter tiers={view.tiers} compact />
       <Link href="/marketplace/tournament" data-testid="link-tournament" style={{ ...tNavyBtn(), width: 'fit-content' }}>
-        {view.canRegister ? 'Register' : 'See the Premier League'}
+        {view.canRegister ? 'Register' : 'See the ShuttleIQ League'}
       </Link>
     </div>
   );

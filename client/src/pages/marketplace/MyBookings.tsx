@@ -953,7 +953,7 @@ export default function MyBookings() {
           </div>
         </Reveal>
 
-        {/* Premier League entry (Tournament Gate 3): self-contained, nothing without an active entry */}
+        {/* ShuttleIQ League entry (Tournament Gate 3): self-contained, nothing without an active entry */}
         <TournamentEntryCard spacedBelow />
 
         {isLoading ? (

@@ -119,8 +119,8 @@ async function queueRefund(tx: Tx, r: TournamentRegistration, why: string, inten
     id: randomUUID(),
     userId: r.userId,
     type: 'refund_required',
-    title: 'Refund needed — Premier League entry',
-    message: `Premier League entry of AED ${r.amountAed} for ${u?.name ?? 'a player'} (${r.tier}): ${why}. Refund it in the Ziina dashboard${intentId ? ` (intent ${intentId})` : ''}.`,
+    title: 'Refund needed — ShuttleIQ League entry',
+    message: `ShuttleIQ League entry of AED ${r.amountAed} for ${u?.name ?? 'a player'} (${r.tier}): ${why}. Refund it in the Ziina dashboard${intentId ? ` (intent ${intentId})` : ''}.`,
     refundAmountFils: r.amountAed * 100,
     refundPreference: 'bank',
   });

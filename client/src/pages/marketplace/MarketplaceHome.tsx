@@ -185,7 +185,7 @@ export default function MarketplaceHome() {
         <IqPassLandingSection tiers={iqPass.tiers} href={isAuthenticated ? '/marketplace/iq-pass' : '/marketplace/login?from=%2Fmarketplace%2Fiq-pass'} />
       )}
 
-      {/* Premier League (Tournament Gate 3): self-contained, nothing while the flag is off or before the open */}
+      {/* ShuttleIQ League (Tournament Gate 3): self-contained, nothing while the flag is off or before the open */}
       <TournamentBanner variant="home" />
 
       {/* ───────────────────── REFERRAL PROMO (AED 15 each) ───────────────────── */}

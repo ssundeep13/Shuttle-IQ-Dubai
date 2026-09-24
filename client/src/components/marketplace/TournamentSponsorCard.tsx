@@ -1,5 +1,5 @@
-// ShuttleIQ Premier League — the sponsorship card that follows the company field (exact copy, Sandeep 2026-09-23),
-// on the registration form, the entry on the Premier League page and the My games entry. The deck link appears
+// ShuttleIQ League — the sponsorship card that follows the company field (exact copy, Sandeep 2026-09-23),
+// on the registration form, the entry on the ShuttleIQ League page and the My games entry. The deck link appears
 // only when the deck ships (TOURNAMENT_DECK_AVAILABLE, pinned by a test to the PDF being in client/public/docs).
 import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
 import { SPONSOR_HEADING, SPONSOR_LINE, SPONSOR_DECK_LABEL, SPONSOR_TICK, TOURNAMENT_DECK_AVAILABLE, TOURNAMENT_DECK_URL } from '@/lib/tournamentCopy';

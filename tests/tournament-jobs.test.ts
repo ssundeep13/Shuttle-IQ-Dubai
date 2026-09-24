@@ -16,7 +16,7 @@ const read = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8').repla
 const Z = (iso: string) => new Date(iso);
 
 const T = {
-  id: 't-1', name: 'ShuttleIQ Premier League', status: 'published',
+  id: 't-1', name: 'ShuttleIQ League', status: 'published',
   startsAt: Z('2026-10-17T14:00:00Z'), endsAt: Z('2026-10-17T18:00:00Z'),
   venueName: 'BASELINE SPORTS ACADEMY DIP', entryFeeAed: 100,
   registrationOpensAtMembers: Z('2026-09-25T08:00:00Z'), registrationOpensAt: Z('2026-09-25T14:00:00Z'),
@@ -157,8 +157,8 @@ describe('runTournamentOpenNotificationsJob — members at 12:00, everyone at 18
   it('copy: date, venue, fee; members copy says early access; never the deck link', () => {
     const m = openNotificationCopy(T as any, 'members');
     const e = openNotificationCopy(T as any, 'everyone');
-    expect(m.title).toBe('Premier League: early access is open');
-    expect(e.title).toBe('Premier League registration is open');
+    expect(m.title).toBe('ShuttleIQ League: early access is open');
+    expect(e.title).toBe('ShuttleIQ League registration is open');
     for (const c of [m, e]) {
       expect(c.message).toContain('Sat 17 Oct');
       expect(c.message).toContain('Baseline Sports Academy DIP');
@@ -186,7 +186,7 @@ describe('notifyPromotedRegistrations — in-app + email with the pay link, stam
   it('tells the player the pay-by time in Dubai', async () => {
     const deps = d();
     await notifyPromotedRegistrations([promoted as any], deps as any);
-    expect(deps.notify.mock.calls[0][0]).toMatchObject({ userId: 'u-2', type: 'tournament_promoted', title: 'A Premier League spot opened up' });
+    expect(deps.notify.mock.calls[0][0]).toMatchObject({ userId: 'u-2', type: 'tournament_promoted', title: 'A ShuttleIQ League spot opened up' });
     expect(deps.notify.mock.calls[0][0].message).toContain('2:05 pm on Mon 28 Sept');
     expect(deps.sendPromotionEmail).toHaveBeenCalledTimes(1);
     expect(deps.markPromotionNotified).toHaveBeenCalledWith('r-2', NOW);

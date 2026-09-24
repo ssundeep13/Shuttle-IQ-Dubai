@@ -695,7 +695,7 @@ export default function BookSessions() {
           </div>
         </Reveal>
 
-        {/* Premier League pinned row (Tournament Gate 3): above the results, so it shows while loading and when a filter empties the list */}
+        {/* ShuttleIQ League pinned row (Tournament Gate 3): above the results, so it shows while loading and when a filter empties the list */}
         <TournamentSessionsRow />
 
         {/* Results */}
