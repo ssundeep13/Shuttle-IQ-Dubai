@@ -54,6 +54,68 @@ export function refundDeadlineLabel(exclusiveIso: string): string {
   return `${dayFmt.format(d)} ${hmFmt.format(d)}`;
 }
 
+// ─── Home banner / Dashboard card (redesign, Sandeep 2026-09-24) ─────────────
+
+const dubaiParts = (iso: string) => {
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dubai', hour: 'numeric', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso));
+  const h = Number(p.find((x) => x.type === 'hour')?.value ?? 0);
+  const m = Number(p.find((x) => x.type === 'minute')?.value ?? 0);
+  return { h12: h % 12 === 0 ? 12 : h % 12, m, suffix: h < 12 ? 'am' : 'pm' };
+};
+const shortClock = (x: { h12: number; m: number }) => (x.m === 0 ? String(x.h12) : `${x.h12}:${String(x.m).padStart(2, '0')}`);
+
+/** "BASELINE SPORTS ACADEMY DIP" → "Baseline DIP" (the banner's short venue). */
+export function shortVenue(name: string): string {
+  return displayVenue(name).split(' ').filter((w) => !/^(sports|academy)$/i.test(w)).join(' ');
+}
+
+/** "Sat 17 Oct · 6–10 pm · Baseline DIP" */
+export function bannerMetaLine(t: { startsAt: string; endsAt: string; venueName: string }): string {
+  const a = dubaiParts(t.startsAt);
+  const b = dubaiParts(t.endsAt);
+  const range = a.suffix === b.suffix ? `${shortClock(a)}–${shortClock(b)} ${b.suffix}` : `${shortClock(a)} ${a.suffix}–${shortClock(b)} ${b.suffix}`;
+  return `${dayFmt.format(new Date(t.startsAt))} · ${range} · ${shortVenue(t.venueName)}`;
+}
+
+export const BANNER_FEE_SUB = 'entry · 6 games guaranteed';
+
+/** "FRI 6:00 PM" — an opening instant in Dubai, for the overline. */
+export function opensLabel(iso: string): string {
+  const day = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dubai', weekday: 'short' }).format(new Date(iso));
+  return `${day} ${formatDubaiTime(iso)}`.toUpperCase();
+}
+
+type BannerViewish = { phase: 'before_open' | 'members_only' | 'open' | 'closed'; canRegister: boolean; tournament: { registrationOpensAtMembers: string | null; registrationOpensAt: string; registrationClosesAt: string } };
+
+export function bannerOverline(v: BannerViewish): string {
+  if (v.phase === 'closed') return 'TOURNAMENT · REGISTRATION CLOSED';
+  if (v.phase === 'open') return 'TOURNAMENT · REGISTRATION OPEN';
+  if (v.phase === 'members_only' && v.canRegister) return 'TOURNAMENT · IQ PASS EARLY ACCESS';
+  const next = v.phase === 'before_open' ? (v.tournament.registrationOpensAtMembers ?? v.tournament.registrationOpensAt) : v.tournament.registrationOpensAt;
+  return `TOURNAMENT · OPENS ${opensLabel(next)}`;
+}
+
+/** The card's single action: "Your entry" → My games when the player has an entry, else Register / See details. */
+export function bannerAction(v: BannerViewish, hasEntry: boolean): { label: string; href: string } {
+  if (hasEntry) return { label: 'Your entry', href: '/marketplace/my-bookings' };
+  if ((v.phase === 'open' || v.phase === 'members_only') && v.canRegister) return { label: 'Register', href: '/marketplace/tournament' };
+  return { label: 'See details', href: '/marketplace/tournament' };
+}
+
+/** "Closes Thu 8 Oct · your tier is locked at registration" (the close instant is exclusive). */
+export function bannerFootLine(v: Pick<BannerViewish, 'phase' | 'tournament'>): string {
+  const day = dayFmt.format(new Date(new Date(v.tournament.registrationClosesAt).getTime() - 60_000));
+  return v.phase === 'closed' ? `Registration closed ${day}` : `Closes ${day} · your tier is locked at registration`;
+}
+
+export type TierTile = { kind: 'count'; filled: number; cap: number } | { kind: 'waitlist'; text: string } | { kind: 'full'; text: string };
+
+export function tierTile(t: TierState): TierTile {
+  if (t.state === 'waitlist') return { kind: 'waitlist', text: `Full · waitlist ${t.waitlisted}/${t.waitlistCap}` };
+  if (t.state === 'full') return { kind: 'full', text: 'Full' };
+  return { kind: 'count', filled: t.held, cap: t.cap };
+}
+
 export function earlyAccessLine(registrationOpensAt: string): string {
   return `Early access for IQ Pass members. Registration opens to everyone at ${formatDubaiDeadline(registrationOpensAt)}.`;
 }

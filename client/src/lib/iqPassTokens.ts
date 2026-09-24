@@ -15,6 +15,10 @@ export const IQP = {
   // Both keep white text above 4.5:1 (navyMuted 6.0:1, tealMuted 4.7:1 on white text).
   navyMuted: '#4F6A9A',
   tealMuted: '#3E7F76',
+  // ShuttleIQ League banner (Sandeep, 2026-09-24): teal text/fills ON the navy card (the brand teal
+  // above is too dark on navy), and the amber "Full · waitlist n/2" state.
+  tealOnNavy: '#5DCAA5',
+  amber: '#F2B84B',
   // ink scale shared with the rest of the marketplace (no new drift)
   ink: '#1A1F2B',
   inkSub: '#5C6577',

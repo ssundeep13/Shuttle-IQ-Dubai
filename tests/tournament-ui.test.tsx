@@ -228,9 +228,10 @@ describe('banner, pinned row, My games entry — render nothing unless visible',
     state.view = view();
     wrap(<TournamentBanner variant="dashboard" />);
     const b = screen.getByTestId('banner-tournament');
+    // Redesigned 2026-09-24 (navy card, tier tiles): full coverage in tests/tournament-banner.test.tsx.
     expect(b.textContent).toContain('ShuttleIQ League');
-    expect(b.textContent).toContain('Tournament');
-    expect(b.textContent).toContain('Competitive · 12 of 18 filled');
+    expect(b.textContent).toContain('TOURNAMENT · REGISTRATION OPEN');
+    expect(within(b).getByTestId('text-tier-count-Competitive').textContent).toBe('12 / 18');
     expect(within(b).getByTestId('link-tournament').getAttribute('href')).toBe('/marketplace/tournament');
   });
 
