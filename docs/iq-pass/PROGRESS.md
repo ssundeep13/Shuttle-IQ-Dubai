@@ -28,6 +28,7 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-22 07:28Z — before pushing the Gate-log line for the Antony A merge: CLEAR — no session in progress or starting within 30 minutes (11:28 Dubai)
 - 2026-09-23 06:14Z — before pushing Tournament Gate 1 (schema + flag off + tier map + rules + config read; migration and seed already applied): CLEAR — no session in progress or starting within 30 minutes (10:14 Dubai)
 - 2026-09-23 06:19Z — before pushing the Tournament Gate 1 log line (PROGRESS.md only): CLEAR — no session in progress or starting within 30 minutes (10:19 Dubai)
+- 2026-09-24 03:47Z — before pushing Tournament Gate 2 (registration core, flag unset): CLEAR — no session in progress or starting within 30 minutes (07:47 Dubai)
 
 ## Next session
 
