@@ -6,7 +6,7 @@ import { formatDubaiDeadline, formatDubaiTime } from '@shared/dubaiTime';
 /**
  * The deck link ships ONLY together with the PDF (a test pins this to the file's
  * existence). Shipped 2026-09-24 with client/public/docs/shuttleiq-league-sponsorship.pdf
- * (Sandeep's renamed deck, SHA-256 de2df57a…c61b).
+ * (Sandeep's renamed deck; footer fix 2026-09-24, SHA-256 aa7735f0…8556).
  */
 export const TOURNAMENT_DECK_AVAILABLE = true;
 /** Absolute on purpose: a relative link would stay inside the native shell, which cannot render PDFs. */

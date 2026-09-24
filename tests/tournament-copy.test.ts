@@ -107,8 +107,8 @@ describe('sponsorship deck — shipped 2026-09-24 (Sandeep): the renamed PDF, by
     expect(copy.TOURNAMENT_DECK_AVAILABLE).toBe(true);
     const buf = readFileSync(pdf);
     expect(buf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
-    expect(buf.length).toBe(9142715);
-    expect(createHash('sha256').update(buf).digest('hex')).toBe('de2df57a352329b9570f8b0c7f4fb146daaca6c880a9afa66e8f56cec3ccc61b');
+    expect(buf.length).toBe(12463028);
+    expect(createHash('sha256').update(buf).digest('hex')).toBe('aa7735f090a4667ae6f9b116ae70020ed91302f4ad21b69c5c9da5d2164f8556');
   });
 
   it('no "premier-league" URL remains in the app code (client, server, shared)', () => {
