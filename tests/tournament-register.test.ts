@@ -49,7 +49,7 @@ function deps(over: Record<string, any> = {}) {
     getCurrentTournament: vi.fn().mockResolvedValue(T),
     getTournament: vi.fn().mockResolvedValue(T),
     getAccount: vi.fn().mockResolvedValue({ id: 'u-1', name: 'Test Player', email: 't@example.com', phone: '+971500000000', linkedPlayerId: 'p-1' }),
-    getPlayer: vi.fn().mockResolvedValue({ id: 'p-1', level: 'upper_intermediate', skillScore: 95 }),
+    getPlayer: vi.fn().mockResolvedValue({ id: 'p-1', level: 'upper_intermediate', skillScore: 95, name: 'Test Player', shuttleIqId: 'SIQ-00001' }),
     isMember: vi.fn().mockResolvedValue(false),
     isPreviewUser: vi.fn().mockReturnValue(false),
     countsByTier: vi.fn().mockResolvedValue(zeroCounts()),
@@ -151,14 +151,40 @@ describe('registerForTournament — hold, waitlist, full, payment', () => {
     expect(d.createIntent).toHaveBeenCalledTimes(1);
     expect(d.createIntent.mock.calls[0][0]).toEqual({
       amountAed: 100,
-      message: 'ShuttleIQ League entry, AED 100.00',
+      // Sandeep, 2026-09-24: the player's display name + SIQ id, the name cut to fit Ziina's 50-byte cap.
+      message: 'ShuttleIQ League entry — Test Playe · SIQ-00001',
       successUrl: 'https://shuttleiq.ai/marketplace/checkout/success?registration_id=r-1',
       cancelUrl: 'https://shuttleiq.ai/marketplace/checkout/cancel?registration_id=r-1',
       failureUrl: 'https://shuttleiq.ai/marketplace/checkout/cancel?registration_id=r-1&failed=1',
     });
-    expect(tournamentZiinaMessage(100)).toBe('ShuttleIQ League entry, AED 100.00');
-    expect(Buffer.byteLength(tournamentZiinaMessage(100), 'utf8')).toBeLessThanOrEqual(50);
+    expect(d.getPlayer).toHaveBeenCalledWith('p-1');
     expect(d.attachIntent).toHaveBeenCalledWith('r-1', 'pi_new', null);
+  });
+
+  it('Ziina description: "ShuttleIQ League entry — {name} · {SIQ id}", ≤ 50 chars and bytes; the name is cut, never the SIQ id', () => {
+    const fits = (m: string) => { expect(m.length).toBeLessThanOrEqual(50); expect(Buffer.byteLength(m, 'utf8')).toBeLessThanOrEqual(50); return m; };
+    expect(fits(tournamentZiinaMessage({ name: 'Sandeep', shuttleIqId: 'SIQ-00107' }))).toBe('ShuttleIQ League entry — Sandeep · SIQ-00107');
+    expect(fits(tournamentZiinaMessage({ name: 'Owais', shuttleIqId: 'SIQ-00204' }))).toBe('ShuttleIQ League entry — Owais · SIQ-00204');
+    expect(fits(tournamentZiinaMessage({ name: 'Abdulrahman Al Mansoori', shuttleIqId: 'SIQ-00690' }))).toBe('ShuttleIQ League entry — Abdulrahma · SIQ-00690');
+    expect(fits(tournamentZiinaMessage({ name: '  Ana   Maria  ', shuttleIqId: 'SIQ-00012' }))).toBe('ShuttleIQ League entry — Ana Maria · SIQ-00012');
+    // a name cut at a space loses the trailing space
+    expect(fits(tournamentZiinaMessage({ name: 'Christina Lee', shuttleIqId: 'SIQ-00300' }))).toBe('ShuttleIQ League entry — Christina · SIQ-00300');
+    // multi-byte names are cut on a character boundary, the SIQ id stays whole
+    const arabic = fits(tournamentZiinaMessage({ name: 'محمد عبدالله', shuttleIqId: 'SIQ-00455' }));
+    expect(arabic.startsWith('ShuttleIQ League entry — محمد')).toBe(true);
+    expect(arabic.endsWith(' · SIQ-00455')).toBe(true);
+    expect(arabic).not.toContain('�');
+    // missing pieces
+    expect(fits(tournamentZiinaMessage({ name: 'Sandeep', shuttleIqId: null }))).toBe('ShuttleIQ League entry — Sandeep');
+    expect(fits(tournamentZiinaMessage({ name: null, shuttleIqId: 'SIQ-00107' }))).toBe('ShuttleIQ League entry — SIQ-00107');
+    expect(fits(tournamentZiinaMessage({ name: '   ', shuttleIqId: null }))).toBe('ShuttleIQ League entry');
+  });
+
+  it('paying an existing hold (no live intent) also names the player', async () => {
+    const d = deps({ getRegistration: vi.fn().mockResolvedValue(reg({ ziinaPaymentIntentId: null })) });
+    const out = await payRegistration({ userId: 'u-1', registrationId: 'r-1' }, d as any);
+    expect(out.status).toBe(200);
+    expect(d.createIntent.mock.calls[0][0].message).toBe('ShuttleIQ League entry — Test Playe · SIQ-00001');
   });
 
   it('intent creation fails → the new hold is cancelled and the player sees 502', async () => {

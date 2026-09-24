@@ -151,9 +151,9 @@ export const tournamentStore = {
     return u;
   },
 
-  async getPlayer(playerId: string): Promise<{ id: string; level: string; skillScore: number; phone: string | null } | undefined> {
+  async getPlayer(playerId: string): Promise<{ id: string; level: string; skillScore: number; phone: string | null; name: string; shuttleIqId: string | null } | undefined> {
     const [p] = await db
-      .select({ id: players.id, level: players.level, skillScore: players.skillScore, phone: players.phone })
+      .select({ id: players.id, level: players.level, skillScore: players.skillScore, phone: players.phone, name: players.name, shuttleIqId: players.shuttleIqId })
       .from(players)
       .where(eq(players.id, playerId));
     return p;

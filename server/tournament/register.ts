@@ -17,9 +17,30 @@ import { notifyPromotedRegistrations } from "./jobs";
 import { sendSponsorInterestEmail } from "./email";
 
 export const TSHIRT_SIZES = ['S', 'M', 'L', 'XL', 'XXL'] as const;
-/** Ziina receipt line (50-byte cap): fixed, no name, no tier. */
-/** The Ziina checkout description, e.g. "ShuttleIQ League entry, AED 100.00" (Sandeep, 2026-09-24). */
-export const tournamentZiinaMessage = (amountAed: number): string => `ShuttleIQ League entry, AED ${amountAed.toFixed(2)}`;
+const ZIINA_CAP = 50; // Ziina's message cap, in characters AND UTF-8 bytes (see sanitizeZiinaMessage)
+const ZIINA_BASE = 'ShuttleIQ League entry';
+const utf8Bytes = (s: string) => Buffer.byteLength(s, 'utf8');
+/**
+ * The Ziina checkout description (Sandeep, 2026-09-24): "ShuttleIQ League entry — {player display name} · {SIQ id}",
+ * at most 50 characters and 50 UTF-8 bytes. The name is cut on a character boundary to fit; the SIQ id is never cut.
+ * New intents only — an intent already created keeps the description it was created with.
+ */
+export function tournamentZiinaMessage(p: { name?: string | null; shuttleIqId?: string | null }): string {
+  const name = (p.name ?? '').replace(/\s+/g, ' ').trim();
+  const siq = (p.shuttleIqId ?? '').trim();
+  const head = `${ZIINA_BASE} — `;
+  const withoutName = siq && utf8Bytes(`${head}${siq}`) <= ZIINA_CAP ? `${head}${siq}` : ZIINA_BASE;
+  if (!name) return withoutName;
+  const tail = siq ? ` · ${siq}` : '';
+  const budget = ZIINA_CAP - utf8Bytes(head) - utf8Bytes(tail);
+  let cut = '';
+  for (const ch of name) {
+    if (utf8Bytes(cut + ch) > budget) break;
+    cut += ch;
+  }
+  cut = cut.trim();
+  return cut ? `${head}${cut}${tail}` : withoutName;
+}
 const COMPANY_MAX = 100;
 
 export type TournamentDeps = {
@@ -27,7 +48,7 @@ export type TournamentDeps = {
   getCurrentTournament(): Promise<Tournament | undefined>;
   getTournament(id: string): Promise<Tournament | undefined>;
   getAccount(userId: string): Promise<Account | undefined>;
-  getPlayer(playerId: string): Promise<{ id: string; level: string; skillScore: number } | undefined>;
+  getPlayer(playerId: string): Promise<{ id: string; level: string; skillScore: number; name?: string | null; shuttleIqId?: string | null } | undefined>;
   isMember(userId: string): Promise<boolean>;
   isPreviewUser(userId: string): boolean;
   countsByTier(tournamentId: string): Promise<TierCounts>;
@@ -140,9 +161,10 @@ async function startOrResumePayment(
   }
 
   const urls = buildTournamentReturnUrls({ baseUrl: deps.baseUrl(), registrationId: reg.id, returnScheme: opts.returnScheme, allowedSchemes: deps.allowedSchemes() });
+  const payer = await deps.getPlayer(reg.playerId).catch(() => undefined);
   let intent: { id: string; redirect_url: string };
   try {
-    intent = await deps.createIntent({ amountAed: reg.amountAed ?? t.entryFeeAed, message: tournamentZiinaMessage(reg.amountAed ?? t.entryFeeAed), ...urls });
+    intent = await deps.createIntent({ amountAed: reg.amountAed ?? t.entryFeeAed, message: tournamentZiinaMessage({ name: payer?.name, shuttleIqId: payer?.shuttleIqId }), ...urls });
   } catch (e) {
     console.error('[Tournament] intent creation failed', { registrationId: reg.id, error: e instanceof Error ? e.message : e });
     if (opts.isNewHold) {
