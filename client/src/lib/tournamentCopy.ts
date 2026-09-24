@@ -5,12 +5,12 @@ import { formatDubaiDeadline, formatDubaiTime } from '@shared/dubaiTime';
 
 /**
  * The deck link ships ONLY together with the PDF (a test pins this to the file's
- * existence): flip to true in the same commit that adds
- * client/public/docs/shuttleiq-premier-league-sponsorship.pdf.
+ * existence). Shipped 2026-09-24 with client/public/docs/shuttleiq-league-sponsorship.pdf
+ * (Sandeep's renamed deck, SHA-256 de2df57a…c61b).
  */
-export const TOURNAMENT_DECK_AVAILABLE = false;
+export const TOURNAMENT_DECK_AVAILABLE = true;
 /** Absolute on purpose: a relative link would stay inside the native shell, which cannot render PDFs. */
-export const TOURNAMENT_DECK_URL = 'https://shuttleiq.ai/docs/shuttleiq-premier-league-sponsorship.pdf';
+export const TOURNAMENT_DECK_URL = 'https://shuttleiq.ai/docs/shuttleiq-league-sponsorship.pdf';
 
 export const SPONSOR_HEADING = 'Want to sponsor a team?';
 export const SPONSOR_LINE = 'Team sponsor AED 1,500 · Title sponsor AED 6,000 · in-kind welcome';

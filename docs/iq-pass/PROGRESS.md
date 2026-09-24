@@ -31,6 +31,8 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-24 03:47Z — before pushing Tournament Gate 2 (registration core, flag unset): CLEAR — no session in progress or starting within 30 minutes (07:47 Dubai)
 - 2026-09-24 04:02Z — before pushing the Tournament Gate 2 log (PROGRESS.md only): CLEAR — no session in progress or starting within 30 minutes (08:02 Dubai)
 - 2026-09-24 07:42Z — before pushing Tournament Gate 3 + ShuttleIQ League rename (flag off; afternoon window by Sandeep's instruction, registration opens today): CLEAR — no session in progress or starting within 30 minutes (11:42 Dubai)
+- 2026-09-24 07:46Z — before pushing a Railway variable change: TOURNAMENT_ENABLED=true + TOURNAMENT_PREVIEW_USER_IDS (Sandeep's account), pre-approved 2026-09-24: CLEAR — no session in progress or starting within 30 minutes (11:46 Dubai)
+- 2026-09-24 08:04Z — before pushing the ShuttleIQ League sponsorship deck (PDF + link, one push; Sandeep 2026-09-24): CLEAR — no session in progress or starting within 30 minutes (12:04 Dubai)
 
 ## Next session
 

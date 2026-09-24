@@ -3,6 +3,7 @@
 // from client/src/lib/tournamentCopy.ts, so this file is the copy review.
 import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'fs';
+import { createHash } from 'crypto';
 import { join } from 'path';
 
 const copy = await import('../client/src/lib/tournamentCopy');
@@ -29,9 +30,9 @@ describe('sponsorship card — exact copy (Sandeep, 2026-09-23)', () => {
   });
 
   it('the deck link ships only together with the PDF (absolute URL for the native shell)', () => {
-    const pdf = join(__dirname, '..', 'client/public/docs/shuttleiq-premier-league-sponsorship.pdf');
+    const pdf = join(__dirname, '..', 'client/public/docs/shuttleiq-league-sponsorship.pdf');
     expect(copy.TOURNAMENT_DECK_AVAILABLE).toBe(existsSync(pdf));
-    expect(copy.TOURNAMENT_DECK_URL).toBe('https://shuttleiq.ai/docs/shuttleiq-premier-league-sponsorship.pdf');
+    expect(copy.TOURNAMENT_DECK_URL).toBe('https://shuttleiq.ai/docs/shuttleiq-league-sponsorship.pdf');
   });
 });
 
@@ -92,6 +93,31 @@ describe('ShuttleIQ League rename (Sandeep, 2026-09-24)', () => {
         const p = join(dir, e.name);
         if (e.isDirectory()) { if (e.name !== 'node_modules') walk(p); }
         else if (/\.(ts|tsx|html)$/.test(e.name) && readFileSync(p, 'utf8').includes('Premier League')) hits.push(p);
+      }
+    };
+    for (const d of ['client/src', 'server', 'shared']) walk(join(__dirname, '..', d));
+    expect(hits).toEqual([]);
+  });
+});
+
+describe('sponsorship deck — shipped 2026-09-24 (Sandeep): the renamed PDF, byte for byte', () => {
+  const pdf = join(__dirname, '..', 'client/public/docs/shuttleiq-league-sponsorship.pdf');
+
+  it('the switch is on and the committed file is the real PDF Sandeep sent', () => {
+    expect(copy.TOURNAMENT_DECK_AVAILABLE).toBe(true);
+    const buf = readFileSync(pdf);
+    expect(buf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+    expect(buf.length).toBe(9142715);
+    expect(createHash('sha256').update(buf).digest('hex')).toBe('de2df57a352329b9570f8b0c7f4fb146daaca6c880a9afa66e8f56cec3ccc61b');
+  });
+
+  it('no "premier-league" URL remains in the app code (client, server, shared)', () => {
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== 'node_modules') walk(p); }
+        else if (/\.(ts|tsx|html)$/.test(e.name) && readFileSync(p, 'utf8').includes('premier-league')) hits.push(p);
       }
     };
     for (const d of ['client/src', 'server', 'shared']) walk(join(__dirname, '..', d));

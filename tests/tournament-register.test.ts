@@ -26,7 +26,7 @@ const T = {
   entryFeeAed: 100, tierCaps: { Professional: 6, Competitive: 18, Intermediate: 18, Beginner: 6 }, waitlistCapPerTier: 2, holdMinutes: 1440,
   registrationOpensAtMembers: Z('2026-09-25T08:00:00Z'), registrationOpensAt: Z('2026-09-25T14:00:00Z'),
   registrationClosesAt: Z('2026-10-08T20:00:00Z'), withdrawDeadlineAt: Z('2026-10-08T20:00:00Z'), draftCutoffAt: Z('2026-10-10T20:00:00Z'),
-  deckUrl: 'https://shuttleiq.ai/docs/shuttleiq-premier-league-sponsorship.pdf',
+  deckUrl: 'https://shuttleiq.ai/docs/shuttleiq-league-sponsorship.pdf',
   membersOpenNotifiedAt: null, openNotifiedAt: null, threeDaysNotifiedAt: null, oneDayNotifiedAt: null, createdAt: Z('2026-09-23T06:13:15Z'),
 };
 

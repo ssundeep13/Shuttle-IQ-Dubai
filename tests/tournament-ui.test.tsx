@@ -187,6 +187,15 @@ describe('withdraw dialog', () => {
 });
 
 describe('sponsorship card', () => {
+  it('the deck has shipped: with no override the card shows "View sponsorship deck" → the renamed PDF, new tab', () => {
+    render(<TournamentSponsorCard checked={false} onChange={vi.fn()} />);
+    const a = screen.getByTestId('link-sponsorship-deck') as HTMLAnchorElement;
+    expect(a.textContent).toBe('View sponsorship deck');
+    expect(a.getAttribute('href')).toBe('https://shuttleiq.ai/docs/shuttleiq-league-sponsorship.pdf');
+    expect(a.getAttribute('target')).toBe('_blank');
+    expect(a.getAttribute('rel')).toBe('noopener noreferrer');
+  });
+
   it('exact copy; the deck link only when the deck ships (new tab, absolute URL); the tick reports changes', () => {
     const onChange = vi.fn();
     const { rerender } = render(<TournamentSponsorCard checked={false} onChange={onChange} deckAvailable={false} />);
@@ -200,7 +209,7 @@ describe('sponsorship card', () => {
     rerender(<TournamentSponsorCard checked onChange={onChange} deckAvailable />);
     const a = screen.getByTestId('link-sponsorship-deck') as HTMLAnchorElement;
     expect(a.textContent).toBe('View sponsorship deck');
-    expect(a.getAttribute('href')).toBe('https://shuttleiq.ai/docs/shuttleiq-premier-league-sponsorship.pdf');
+    expect(a.getAttribute('href')).toBe('https://shuttleiq.ai/docs/shuttleiq-league-sponsorship.pdf');
     expect(a.getAttribute('target')).toBe('_blank');
     expect(a.getAttribute('rel')).toBe('noopener noreferrer');
   });
