@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { Wordmark } from '@/components/Wordmark';
 import { MKT } from './LandingComponents';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -71,7 +72,7 @@ export default function JoinTheCrew() {
             style={headingOnDark}
             data-testid="text-hiring-hero-title"
           >
-            Join the Shuttle<span className="text-secondary">IQ</span> Crew
+            Join the <Wordmark onDark size="1em" /> Crew
           </motion.h1>
           <motion.p
             variants={fadeInUp}

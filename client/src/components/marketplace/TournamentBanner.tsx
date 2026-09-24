@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import { animate, motion, useReducedMotion } from 'framer-motion';
 import { IQP, IQP_FONT } from '@/lib/iqPassTokens';
+import { Wordmark } from '@/components/Wordmark';
 import { useMyTournamentEntry, useTournamentEnabled, useTournamentView } from '@/hooks/useTournament';
 import { BANNER_FEE_SUB, bannerAction, bannerFootLine, bannerMetaLine, bannerOverline, tierTile, type TierState } from '@/lib/tournamentCopy';
 
@@ -29,10 +30,10 @@ function useIntroCount(target: number, intro: boolean, live: boolean): number {
   return n;
 }
 
-/** "ShuttleIQ League" → "Shuttle" + teal "IQ" + " League". */
+/** "ShuttleIQ League" → the shared reversed wordmark + " League" (one wordmark on every navy surface). */
 function wordmark(name: string): ReactNode {
   if (!name.startsWith('ShuttleIQ')) return name;
-  return (<>Shuttle<span data-testid="text-banner-title-iq" style={{ color: IQP.tealOnNavy }}>IQ</span>{name.slice('ShuttleIQ'.length)}</>);
+  return (<><Wordmark onDark size="1em" />{name.slice('ShuttleIQ'.length)}</>);
 }
 
 function TierTileView({ t, intro, introLive }: { t: TierState; intro: boolean; introLive: boolean }) {
@@ -94,7 +95,7 @@ export function TournamentBanner({ variant }: { variant: 'home' | 'dashboard' })
       <p data-testid="text-banner-overline" style={{ margin: 0, fontSize: 11, fontWeight: 500, letterSpacing: '0.14em', lineHeight: '16px', color: IQP.tealOnNavy }}>{bannerOverline(view)}</p>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', columnGap: 12, alignItems: 'start', marginTop: -8 }}>
         <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
-          <h2 data-testid="text-banner-title" style={{ margin: 0, fontFamily: IQP_FONT, fontSize: 'clamp(28px, 2.4vw, 30px)', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1.1, color: IQP.white }}>{wordmark(t.name)}</h2>
+          <h2 data-testid="text-banner-title" style={{ margin: 0, fontFamily: IQP_FONT, fontSize: 'clamp(28px, 2.4vw, 30px)', fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1.1, color: IQP.white }}>{wordmark(t.name)}</h2>
           <p data-testid="text-banner-meta" style={{ margin: 0, fontSize: 14, lineHeight: '20px', color: white(0.7) }}>{bannerMetaLine(t)}</p>
         </div>
         <div style={{ textAlign: 'right' }}>

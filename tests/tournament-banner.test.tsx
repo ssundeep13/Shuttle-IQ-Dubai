@@ -84,7 +84,7 @@ describe('banner — open', () => {
     expect(c.style.boxShadow).toBe('');
     expect(text('text-banner-overline')).toBe('TOURNAMENT · REGISTRATION OPEN');
     expect(text('text-banner-title')).toBe('ShuttleIQ League');
-    expect(text('text-banner-title-iq')).toBe('IQ');
+    expect((screen.getByTestId('text-banner-title').querySelector('[data-part="iq"]') as HTMLElement).textContent).toBe('IQ'); // the shared reversed Wordmark
     expect(text('text-banner-meta')).toBe('Sat 17 Oct · 6–10 pm · Baseline DIP');
     expect(text('text-banner-fee')).toBe('AED 100');
     expect(text('text-banner-fee-sub')).toBe('entry');

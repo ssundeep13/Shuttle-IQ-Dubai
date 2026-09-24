@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
+import { Wordmark } from '@/components/Wordmark';
 
 const FF = "'Inter', system-ui, sans-serif";
 const NAVY = '#002C84';
@@ -77,8 +78,8 @@ export default function FoundingMemberAward() {
         padding: '32px 24px', textAlign: 'center', overflowY: 'auto',
       }}
     >
-      <div style={{ fontFamily: FF, fontWeight: 800, fontSize: 20, letterSpacing: '-0.01em', color: '#fff', marginBottom: 'auto' }}>
-        Shuttle<span style={{ color: TEAL }}>IQ</span>
+      <div style={{ marginBottom: 'auto' }}>
+        <Wordmark onDark size={20} />
       </div>
 
       <img
