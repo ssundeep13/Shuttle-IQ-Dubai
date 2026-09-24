@@ -77,7 +77,7 @@ export function bannerMetaLine(t: { startsAt: string; endsAt: string; venueName:
   return `${dayFmt.format(new Date(t.startsAt))} · ${range} · ${shortVenue(t.venueName)}`;
 }
 
-export const BANNER_FEE_SUB = 'entry · 6 games guaranteed';
+export const BANNER_FEE_SUB = 'entry';
 
 /** "FRI 6:00 PM" — an opening instant in Dubai, for the overline. */
 export function opensLabel(iso: string): string {

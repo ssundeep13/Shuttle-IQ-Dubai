@@ -50,7 +50,7 @@ beforeEach(() => {
 describe('copy helpers', () => {
   it('meta line, fee line, foot line, opening label', () => {
     expect(copy.bannerMetaLine(T)).toBe('Sat 17 Oct · 6–10 pm · Baseline DIP');
-    expect(copy.BANNER_FEE_SUB).toBe('entry · 6 games guaranteed');
+    expect(copy.BANNER_FEE_SUB).toBe('entry'); // Sandeep, 2026-09-24: just "entry" under AED 100
     expect(copy.bannerFootLine({ phase: 'open', tournament: T } as any)).toBe('Closes Thu 8 Oct · your tier is locked at registration');
     expect(copy.bannerFootLine({ phase: 'closed', tournament: T } as any)).toBe('Registration closed Thu 8 Oct');
     expect(copy.opensLabel('2026-09-25T14:00:00.000Z')).toBe('FRI 6:00 PM');
@@ -87,7 +87,7 @@ describe('banner — open', () => {
     expect(text('text-banner-title-iq')).toBe('IQ');
     expect(text('text-banner-meta')).toBe('Sat 17 Oct · 6–10 pm · Baseline DIP');
     expect(text('text-banner-fee')).toBe('AED 100');
-    expect(text('text-banner-fee-sub')).toBe('entry · 6 games guaranteed');
+    expect(text('text-banner-fee-sub')).toBe('entry');
     const tiles = within(c).getAllByTestId(/^tile-tier-/);
     expect(tiles.map((el) => el.getAttribute('data-testid'))).toEqual(['tile-tier-Professional', 'tile-tier-Competitive', 'tile-tier-Intermediate', 'tile-tier-Beginner']);
     expect(text('text-tier-count-Intermediate')).toBe('9 / 18');
