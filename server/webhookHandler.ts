@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import type { Express } from "express";
 import express from "express";
-import { storage } from "./storage";
+import { storage, birthdayStore } from "./storage";
+import { consumeBirthdayDiscount, isBirthdayConflict } from "./birthdayRestore";
 import { isZiinaPaymentSuccessful, isZiinaRefundSuccessful, retrieveZiinaPaymentIntent } from "./ziinaClient";
 import { fireReferralOnPayment } from "./referrals";
 import { syncFoundingMemberForUser } from "./venueAwards";
@@ -283,9 +284,8 @@ export async function confirmZiinaBookingByIntentId(
   // actually confirms (here), not at submission — so an abandoned Ziina payment
   // never burns the player's once-a-year discount. Idempotent: the already-
   // confirmed early-return above means this runs at most once per booking.
-  if (booking.birthdayDiscountApplied) {
-    await storage.updateMarketplaceUser(booking.userId, { birthdayDiscountUsedAt: new Date() });
-  }
+  // The marker records this booking, so only its cancel can give the game back.
+  if (booking.birthdayDiscountApplied) await consumeBirthdayDiscount(booking, new Date(), birthdayStore());
 
   // PR2 trigger site 1/5: Ziina happy-path payment confirmation. Covers both
   // the webhook delivery and the POST /bookings/:id/confirm poll fallback
@@ -402,6 +402,14 @@ export async function restoreSupersededBooking(booking: Booking, intentId: strin
   }
   const session = await storage.getBookableSessionWithAvailability(booking.sessionId);
   if (!session || session.status === 'cancelled') return flag("Refund needed — paid on a cancelled session", `, and the session has since been cancelled`);
+  // Birthday free game: one live free booking per window. If another one (not the duplicate about to be superseded)
+  // now holds this window, the free spot is gone — record the money and flag, like a seat that is gone.
+  const birthdayTaken = "Refund needed — free birthday game already rebooked";
+  const birthdayDetail = `, and the player's free birthday game for this window is now on another booking`;
+  if (booking.birthdayDiscountApplied && booking.birthdayWindowKey
+    && await storage.hasLiveBirthdayBooking(booking.userId, booking.birthdayWindowKey, duplicate ? [duplicate.id] : [])) {
+    return flag(birthdayTaken, birthdayDetail);
+  }
   // A seat-holding duplicate (pending_payment, promoted from the waitlist) gives its spots back when superseded.
   const freed = duplicate && duplicate.status === 'pending_payment' ? (duplicate.spotsBooked ?? 1) : 0;
   if (session.spotsRemaining + freed < (booking.spotsBooked ?? 1)) return flag("Refund needed — paid after the seat was released", `, and the session no longer has a seat for it`);
@@ -411,7 +419,13 @@ export async function restoreSupersededBooking(booking: Booking, intentId: strin
     console.log(`[Rebook] superseded unpaid duplicate ${duplicate.id} so paid booking ${booking.id} can be restored (intent ${intentId})`);
   }
   const restored = { status: 'pending' as const, cancelledAt: null, cancellationReason: null, amountAed: capturedAed };
-  await storage.updateBooking(booking.id, restored);
+  try {
+    await storage.updateBooking(booking.id, restored);
+  } catch (err) {
+    // Lost the one-live-free-booking rule to a booking made since the check above.
+    if (isBirthdayConflict(err)) return flag(birthdayTaken, birthdayDetail);
+    throw err;
+  }
   console.log(`[Rebook] restored superseded booking ${booking.id} — paid AED ${capturedAed} at Ziina (intent ${intentId})`);
   return { ok: true, booking: { ...booking, ...restored } };
 }

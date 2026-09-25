@@ -101,7 +101,8 @@ import {
   walletTransactions,
   type WalletTransaction,
 } from "@shared/schema";
-import { applyWalletDelta, applyClawbackWithFloor } from "./walletLedger";
+import { applyWalletDelta, applyClawbackWithFloor, type DbOrTx } from "./walletLedger";
+import { restoreBirthdayDiscount, type BirthdayStore } from "./birthdayRestore";
 import { normalizeName } from "@shared/utils/playerMatching";
 import { db } from "./db";
 import { eq, and, inArray, desc, sql, asc, like, gte, lt, isNotNull, isNull, ne, SQL } from "drizzle-orm";
@@ -326,6 +327,10 @@ export interface IStorage {
   getMarketplaceUserByGoogleId(googleId: string): Promise<MarketplaceUser | undefined>;
   searchMarketplaceUsersByName(query: string): Promise<MarketplaceUser[]>;
   updateMarketplaceUser(id: string, updates: Partial<MarketplaceUser>): Promise<MarketplaceUser | undefined>;
+  setBirthdayMarker(userId: string, bookingId: string, at: Date, tx?: DbOrTx): Promise<void>;
+  clearBirthdayMarker(userId: string, bookingId: string, tx?: DbOrTx): Promise<boolean>;
+  releaseBirthdayWindowKey(bookingId: string, tx?: DbOrTx): Promise<void>;
+  hasLiveBirthdayBooking(userId: string, windowKey: string, excludeBookingIds?: string[]): Promise<boolean>;
   updateMarketplaceUserPhoto(id: string, photoUrl: string | null): Promise<MarketplaceUser | undefined>;
   linkPlayerIfUnclaimed(userId: string, playerId: string): Promise<MarketplaceUser | undefined>;
   getAllMarketplaceUsers(): Promise<MarketplaceUser[]>;
@@ -2111,6 +2116,48 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
+  // Birthday free game (server/birthdayRestore.ts). The marker is written together with the booking that consumed
+  // it, and cleared only by that booking: a cancel of any other booking matches no row.
+  async setBirthdayMarker(userId: string, bookingId: string, at: Date, tx: DbOrTx = db): Promise<void> {
+    await tx
+      .update(marketplaceUsers)
+      .set({ birthdayDiscountUsedAt: at, birthdayDiscountBookingId: bookingId })
+      .where(eq(marketplaceUsers.id, userId));
+  }
+
+  async clearBirthdayMarker(userId: string, bookingId: string, tx: DbOrTx = db): Promise<boolean> {
+    const cleared = await tx
+      .update(marketplaceUsers)
+      .set({ birthdayDiscountUsedAt: null, birthdayDiscountBookingId: null })
+      .where(and(eq(marketplaceUsers.id, userId), eq(marketplaceUsers.birthdayDiscountBookingId, bookingId)))
+      .returning({ id: marketplaceUsers.id });
+    return cleared.length > 0;
+  }
+
+  // The amendment: a booking that stays live for its guests after the primary cancelled their free slot gives up its
+  // window key, so uq_bookings_one_live_birthday no longer counts it and the free game can be booked again.
+  async releaseBirthdayWindowKey(bookingId: string, tx: DbOrTx = db): Promise<void> {
+    await tx
+      .update(bookings)
+      .set({ birthdayWindowKey: null })
+      .where(and(eq(bookings.id, bookingId), isNotNull(bookings.birthdayWindowKey)));
+  }
+
+  // Same predicate as uq_bookings_one_live_birthday. A pending free booking counts: it holds the window before its
+  // confirmation sets the marker.
+  async hasLiveBirthdayBooking(userId: string, windowKey: string, excludeBookingIds: string[] = []): Promise<boolean> {
+    const rows = await db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(and(
+        eq(bookings.userId, userId),
+        eq(bookings.birthdayWindowKey, windowKey),
+        eq(bookings.birthdayDiscountApplied, true),
+        ne(bookings.status, 'cancelled'),
+      ));
+    return rows.some((r) => !excludeBookingIds.includes(r.id));
+  }
+
   async updateMarketplaceUserPhoto(id: string, photoUrl: string | null): Promise<MarketplaceUser | undefined> {
     return this.updateMarketplaceUser(id, { photoUrl });
   }
@@ -2351,6 +2398,16 @@ export class DatabaseStorage implements IStorage {
           cancelledAt,
           cancellationReason: 'event_cancelled_by_admin',
         }).where(eq(bookings.id, booking.id));
+
+        // Decision 3: ShuttleIQ cancelled the game, so a free birthday spot comes back whatever the hour, while the
+        // window is open. Only if the free slot was still live — a player who dropped it earlier was decided then.
+        if (booking.birthdayDiscountApplied && booking.status !== 'attended') {
+          const freeSlotLive = !(booking.guests ?? []).some((g) => g.isPrimary && g.status === 'cancelled');
+          const birthday = await restoreBirthdayDiscount({
+            booking, slotIsPrimary: freeSlotLive, withinLateWindow: false, bookingStaysLive: false, user: booking.user ?? {}, now: cancelledAt,
+          }, birthdayStore(tx));
+          if (birthday.restored) console.log(`[Birthday] free game restored — session ${id} cancelled by admin (booking ${booking.id})`);
+        }
 
         // Wallet credit refund — done inside the tx so a failure rolls back
         // the booking cancellation too. We resolve the linked player via
@@ -5636,3 +5693,14 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// The BirthdayStore deps (server/birthdayRestore.ts) over this storage. Pass the transaction the cancel or confirm
+// runs in, so the marker moves together with the booking row.
+export function birthdayStore(tx?: DbOrTx): BirthdayStore {
+  return {
+    hasLiveBirthdayBooking: (userId, windowKey) => storage.hasLiveBirthdayBooking(userId, windowKey),
+    setMarker: (userId, bookingId, at) => storage.setBirthdayMarker(userId, bookingId, at, tx),
+    clearMarker: (userId, bookingId) => storage.clearBirthdayMarker(userId, bookingId, tx),
+    releaseWindowKey: (bookingId) => storage.releaseBirthdayWindowKey(bookingId, tx),
+  };
+}

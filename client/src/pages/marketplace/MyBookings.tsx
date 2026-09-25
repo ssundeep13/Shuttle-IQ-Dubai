@@ -19,7 +19,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { sessionStartEpochMs } from '@shared/sessionTime';
-import { primaryCancelInfo } from '@/lib/primaryCancel';
+import { primaryCancelInfo, birthdayCancelLine } from '@/lib/primaryCancel';
+import { useMarketplaceAuth } from '@/contexts/MarketplaceAuthContext';
 import { formatDubaiTime, paymentDeadline } from '@shared/dubaiTime';
 import { openCheckoutRedirect, nativeReturnFields, nativeReturnBody } from '@/lib/nativeAuth';
 import { IqPassMoveDialog } from '@/components/marketplace/IqPassMoveDialog';
@@ -255,6 +256,7 @@ export default function MyBookings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const reduce = useReducedMotion();
+  const { user } = useMarketplaceAuth();
 
   // Default to [] so a failed fetch never leaves `bookings` undefined — that
   // made `bookings?.length === 0` false on error and the page rendered blank.
@@ -314,6 +316,8 @@ export default function MyBookings() {
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/sessions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/notifications'] });
       queryClient.invalidateQueries({ queryKey: ['/api/marketplace/me/wallet'] });
+      // A free birthday game may have come back — Checkout reads the marker from /auth/me.
+      queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] });
     },
     onError: (error: unknown) => {
       toast({ title: 'Could not cancel', description: serverErrorMessage(error), variant: 'destructive' });
@@ -463,6 +467,12 @@ export default function MyBookings() {
     const [mySpotError, setMySpotError] = useState<string | null>(null);
     const mySpotNeedsChoice = mySpot.visible && !mySpot.freeSlot && !mySpot.within5h
       && booking.paymentMethod === 'ziina' && !!booking.ziinaPaymentIntentId && mySpot.refundAed > 0;
+    // Birthday free game: what cancelling the free spot does to it (the server decides the same way).
+    const mySpotBirthdayLine = birthdayCancelLine({ freeSpot: mySpot.freeSlot, within5h: mySpot.within5h, user });
+    const cancelBirthdayLine = birthdayCancelLine({ freeSpot: !!booking.birthdayDiscountApplied && booking.status === 'confirmed', within5h: lateFee, user });
+    // Nothing was paid on a solo free booking, so the birthday line replaces the "AED 0 will be retained" box.
+    // Guests' money on a free booking is real and keeps the box.
+    const showLateFeeBox = lateFee && !(cancelBirthdayLine && booking.amountAed === 0);
     // Same endpoint + same body mechanism as the guest-slot cancel above —
     // the server derives allowWallet from the caller being the primary booker.
     const cancelMySpotMutation = useMutation({
@@ -472,6 +482,7 @@ export default function MyBookings() {
       },
       onSuccess: (data: { bookingCancelled?: boolean } | undefined) => {
         queryClient.invalidateQueries({ queryKey: ['/api/marketplace/bookings/mine'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/marketplace/auth/me'] }); // the free birthday game may be back
         setMySpotOpen(false);
         setMySpotError(null);
         toast({
@@ -754,6 +765,11 @@ export default function MyBookings() {
                               ? 'Your guests keep theirs. Your spot is within 5 hours of start — no refund.'
                               : `Your guests keep theirs. AED ${mySpot.refundAed.toLocaleString('en-US', { maximumFractionDigits: 2 })} will be refunded.`}
                           </p>
+                          {mySpotBirthdayLine && (
+                            <p style={{ fontSize: 14, fontWeight: 600, color: MKT.navy }} data-testid={`text-my-spot-birthday-${booking.id}`}>
+                              {mySpotBirthdayLine}
+                            </p>
+                          )}
                           {mySpotNeedsChoice && (
                             <div className="space-y-2 p-3 rounded-md" style={{ background: 'rgba(0,30,70,0.04)', border: '1px solid rgba(0,30,70,0.10)' }}>
                               <label className="flex items-center gap-2 min-h-11 -my-1 px-1 -mx-1 rounded-md siq-press cursor-pointer" style={{ fontSize: 14 }}>
@@ -820,7 +836,12 @@ export default function MyBookings() {
                               ? `Decline this spot for "${booking.session.title}" on ${format(new Date(booking.session.date), 'MMMM d')}? The spot will be offered to the next person on the waitlist.`
                               : `Are you sure you want to cancel your booking for "${booking.session.title}" on ${format(new Date(booking.session.date), 'MMMM d')}?`}
                           </p>
-                          {lateFee && (
+                          {cancelBirthdayLine && (
+                            <p style={{ fontSize: 14, fontWeight: 600, color: MKT.navy }} data-testid={`text-cancel-birthday-${booking.id}`}>
+                              {cancelBirthdayLine}
+                            </p>
+                          )}
+                          {showLateFeeBox && (
                             <div className="flex gap-2 p-3 rounded-md" style={{ background: '#F1D7D2', border: `1px solid ${LOSS_RED}33` }}>
                               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: LOSS_RED }} />
                               <p style={{ fontSize: 14, color: '#8E2C22', fontWeight: 600 }}>

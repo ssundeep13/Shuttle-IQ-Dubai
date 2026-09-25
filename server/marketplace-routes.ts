@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { storage } from "./storage";
+import { storage, birthdayStore } from "./storage";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import multer from "multer";
@@ -52,7 +52,7 @@ import { confirmPackByIntentId } from "./iqPass/confirm";
 import { defaultMoveDeps } from "./iqPass/moves";
 import { findReusableInflightGuest, canAddGuest, capacityBlocksGuestAdd } from "./guestAddGuards";
 import { applyWalletDelta, computeWalletApplication } from "./walletLedger";
-import { isBirthdayDiscountAvailable } from "@shared/birthday";
+import { decideBirthdayOffer, consumeBirthdayDiscount, restoreBirthdayDiscount, isBirthdayConflict, BIRTHDAY_ALREADY_BOOKED } from "./birthdayRestore";
 import { formatDubaiDeadline, paymentDeadline } from "@shared/dubaiTime";
 import { isFullName, normalizeName } from "@shared/utils/playerMatching";
 import { PROFILE_UPLOADS_DIR } from "./uploadsRoot";
@@ -3182,15 +3182,14 @@ export function registerMarketplaceRoutes(app: Express) {
       //    silent, server-side. Guests pay full price. NOT applied on the
       //    waitlist path (would burn the once-a-year discount before they get a
       //    spot). `chargeableSpots` waives the primary's single spot when eligible.
-      const birthdayDiscountApplied = isBirthdayDiscountAvailable(primaryUser ?? {}, new Date());
+      //    server/birthdayRestore.ts decides it (Dubai date, marker, and no live
+      //    free booking already holding this window); the booking stores the
+      //    window key, and the marker is set only when the booking confirms.
+      const offer = primaryUser
+        ? await decideBirthdayOffer(primaryUser, new Date(), birthdayStore())
+        : { applied: false, windowKey: null };
+      const birthdayDiscountApplied = offer.applied;
       const chargeableSpots = birthdayDiscountApplied ? Math.max(0, spotsBooked - 1) : spotsBooked;
-      // Set the user's once-a-year marker only when the booking confirms now.
-      // (Pending Ziina bookings set it on confirmation in confirmZiinaBookingByIntentId.)
-      const markBirthdayUsedIfConfirmedNow = async () => {
-        if (birthdayDiscountApplied && primaryUser) {
-          await storage.updateMarketplaceUser(primaryUser.id, { birthdayDiscountUsedAt: new Date() });
-        }
-      };
 
       // Helper: create per-slot booking_guest rows for ALL spots (primary + extras),
       // making the per-slot model explicit. Primary booker gets isPrimary=true.
@@ -3303,6 +3302,7 @@ export function registerMarketplaceRoutes(app: Express) {
         cashPaid: false,
         spotsBooked,
         birthdayDiscountApplied,
+        birthdayWindowKey: offer.windowKey,
       });
 
       // Apply wallet credit if requested (uses shared deductWalletForBooking helper)
@@ -3318,7 +3318,7 @@ export function registerMarketplaceRoutes(app: Express) {
       // (zero total, e.g. solo birthday booking) — confirm immediately without Ziina.
       if (totalAmount === 0 || (walletApplied > 0 && remainingFils <= 0)) {
         await storage.updateBooking(booking.id, { status: 'confirmed', paymentMethod: walletApplied > 0 ? 'wallet' : 'ziina' });
-        await markBirthdayUsedIfConfirmedNow(); // confirmed now → consume the birthday discount
+        await consumeBirthdayDiscount(booking, new Date(), birthdayStore()); // confirmed now → consume the birthday discount
         await createAllSlotsForBooking(booking.id, 'confirmed', true);
         // PR2 trigger site 4/5: full-wallet booking confirms at creation
         // (decision A — any first confirmed booking counts as the trigger).
@@ -3424,6 +3424,11 @@ export function registerMarketplaceRoutes(app: Express) {
       const pgErr = error as Record<string, unknown>;
       if (pgErr?.code === '23505' && pgErr?.constraint === 'unique_active_booking_per_session') {
         return res.status(400).json({ error: "You already have a booking for this session" });
+      }
+      // Two free bookings for the same birthday window at once: the insert lost to the one-live-free-booking rule
+      // before any wallet or card step ran, so nothing was charged (decision 2).
+      if (isBirthdayConflict(error)) {
+        return res.status(409).json({ error: BIRTHDAY_ALREADY_BOOKED });
       }
       console.error('Booking error:', error);
       const msg = error instanceof Error ? error.message : "Failed to create booking";
@@ -3788,13 +3793,32 @@ export function registerMarketplaceRoutes(app: Express) {
         });
       }
 
+      // Birthday free game: the primary's own slot on a free booking was the free one. Cancelled outside the 5-hour
+      // cutoff while the window is open, the free game comes back — in the same transaction as the booking change.
+      const freeSlot = booking.birthdayDiscountApplied && guest.isPrimary;
+      const bookingSession = freeSlot ? await storage.getBookableSession(booking.sessionId) : undefined;
+      const bookingOwner = freeSlot ? await storage.getMarketplaceUser(booking.userId) : undefined;
+      const restoreFreeGame = async (opts: { bookingStaysLive: boolean }, tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
+        if (!freeSlot) return;
+        const birthday = await restoreBirthdayDiscount({
+          booking, slotIsPrimary: guest.isPrimary, bookingStaysLive: opts.bookingStaysLive,
+          // No session found → cannot prove we are outside the cutoff → treat as late (nothing restored).
+          withinLateWindow: bookingSession ? isWithinLateCancelWindow(bookingSession) : true,
+          user: bookingOwner ?? {}, now: new Date(),
+        }, birthdayStore(tx));
+        console.log(`[Birthday] primary slot cancel on ${booking.id}: ${birthday.reason}`);
+      };
+
       // Decrement spots; if this was the last remaining spot, cancel the parent booking
       const newSpots = (booking.spotsBooked ?? 1) - 1;
       if (newSpots <= 0) {
         // Last slot removed → the whole booking is gone. Skip the partial
         // settle: the full remaining amount is owed, and Gate 3B's helper
         // flags exactly that (idempotently) from the untouched amountAed.
-        await storage.updateBooking(booking.id, { status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 });
+        await db.transaction(async (tx) => {
+          await tx.update(bookings).set({ status: 'cancelled', cancelledAt: new Date(), spotsBooked: 0 }).where(eq(bookings.id, booking.id));
+          await restoreFreeGame({ bookingStaysLive: false }, tx);
+        });
         syncFoundingMember(booking.userId, 'last-guest-slot-cancel');
         fireDubailandPromoReversal(booking.userId, 'last-guest-slot-cancel');
         await maybeCreateRefundNotification(booking.id);
@@ -3816,6 +3840,8 @@ export function registerMarketplaceRoutes(app: Express) {
         cancelledSlotWasFree: booking.birthdayDiscountApplied && guest.isPrimary,
         isPrimarySlot: guest.isPrimary,
       });
+      // The booking stays live for the guests: the marker clear and the release of its window key go together.
+      if (freeSlot) await db.transaction(async (tx) => { await restoreFreeGame({ bookingStaysLive: true }, tx); });
       await promoteFirstFittingWaitlisted(booking.sessionId);
       res.json({
         cancelled: true,
@@ -4183,12 +4209,27 @@ export function registerMarketplaceRoutes(app: Express) {
       // (double-tap, retry, two devices) loses the claim and bails here — this is
       // what closes the P1-4 double-credit on the spent-wallet return. Reuses the
       // walletRefundedAt / markGuestSlotCancelled claim pattern; `updated` is the
-      // cancelled row used in the response.
-      const [updated] = await db
-        .update(bookings)
-        .set({ status: 'cancelled', cancelledAt: new Date(), lateFeeApplied })
-        .where(and(eq(bookings.id, booking.id), sql`${bookings.status} <> 'cancelled'`))
-        .returning();
+      // cancelled row used in the response. Birthday free game: only the winning
+      // claim restores it, in the same transaction (outside the 5-hour cutoff, while
+      // the window is open, and only if this booking set the marker). A checked-in
+      // booking was played, so it counts as late.
+      const bookingOwner = booking.birthdayDiscountApplied ? await storage.getMarketplaceUser(booking.userId) : undefined;
+      const [updated] = await db.transaction(async (tx) => {
+        const claimed = await tx
+          .update(bookings)
+          .set({ status: 'cancelled', cancelledAt: new Date(), lateFeeApplied })
+          .where(and(eq(bookings.id, booking.id), sql`${bookings.status} <> 'cancelled'`))
+          .returning();
+        if (claimed.length > 0 && booking.birthdayDiscountApplied) {
+          const birthday = await restoreBirthdayDiscount({
+            booking, slotIsPrimary: true, bookingStaysLive: false,
+            withinLateWindow: lateFeeApplied || booking.status === 'attended',
+            user: bookingOwner ?? {}, now: new Date(),
+          }, birthdayStore(tx));
+          console.log(`[Birthday] booking cancel ${booking.id}: ${birthday.reason}`);
+        }
+        return claimed;
+      });
       if (!updated) return res.status(400).json({ error: "Already cancelled" });
       // Revoke side of the live hook — only fires if this was the player's LAST
       // qualifying launch-week booking (the helper recounts), and only before
@@ -5221,6 +5262,8 @@ export function registerMarketplaceRoutes(app: Express) {
       const existingPayments = await storage.getPaymentsByBookingId(booking.id);
       const plan = planAdminConfirm(booking, override, existingPayments);
       await storage.updateBooking(booking.id, plan.bookingPatch);
+      // A confirm like any other: a free birthday booking uses up the free game here (it never did before).
+      await consumeBirthdayDiscount(booking, new Date(), birthdayStore());
       // PR2 trigger site 3/5: admin force-confirm. Bypasses the webhook path
       // but reaches the same "booking is now confirmed" state, so the same
       // referral trigger fires. Pre-condition above (status !== 'confirmed'
@@ -5279,6 +5322,10 @@ export function registerMarketplaceRoutes(app: Express) {
       const bookingWithDetails = await storage.getBookingWithDetails(booking.id);
       res.json({ confirmed: true, ziinaStatus, method: plan.emailMethod, booking: bookingWithDetails });
     } catch (error: any) {
+      // Confirming a cancelled free booking while another live one holds the same birthday window.
+      if (isBirthdayConflict(error)) {
+        return res.status(409).json({ error: "This player's free birthday game is already on another live booking" });
+      }
       console.error('Admin confirm error:', error);
       res.status(500).json({ error: "Failed to confirm booking" });
     }

@@ -1,4 +1,5 @@
 import { sessionStartEpochMs } from '@shared/sessionTime';
+import { birthdayWindowRange, canRestoreBirthdayDiscount, dubaiCalendarDate, isInBirthdayWindow, type BirthdayUser } from '@shared/birthday';
 
 /**
  * Option A Gate 4 — visibility + display math for the "Cancel my spot"
@@ -71,4 +72,32 @@ export function primaryCancelInfo(
     within5h,
     refundAed: spotValueFils / 100,
   };
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Birthday free game — the line both My games cancel dialogs show for a free
+ * spot ("Cancel your spot?" and "Cancel Booking"). Same rules as the server
+ * (shared/birthday.ts canRestoreBirthdayDiscount, Dubai date): outside the
+ * 5-hour cutoff while the window is open, the free game comes back; inside the
+ * cutoff it is used up. Nothing to say once the window has closed, or for a
+ * paid spot. The window end is the last day of the window, "Mon 28 Sep".
+ */
+export function birthdayCancelLine(input: {
+  freeSpot: boolean;
+  within5h: boolean;
+  user: BirthdayUser | null | undefined;
+  now?: Date;
+}): string | null {
+  const now = input.now ?? new Date();
+  if (!input.freeSpot || !input.user || !isInBirthdayWindow(input.user, dubaiCalendarDate(now))) return null;
+  if (!canRestoreBirthdayDiscount({ bookingFlagged: true, slotIsPrimary: true, withinLateWindow: input.within5h, user: input.user, now })) {
+    return 'Cancelling within 5 hours uses up your free birthday game.';
+  }
+  const end = birthdayWindowRange(input.user, dubaiCalendarDate(now))?.to;
+  if (!end) return null;
+  const label = `${WEEKDAYS[end.getUTCDay()]} ${end.getUTCDate()} ${MONTHS[end.getUTCMonth()]}`;
+  return `Your free birthday game comes back — book any session until ${label}.`;
 }

@@ -383,6 +383,9 @@ export const marketplaceUsers = pgTable("marketplace_users", {
   birthMonth: integer("birth_month"),
   birthYear: integer("birth_year"),
   birthdayDiscountUsedAt: timestamp("birthday_discount_used_at"),
+  // The booking that consumed birthdayDiscountUsedAt — a cancel restores the free game only for that booking
+  // (one-shot birthday_restore_v1).
+  birthdayDiscountBookingId: varchar("birthday_discount_booking_id"),
   birthdayEmailSentAt: timestamp("birthday_email_sent_at"),
 });
 
@@ -475,6 +478,9 @@ export const bookings = pgTable("bookings", {
   // Birthday free-game: primary spot waived when applied. Set at booking submit;
   // the user's birthdayDiscountUsedAt is set only on confirmation.
   birthdayDiscountApplied: boolean("birthday_discount_applied").notNull().default(false),
+  // The anchor birthday (YYYY-MM-DD) of the window this free booking belongs to (shared/birthday.ts
+  // birthdayWindowKey). NULL on paid bookings, and on a live booking whose free primary slot was cancelled.
+  birthdayWindowKey: text("birthday_window_key"),
   // Cancellation refund choice. refundMethod: 'wallet' | 'ziina' (null = not
   // refunded). walletRefundedAt: set when wallet credit is issued — the
   // idempotency guard that prevents a second refund of the same booking.
@@ -488,6 +494,10 @@ export const bookings = pgTable("bookings", {
   uniqueIndex('unique_active_booking_per_session')
     .on(table.userId, table.sessionId)
     .where(sql`${table.status} != 'cancelled'`),
+  // One live free birthday booking per window: the race loser gets a 409, never a charge.
+  uniqueIndex('uq_bookings_one_live_birthday')
+    .on(table.userId, table.birthdayWindowKey)
+    .where(sql`${table.birthdayDiscountApplied} AND ${table.status} <> 'cancelled'`),
 ]);
 
 export const insertBookingSchema = createInsertSchema(bookings).omit({ id: true, createdAt: true, cancelledAt: true, attendedAt: true, walletAmountUsed: true });

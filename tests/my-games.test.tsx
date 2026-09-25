@@ -16,6 +16,7 @@ const flagMock = vi.hoisted(() => ({ enabled: true }));
 vi.mock('../client/src/hooks/useIqPass', () => ({ useIqPassEnabled: () => flagMock.enabled, useIqPassConfig: () => ({ enabled: flagMock.enabled, tiers: [] }), useIqPassTiers: () => ({}) }));
 vi.mock('../client/src/lib/nativeAuth', () => ({ openCheckoutRedirect: vi.fn().mockResolvedValue(undefined), nativeReturnFields: () => ({}), nativeReturnBody: () => undefined }));
 vi.mock('framer-motion', async (orig) => ({ ...(await orig<typeof import('framer-motion')>()), useReducedMotion: () => true }));
+vi.mock('../client/src/contexts/MarketplaceAuthContext', async (orig) => ({ ...(await orig<typeof import('../client/src/contexts/MarketplaceAuthContext')>()), useMarketplaceAuth: () => ({ user: null }) })); // My games reads the player (birthday cancel line)
 
 const { default: MyBookings } = await import('../client/src/pages/marketplace/MyBookings');
 const { venueColour } = await import('../client/src/lib/venueColours');
