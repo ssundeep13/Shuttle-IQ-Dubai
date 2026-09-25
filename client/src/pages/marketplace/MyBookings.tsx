@@ -470,9 +470,11 @@ export default function MyBookings() {
     // Birthday free game: what cancelling the free spot does to it (the server decides the same way).
     const mySpotBirthdayLine = birthdayCancelLine({ freeSpot: mySpot.freeSlot, within5h: mySpot.within5h, user });
     const cancelBirthdayLine = birthdayCancelLine({ freeSpot: !!booking.birthdayDiscountApplied && booking.status === 'confirmed', within5h: lateFee, user });
-    // Nothing was paid on a solo free booking, so the birthday line replaces the "AED 0 will be retained" box.
-    // Guests' money on a free booking is real and keeps the box.
-    const showLateFeeBox = lateFee && !(cancelBirthdayLine && booking.amountAed === 0);
+    // Nothing was paid on a solo free booking, so there is no "AED 0 will be retained" box — also once the window has
+    // closed (a free booking can be for a session after it). Guests' money on a free booking is real and keeps the box.
+    const showLateFeeBox = lateFee && !(booking.birthdayDiscountApplied && booking.amountAed === 0);
+    // Same case on the confirm button: no payment to forfeit, the free game is what goes.
+    const cancelUsesFreeGame = lateFee && !showLateFeeBox;
     // Same endpoint + same body mechanism as the guest-slot cancel above —
     // the server derives allowWallet from the caller being the primary booker.
     const cancelMySpotMutation = useMutation({
@@ -882,7 +884,7 @@ export default function MyBookings() {
                         disabled={(showRefundChoice && !refundChoice) || cancelMutation.isPending}
                         className="bg-destructive text-destructive-foreground"
                       >
-                        {cancelMutation.isPending ? 'Cancelling…' : isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'}
+                        {cancelMutation.isPending ? 'Cancelling…' : isWaitlisted ? 'Leave Waitlist' : isPendingPayment ? 'Decline Spot' : cancelUsesFreeGame ? 'Cancel & Use Free Game' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>

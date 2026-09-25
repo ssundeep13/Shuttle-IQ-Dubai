@@ -32,9 +32,13 @@ describe('My games renders it in both dialogs', () => {
     expect(src).toContain('data-testid={`text-my-spot-birthday-${booking.id}`}');
     expect(src).toContain('data-testid={`text-cancel-birthday-${booking.id}`}');
   });
-  it('"Cancel Booking": on a free booking with nothing paid, the birthday line replaces the "AED 0 will be retained" box; money actually paid (guests) keeps it', () => {
-    expect(src).toContain('const showLateFeeBox = lateFee && !(cancelBirthdayLine && booking.amountAed === 0);');
+  it('"Cancel Booking": a free booking with nothing paid never shows the "AED 0 will be retained" box (window open or closed); money actually paid (guests) keeps it', () => {
+    expect(src).toContain('const showLateFeeBox = lateFee && !(booking.birthdayDiscountApplied && booking.amountAed === 0);');
     expect(src).toContain('{showLateFeeBox && (');
     expect(src).not.toContain('{lateFee && (');
+  });
+  it('"Cancel Booking" within 5 hours, same case: the button reads "Cancel & Use Free Game"; money actually paid keeps "Cancel & Forfeit Payment"', () => {
+    expect(src).toContain('const cancelUsesFreeGame = lateFee && !showLateFeeBox;');
+    expect(src).toContain("cancelUsesFreeGame ? 'Cancel & Use Free Game' : lateFee ? 'Cancel & Forfeit Payment' : 'Yes, Cancel'");
   });
 });
