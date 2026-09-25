@@ -39,6 +39,7 @@ Before every push (Railway auto-deploys `railway-migration`) or Railway variable
 - 2026-09-24 14:46Z — before pushing the reversed-wordmark change (UI only; Sandeep's instruction, before 19:30): CLEAR — no session in progress or starting within 30 minutes (18:46 Dubai)
 - 2026-09-25 09:28Z — before pushing the birthday free game restore (migration birthday_restore_v1 ran 09:20Z): CLEAR — no session in progress or starting within 30 minutes (13:28 Dubai)
 - 2026-09-25 09:52Z — before pushing the birthday screenshots + Railway ids record (docs only): CLEAR — no session in progress or starting within 30 minutes (13:52 Dubai)
+- 2026-09-25 10:03Z — before pushing the free-booking cancel button copy ("Cancel & Use Free Game", no AED 0 box): CLEAR — no session in progress or starting within 30 minutes (14:03 Dubai)
 
 ## Next session
 
